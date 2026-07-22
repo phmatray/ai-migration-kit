@@ -1,0 +1,37 @@
+{
+  "repo": "winrt-sokoban",
+  "era": "winrt-8x",
+  "erasDetected": [
+    "winrt-8x"
+  ],
+  "firstCommit": "2014-02-24",
+  "lastCommit": "2026-02-18",
+  "projects": [
+    "Sokoban.Store"
+  ],
+  "xamlPages": 4,
+  "xamlControls": 0,
+  "xamlOther": 1,
+  "xamlPageNames": [
+    "BasicPage1",
+    "HubPage",
+    "ItemPage",
+    "SectionPage"
+  ],
+  "csFiles": 17,
+  "locTotal": 2129,
+  "locCodeBehind": 497,
+  "locLogic": 1632,
+  "windowsApiClusters": {
+    "Windows.UI": 36,
+    "Windows.ApplicationModel": 4,
+    "Windows.Storage": 4,
+    "System.Windows": 3,
+    "Windows.System": 2
+  },
+  "packages": [
+    "MvvmLight",
+    "MvvmLightLibs"
+  ],
+  "hasTests": false
+}

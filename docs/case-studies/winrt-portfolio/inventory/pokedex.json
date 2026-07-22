@@ -1,0 +1,59 @@
+{
+  "repo": "pokedex",
+  "era": "uwp",
+  "erasDetected": [
+    "uwp"
+  ],
+  "firstCommit": "2016-09-22",
+  "lastCommit": "2026-03-04",
+  "projects": [
+    "PokedexG.UnitTestProject",
+    "PokedexG.Uwp",
+    "PokedexG.Uwp.MainApp"
+  ],
+  "xamlPages": 10,
+  "xamlControls": 9,
+  "xamlOther": 3,
+  "xamlPageNames": [
+    "GalleryPage",
+    "MachinesPage",
+    "NewsPage",
+    "PokemonDetails2Page",
+    "PokemonDetailsPage",
+    "PokemonsPage",
+    "SettingsPage",
+    "Shell",
+    "TypeDetailsPage",
+    "TypesPage"
+  ],
+  "csFiles": 314,
+  "locTotal": 16486,
+  "locCodeBehind": 862,
+  "locLogic": 15624,
+  "windowsApiClusters": {
+    "Windows.UI": 70,
+    "Windows.ApplicationModel": 16,
+    "Windows.Storage": 7,
+    "Windows.System": 1
+  },
+  "packages": [
+    "Microsoft.AspNetCore.Mvc",
+    "Microsoft.AspNetCore.Mvc.Formatters.Xml",
+    "Microsoft.AspNetCore.Routing",
+    "Microsoft.AspNetCore.Server.IISIntegration",
+    "Microsoft.AspNetCore.Server.Kestrel",
+    "Microsoft.EntityFrameworkCore.SqlServer",
+    "Microsoft.EntityFrameworkCore.SqlServer.Design",
+    "Microsoft.EntityFrameworkCore.Tools",
+    "Microsoft.Extensions.Configuration.EnvironmentVariables",
+    "Microsoft.Extensions.Configuration.FileExtensions",
+    "Microsoft.Extensions.Configuration.Json",
+    "Microsoft.Extensions.Logging",
+    "Microsoft.Extensions.Logging.Console",
+    "Microsoft.Extensions.Logging.Debug",
+    "Microsoft.Extensions.Options.ConfigurationExtensions",
+    "Microsoft.NETCore.App",
+    "Swashbuckle"
+  ],
+  "hasTests": true
+}

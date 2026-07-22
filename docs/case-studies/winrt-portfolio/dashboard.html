@@ -1,0 +1,272 @@
+<title>Audit WinRT → Blazor — synthèse de portefeuille</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane: #f9f9f7; --surface: #fcfcfb;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+    --s1: #2a78d6; --s1-soft: #9ec5f4; --s2: #eb6834;
+    --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane: #0d0d0d; --surface: #1a1a19;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+      --s1: #3987e5; --s1-soft: #1c5cab; --s2: #d95926;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane: #0d0d0d; --surface: #1a1a19;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s1-soft: #1c5cab; --s2: #d95926;
+  }
+  body {
+    margin: 0; background: var(--plane); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 20px; }
+  header h1 { font-size: 26px; font-weight: 700; margin: 4px 0 2px; text-wrap: balance; }
+  .eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  header p { color: var(--ink-2); max-width: 68ch; margin: 6px 0 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; }
+  .tile .v { font-size: 28px; font-weight: 700; letter-spacing: -.01em; }
+  .tile .l { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+  .tile .v small { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 18px 20px; }
+  .card h2 { font-size: 15px; font-weight: 650; margin: 0 0 2px; }
+  .card .sub { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr; gap: 20px; }
+  @media (min-width: 880px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font: 11.5px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink-2); }
+  svg .tick { fill: var(--muted); font-variant-numeric: tabular-nums; }
+  svg .val { fill: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  svg .rowlab { fill: var(--ink-2); }
+  svg .gridline { stroke: var(--grid); stroke-width: 1; }
+  svg .axisline { stroke: var(--axis); stroke-width: 1; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .chip { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  [data-tip] { cursor: default; }
+  [data-tip]:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+  #tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--plane);
+         font-size: 12.5px; line-height: 1.35; padding: 7px 10px; border-radius: 7px; max-width: 260px;
+         opacity: 0; transition: opacity .12s; }
+  @media (prefers-reduced-motion: reduce) { #tip { transition: none; } }
+  ol.waves { margin: 0; padding: 0 0 0 2px; list-style: none; display: grid; gap: 10px; }
+  ol.waves li { display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: baseline;
+                border-top: 1px solid var(--grid); padding-top: 10px; }
+  ol.waves li:first-child { border-top: 0; padding-top: 0; }
+  ol.waves .n { font-weight: 700; color: var(--s1); font-variant-numeric: tabular-nums; }
+  ol.waves .n.hold { color: var(--crit); }
+  ol.waves .d { color: var(--ink-2); font-size: 13.5px; }
+  ol.waves .j { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--muted); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--axis); }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .status { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .go .dot { background: var(--good); } .go { color: var(--good); }
+  .att .dot { background: var(--warn); } .att { color: var(--ink-2); }
+  .hold .dot { background: var(--crit); } .hold { color: var(--crit); }
+  .tablewrap { overflow-x: auto; }
+  footer { font-size: 12.5px; color: var(--muted); max-width: 78ch; }
+  footer p { margin: 6px 0; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">ai-migration-kit · audit exécutif · 2026-07-22</div>
+    <h1>Portefeuille WinRT / UWP / Windows Phone → Blazor</h1>
+    <p>Six applications sur plateformes mortes, auditées en lecture seule. <strong>89 % du code est de la
+    logique portable telle quelle</strong> vers .NET 10 — seule l'UI XAML se réécrit. Trois vagues de
+    migration recommandées, un hold assumé.</p>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">6</div><div class="l">applications auditées</div></div>
+    <div class="tile"><div class="v">34 611</div><div class="l">lignes de code (hors généré)</div></div>
+    <div class="tile"><div class="v">89 <small>%</small></div><div class="l">portable tel quel (30 854 LOC)</div></div>
+    <div class="tile"><div class="v">60 <small>j ±30 %</small></div><div class="l">vagues 1–3 recommandées</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Matrice valeur / effort</h2>
+    <p class="sub">Position = effort estimé (jours) × valeur de démonstration. L'identité est portée par les étiquettes.</p>
+    <svg viewBox="0 0 660 300" role="img" aria-label="Matrice valeur-effort : sokoban et chords en quick wins à 13 jours, fleurs-du-mal à 18, pokedex à 29, popcorn-time à 28, mobile-vikings en hold">
+      <line class="gridline" x1="70" y1="70"  x2="640" y2="70"/>
+      <line class="gridline" x1="70" y1="135" x2="640" y2="135"/>
+      <line class="gridline" x1="70" y1="200" x2="640" y2="200"/>
+      <line class="gridline" x1="70" y1="255" x2="640" y2="255"/>
+      <line class="axisline" x1="70" y1="270" x2="640" y2="270"/>
+      <text class="rowlab" x="62" y="74"  text-anchor="end">⭐⭐⭐</text>
+      <text class="rowlab" x="62" y="139" text-anchor="end">⭐⭐</text>
+      <text class="rowlab" x="62" y="204" text-anchor="end">⭐</text>
+      <text class="rowlab" x="62" y="259" text-anchor="end">⛔</text>
+      <text class="tick" x="70"  y="288" text-anchor="middle">0 j</text>
+      <text class="tick" x="212" y="288" text-anchor="middle">10</text>
+      <text class="tick" x="355" y="288" text-anchor="middle">20</text>
+      <text class="tick" x="497" y="288" text-anchor="middle">30</text>
+      <text class="tick" x="640" y="288" text-anchor="middle">40 j</text>
+      <g tabindex="0" data-tip="winrt-sokoban — 13 j (9–17) · moteur de jeu 77 % portable · cible WASM statique PWA">
+        <circle cx="255" cy="56" r="6" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+        <text x="245" y="52" text-anchor="end">winrt-sokoban</text>
+      </g>
+      <g tabindex="0" data-tip="chords — 13 j (9–17) · lib métier testée xUnit, 94 % portable · cible WASM PWA mobile-first">
+        <circle cx="255" cy="84" r="6" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+        <text x="245" y="96" text-anchor="end">chords</text>
+      </g>
+      <g tabindex="0" data-tip="fleurs-du-mal-winrt — 18 j (13–23) · architecture en couches, 75 % portable · cible WASM statique PWA">
+        <circle cx="327" cy="70" r="6" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+        <text x="339" y="62">fleurs-du-mal-winrt</text>
+      </g>
+      <g tabindex="0" data-tip="pokedex — 29 j (20–37) · 95 % hors UI, backend ASP.NET Core conservé tel quel · cible WASM + backend existant">
+        <circle cx="483" cy="135" r="6" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+        <text x="495" y="131">pokedex</text>
+      </g>
+      <g tabindex="0" data-tip="popcorn-time — 28 j (20–36) · ⚠ source YTS : démo technique privée uniquement · cible WASM + proxy">
+        <circle cx="469" cy="200" r="6" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+        <text x="481" y="196">popcorn-time ⚠</text>
+      </g>
+      <g tabindex="0" data-tip="winrt-mobile-vikings — ne pas migrer : API externe probablement morte. Vérification 0,5 j puis archivage">
+        <circle cx="270" cy="255" r="6" fill="var(--crit)" stroke="var(--surface)" stroke-width="2"/>
+        <text x="282" y="251">winrt-mobile-vikings — hold</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Effort estimé par application</h2>
+      <p class="sub">Barre = estimation · trait clair = fourchette ±30 %.</p>
+      <svg viewBox="0 0 660 232" role="img" aria-label="Efforts : sokoban 13 jours, chords 13, fleurs-du-mal 18, popcorn-time 28, pokedex 29, mobile-vikings 14 en hold">
+        <line class="axisline" x1="150" y1="0" x2="150" y2="222"/>
+        <line x1="258" y1="19" x2="354" y2="19" stroke="var(--grid)" stroke-width="4"/>
+        <path d="M 150 10 H 302 Q 306 10 306 14 V 24 Q 306 28 302 28 H 150 Z" fill="var(--s1)" tabindex="0" data-tip="winrt-sokoban : 13 j (fourchette 9–17)"/>
+        <text class="rowlab" x="142" y="23" text-anchor="end">winrt-sokoban</text>
+        <text class="val" x="360" y="23">13 j</text>
+        <line x1="258" y1="53" x2="354" y2="53" stroke="var(--grid)" stroke-width="4"/>
+        <path d="M 150 44 H 302 Q 306 44 306 48 V 58 Q 306 62 302 62 H 150 Z" fill="var(--s1)" tabindex="0" data-tip="chords : 13 j (fourchette 9–17)"/>
+        <text class="rowlab" x="142" y="57" text-anchor="end">chords</text>
+        <text class="val" x="360" y="57">13 j</text>
+        <line x1="306" y1="87" x2="426" y2="87" stroke="var(--grid)" stroke-width="4"/>
+        <path d="M 150 78 H 362 Q 366 78 366 82 V 92 Q 366 96 362 96 H 150 Z" fill="var(--s1)" tabindex="0" data-tip="fleurs-du-mal-winrt : 18 j (fourchette 13–23)"/>
+        <text class="rowlab" x="142" y="91" text-anchor="end">fleurs-du-mal-winrt</text>
+        <text class="val" x="432" y="91">18 j</text>
+        <line x1="390" y1="121" x2="582" y2="121" stroke="var(--grid)" stroke-width="4"/>
+        <path d="M 150 112 H 482 Q 486 112 486 116 V 126 Q 486 130 482 130 H 150 Z" fill="var(--s1)" tabindex="0" data-tip="popcorn-time : 28 j (fourchette 20–36)"/>
+        <text class="rowlab" x="142" y="125" text-anchor="end">popcorn-time</text>
+        <text class="val" x="588" y="125">28 j</text>
+        <line x1="390" y1="155" x2="594" y2="155" stroke="var(--grid)" stroke-width="4"/>
+        <path d="M 150 146 H 494 Q 498 146 498 150 V 160 Q 498 164 494 164 H 150 Z" fill="var(--s1)" tabindex="0" data-tip="pokedex : 29 j (fourchette 20–37)"/>
+        <text class="rowlab" x="142" y="159" text-anchor="end">pokedex</text>
+        <text class="val" x="504" y="159">29 j</text>
+        <line x1="270" y1="199" x2="366" y2="199" stroke="var(--grid)" stroke-width="4"/>
+        <path d="M 150 190 H 314 Q 318 190 318 194 V 204 Q 318 208 314 208 H 150 Z" fill="var(--axis)" tabindex="0" data-tip="winrt-mobile-vikings : 14 j SI l'API externe existe encore — hold recommandé"/>
+        <text class="rowlab" x="142" y="203" text-anchor="end">mobile-vikings</text>
+        <text class="val" x="372" y="203" fill="var(--muted)">(14 j) hold</text>
+      </svg>
+    </div>
+
+    <div class="card">
+      <h2>Ce qui se conserve vs ce qui se réécrit</h2>
+      <p class="sub">LOC par application — la logique se porte telle quelle, seul le code-behind XAML est réécrit.</p>
+      <svg viewBox="0 0 700 196" role="img" aria-label="Composition du code : la part portable domine dans les six applications, de 75 à 95 pour cent">
+        <text class="rowlab" x="142" y="21" text-anchor="end">pokedex</text>
+        <rect x="150" y="8"  width="455" height="16" rx="3" fill="var(--s1)" tabindex="0" data-tip="pokedex : 15 624 LOC portables (backend + services)"/>
+        <rect x="607" y="8"  width="23"  height="16" rx="3" fill="var(--s2)" tabindex="0" data-tip="pokedex : 862 LOC de code-behind à réécrire"/>
+        <text class="val" x="636" y="21">95 %</text>
+        <text class="rowlab" x="142" y="51" text-anchor="end">chords</text>
+        <rect x="150" y="38" width="140" height="16" rx="3" fill="var(--s1)" tabindex="0" data-tip="chords : 4 812 LOC portables (lib testée xUnit + EF)"/>
+        <rect x="292" y="38" width="7"   height="16" rx="3" fill="var(--s2)" tabindex="0" data-tip="chords : 305 LOC de code-behind à réécrire"/>
+        <text class="val" x="305" y="51">94 %</text>
+        <text class="rowlab" x="142" y="81" text-anchor="end">mobile-vikings</text>
+        <rect x="150" y="68" width="96" height="16" rx="3" fill="var(--s1)" tabindex="0" data-tip="mobile-vikings : 3 305 LOC portables — sur le papier : dépend d'une API probablement morte"/>
+        <rect x="248" y="68" width="12" height="16" rx="3" fill="var(--s2)" tabindex="0" data-tip="mobile-vikings : 473 LOC de code-behind"/>
+        <text class="val" x="266" y="81">87 %</text>
+        <text class="rowlab" x="142" y="111" text-anchor="end">fleurs-du-mal</text>
+        <rect x="150" y="98" width="78" height="16" rx="3" fill="var(--s1)" tabindex="0" data-tip="fleurs-du-mal-winrt : 2 690 LOC portables (Business + DataAccess)"/>
+        <rect x="230" y="98" width="25" height="16" rx="3" fill="var(--s2)" tabindex="0" data-tip="fleurs-du-mal-winrt : 918 LOC de code-behind à réécrire"/>
+        <text class="val" x="261" y="111">75 %</text>
+        <text class="rowlab" x="142" y="141" text-anchor="end">popcorn-time</text>
+        <rect x="150" y="128" width="81" height="16" rx="3" fill="var(--s1)" tabindex="0" data-tip="popcorn-time : 2 791 LOC portables (Moviedb.Services)"/>
+        <rect x="233" y="128" width="18" height="16" rx="3" fill="var(--s2)" tabindex="0" data-tip="popcorn-time : 702 LOC de code-behind à réécrire"/>
+        <text class="val" x="257" y="141">80 %</text>
+        <text class="rowlab" x="142" y="171" text-anchor="end">winrt-sokoban</text>
+        <rect x="150" y="158" width="48" height="16" rx="3" fill="var(--s1)" tabindex="0" data-tip="winrt-sokoban : 1 632 LOC portables (moteur de jeu)"/>
+        <rect x="200" y="158" width="12" height="16" rx="3" fill="var(--s2)" tabindex="0" data-tip="winrt-sokoban : 497 LOC de code-behind à réécrire"/>
+        <text class="val" x="218" y="171">77 %</text>
+      </svg>
+      <div class="legend">
+        <span><span class="chip" style="background: var(--s1)"></span>Logique portable telle quelle</span>
+        <span><span class="chip" style="background: var(--s2)"></span>Code-behind XAML à réécrire</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Plan de migration recommandé</h2>
+    <p class="sub">L'ordre encode la stratégie : valider la méthode sur les quick wins, capitaliser le socle, attaquer les gros morceaux.</p>
+    <ol class="waves">
+      <li><span class="n">1</span><span><strong>winrt-sokoban + chords</strong> <span class="d">— deux livrables visibles : un jeu jouable dans le navigateur et une PWA mobile avec lib métier testée. Le socle Blazor + Tailwind est construit ici.</span></span><span class="j">26 j</span></li>
+      <li><span class="n">2</span><span><strong>fleurs-du-mal-winrt</strong> <span class="d">— la vitrine culturelle publique, hébergement statique gratuit, lecture hors-ligne.</span></span><span class="j">18 j</span></li>
+      <li><span class="n">3</span><span><strong>pokedex</strong> <span class="d">— la démo fullstack : le backend ASP.NET Core existant est branché tel quel.</span></span><span class="j">29 j</span></li>
+      <li><span class="n">±</span><span><strong>popcorn-time</strong> <span class="d">— optionnel, démo technique privée uniquement (risque YTS documenté).</span></span><span class="j">28 j</span></li>
+      <li><span class="n hold">⛔</span><span><strong>winrt-mobile-vikings</strong> <span class="d">— ne pas migrer : vérifier la viabilité de l'API externe (0,5 j) puis archiver si morte.</span></span><span class="j">hold</span></li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Le portefeuille en détail</h2>
+    <p class="sub">Chiffres issus de <code>scripts/audit-inventory.sh</code> (JSON versionnés avec les rapports).</p>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Application</th><th>Ère</th><th>UI</th><th class="num" style="text-align:right">LOC</th><th class="num" style="text-align:right">Portable</th><th class="num" style="text-align:right">Effort</th><th>Cible</th><th>Décision</th></tr></thead>
+      <tbody>
+        <tr><td>winrt-sokoban</td><td>WinRT 8.x</td><td>4 pages</td><td class="num">2 129</td><td class="num">77 %</td><td class="num">13 j</td><td>WASM statique PWA</td><td><span class="status go"><span class="dot"></span>Vague 1</span></td></tr>
+        <tr><td>chords</td><td>Win Phone + WPF</td><td>4 pages</td><td class="num">5 117</td><td class="num">94 %</td><td class="num">13 j</td><td>WASM PWA mobile</td><td><span class="status go"><span class="dot"></span>Vague 1</span></td></tr>
+        <tr><td>fleurs-du-mal-winrt</td><td>WinRT 8.x</td><td>7 pages</td><td class="num">3 608</td><td class="num">75 %</td><td class="num">18 j</td><td>WASM statique PWA</td><td><span class="status go"><span class="dot"></span>Vague 2</span></td></tr>
+        <tr><td>pokedex</td><td>UWP + AspNetCore</td><td>10 p + 9 ctrl</td><td class="num">16 486</td><td class="num">95 %</td><td class="num">29 j</td><td>WASM + backend existant</td><td><span class="status go"><span class="dot"></span>Vague 3</span></td></tr>
+        <tr><td>popcorn-time</td><td>UWP</td><td>12 p + 4 ctrl</td><td class="num">3 493</td><td class="num">80 %</td><td class="num">28 j</td><td>WASM + proxy</td><td><span class="status att"><span class="dot"></span>Optionnel ⚠</span></td></tr>
+        <tr><td>winrt-mobile-vikings</td><td>WinRT 8.x</td><td>4 pages</td><td class="num">3 778</td><td class="num">87 %</td><td class="num">(14 j)</td><td>—</td><td><span class="status hold"><span class="dot"></span>Hold</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <footer>
+    <p><strong>Méthode.</strong> Audit lecture seule ai-migration-kit <code>/migrate-audit</code> sur clones du 2026-07-22.
+    Formule d'effort : 3 j de socle + 1,5 j/page XAML + 1 j/contrôle + clusters d'API (0,5–2 j) + 20 % si aucun test — fourchette ±30 %.
+    La mutualisation entre vagues (socle commun, patrons répétés) n'est pas comptée : les fourchettes hautes sont pessimistes.</p>
+    <p><strong>Limite consignée.</strong> RoselineMCP <code>analyze_solution</code> charge la solution WinRT (7 projets) mais ne résout pas
+    les assemblies Windows hors Windows (2 924 erreurs) — bascule documentée sur l'inventaire structurel scripté, analyse Roslyn complète possible sur poste Windows.</p>
+  </footer>
+</div>
+
+<div id="tip" role="status" aria-hidden="true"></div>
+<script>
+  const tip = document.getElementById('tip');
+  const show = (el, x, y) => {
+    tip.textContent = el.getAttribute('data-tip');
+    tip.style.opacity = '1';
+    const w = tip.offsetWidth, vw = window.innerWidth;
+    tip.style.left = Math.min(Math.max(8, x + 12), vw - w - 8) + 'px';
+    tip.style.top = (y + 14) + 'px';
+  };
+  document.querySelectorAll('[data-tip]').forEach(el => {
+    el.addEventListener('mousemove', e => show(el, e.clientX, e.clientY));
+    el.addEventListener('mouseleave', () => tip.style.opacity = '0');
+    el.addEventListener('focus', () => {
+      const r = el.getBoundingClientRect();
+      show(el, r.left + r.width / 2, r.bottom);
+    });
+    el.addEventListener('blur', () => tip.style.opacity = '0');
+  });
+</script>
