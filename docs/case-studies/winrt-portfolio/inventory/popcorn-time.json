@@ -1,0 +1,44 @@
+{
+  "repo": "popcorn-time",
+  "era": "uwp",
+  "erasDetected": [
+    "uwp"
+  ],
+  "firstCommit": "2016-07-13",
+  "lastCommit": "2026-02-18",
+  "projects": [
+    "MovieTime.UwpApp",
+    "Moviedb.Services",
+    "Moviedb.TestUI"
+  ],
+  "xamlPages": 12,
+  "xamlControls": 4,
+  "xamlOther": 3,
+  "xamlPageNames": [
+    "DetailPage",
+    "LoginPage",
+    "LoginTestPage",
+    "MainPage",
+    "MainPage",
+    "MoviedbDetailPage",
+    "MoviedbPage",
+    "PassportRegisterPage",
+    "SettingsPage",
+    "Shell",
+    "UserSelectionPage",
+    "WelcomePage"
+  ],
+  "csFiles": 65,
+  "locTotal": 3493,
+  "locCodeBehind": 702,
+  "locLogic": 2791,
+  "windowsApiClusters": {
+    "Windows.UI": 80,
+    "Windows.ApplicationModel": 18,
+    "Windows.Security": 2,
+    "System.Net.Http": 2,
+    "Windows.Storage": 1
+  },
+  "packages": [],
+  "hasTests": true
+}

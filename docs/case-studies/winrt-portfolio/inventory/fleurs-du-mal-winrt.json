@@ -1,0 +1,51 @@
+{
+  "repo": "fleurs-du-mal-winrt",
+  "era": "winrt-8x",
+  "erasDetected": [
+    "netfx-classic",
+    "winrt-8x"
+  ],
+  "firstCommit": "2014-02-24",
+  "lastCommit": "2026-02-18",
+  "projects": [
+    "App1",
+    "LesFleursDuMal",
+    "LesFleursDuMal.Business",
+    "LesFleursDuMal.Business.Entities",
+    "LesFleursDuMal.Business.Interfaces",
+    "LesFleursDuMal.DataAccess",
+    "LesFleursDuMal.DataAccess.Interfaces"
+  ],
+  "xamlPages": 7,
+  "xamlControls": 0,
+  "xamlOther": 2,
+  "xamlPageNames": [
+    "GalleryPage",
+    "GroupPoemPage",
+    "GroupedPoemsPage",
+    "HubPage",
+    "ItemPage",
+    "PoemDetailPage",
+    "SectionPage"
+  ],
+  "csFiles": 35,
+  "locTotal": 3608,
+  "locCodeBehind": 918,
+  "locLogic": 2690,
+  "windowsApiClusters": {
+    "Windows.UI": 99,
+    "Windows.ApplicationModel": 6,
+    "System.Windows": 6,
+    "Windows.Storage": 6,
+    "Windows.System": 2
+  },
+  "packages": [
+    "CCrossHelper",
+    "CommonServiceLocator",
+    "MvvmLight",
+    "MvvmLightLibs",
+    "Newtonsoft.Json",
+    "winrtxamltoolkit"
+  ],
+  "hasTests": false
+}

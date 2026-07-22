@@ -1,0 +1,43 @@
+# Audit — chords
+
+**Accords de guitare (Windows Phone + WPF desktop + lib)** · multi-ère · actif 2015-02 → dernier commit 2026-03
+
+## Carte d'identité
+
+| | |
+|---|---|
+| Ère | `windows-phone` (app principale) + WPF desktop + console + EF database — **8 projets** |
+| Projets | `GuitarChords.Phone`, `Chords.UI.Desktop`, `GuitarChords.Controls`, **`GuitarChords.Lib` (+ 2 projets de tests xUnit)**, `GuitarChords.ConsoleApp`, `GuitarChords.Server.Database` |
+| Taille | 128 fichiers C# · 5 117 LOC (305 code-behind, 4 812 logique) |
+| Stack | MvvmLight, EntityFramework, xunit |
+| Tests | **Oui — la lib métier est testée en xUnit** (cas unique du portefeuille) |
+
+## Surface UI
+
+4 pages/fenêtres (MainPage, BasicPage, MainWindow, Window1) réparties sur deux UI mortes ou vieillissantes (WP, WPF classique). Une seule UI Blazor les remplace toutes.
+
+## APIs plateforme → web
+
+| Cluster | Équivalent |
+|---|---|
+| System.Windows (29) + Windows.UI (28) | Composants Razor (couvert par la réécriture) |
+| **Windows.Media (6)** | Lecture des accords → `<audio>` / **Web Audio API via JS interop** — 2 j (synergie : repo `WebAudioInterop` existant) |
+| Windows.Storage (2) | `localStorage` — 0,5 j |
+| Windows.ApplicationModel (3) | PWA — 1 j |
+
+## Extractibilité
+
+**94 % du code (4 812 / 5 117 LOC)** : le domaine musical (`GuitarChords.Lib` — accords, doigtés, théorie) est **testé et portable tel quel**. La base EF se réutilise côté serveur ou s'exporte en JSON statique.
+
+## Effort
+
+3 + 4 × 1,5 + 3,5 = 12,5 j ≈ **13 j** (tests présents : pas de majoration) → fourchette **9–17 j**
+
+## Cible recommandée : **Blazor WASM PWA mobile-first**
+
+L'héritière naturelle de l'app Windows Phone : installable sur mobile, hors-ligne, diagrammes d'accords en SVG, audio via Web Audio. Synergie directe avec l'écosystème musical existant (OpenJam, midiminuit, MusicTheory).
+
+## Risques & coût de l'inaction
+
+- Windows Phone est mort depuis 2017 : l'app n'a plus aucun utilisateur possible ; la lib testée — l'actif — dort.
+- Trois UI à maintenir conceptuellement (WP, WPF, console) → une seule cible web les remplace.

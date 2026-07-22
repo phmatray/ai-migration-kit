@@ -1,0 +1,49 @@
+{
+  "repo": "chords",
+  "era": "windows-phone",
+  "erasDetected": [
+    "netfx-classic",
+    "windows-phone"
+  ],
+  "firstCommit": "2015-02-08",
+  "lastCommit": "2026-03-04",
+  "projects": [
+    "Chords.UI.Desktop",
+    "GuitarChords.ConsoleApp",
+    "GuitarChords.Controls",
+    "GuitarChords.Lib",
+    "GuitarChords.Lib.Test",
+    "GuitarChords.Lib.Tests",
+    "GuitarChords.Phone",
+    "GuitarChords.Server.Database"
+  ],
+  "xamlPages": 4,
+  "xamlControls": 0,
+  "xamlOther": 4,
+  "xamlPageNames": [
+    "BasicPage",
+    "MainPage",
+    "MainWindow",
+    "Window1"
+  ],
+  "csFiles": 128,
+  "locTotal": 5117,
+  "locCodeBehind": 305,
+  "locLogic": 4812,
+  "windowsApiClusters": {
+    "System.Windows": 29,
+    "Windows.UI": 28,
+    "Windows.Media": 6,
+    "Windows.ApplicationModel": 3,
+    "Windows.Storage": 2,
+    "Windows.System": 1
+  },
+  "packages": [
+    "CommonServiceLocator",
+    "EntityFramework",
+    "MvvmLight",
+    "MvvmLightLibs",
+    "xunit"
+  ],
+  "hasTests": true
+}

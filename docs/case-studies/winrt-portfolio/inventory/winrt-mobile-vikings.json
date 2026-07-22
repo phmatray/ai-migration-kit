@@ -1,0 +1,40 @@
+{
+  "repo": "winrt-mobile-vikings",
+  "era": "winrt-8x",
+  "erasDetected": [
+    "winrt-8x"
+  ],
+  "firstCommit": "2014-02-24",
+  "lastCommit": "2026-02-18",
+  "projects": [
+    "AppMobileVikings.UI.Store"
+  ],
+  "xamlPages": 4,
+  "xamlControls": 0,
+  "xamlOther": 1,
+  "xamlPageNames": [
+    "BasicPage1",
+    "HubPage",
+    "ItemPage",
+    "SectionPage"
+  ],
+  "csFiles": 43,
+  "locTotal": 3778,
+  "locCodeBehind": 473,
+  "locLogic": 3305,
+  "windowsApiClusters": {
+    "Windows.UI": 57,
+    "Windows.Storage": 13,
+    "System.Windows": 4,
+    "Windows.ApplicationModel": 3,
+    "System.Net.Http": 2,
+    "Windows.Security": 2,
+    "Windows.System": 1
+  },
+  "packages": [
+    "MvvmLight",
+    "MvvmLightLibs",
+    "Newtonsoft.Json"
+  ],
+  "hasTests": false
+}
