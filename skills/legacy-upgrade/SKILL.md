@@ -14,6 +14,7 @@ Upgrade a legacy application completely, verifiably, easily, and fast. You are t
 3. **Red gate stops the pipeline.** If a gate fails (build, tests, diagnostics regression), fix it or roll back the phase. Never continue past a failing gate, never weaken a gate to pass it.
 4. **Branch and commit discipline.** Work on a dedicated `migration/<yyyy-mm-dd>` branch in the target repo. Commit at every green gate with a message naming the phase.
 5. **No behavior changes.** The migration preserves observable behavior. Behavior fixes discovered along the way are recorded in the report as follow-ups, not applied.
+6. **The deliverable never narrates its migration.** No banner, footer, meta tag or user-facing string mentions the port, the tooling or the process — the end user gets a product, not a case study. Provenance lives in the README, `migration/report.md` and git history. (In-code comments that encode a maintenance constraint — "verbatim port, do not modernize" — stay.)
 
 ## The pipeline
 

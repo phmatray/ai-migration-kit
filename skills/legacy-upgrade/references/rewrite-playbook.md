@@ -1,0 +1,24 @@
+# Réécriture de plateforme UI — playbook
+
+Pipeline pour les apps dont la plateforme UI est morte (WinRT, UWP, Windows Phone, WPF → Blazor).
+Complète les phases 1–6 (modernisation in place) ; validé sur la vague 1 du portefeuille WinRT (sokoban, 2026-07-22).
+
+## Le patron central : porter, caractériser, envelopper
+
+1. **Porter le cœur octet pour octet.** Copier moteur/domaine/services vers `src/<App>.Core` en ne changeant que namespace et usings. Ne PAS moderniser pendant le port — chaque « amélioration » simultanée détruit la preuve de non-régression.
+2. **Caractériser par tests, bizarreries comprises.** Les quirks du legacy (état incohérent, règles absentes, effets de bord) sont fixés par des tests qui documentent le comportement RÉEL. Un quirk n'est pas un bug de test.
+3. **Corriger par wrapper, jamais dans le legacy.** La sémantique manquante (validation, détection d'état, compteurs) vit dans une classe qui enveloppe le code porté. Le legacy reste intact et prouvé ; le neuf est testé séparément.
+4. **Réécrire l'UI seulement ensuite**, sur un cœur déjà vert.
+
+## Règles apprises sur le terrain
+
+- **Le livrable ne raconte pas sa migration.** Aucun bandeau, footer, meta description ou texte UI ne mentionne le portage, l'outillage ou le process : l'utilisateur final reçoit un produit, pas un cas d'étude. La provenance vit dans le README, `migration/report.md` et l'historique git. Exception : les commentaires de code qui encodent une contrainte de maintenance (« port verbatim — ne pas moderniser ce fichier ») restent, car ils protègent la preuve.
+- **La nouvelle solution exclut le projet legacy.** `dotnet new sln` peut embarquer les csproj existants : vérifier avec `dotnet sln list` — un projet WinRT dans le graphe casse tout build hors Windows. L'app d'origine reste dans le repo comme référence, hors solution.
+- **Les données d'origine sont des actifs, pas du code.** Embarquer les fichiers de données tels quels (ressource embarquée) sans conversion de format : zéro risque de régression de contenu, et le diff prouve l'identité.
+- **Substitutions plateforme standard** : `Windows.Storage` → `localStorage` · `DispatcherTimer` → `PeriodicTimer` · cycle de vie → PWA (manifest + service worker) · XAML → Razor + Tailwind (utilitaires + petite couche CSS custom pour l'identité visuelle ; CSS généré versionné pour que `dotnet build` reste autonome sans Node).
+- **Blazor WASM et les routes profondes** : l'hébergeur doit renvoyer `index.html` sur 404 (GitHub Pages : copie `404.html` ; dev : le devserver le fait ; un `python -m http.server` nu ne le fait PAS — piège de vérification).
+- **Vérifier dans un vrai navigateur** : publier en Release, servir avec fallback SPA, capturer l'écran et le REGARDER (accueil + une route profonde). Les tests unitaires prouvent le moteur, pas le rendu.
+
+## Porte de sortie
+
+Comme la phase 6 : build 0 erreur / 0 warning, tous tests verts, captures navigateur vérifiées, `migration/report.md` écrit (avant/après, portes franchies, estimation vs réalisé, suivis).
