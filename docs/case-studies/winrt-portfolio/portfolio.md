@@ -1,6 +1,7 @@
 # Synthèse portefeuille — WinRT/UWP/WP → Blazor
 
 **Audit exécutif du 2026-07-22** · 6 applications · ai-migration-kit `/migrate-audit` · chiffres issus de `scripts/audit-inventory.sh` (JSON reproductibles)
+**Dashboard interactif :** [dashboard.html](dashboard.html) (publié en artifact privé : https://claude.ai/code/artifact/9cfdfed3-a11f-43e0-ac30-019fc5945318)
 
 ## L'essentiel en trois phrases
 
