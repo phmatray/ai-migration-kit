@@ -45,7 +45,10 @@ The kit's front door: a **read-only executive audit** that speaks to decision-ma
 | 3 | **Retarget** | Bump TFMs and packages in dependency order | `get_symbol_at_position`, `find_references` | Solution builds on the new TFM |
 | 4 | **Remediate** | Drive diagnostics to zero errors; bulk-fix mechanical issues | `list_diagnostics`, `apply_fixes`, `edit_member` | 0 errors, warnings ≤ baseline, tests green |
 | 5 | **Modernize** | Opt-in idiom upgrades (nullable, async, file-scoped namespaces) | `find_references`, `rename_symbol`, `edit_member` | Build + tests green after each item |
-| 6 | **Verify** | Final gate + human-readable report | `analyze_solution` | `migration/report.md` written, all green |
+| 6 | **Verify** | Final gate + generated executive dashboard | `analyze_solution` | `migration/report.html` (generated) + `report.md`, all green |
+| 7 | **Deliver** | CI + deployment from kit templates, production verified | — | public URL answers on deep routes, screenshot reviewed |
+
+A **phase 0 preflight** (`scripts/preflight.sh`) gates the whole pipeline: required tooling (dotnet, git, python3, **RoselineMCP**) hard-fails; recommended capabilities (context7 MCP, gh, node, headless Chrome, frontend-design/dataviz skills) degrade **loudly** — every absence is recorded in the report with the fallback used.
 
 ## Safety rails
 
@@ -59,8 +62,8 @@ The kit's front door: a **read-only executive audit** that speaks to decision-ma
 .claude-plugin/         plugin + marketplace manifests
 commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit
 skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
-scripts/                audit-inventory.sh (JSON inventory) · report-dashboard.py (executive report generator)
-templates/              ci-dotnet.yml — the CI a migration drops into the target repo
+scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator)
+templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
 docs/case-studies/      real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output

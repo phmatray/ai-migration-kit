@@ -5,7 +5,17 @@ description: Use when upgrading, migrating, or modernizing a legacy application 
 
 # Legacy Upgrade Pipeline
 
-Upgrade a legacy application completely, verifiably, easily, and fast. You are the orchestrator: drive the six phases **in order**, never advancing past a red gate.
+Upgrade a legacy application completely, verifiably, easily, and fast. You are the orchestrator: drive the phases **in order**, never advancing past a red gate.
+
+## Phase 0 — Préflight (avant toute autre action)
+
+1. **Exécuter `scripts/preflight.sh`** (déterministe : REQUIS = dotnet SDK, git, python3, RoselineMCP ; échec = stop). Il vérifie aussi ce qui est machine-vérifiable côté MCP (roseline, context7) et outillage (gh, node, Chrome headless).
+2. **Confirmer les capacités de session** (le script ne voit pas la session) : dans TA liste de skills/outils, vérifier la présence de :
+   - `mcp__roseline__*` — **obligatoire** pour tout C# (sinon stop et demander la configuration) ;
+   - `context7` (query-docs) — recommandé : consulter les docs à jour du framework cible avant les phases 3/5 et avant toute UI (Blazor, packages) ;
+   - skill `frontend-design` — **obligatoire avant d'écrire une UI réécrite** ;
+   - skills `dataviz` + `artifact-design` — **obligatoires avant tout dashboard** (audit ou rapport).
+3. **Dégradation documentée, jamais silencieuse** : chaque capacité recommandée absente est consignée dans le rapport avec la parade utilisée (règle identique au repli RoselineMCP de l'audit).
 
 ## Hard rules
 
@@ -15,6 +25,8 @@ Upgrade a legacy application completely, verifiably, easily, and fast. You are t
 4. **Branch and commit discipline.** Work on a dedicated `migration/<yyyy-mm-dd>` branch in the target repo. Commit at every green gate with a message naming the phase.
 5. **No behavior changes.** The migration preserves observable behavior. Behavior fixes discovered along the way are recorded in the report as follow-ups, not applied.
 6. **The deliverable never narrates its migration.** No banner, footer, meta tag or user-facing string mentions the port, the tooling or the process — the end user gets a product, not a case study. Provenance lives in the README, `migration/report.md` and git history. (In-code comments that encode a maintenance constraint — "verbatim port, do not modernize" — stay.)
+7. **Scripts et templates du kit obligatoires.** Quand le kit fournit un outil pour une étape, l'improvisation est interdite : inventaire → `scripts/audit-inventory.sh` ; rapport → `scripts/report-dashboard.py` (jamais de HTML manuel) ; CI → `templates/ci-dotnet.yml` ; déploiement Blazor → `templates/deploy-pages-blazor.yml`. C'est ce qui rend les migrations reproductibles et comparables.
+8. **Livrée = en production.** Le pipeline ne s'arrête pas au vert local : suivre `references/delivery-playbook.md` (branche par défaut, workflows depuis les templates, Pages, vérification de la prod avec route profonde + capture regardée).
 
 ## The pipeline
 
@@ -25,7 +37,8 @@ Upgrade a legacy application completely, verifiably, easily, and fast. You are t
 | 3 | Retarget | New TFM + updated packages, dependency order | Full solution builds on the new TFM | `references/phase-3-retarget.md` |
 | 4 | Remediate | Drive diagnostics to zero errors | 0 errors, warnings ≤ baseline, tests green | `references/phase-4-remediate.md` |
 | 5 | Modernize | Opt-in idiom upgrades | Build + tests green after each item | `references/phase-5-modernize.md` |
-| 6 | Verify | Final gate + report | `migration/report.md` written; all gates green | `references/phase-6-verify.md` |
+| 6 | Verify | Final gate + report | `migration/report.html` généré + `report.md`; all gates green | `references/phase-6-verify.md` |
+| 7 | Deliver | Production (CI, Pages, vérif) | URL publique vérifiée (route profonde + capture) | `references/delivery-playbook.md` |
 
 Load each phase's reference file **when you enter that phase**, not before — keep context small.
 

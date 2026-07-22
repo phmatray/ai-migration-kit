@@ -2,9 +2,11 @@
 
 Toute migration (in place ou réécriture) livre **deux fichiers** committés dans le repo cible :
 
-1. **`migration/report.html` — le rapport, sous forme de dashboard exécutif.** Document HTML
-   **autonome** (doctype complet, CSS/JS inline, captures embarquées en data URI — double-cliquable,
-   envoyable par mail à un décideur). Thème clair/sombre, palette validée (cf. méthode dataviz du
+1. **`migration/report.html` — le rapport, sous forme de dashboard exécutif.** **Généré
+   obligatoirement par `scripts/report-dashboard.py`** depuis un `migration/report.json` versionné
+   (données) + le cobertura (couverture mesurée) — l'écriture manuelle du HTML est interdite
+   (règle 7 du skill : déterminisme). Document HTML **autonome** (doctype complet, CSS/JS inline,
+   captures embarquées en data URI — double-cliquable, envoyable par mail à un décideur). Thème clair/sombre, palette validée (cf. méthode dataviz du
    dashboard d'audit). Sections dans l'ordre : bandeau résultat + badge Vérifié · tuiles KPI (tests,
    **couverture mesurée** — coverlet/cobertura, jamais estimée —, erreurs/warnings, chiffre métier,
    estimation vs réalisé) · **valeur business** (ce que la migration change : actif réactivé, risque

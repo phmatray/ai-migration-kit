@@ -1,0 +1,62 @@
+# Template déploiement ai-migration-kit — Blazor WASM vers GitHub Pages.
+# À déposer dans le repo migré (.github/workflows/deploy-pages.yml).
+# 1) Renseignez env: (SOLUTION si plusieurs .sln, WEB_PROJECT, BASE_PATH = /<nom-du-repo>/).
+# 2) Adaptez branches: à la branche par défaut du repo (main, dev… — vérifiez, elle varie).
+# 3) Activez Pages en mode workflow : gh api repos/<owner>/<repo>/pages -X POST -f build_type=workflow
+#    (si le repo est archivé, le désarchiver d'abord : gh api repos/<o>/<r> -X PATCH -f archived=false)
+name: deploy-pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  SOLUTION: ''                     # ex. Chords.sln — vide si un seul .sln à la racine
+  WEB_PROJECT: src/App.Web         # le projet Blazor WASM
+  BASE_PATH: /REPO_NAME/           # sous-chemin GitHub Pages
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Tests d'abord — pas de déploiement rouge
+        run: dotnet test $SOLUTION --nologo
+
+      - name: Publier l'app
+        run: dotnet publish $WEB_PROJECT -c Release -o publish --nologo
+
+      - name: Adapter au sous-chemin GitHub Pages (base href + fallback SPA + .nojekyll)
+        run: |
+          sed -i "s|<base href=\"/\" />|<base href=\"$BASE_PATH\" />|" publish/wwwroot/index.html
+          cp publish/wwwroot/index.html publish/wwwroot/404.html
+          touch publish/wwwroot/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

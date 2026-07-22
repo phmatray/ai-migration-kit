@@ -30,6 +30,9 @@ jobs:
           bad=$(grep -L 'analyze_solution\|list_diagnostics\|apply_fixes\|edit_member\|rename_symbol\|find_references\|get_call_graph\|get_symbol_at_position\|search_symbols' skills/legacy-upgrade/references/phase-*.md || true)
           if [ -n "$bad" ]; then echo "Phase guides missing tool names: $bad"; exit 1; fi
 
+      - name: Preflight script runs (required tooling present on runner)
+        run: ./scripts/preflight.sh
+
       - name: Inventory script runs and emits valid JSON
         run: ./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null
 

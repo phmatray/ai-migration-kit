@@ -10,6 +10,20 @@ Complète les phases 1–6 (modernisation in place) ; validé sur la vague 1 du 
 3. **Corriger par wrapper, jamais dans le legacy.** La sémantique manquante (validation, détection d'état, compteurs) vit dans une classe qui enveloppe le code porté. Le legacy reste intact et prouvé ; le neuf est testé séparément.
 4. **Réécrire l'UI seulement ensuite**, sur un cœur déjà vert.
 
+## Protocoles issus de la vague 1 (sokoban, chords)
+
+- **Namespaces : les conserver.** Le port le plus pur garde les namespaces d'origine (chords : 102
+  fichiers, 0 ligne modifiée). Ne les changer que si un conflit réel l'impose.
+- **Fichiers référencés mais jamais committés** (rot de repo — le csproj liste des fichiers absents) :
+  reconstruire **le minimum utilisé** (YAGNI), dans un fichier portant un en-tête « RECONSTRUCTION »
+  daté expliquant la provenance — jamais mélangé au code porté.
+- **Tests historiques jamais verts** : ne pas les réécrire, ne pas les supprimer. Les marquer
+  `Skip = "<bug legacy documenté + où l'intention est restaurée>"`, figer le comportement réel par
+  tests de caractérisation, restaurer l'intention par wrapper, et prouver l'intention par de
+  **nouveaux** tests qui reprennent les valeurs attendues d'origine.
+- **Style de tests d'époque** (ex. `Assert.Equal(x == y, true)` → xUnit2000) : suppression par
+  `<NoWarn>` commenté dans le csproj de tests — les fichiers restent verbatim.
+
 ## Règles apprises sur le terrain
 
 - **Le livrable ne raconte pas sa migration.** Aucun bandeau, footer, meta description ou texte UI ne mentionne le portage, l'outillage ou le process : l'utilisateur final reçoit un produit, pas un cas d'étude. La provenance vit dans le README, `migration/report.md` et l'historique git. Exception : les commentaires de code qui encodent une contrainte de maintenance (« port verbatim — ne pas moderniser ce fichier ») restent, car ils protègent la preuve.
