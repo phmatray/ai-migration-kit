@@ -1,0 +1,11 @@
+{
+  "name": "ai-migration-kit-marketplace",
+  "owner": { "name": "phmatray", "email": "phmatray@gmail.com" },
+  "plugins": [
+    {
+      "name": "ai-migration-kit",
+      "source": "./",
+      "description": "Complete, verified, easy and fast upgrades of legacy .NET applications, powered by RoselineMCP (Roslyn)."
+    }
+  ]
+}

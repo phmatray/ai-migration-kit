@@ -1,0 +1,29 @@
+# Phase 6 — Verify
+
+**Entry criteria:** phases 3–5 complete (or `/migrate-verify` invoked standalone on a migrated branch).
+
+## Steps
+
+1. Clean rebuild: `dotnet clean && dotnet build` — must be green with zero errors.
+2. Full test run: `dotnet test` — all green; count ≥ the phase-2 baseline count (tests were added, never removed).
+3. Final health: `analyze_solution` (`severity: "Warning"`) — compare against `migration/baseline.md`: **errors = 0, warnings ≤ baseline**.
+4. Runtime smoke test: run the app's entry point(s) the same way the baseline did; confirm equivalent observable behavior.
+5. Write `migration/report.md`:
+   - Before/after table: TFM, SDK style, package versions (use `create_patch` on the old vs new csproj text for an exact diff appendix),
+   - Diagnostics: baseline counts vs final counts,
+   - Tests: baseline vs final (count, all green),
+   - Changes: chronological commit list of the migration branch (`git log --oneline`),
+   - Follow-ups: behavior quirks found (from characterization tests), deferred modernizations, packages held back and why.
+6. Final commit: `migration: phase 6 verified — report`.
+
+## RoselineMCP calls
+
+`analyze_solution` (final gate), `create_patch` (before/after csproj diff for the report).
+
+## Exit gate
+
+All of: clean build green, tests green and ≥ baseline count, errors 0, warnings ≤ baseline, `migration/report.md` committed. Only now is the migration **complete**.
+
+## Rollback
+
+If any check fails, the pipeline returns to the phase that owns the failure (build → 3, diagnostics → 4, tests → 2/4); the report is written only after everything is green.
