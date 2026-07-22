@@ -10,7 +10,16 @@ Complète les phases 1–6 (modernisation in place) ; validé sur la vague 1 du 
 3. **Corriger par wrapper, jamais dans le legacy.** La sémantique manquante (validation, détection d'état, compteurs) vit dans une classe qui enveloppe le code porté. Le legacy reste intact et prouvé ; le neuf est testé séparément.
 4. **Réécrire l'UI seulement ensuite**, sur un cœur déjà vert.
 
-## Protocoles issus de la vague 1 (sokoban, chords)
+## Protocoles issus des vagues 1 et 2 (sokoban, chords, fleurs-du-mal)
+
+- **Inventorier les assets binaires locaux AVANT de dessiner l'UI** (leçon vague 2 : le dessin
+  original d'une artiste, `Assets/Background.png`, cœur du design 2014, avait failli être perdu).
+  `find <app> -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.svg' -o -iname '*.mp3' \)`
+  hors `bin/obj` — regarder chaque asset non trivial (> quelques Ko). Les illustrations embarquées
+  (fonds, planches, œuvres signées) font partie de l'œuvre : elles se portent **octet pour octet**
+  (shasum), avec crédit d'artiste (décision propriétaire si le nom n'est pas dans le code).
+  Ne jamais conclure « pas d'images » sur la seule foi d'URLs externes mortes ; tout asset écarté
+  est consigné dans le rapport avec la raison.
 
 - **Namespaces : les conserver.** Le port le plus pur garde les namespaces d'origine (chords : 102
   fichiers, 0 ligne modifiée). Ne les changer que si un conflit réel l'impose.

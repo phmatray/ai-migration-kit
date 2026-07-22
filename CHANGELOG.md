@@ -3,6 +3,21 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.3.2] — 2026-07-23
+
+Leçons de la vague 2 (fleurs-du-mal, migrée en ~30 min pour 18 j estimés).
+
+### Ajouté
+- **Protocole d'inventaire des assets binaires locaux** (rewrite-playbook) : regarder chaque
+  asset embarqué avant de dessiner l'UI — le dessin original d'une artiste, cœur du design 2014,
+  avait failli être perdu parce que les seules images *visibles* étaient des URLs externes mortes.
+  Port octet pour octet + crédit d'artiste (décision propriétaire si le nom manque).
+
+### Corrigé
+- `report-dashboard.py` : les chemins du `report.json` (cobertura, capture) se résolvent
+  **relativement au JSON**, plus au répertoire courant ; le test golden le prouve en tournant
+  depuis la racine du repo.
+
 ## [1.3.1] — 2026-07-23
 
 Durcissement issu de la review v1.3.0 : les outils rendus obligatoires par la règle 7 deviennent

@@ -243,6 +243,12 @@ def main():
     ap.add_argument("-o", "--output", default="report.html")
     args = ap.parse_args()
     r = json.loads(Path(args.report_json).read_text())
+    # Les chemins du JSON (cobertura, capture) sont relatifs au JSON lui-même, pas au cwd.
+    base = Path(args.report_json).resolve().parent
+    if not Path(r["coverage"]["cobertura"]).is_absolute():
+        r["coverage"]["cobertura"] = str(base / r["coverage"]["cobertura"])
+    if r.get("screenshot") and not Path(r["screenshot"]["path"]).is_absolute():
+        r["screenshot"]["path"] = str(base / r["screenshot"]["path"])
     Path(args.output).write_text(render(r))
     print(f"OK {args.output}", file=sys.stderr)
 
