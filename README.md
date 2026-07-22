@@ -57,11 +57,16 @@ The kit's front door: a **read-only executive audit** that speaks to decision-ma
 
 ```
 .claude-plugin/         plugin + marketplace manifests
-commands/               /migrate, /migrate-assess, /migrate-verify
-skills/legacy-upgrade/  the pipeline orchestrator + phase references
-samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture)
+commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit
+skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
+scripts/                audit-inventory.sh (JSON inventory) · report-dashboard.py (executive report generator)
+templates/              ci-dotnet.yml — the CI a migration drops into the target repo
+samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
+docs/case-studies/      real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output
 ```
+
+**Live proof:** [play the wave-1 migrated game](https://phmatray.github.io/winrt-sokoban/) — a 2014 WinRT app, dead since Windows 8.x, now a Blazor WASM PWA.
 
 ## Proof it works
 

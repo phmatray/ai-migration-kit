@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  kit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            6.0.x
+            10.0.x
+
+      - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
+        run: dotnet test samples/LegacyShop --nologo
+
+      - name: Plugin manifests are valid JSON
+        run: |
+          python3 -m json.tool .claude-plugin/plugin.json > /dev/null
+          python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
+
+      - name: Every phase guide names its RoselineMCP tools
+        run: |
+          bad=$(grep -L 'analyze_solution\|list_diagnostics\|apply_fixes\|edit_member\|rename_symbol\|find_references\|get_call_graph\|get_symbol_at_position\|search_symbols' skills/legacy-upgrade/references/phase-*.md || true)
+          if [ -n "$bad" ]; then echo "Phase guides missing tool names: $bad"; exit 1; fi
+
+      - name: Inventory script runs and emits valid JSON
+        run: ./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null
+
+      - name: Dashboard generator is syntactically sound
+        run: python3 -m py_compile scripts/report-dashboard.py
