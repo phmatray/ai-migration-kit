@@ -46,3 +46,10 @@ jobs:
 
       - name: Report generator golden test (fixture → HTML assertions)
         run: ./tests/report-dashboard/test.sh
+
+      - name: Contrast checker works (pass AND fail paths)
+        run: |
+          python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
+          if python3 scripts/contrast-check.py "#777777:#888888" >/dev/null 2>&1; then
+            echo "contrast-check aurait dû échouer sur une paire illisible"; exit 1
+          fi

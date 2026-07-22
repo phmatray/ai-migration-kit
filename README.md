@@ -62,7 +62,7 @@ A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) ga
 .claude-plugin/         plugin + marketplace manifests
 commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit
 skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
-scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator)
+scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
 tests/                  golden test of the report generator (fixture → HTML assertions, CI-run)
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)

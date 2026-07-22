@@ -99,12 +99,27 @@ for t in proj_texts.values():
 has_tests = any(re.search(r'\[(Fact|Test|TestMethod)\]', p.read_text(encoding='utf-8', errors='ignore'))
                 for p in cs) or any('Test' in p.stem for p in csproj)
 
+# Un « projet-squelette » (échafaudage vide : un Class1.cs, presque zéro LOC) ne vaut rien
+# dans un chiffrage — leçon vague 2 : 5 projets « architecture en couches » vides avaient
+# gonflé la part de logique portable de l'audit. Un projet dont l'UI vit en .xaml/.razor
+# n'est pas un squelette même avec peu de .cs.
+ui_files = files('*.razor') + xaml
+proj_details = []
+for p in csproj:
+    own = [c for c in cs if p.parent in c.parents]
+    own_ui = [u for u in ui_files if p.parent in u.parents]
+    l = loc(own)
+    proj_details.append({'name': p.stem, 'csFiles': len(own), 'loc': l,
+                         'skeleton': (len(own) <= 1 or l < 30) and not own_ui})
+
 print(json.dumps({
     'repo': os.environ.get('REPO_NAME', Path('.').resolve().name),
     'era': era, 'erasDetected': all_eras,
     'firstCommit': os.environ.get('FIRST_COMMIT', 'unknown'),
     'lastCommit': os.environ.get('LAST_COMMIT', 'unknown'),
     'projects': sorted(p.stem for p in csproj),
+    'projectDetails': sorted(proj_details, key=lambda x: -x['loc']),
+    'skeletonProjects': sorted(x['name'] for x in proj_details if x['skeleton']),
     'xamlPages': len(pages), 'xamlControls': len(controls), 'xamlOther': len(other_xaml),
     'xamlPageNames': sorted(p.stem for p in pages),
     'csFiles': len(cs),

@@ -34,6 +34,17 @@ Produit d'entrée du kit : un audit **lecture seule** qui parle aux décideurs. 
 
 Fourchette affichée : **±30 %**. Toujours montrer le calcul.
 
+**Double chiffrage obligatoire.** La formule ci-dessus produit des **jours-équipe-humaine** :
+c'est le coût évité, pas le prix d'exécution. Le réalisé mesuré du pipeline est de l'ordre de la
+**demi-heure par app** (chords : 18 min ; fleurs-du-mal : ~30 min). Tout audit affiche les deux
+nombres côte à côte — « équivalent équipe : N j (±30 %) · exécution pipeline : ~M min, calibré
+sur les vagues mesurées ». Un seul des deux serait soit du bruit (l'erreur systématique de trois
+ordres de grandeur), soit invendable (des minutes sans référentiel).
+
+**Projets-squelettes.** `audit-inventory.sh` marque `skeleton: true` les projets quasi vides
+(≤ 1 fichier réel ou < 30 LOC) : ils ne comptent **jamais** dans la part de logique portable ni
+dans le chiffrage — une « architecture en couches » peut n'être qu'un échafaudage.
+
 ## Correspondances API Windows → web
 
 | Cluster | Équivalent Blazor/web |

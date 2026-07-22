@@ -3,6 +3,27 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.4.0] — 2026-07-23
+
+Le pipeline vérifie désormais ses promesses (review post-vague 2).
+
+### Ajouté
+- **`scripts/contrast-check.py`** : contraste WCAG 2.1 mesuré (jamais estimé à l'œil) pour toutes
+  les paires encre/fond, thèmes clair et sombre — obligatoire avant de livrer une UI réécrite
+  (rewrite-playbook) ; testé en CI (chemins succès ET échec).
+- **Job `verify` dans `templates/deploy-pages-blazor.yml`** : smoke test post-déploiement — la
+  racine et une route profonde doivent servir le CONTENU de l'app (`SMOKE_MARKER`,
+  `SMOKE_DEEP_ROUTE`), jamais le seul code HTTP ; `SMOKE_MARKER` vide = garde-fou bloquant.
+- **Détection des projets-squelettes** dans `audit-inventory.sh` (`projectDetails`,
+  `skeletonProjects`) : un échafaudage vide ne compte plus dans la logique portable — leçon
+  vague 2 (5 projets « en couches » vides avaient gonflé l'audit).
+- **Double chiffrage obligatoire** dans l'audit (audit-executive.md) : jours-équipe-humaine
+  (coût évité) **et** minutes-pipeline (prix réel, calibré sur les vagues mesurées).
+- **Protocole hors-ligne PWA** (rewrite-playbook) : le hors-ligne se teste réseau coupé, jamais
+  ne se déclare ; piège `caches.match('index.html')` → utiliser `caches.match('./')` d'abord.
+- `docs/backlog.md` : dettes notées avec leur déclencheur (sync des artefacts copiés, timeout
+  préflight, échappement JSON).
+
 ## [1.3.2] — 2026-07-23
 
 Leçons de la vague 2 (fleurs-du-mal, migrée en ~30 min pour 18 j estimés).

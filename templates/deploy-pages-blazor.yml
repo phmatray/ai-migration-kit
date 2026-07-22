@@ -17,6 +17,8 @@ env:
   SOLUTION: ''                     # ex. Chords.sln — vide si un seul .sln à la racine
   WEB_PROJECT: src/App.Web         # le projet Blazor WASM
   BASE_PATH: /REPO_NAME/           # sous-chemin GitHub Pages
+  SMOKE_MARKER: ''                 # chaîne attendue dans le HTML servi, ex. <title>Mon App</title>
+  SMOKE_DEEP_ROUTE: ''             # route profonde à vérifier, ex. poeme/2/38 — vide si app mono-route
 
 permissions:
   contents: read
@@ -37,6 +39,10 @@ jobs:
         run: |
           if [ "$BASE_PATH" = "/REPO_NAME/" ]; then
             echo "::error::BASE_PATH vaut encore le placeholder /REPO_NAME/ — renseignez env: en tête du workflow."
+            exit 1
+          fi
+          if [ -z "$SMOKE_MARKER" ]; then
+            echo "::error::SMOKE_MARKER est vide — renseignez la chaîne attendue dans le HTML servi (ex. le <title>)."
             exit 1
           fi
 
@@ -70,6 +76,28 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Livrée = vérifiée : le smoke test contrôle le CONTENU servi, jamais le seul code HTTP
+  # (le fallback 404.html de GitHub Pages sert l'app avec un statut 404 sur les routes profondes).
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke test — racine et route profonde servent l'app
+        run: |
+          URL="${{ needs.deploy.outputs.page_url }}"
+          curl -sf "$URL" | grep -qF "$SMOKE_MARKER" || {
+            echo "::error::la racine $URL ne contient pas le marqueur « $SMOKE_MARKER »."
+            exit 1
+          }
+          if [ -n "$SMOKE_DEEP_ROUTE" ]; then
+            curl -s "$URL$SMOKE_DEEP_ROUTE" | grep -qF "$SMOKE_MARKER" || {
+              echo "::error::la route profonde $URL$SMOKE_DEEP_ROUTE ne sert pas l'app — fallback SPA cassé ?"
+              exit 1
+            }
+          fi

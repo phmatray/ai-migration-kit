@@ -20,6 +20,14 @@ Complète les phases 1–6 (modernisation in place) ; validé sur la vague 1 du 
   (shasum), avec crédit d'artiste (décision propriétaire si le nom n'est pas dans le code).
   Ne jamais conclure « pas d'images » sur la seule foi d'URLs externes mortes ; tout asset écarté
   est consigné dans le rapport avec la raison.
+- **Contraste mesuré, jamais estimé à l'œil** : toute palette d'UI réécrite passe par
+  `scripts/contrast-check.py "#encre:#fond:libellé" …` — toutes les paires texte/fond, thèmes
+  clair **et** sombre, AA = 4,5:1 (texte normal), 3:1 (texte large/UI, `--min 3`). Leçon vague 2 :
+  une encre atténuée « qui semblait lisible » mesurait 4,16:1.
+- **Le hors-ligne d'une PWA se teste, jamais ne se déclare** : après déploiement, une session
+  navigateur avec réseau coupé (profil ayant déjà visité la prod) doit rendre l'app — racine ET
+  route profonde. Piège connu : un fallback `caches.match('index.html')` ne matche jamais si la
+  racine a été mise en cache sous l'URL du répertoire ; utiliser `caches.match('./')` d'abord.
 
 - **Namespaces : les conserver.** Le port le plus pur garde les namespaces d'origine (chords : 102
   fichiers, 0 ligne modifiée). Ne les changer que si un conflit réel l'impose.
