@@ -1,11 +1,16 @@
 # Template CI ai-migration-kit — à déposer dans le repo migré (.github/workflows/ci.yml), phase 6.
 # La migration ne livre pas que du code : elle livre le garde-fou.
+# ⚠ Renseignez SOLUTION si le repo contient plusieurs .sln (l'ancienne solution legacy reste
+#   souvent à la racine) : `dotnet test` nu échoue alors avec MSB1011.
 name: ci
 
 on:
   push:
     branches: [main, dev, 'migration/**']
   pull_request:
+
+env:
+  SOLUTION: ''   # ex. Chords.sln — laissez vide si un seul .sln à la racine
 
 jobs:
   test:
@@ -18,7 +23,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Tests + couverture
-        run: dotnet test --nologo --collect:"XPlat Code Coverage" --results-directory coverage
+        run: dotnet test $SOLUTION --nologo --collect:"XPlat Code Coverage" --results-directory coverage
 
       - name: Publier la couverture en artefact de build
         uses: actions/upload-artifact@v4
