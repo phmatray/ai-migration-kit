@@ -21,4 +21,4 @@ Complète les phases 1–6 (modernisation in place) ; validé sur la vague 1 du 
 
 ## Porte de sortie
 
-Comme la phase 6 : build 0 erreur / 0 warning, tous tests verts, captures navigateur vérifiées, `migration/report.md` écrit (avant/après, portes franchies, estimation vs réalisé, suivis).
+Comme la phase 6 : build 0 erreur / 0 warning, tous tests verts, captures navigateur vérifiées, `migration/report.md` écrit selon `report-template.md` — avec sa checklist **Prochaines étapes** (chemin critique vers la production) distincte des **Suivis différés**.
