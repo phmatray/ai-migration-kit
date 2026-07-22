@@ -5,6 +5,7 @@
 ## Steps
 
 1. Locate the solution: `find . -name '*.sln'` (or the path given in `$ARGUMENTS`).
+   **Then run `dotnet restore` before any analysis** — an unrestored solution makes `analyze_solution` report hundreds of false "type 'System' could not be found" errors (restore only reads/writes `obj/`, so the read-only guarantee holds).
 2. Inventory projects: Read each `.csproj` — record TFM(s), SDK style (SDK-style vs legacy), `PackageReference`/`packages.config`, project references. Build a dependency order (leaf libraries first).
 3. Solution health: `analyze_solution` with `pathOrGit: <sln>`, `severity: "Warning"`, `maxDiagnostics: 100`. Record error/warning/info counts and the top diagnostic IDs.
 4. Shape: `search_symbols` for entry points and public surface size; note test projects and framework (xUnit/NUnit/MSTest) or their absence.
