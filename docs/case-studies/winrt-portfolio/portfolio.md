@@ -31,8 +31,9 @@ Six applications sur plateformes mortes ou mourantes représentent **34 611 LOC,
         quick wins ◄──              ──► gros morceaux
 ```
 
-1. **Vague 1 — quick wins (26 j)** : `winrt-sokoban` + `chords`. Deux livrables visibles (un jeu jouable dans le navigateur, une PWA mobile avec lib métier testée) qui valident la méthode et le socle commun Blazor/Tailwind.
-   ✅ **`winrt-sokoban` : FAIT (2026-07-22, une session)** — moteur porté octet pour octet, 16 tests de caractérisation, PWA jouable (90 niveaux), captures dans `captures/`. Voir la fiche [winrt-sokoban](winrt-sokoban.md).
+1. **Vague 1 — quick wins (26 j estimés)** : `winrt-sokoban` + `chords`. **✅ FAITE ET DÉPLOYÉE (2026-07-22).**
+   - **[winrt-sokoban](winrt-sokoban.md)** : moteur porté octet pour octet, 16 tests, PWA — **jouable : https://phmatray.github.io/winrt-sokoban/**
+   - **[chords](chords.md)** : lib PCL 2015 portée verbatim (3 065 LOC, 0 modifiée), bug d'épellation de 11 ans corrigé par wrapper (les tests de 2015 enfin verts), 34 tests — **en ligne : https://phmatray.github.io/chords/**. Chronométrée : **18 min** grâce au process industrialisé — la mutualisation estimée à −15/20 % est très en-dessous de la réalité.
 2. **Vague 2 (18 j)** : `fleurs-du-mal-winrt` — la vitrine publique.
 3. **Vague 3 (29 j)** : `pokedex` — la démo fullstack (le backend AspNetCore existant est branché tel quel).
 4. **Optionnel (28 j)** : `popcorn-time` en démo technique privée (risque YTS documenté).

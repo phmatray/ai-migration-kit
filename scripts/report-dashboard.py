@@ -25,7 +25,7 @@ def esc(s):
     return html.escape(str(s), quote=True)
 
 
-def parse_cobertura(path, excluded_prefixes):
+def parse_cobertura(path, excluded_prefixes, included_names=None):
     root = ET.parse(path).getroot()
     classes = []
     for cls in root.iter("class"):
@@ -33,6 +33,8 @@ def parse_cobertura(path, excluded_prefixes):
         if "<" in name or "/" in name:
             continue
         if any(name.startswith(p) for p in excluded_prefixes):
+            continue
+        if included_names and name.split(".")[-1] not in included_names:
             continue
         lines = cls.findall(".//line")
         covered = sum(1 for l in lines if int(l.get("hits")) > 0)
@@ -80,7 +82,8 @@ def hbar_chart(rows, aria, note, multi_hue=False):
 
 
 def render(r):
-    cov = parse_cobertura(r["coverage"]["cobertura"], r["coverage"].get("exclude", []))
+    cov = parse_cobertura(r["coverage"]["cobertura"], r["coverage"].get("exclude", []),
+                          r["coverage"].get("include"))
     kpis = "".join(
         f'<div class="tile"><div class="v">{esc(k["v"])}'
         + (f'<small>{esc(k["unit"])}</small>' if k.get("unit") else "")
