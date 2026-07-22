@@ -17,6 +17,8 @@ Leçons de la vague 2 (fleurs-du-mal, migrée en ~30 min pour 18 j estimés).
 - `report-dashboard.py` : les chemins du `report.json` (cobertura, capture) se résolvent
   **relativement au JSON**, plus au répertoire courant ; le test golden le prouve en tournant
   depuis la racine du repo.
+- Playbook de livraison : la vérification de la route profonde teste le **contenu**, pas le code
+  HTTP — le fallback 404.html de GitHub Pages sert l'app avec un statut 404 (faux négatif sinon).
 
 ## [1.3.1] — 2026-07-23
 

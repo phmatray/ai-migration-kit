@@ -21,7 +21,10 @@ les templates du kit sont **obligatoires** (pas de workflow artisanal).
 6. **Attendre la conclusion des runs** (`gh run list`) — un échec de CI se corrige avant de continuer,
    même si le déploiement a réussi.
 7. **Vérifier la production** : `curl` la racine **et une route profonde** (le fallback SPA est le
-   piège n° 1), puis capture navigateur de l'URL publique — la regarder, pas seulement la produire.
+   piège n° 1). ⚠ Avec le fallback 404.html de GitHub Pages, la route profonde répond
+   **statut HTTP 404 mais contenu = l'app** : vérifier le contenu (`grep` du shell de l'app),
+   jamais le seul code de statut. Puis capture navigateur de la route profonde — la regarder,
+   pas seulement la produire.
 8. **Boucler le rapport** : cocher les étapes livrées dans `migration/report.json`, régénérer le
    dashboard (`scripts/report-dashboard.py`), committer.
 
@@ -35,3 +38,4 @@ les templates du kit sont **obligatoires** (pas de workflow artisanal).
 | Pas de fallback SPA | routes profondes en 404 (un `http.server` nu ne le fait pas non plus en local) | template (404.html) + vérif étape 7 |
 | `<base href>` non ajusté | page blanche sous /repo/ | `BASE_PATH` du template (garde-fou intégré : placeholder refusé, réécriture vérifiée) |
 | Pages déjà activées | `409` sur le POST | idempotent — continuer (étape 5) |
+| Fallback 404.html | route profonde « 404 » au curl alors que tout marche | vérifier le contenu et la capture, pas le statut (étape 7) |

@@ -1,5 +1,11 @@
 # Audit — fleurs-du-mal-winrt
 
+> **✅ MIGRÉE ET DÉPLOYÉE (2026-07-23)** — https://phmatray.github.io/fleurs-du-mal-winrt/ ·
+> ~30 min réalisées pour 18 j estimés · 35 tests, couverture 91 % · rapport : `migration/report.html` du repo.
+> Note d'audit corrigée sur le terrain : l'« architecture en couches » (5 projets Business/DataAccess)
+> était un échafaudage vide — la vraie valeur portable était le corpus JSON, les modèles du projet
+> principal et **le dessin original d'une artiste** (`Assets/Background.png`), repris octet pour octet.
+
 **Lecture des *Fleurs du Mal* de Baudelaire** · WinRT 8.x · actif 2014-02 → dernier commit 2026-02
 
 ## Carte d'identité
