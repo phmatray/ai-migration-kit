@@ -1,8 +1,22 @@
-# Template — `migration/report.md`
+# Template — rapport de migration
 
-Toute migration (in place ou réécriture) livre ce fichier, committé dans le repo cible.
-Sections obligatoires, dans cet ordre. Les « Prochaines étapes » sont une **checklist actionnable**
-avec effort estimé — c'est la passation : la personne qui reprend le repo sait quoi faire sans lire l'historique.
+Toute migration (in place ou réécriture) livre **deux fichiers** committés dans le repo cible :
+
+1. **`migration/report.html` — le rapport, sous forme de dashboard exécutif.** Document HTML
+   **autonome** (doctype complet, CSS/JS inline, captures embarquées en data URI — double-cliquable,
+   envoyable par mail à un décideur). Thème clair/sombre, palette validée (cf. méthode dataviz du
+   dashboard d'audit). Sections dans l'ordre : bandeau résultat + badge Vérifié · tuiles KPI (tests,
+   **couverture mesurée** — coverlet/cobertura, jamais estimée —, erreurs/warnings, chiffre métier,
+   estimation vs réalisé) · **valeur business** (ce que la migration change : actif réactivé, risque
+   éteint par preuve, coût de maintenance, réutilisabilité) · capture du produit · couverture par
+   classe (graphique) · avant/après · code porté vs écrit vs testé · portes franchies (une par
+   commit) · **Prochaines étapes** · Suivis différés · méthode et limites.
+2. **`migration/report.md` — le résumé diffable** (grep/diff-friendly) : mêmes chiffres condensés,
+   lien vers le dashboard.
+
+Les « Prochaines étapes » sont une **checklist actionnable** avec effort estimé — c'est la
+passation : la personne qui reprend le repo sait quoi faire sans lire l'historique.
+Structure du résumé markdown :
 
 ```markdown
 # Rapport de migration — <app> (<origine> → <cible>)
