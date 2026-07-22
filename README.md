@@ -48,7 +48,7 @@ The kit's front door: a **read-only executive audit** that speaks to decision-ma
 | 6 | **Verify** | Final gate + generated executive dashboard | `analyze_solution` | `migration/report.html` (generated) + `report.md`, all green |
 | 7 | **Deliver** | CI + deployment from kit templates, production verified | — | public URL answers on deep routes, screenshot reviewed |
 
-A **phase 0 preflight** (`scripts/preflight.sh`) gates the whole pipeline: required tooling (dotnet, git, python3, **RoselineMCP**) hard-fails; recommended capabilities (context7 MCP, gh, node, headless Chrome, frontend-design/dataviz skills) degrade **loudly** — every absence is recorded in the report with the fallback used.
+A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) gates the whole pipeline: required tooling (dotnet, git, python3, a **connected RoselineMCP**) hard-fails; recommended capabilities (context7 MCP, gh, node, headless Chrome) degrade **loudly** — every absence is recorded in the report with the fallback used. Session-level skills (frontend-design, dataviz) are confirmed by the agent itself at phase 0.
 
 ## Safety rails
 
@@ -64,6 +64,7 @@ commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-aud
 skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
 scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
+tests/                  golden test of the report generator (fixture → HTML assertions, CI-run)
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
 docs/case-studies/      real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output

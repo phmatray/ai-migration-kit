@@ -9,13 +9,13 @@ Upgrade a legacy application completely, verifiably, easily, and fast. You are t
 
 ## Phase 0 — Préflight (avant toute autre action)
 
-1. **Exécuter `scripts/preflight.sh`** (déterministe : REQUIS = dotnet SDK, git, python3, RoselineMCP ; échec = stop). Il vérifie aussi ce qui est machine-vérifiable côté MCP (roseline, context7) et outillage (gh, node, Chrome headless).
+1. **Exécuter `scripts/preflight.sh`** (déterministe : REQUIS = dotnet SDK ≥ 8, git, python3, RoselineMCP **connecté** ; échec = stop). Il vérifie aussi ce qui est machine-vérifiable côté MCP (roseline, context7 — état de santé, pas seulement présence) et outillage (gh, node, Chrome headless). Relancer avec `--json` pour la version machine à verser dans `migration/report.json`.
 2. **Confirmer les capacités de session** (le script ne voit pas la session) : dans TA liste de skills/outils, vérifier la présence de :
    - `mcp__roseline__*` — **obligatoire** pour tout C# (sinon stop et demander la configuration) ;
    - `context7` (query-docs) — recommandé : consulter les docs à jour du framework cible avant les phases 3/5 et avant toute UI (Blazor, packages) ;
    - skill `frontend-design` — **obligatoire avant d'écrire une UI réécrite** ;
    - skills `dataviz` + `artifact-design` — **obligatoires avant tout dashboard** (audit ou rapport).
-3. **Dégradation documentée, jamais silencieuse** : chaque capacité recommandée absente est consignée dans le rapport avec la parade utilisée (règle identique au repli RoselineMCP de l'audit).
+3. **Dégradation documentée, jamais silencieuse** : chaque capacité recommandée absente est consignée dans le rapport avec la parade utilisée (sortie `preflight.sh --json` + les confirmations de session ; règle identique au repli RoselineMCP de l'audit).
 
 ## Hard rules
 

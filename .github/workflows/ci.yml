@@ -33,8 +33,16 @@ jobs:
       - name: Preflight script runs (required tooling present on runner)
         run: ./scripts/preflight.sh
 
+      - name: Preflight --json emits valid JSON
+        run: ./scripts/preflight.sh --json | python3 -m json.tool > /dev/null
+
       - name: Inventory script runs and emits valid JSON
         run: ./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null
 
-      - name: Dashboard generator is syntactically sound
-        run: python3 -m py_compile scripts/report-dashboard.py
+      - name: Templates are valid YAML
+        run: |
+          python3 -m pip install --quiet PyYAML
+          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/*.yml')]"
+
+      - name: Report generator golden test (fixture → HTML assertions)
+        run: ./tests/report-dashboard/test.sh

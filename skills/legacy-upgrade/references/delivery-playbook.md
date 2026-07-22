@@ -16,7 +16,8 @@ les templates du kit sont **obligatoires** (pas de workflow artisanal).
      `SOLUTION`, `WEB_PROJECT`, `BASE_PATH=/<repo>/`, et `branches:` = la branche par défaut.
 4. **Pousser la branche de migration, merger** (`--no-ff`) dans la branche par défaut, pousser.
 5. **Activer Pages en mode workflow** : `gh api repos/<o>/<r>/pages -X POST -f build_type=workflow`
-   (fonctionne aussi depuis un repo privé si le plan le permet — l'URL retournée fait foi).
+   — idempotent : un `409` signifie « déjà activé », c'est un succès, continuer.
+   (Fonctionne aussi depuis un repo privé si le plan le permet — l'URL retournée fait foi.)
 6. **Attendre la conclusion des runs** (`gh run list`) — un échec de CI se corrige avant de continuer,
    même si le déploiement a réussi.
 7. **Vérifier la production** : `curl` la racine **et une route profonde** (le fallback SPA est le
@@ -32,4 +33,5 @@ les templates du kit sont **obligatoires** (pas de workflow artisanal).
 | Repo archivé | `403` au push | étape 2 |
 | Deux `.sln` à la racine | `MSB1011` en CI | `SOLUTION` explicite |
 | Pas de fallback SPA | routes profondes en 404 (un `http.server` nu ne le fait pas non plus en local) | template (404.html) + vérif étape 7 |
-| `<base href>` non ajusté | page blanche sous /repo/ | `BASE_PATH` du template |
+| `<base href>` non ajusté | page blanche sous /repo/ | `BASE_PATH` du template (garde-fou intégré : placeholder refusé, réécriture vérifiée) |
+| Pages déjà activées | `409` sur le POST | idempotent — continuer (étape 5) |
