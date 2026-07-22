@@ -32,6 +32,7 @@ Six applications sur plateformes mortes ou mourantes représentent **34 611 LOC,
 ```
 
 1. **Vague 1 — quick wins (26 j)** : `winrt-sokoban` + `chords`. Deux livrables visibles (un jeu jouable dans le navigateur, une PWA mobile avec lib métier testée) qui valident la méthode et le socle commun Blazor/Tailwind.
+   ✅ **`winrt-sokoban` : FAIT (2026-07-22, une session)** — moteur porté octet pour octet, 16 tests de caractérisation, PWA jouable (90 niveaux), captures dans `captures/`. Voir la fiche [winrt-sokoban](winrt-sokoban.md).
 2. **Vague 2 (18 j)** : `fleurs-du-mal-winrt` — la vitrine publique.
 3. **Vague 3 (29 j)** : `pokedex` — la démo fullstack (le backend AspNetCore existant est branché tel quel).
 4. **Optionnel (28 j)** : `popcorn-time` en démo technique privée (risque YTS documenté).

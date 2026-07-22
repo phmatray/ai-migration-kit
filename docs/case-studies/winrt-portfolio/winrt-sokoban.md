@@ -40,3 +40,13 @@ Jeu 100 % client, clavier + tactile, installable, hors-ligne. Hébergement gratu
 
 - App morte avec le Store 8.x ; le moteur de jeu — la partie qui a de la valeur — est invisible.
 - **Quick win n°1 du portefeuille** : plus petite surface, effet démo maximal (un jeu jouable dans le navigateur).
+
+## ✅ Résultat (migration exécutée le 2026-07-22)
+
+L'audit est validé par les faits, en une session assistée (estimation artisanale : 13 j) :
+
+- `SokobanLevel` porté **octet pour octet** (namespace/usings seuls changés) — la prédiction « 77 % portable tel quel » tenue.
+- 3 bizarreries du moteur documentées par **tests de caractérisation** (cibles effacées au passage, pas de victoire, pas de compteur) et corrigées par un wrapper `SokobanGame` sans toucher au legacy — 16/16 tests verts.
+- PWA Blazor WASM .NET 10 : 90 niveaux d'origine, clavier/tactile/d-pad, progression `localStorage` (la substitution `Windows.Storage` prévue), design entrepôt Tailwind. Build 0 erreur / 0 warning.
+
+![Niveau 1 dans le navigateur](captures/sokoban-niveau-01.png)
