@@ -143,6 +143,16 @@ See [docs/demo-walkthrough.md](docs/demo-walkthrough.md): a genuine run of the p
 
 ---
 
+<!-- portfolio-techstack:start -->
+
+## Tech Stack
+
+- **.NET 6**
+- xunit
+- xunit.runner.visualstudio
+
+<!-- portfolio-techstack:end -->
+
 <!-- portfolio-sections:start -->
 
 ## Contributing
