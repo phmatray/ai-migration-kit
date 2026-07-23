@@ -3,6 +3,25 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.5.0] — 2026-07-23
+
+Le pipeline rend compte de sa queue : suivis consolidés et mis à jour à la source.
+
+### Ajouté
+- **Skill `followups` + commande `/migrate-followups`** : consolide les suivis ouverts de tous
+  les repos migrés (`next_steps`/`deferred` des `migration/report.json` + backlog du kit) —
+  décisions propriétaire d'abord, tâches par effort croissant — et définit les protocoles de
+  mise à jour **à la source** : « fait » (retrait + coche + dashboard + commit), « clos par
+  décision » (bascule en `deferred` datée), ajout a posteriori. Jamais de liste parallèle.
+- **`scripts/followups.py`** : l'agrégateur (lecture seule), sortie markdown triée ou `--json` ;
+  testé en CI (tri avec virgule française « ~0,5 h », owner-first, backlog, chemin d'erreur).
+- La phase 7 se conclut par un passage de `followups` (SKILL.md règle 8).
+
+Validé au banc skill-creator : 3 cas (consolidation, marquer fait, clore par décision) en
+double aveugle avec/sans skill — **16/16 assertions avec le skill contre 12/16 sans** (la
+référence invente un tableau `closed` hors schéma, oublie le dashboard, réinvente le tri) ;
+puis test réel en lecture seule sur winrt-sokoban-blazor.
+
 ## [1.4.1] — 2026-07-23
 
 Leçons de la vague 3 (pokedexg : UWP 2016 + « backend » netcoreapp1.0 → Blazor WASM + API statique).

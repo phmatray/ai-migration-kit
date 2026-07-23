@@ -1,0 +1,26 @@
+{
+  "skill_name": "followups",
+  "evals": [
+    {
+      "id": 0,
+      "name": "point-consolide",
+      "prompt": "fais le point sur tout ce qui reste ouvert dans mes migrations. les repos sont <FIXTURES>/astro-notes et <FIXTURES>/vieux-blog, et le backlog du kit est <FIXTURES>/backlog.md. je veux voir en premier ce qui n'attend que moi. écris la vue consolidée dans <OUTPUTS>/suivis.md",
+      "expected_output": "Vue consolidée : décisions propriétaire (2 : LegacyApp/ et renommage) avant les tâches, tâches triées par effort croissant (PWA 15 min < domaine 30 min < télémétrie 1 h), backlog du kit présent, différés listés. Aucune mutation des fixtures.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "marquer-fait",
+      "prompt": "ça y est, j'ai installé la PWA d'astro-notes sur mon téléphone, elle marche nickel hors ligne. mets les suivis à jour — le repo est <FIXTURES>/astro-notes. note ce que tu as fait dans <OUTPUTS>/resume.md",
+      "expected_output": "L'item PWA disparaît de next_steps dans migration/report.json ; la ligne correspondante de report.md passe à [x] ; le dashboard report.html est régénéré ; un commit est créé dans le repo fixture. Les 2 autres next_steps sont intacts.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "clore-par-decision",
+      "prompt": "le renommage du repo vieux-blog, en fait on le fera jamais — referme ça proprement. le repo est <FIXTURES>/vieux-blog. note ce que tu as fait dans <OUTPUTS>/resume.md",
+      "expected_output": "L'item « Renommer le repo » quitte next_steps et rejoint deferred avec une mention « Non poursuivi par décision (date) » ; report.md annoté ; dashboard régénéré ; commit créé. L'item domaine personnalisé reste intact.",
+      "files": []
+    }
+  ]
+}

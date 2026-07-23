@@ -26,7 +26,7 @@ Upgrade a legacy application completely, verifiably, easily, and fast. You are t
 5. **No behavior changes.** The migration preserves observable behavior. Behavior fixes discovered along the way are recorded in the report as follow-ups, not applied.
 6. **The deliverable never narrates its migration.** No banner, footer, meta tag or user-facing string mentions the port, the tooling or the process — the end user gets a product, not a case study. Provenance lives in the README, `migration/report.md` and git history. (In-code comments that encode a maintenance constraint — "verbatim port, do not modernize" — stay.)
 7. **Scripts et templates du kit obligatoires.** Quand le kit fournit un outil pour une étape, l'improvisation est interdite : inventaire → `scripts/audit-inventory.sh` ; rapport → `scripts/report-dashboard.py` (jamais de HTML manuel) ; CI → `templates/ci-dotnet.yml` ; déploiement Blazor → `templates/deploy-pages-blazor.yml`. C'est ce qui rend les migrations reproductibles et comparables.
-8. **Livrée = en production.** Le pipeline ne s'arrête pas au vert local : suivre `references/delivery-playbook.md` (branche par défaut, workflows depuis les templates, Pages, vérification de la prod avec route profonde + capture regardée).
+8. **Livrée = en production.** Le pipeline ne s'arrête pas au vert local : suivre `references/delivery-playbook.md` (branche par défaut, workflows depuis les templates, Pages, vérification de la prod avec route profonde + capture regardée). La phase 7 se conclut par un passage du skill `followups` (`scripts/followups.py` sur les repos migrés) : la queue de suivis — décisions propriétaire, tâches, différés — est présentée à jour au moment de quitter le repo.
 
 ## The pipeline
 

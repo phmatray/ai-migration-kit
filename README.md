@@ -76,11 +76,12 @@ A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) ga
 
 ```
 .claude-plugin/         plugin + marketplace manifests
-commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit
+commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit, /migrate-followups
 skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
-scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate)
+skills/followups/       consolidated follow-up queue across migrated repos, updated at the source
+scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
-tests/                  golden test of the report generator (fixture → HTML assertions, CI-run)
+tests/                  golden tests of the report generator and followups aggregator (CI-run)
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
 docs/case-studies/      real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output

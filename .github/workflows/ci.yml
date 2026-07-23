@@ -47,6 +47,9 @@ jobs:
       - name: Report generator golden test (fixture → HTML assertions)
         run: ./tests/report-dashboard/test.sh
 
+      - name: Followups aggregator golden test (tri, backlog, erreurs, JSON)
+        run: ./tests/followups/test.sh
+
       - name: Contrast checker works (pass AND fail paths)
         run: |
           python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
