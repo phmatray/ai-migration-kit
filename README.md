@@ -9,6 +9,22 @@ A Claude Code plugin that upgrades legacy .NET applications through a six-phase,
 - **Easy** — one command: `/migrate`. Start read-only with `/migrate-assess`.
 - **Fast** — mechanical fixes are applied in bulk with Roslyn code fixes; agent time is spent only on judgment calls.
 
+## Proven in production
+
+Four dead-platform apps (WinRT 8.x, Windows Phone, UWP) audited, migrated to Blazor WebAssembly
+and **verified live** with this kit — characterization tests first, legacy data and art byte-for-byte,
+measured WCAG AA, offline proven with the network cut, and a permanent post-deploy smoke test:
+
+| App (2013–2016) | Live | Audit estimate | Measured pipeline time |
+|---|---|---|---|
+| Sokoban (WinRT 8.1) | [phmatray.github.io/winrt-sokoban](https://phmatray.github.io/winrt-sokoban/) | 13 j | vague 1 |
+| Chords (Windows Phone) | [phmatray.github.io/chords](https://phmatray.github.io/chords/) | 13 j | **18 min** |
+| Les Fleurs du Mal (WinRT 8.1) | [phmatray.github.io/fleurs-du-mal-winrt](https://phmatray.github.io/fleurs-du-mal-winrt/) | 18 j | **~30 min** |
+| Pokédex G (UWP + SQLite 49 MB) | [phmatray.github.io/pokedexg](https://phmatray.github.io/pokedexg/) | 29 j | **~1 h** |
+
+Full portfolio audit, per-app reports and the lessons each wave fed back into the kit:
+[docs/case-studies/winrt-portfolio/](docs/case-studies/winrt-portfolio/) and [CHANGELOG.md](CHANGELOG.md).
+
 ## Prerequisites
 
 - [Claude Code](https://code.claude.com) with the **RoselineMCP** server configured (`claude mcp list` should show `roseline`).

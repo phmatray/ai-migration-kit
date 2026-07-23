@@ -42,10 +42,21 @@ Six applications sur plateformes mortes ou mourantes représentent **34 611 LOC,
      15 requêtes SQL de 2014 + 2 713 assets) est conservée **verbatim** derrière une API
      statique générée au build. 53 tests, Roslyn 0/0, hors-ligne prouvé serveur coupé,
      thèmes Rubis/Saphir. Chronométrée : **~1 h** (pour 29 j estimés).
-4. **Optionnel (28 j)** : `popcorn-time` en démo technique privée (risque YTS documenté).
-5. **Hold** : `winrt-mobile-vikings` — 0,5 j de vérification d'API avant toute décision. Un portefeuille se gère aussi en décidant ce qu'on ne migre **pas**.
+4. **Non poursuivi (décision du 2026-07-23)** : `popcorn-time` — le risque YTS documenté ne
+   justifie pas une démo de plus ; la preuve du pipeline est faite.
+5. **Hold confirmé** : `winrt-mobile-vikings` — API externe probablement morte. Un portefeuille
+   se gère aussi en décidant ce qu'on ne migre **pas**.
 
 **Total recommandé (vagues 1–3) : 60 j ±30 %** · portefeuille complet hors hold : 101 j.
+
+## Clôture (2026-07-23)
+
+Les trois vagues recommandées sont **faites, déployées et vérifiées en production** : 4 apps
+vivantes pour **60 j estimés équipe-humaine, exécutés en ~2 h de pipeline cumulées** (18 min +
+~30 min + ~1 h, vague 1 sokoban non chronométrée). Chaque vague a renvoyé ses leçons dans le
+kit (v1.3.x : process déterministe, protocole assets ; v1.4.0 : promesses mesurées — contraste,
+hors-ligne, smoke permanent ; v1.4.1 : projets zombies, prémisses vérifiées). Le portefeuille
+est clos ; les deux apps restantes le sont par **décision**, pas par manque de capacité.
 
 ## Mutualisation (non chiffrée dans les fiches, à déduire)
 
