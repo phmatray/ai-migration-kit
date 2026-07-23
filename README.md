@@ -2,6 +2,21 @@
 
 # AI Migration Kit
 
+<!-- portfolio-badges:start -->
+<!-- Identity -->
+[![phmatray - ai-migration-kit](https://img.shields.io/static/v1?label=phmatray&message=ai-migration-kit&color=blue&logo=github)](https://github.com/phmatray/ai-migration-kit)
+![Top language](https://img.shields.io/github/languages/top/phmatray/ai-migration-kit)
+[![Stars](https://img.shields.io/github/stars/phmatray/ai-migration-kit?style=social)](https://github.com/phmatray/ai-migration-kit/stargazers)
+[![Forks](https://img.shields.io/github/forks/phmatray/ai-migration-kit?style=social)](https://github.com/phmatray/ai-migration-kit/network/members)
+[![License](https://img.shields.io/github/license/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/blob/HEAD/LICENSE)
+
+<!-- Activity -->
+[![Issues](https://img.shields.io/github/issues/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/pulls)
+[![Last commit](https://img.shields.io/github/last-commit/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/commits)
+<!-- portfolio-badges:end -->
+
+
 > « Mise à niveau complète, parfaite, facile et rapide de n'importe quelle application legacy » — powered by **RoselineMCP**.
 
 A Claude Code plugin that upgrades legacy .NET applications through a seven-phase, gate-verified pipeline that ends in verified production. RoselineMCP (a Roslyn-powered MCP server) is the engine for every C# analysis and transformation step: solution diagnostics, bulk code fixes, surgical member edits, safe renames, and impact analysis via references and call graphs.
