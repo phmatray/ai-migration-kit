@@ -11,3 +11,8 @@ rendra rentable (YAGNI sinon).
   phase 0. Déclencheur : premier gel constaté.
 - **Échappement JSON des hints du préflight** : la sortie `--json` casserait si un hint contenait
   un guillemet double. Déclencheur : premier hint qui en a besoin (aucun aujourd'hui).
+- **Optimisation du déclenchement du skill `followups`** : la boucle skill-creator (5 itérations,
+  20 requêtes, 3 mesures chacune) n'a départagé aucune variante — en sonde headless sans contexte
+  de repo, le skill ne se déclenche presque jamais (positifs ≈ 0/3), donc la mesure est au
+  plancher ; seul signal fiable : zéro sur-déclenchement sur les 10 quasi-pièges. Description
+  d'origine conservée. Déclencheur : premier sous-déclenchement constaté en session réelle.
