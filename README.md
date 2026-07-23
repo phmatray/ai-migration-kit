@@ -16,6 +16,26 @@
 [![Last commit](https://img.shields.io/github/last-commit/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/commits)
 <!-- portfolio-badges:end -->
 
+<!-- portfolio-toc:start -->
+
+## Table of Contents
+
+- [Proven in production](#proven-in-production)
+- [Prerequisites](#prerequisites)
+- [Install](#install)
+- [Quickstart](#quickstart)
+- [The audit product — `/migrate-audit`](#the-audit-product--migrate-audit)
+- [The pipeline](#the-pipeline)
+- [The issue/PR lifecycle skills](#the-issuepr-lifecycle-skills)
+- [Safety rails](#safety-rails)
+- [Repository layout](#repository-layout)
+- [Proof it works](#proof-it-works)
+- [Tech Stack](#tech-stack)
+- [Contributing](#contributing)
+
+<!-- portfolio-toc:end -->
+
+
 
 > « Mise à niveau complète, parfaite, facile et rapide de n'importe quelle application legacy » — powered by **RoselineMCP**.
 
