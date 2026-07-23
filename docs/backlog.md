@@ -22,6 +22,27 @@ rendra rentable (YAGNI sinon).
   de repo, le skill ne se déclenche presque jamais (positifs ≈ 0/3), donc la mesure est au
   plancher ; seul signal fiable : zéro sur-déclenchement sur les 10 quasi-pièges. Description
   d'origine conservée. Déclencheur : premier sous-déclenchement constaté en session réelle.
+- **Verdict « déjà moderne → stop » absent du pipeline** : `/migrate` confond « migrer une app
+  dépassée » et « il y a du travail à faire ». `phase-1-assess.md` étape 6 recommande *toujours*
+  « latest LTS TFM », même quand l'app y est déjà (net10.0 → net10.0), et rien n'empêche `/migrate`
+  d'enchaîner sur une phase 3 (retarget) à vide, une phase 5 (idiomes déjà modernes) à vide, puis
+  une phase 7 qui déploie du Blazor sur Pages… pour un outil CLI sans cible web. `audit-executive.md`
+  ne définit que deux profils (« TFM obsolète », « réécriture UI ») — aucun profil « sain, rien à
+  migrer », alors même que la leçon vague 3 y vit déjà à l'envers (« un robot de mise à jour n'est
+  pas un signe de vie » vise le faux-moderne : TFM ancien arrosé par Renovate ; le vrai-moderne
+  n'a pas de verdict). Correctif proposé : une **porte de modernité** en fin de phase 1 — si tous
+  les TFM ∈ {dernière LTS, cible demandée} ET aucun runtime hors-support ET aucun cluster d'API
+  obsolète (SYSLIB/packages.config/BinaryFormatter), alors cible recommandée = « aucune, déjà à
+  jour », `assessment.md` porte `verdict: ALREADY_MODERN`, et `/migrate` s'arrête après la phase 1
+  (comme `/migrate-assess`) au lieu d'entrer en phase 3. Router explicitement vers `/migrate-verify`
+  (porte qualité phase 6) le cas d'une app moderne qui veut quand même un rapport : moderne ≠ propre
+  — le seul `dotnet restore` qui a abouti sur StaticWGen a remonté une dépendance transitive à
+  vulnérabilité haute (NU1903, `System.Security.Cryptography.Xml` 9.0.0, dans `_build`). La
+  plomberie existe déjà (les variantes `/migrate-assess` = phase 1 seule et `/migrate-verify` =
+  phase 6 seule sont en place) ; seul manque le branchement du verdict. Déclencheur : premier
+  `/migrate` visant une cible déjà à jour — **atteint le 2026-07-23** (dogfood sur
+  `Atypical-Consulting/StaticWGen` : net10.0 partout, SDK épinglé 10.0.302 `rollForward:
+  latestFeature`, paquets à jour tenus par Renovate).
 
 ## Non-adoptions (décisions fermées)
 
