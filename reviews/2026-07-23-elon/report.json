@@ -1,0 +1,167 @@
+{
+  "schema": "legends-review/1",
+  "date": "2026-07-23",
+  "repo": "ai-migration-kit",
+  "branch": "main",
+  "commit": "2abab0b",
+  "review_type": "solo",
+  "change_summary": "Audit de la suite de six skills du kit contre le guide officiel Anthropic « The Complete Guide to Building Skills for Claude ».",
+  "scope": "skills/*/SKILL.md (frontmatter + corps + references), tests/, manifests du plugin — jaugés contre les chapitres Fundamentals, Planning & Design, Testing, Distribution et Patterns du guide (30 pages).",
+  "reviewers": [
+    {
+      "id": "elon",
+      "name": "Elon Musk",
+      "emoji": "🔥",
+      "rating": 7,
+      "verdict": "La charpente est celle que le guide enseigne — c'est la couche distribution qui manque : trois descriptions hors limite, zéro métadonnée, un seul skill testé au déclenchement.",
+      "hard_truth": "Si quelqu'un uploadait vos six skills sur Claude.ai demain matin, combien passeraient la validation — et pourquoi ne l'avez-vous jamais vérifié ?",
+      "assessment": [
+        {
+          "area": "Complexity",
+          "rating": "yellow",
+          "notes": "Duplication SKILL.md ↔ references dans les deux gros skills."
+        },
+        {
+          "area": "Performance",
+          "rating": "yellow",
+          "notes": "~6 200 caractères de descriptions toujours chargés ; 3 hors limite."
+        },
+        {
+          "area": "Security",
+          "rating": "green",
+          "notes": "Frontmatter sain : pas de XML, pas de secrets, kebab-case partout."
+        },
+        {
+          "area": "Observability",
+          "rating": "green",
+          "notes": "preflight --json, tests golden, dashboards — au-dessus du standard du guide."
+        },
+        {
+          "area": "Maintainability",
+          "rating": "green",
+          "notes": "Repo-profile, _shared/, references par phase : la structure recommandée."
+        },
+        {
+          "area": "Test Coverage",
+          "rating": "red",
+          "notes": "1 skill sur 6 testé au déclenchement ; la méthode existe pourtant (followups, 16/16)."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": 1,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "correctness",
+      "title": "Trois descriptions dépassent la limite de 1024 caractères du standard",
+      "file": "skills/implement-issue/SKILL.md",
+      "line": 3,
+      "description": "Le guide fixe « Under 1024 characters » comme exigence du champ description. Mesuré : implement-issue 1561, merge-pr 1477, get-repo-profile 1223 caractères. À l'upload sur Claude.ai ces skills seraient rejetés ; sur le standard ouvert Agent Skills ils sont non conformes ; en Claude Code c'est du frontmatter (niveau 1, toujours chargé) payé à chaque session par chaque installeur. ✅ RÉSOLU (2026-07-23, même session) : les trois descriptions compressées à 915 / 917 / 903 caractères (format [Quoi] + [Quand] + [déclencheurs]) ; la limite est désormais verrouillée en CI par tests/skills/check-frontmatter.py.",
+      "recommendation": "Compresser les trois descriptions au format [Quoi] + [Quand] + [phrases de déclenchement] en ≤ 1024 caractères. Conserver les déclencheurs négatifs (« Does NOT apply to ») mais laconiques ; déplacer la nuance détaillée dans la section « What this does » du corps.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 2,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "documentation",
+      "title": "Aucune métadonnée de distribution : compatibility, license, metadata.version absents des six skills",
+      "file": "skills/legacy-upgrade/SKILL.md",
+      "line": 2,
+      "description": "Le kit est public et ses skills ont des exigences d'environnement dures (legacy-upgrade : RoselineMCP + dotnet ≥ 8 + git + python3 ; lifecycle : gh + skills superpowers + code-review). Le guide prévoit le champ compatibility (1-500 caractères) exactement pour cela, plus metadata (author, version) et license. requirements.json couvre la vérification au runtime ; compatibility couvre la déclaration à la distribution (Claude.ai, standard ouvert, autres plateformes) — il manque cette moitié du contrat. ✅ RÉSOLU (2026-07-23, même session) : license: MIT + compatibility (≤ 500 car.) + metadata (author / version 1.6.0 / suite: ai-migration-kit) sur les six skills ; fichier LICENSE (MIT) à la racine ; champ license dans plugin.json ; présence gardée en CI.",
+      "recommendation": "Ajouter aux six SKILL.md : compatibility (dérivé de requirements.json), metadata.version (aligné sur le CHANGELOG du kit), metadata.author, et license (décision MIT/Apache-2.0 au niveau repo, répercutée dans le frontmatter).",
+      "effort": "S",
+      "resolved": true
+    },
+    {
+      "id": 3,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "testing",
+      "title": "Cinq skills sur six sans tests de déclenchement",
+      "description": "Le chapitre Testing du guide prescrit des listes should-trigger / should-not-trigger (10-20 requêtes, cible : déclenchement sur 90 % des requêtes pertinentes). La méthode a été appliquée une seule fois — followups, benché skill-creator 16/16 contre 12/16 sans skill — puis plus jamais. Les trois skills importés (create-issue, implement-issue, merge-pr) ont des verbes ultra-génériques (« file an issue », « merge ») : risque réel de sur-déclenchement chez les installeurs, et aucun signal pour le détecter. ✅ RÉSOLU (2026-07-23, même session) : tests/skills/<name>.triggers.md créés pour les six skills (listes should / should-not en anglais, les « should NOT » ciblant les verbes génériques) ; présence et sections non vides gardées en CI par check-frontmatter.py. Reste à exécuter le banc skill-creator sur ces listes à la prochaine modification de description.",
+      "recommendation": "Créer tests/skills/<name>.triggers.md par skill : liste should-trigger (requêtes évidentes + paraphrases) et should-not-trigger (sujets adjacents). Les passer au banc skill-creator à chaque modification de description — la méthode déjà prouvée sur followups, généralisée.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 4,
+      "reviewer": "elon",
+      "severity": "minor",
+      "category": "simplicity",
+      "title": "Duplication SKILL.md ↔ references dans implement-issue et merge-pr",
+      "file": "skills/implement-issue/SKILL.md",
+      "line": 94,
+      "description": "Le bloc bash du Step 2 d'implement-issue (~25 lignes, localisation du plan) existe quasi verbatim dans references/github-mechanics.md §2 ; même schéma entre merge-pr Step 3 et merge-mechanics.md §3. Le guide : SKILL.md focalisé sur le contrat, le détail en references/. Deux exemplaires du même snippet, c'est une divergence programmée — et 2 945/3 081 mots de corps là où la moitié suffirait. ✅ RÉSOLU (2026-07-23, même session) : les Steps 2 et 6 d'implement-issue et le Step 3 de merge-pr renvoient désormais aux recettes uniques des references (github-mechanics §2/§4, merge-mechanics §3) ; le volet PR du tick, qui ne vivait que dans le SKILL.md, a été déplacé dans §4 ; corps réduits à 2 744 et 3 006 mots.",
+      "recommendation": "Un seul exemplaire par snippet : SKILL.md garde le contrat et le résultat attendu, references/ garde la recette complète, lien explicite entre les deux (le pattern « Reference bundled resources clearly » du guide).",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 5,
+      "reviewer": "elon",
+      "severity": "minor",
+      "category": "documentation",
+      "title": "Pas de section Troubleshooting structurée (Erreur → Cause → Solution)",
+      "file": "skills/legacy-upgrade/SKILL.md",
+      "description": "Le template recommandé du guide se termine par une section Troubleshooting au format Erreur/Cause/Solution. Le savoir équivalent du kit existe mais éparpillé (« Gotchas (hard-won) », « Environment gotchas », « Garde-fous »). L'utilisateur qui voit le préflight échouer, RoselineMCP déconnecté ou un gate rouge en phase 4 n'a pas de table unique où chercher. ✅ RÉSOLU (2026-07-23, même session) : section « Common issues (error → cause → solution) » à 5 entrées dans legacy-upgrade ; tables Troubleshooting dans github-mechanics.md et merge-mechanics.md (§8 converti au format), les bullets prose correspondants retirés pour éviter la duplication.",
+      "recommendation": "Ajouter un « Common issues » (Erreur → Cause → Solution) dans legacy-upgrade (préflight échoué, roseline absent, workload manquant, gate rouge) et consolider les gotchas des skills lifecycle sous le même format dans leurs references.",
+      "effort": "S",
+      "resolved": true
+    },
+    {
+      "id": 6,
+      "reviewer": "elon",
+      "severity": "minor",
+      "category": "dx",
+      "title": "Phrases de déclenchement monolingues selon le skill",
+      "file": "skills/followups/SKILL.md",
+      "line": 3,
+      "description": "followups déclenche sur « fais le point », « qu'est-ce qui reste » (français, avec un complément anglais partiel) ; legacy-upgrade décrit en anglais pur alors que son corps est bilingue. Pour un kit public à audience mixte, un utilisateur anglophone disant « what's still open » ou francophone disant « moderniser cette app » doit déclencher aussi. Le guide : inclure les phrases que les utilisateurs disent vraiment. ✅ RÉSOLU (2026-07-23, même session) : déclencheurs FR ajoutés aux cinq descriptions anglophones et déclencheurs EN à followups, le tout sous la limite des 1024 caractères ; les bancs de test de déclenchement restent monolingues anglais sur demande utilisateur.",
+      "recommendation": "Chaque description porte 2-3 phrases de déclenchement par langue (FR + EN), sans dépasser la limite des 1024 caractères (à faire en même temps que le finding 1).",
+      "effort": "S",
+      "resolved": true
+    }
+  ],
+  "actions": [
+    {
+      "rank": 1,
+      "title": "Compresser les 3 descriptions hors limite à ≤ 1024 caractères ([Quoi]+[Quand]+[déclencheurs], négatifs laconiques)",
+      "champion": "elon",
+      "effort": "M",
+      "finding_ids": [
+        1,
+        6
+      ]
+    },
+    {
+      "rank": 2,
+      "title": "Ajouter compatibility + metadata.version (+ license) aux six skills — le miroir distribution de requirements.json",
+      "champion": "elon",
+      "effort": "S",
+      "finding_ids": [
+        2
+      ]
+    },
+    {
+      "rank": 3,
+      "title": "Créer les listes should/should-not par skill sous tests/skills/ et les passer au banc skill-creator",
+      "champion": "elon",
+      "effort": "M",
+      "finding_ids": [
+        3
+      ]
+    }
+  ],
+  "praise": [
+    "legacy-upgrade est un cas d'école de divulgation progressive : 54 lignes de SKILL.md, references chargées phase par phase — exactement le modèle du guide.",
+    "Les scripts déterministes bundlés (preflight.sh, repo-profile.sh, followups.py) sont la « technique avancée » de la page 26 du guide : code is deterministic, language isn't.",
+    "Les déclencheurs négatifs (« Does NOT apply to… ») sont déjà en place — la solution officielle du guide au sur-déclenchement.",
+    "Hygiène frontmatter irréprochable : kebab-case partout, pas de XML, pas de README dans les dossiers de skills.",
+    "La fusion en un seul plugin est validée par le guide page 27 (« Consider skill packs for related capabilities »).",
+    "followups a été benché exactement selon la méthode du guide (skill-creator, 16/16 vs 12/16) — la référence interne à généraliser."
+  ]
+}

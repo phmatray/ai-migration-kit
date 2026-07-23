@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revue de code ai-migration-kit — 2026-07-23</title>
+<style>
+  :root { color-scheme: light; --plane:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e;
+    --muted:#898781; --grid:#e1e0d9; --axis:#c3c2b7; --ring:rgba(11,11,11,0.10);
+    --s1: #2a78d6;--s2: #eb6834;--s3: #1baf7a;--s4: #eda100; --good-text:#006300; --crit:#c62828; }
+  @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { color-scheme: dark; --plane:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10); --s1: #3987e5;--s2: #d95926;--s3: #199e70;--s4: #c98500; --good-text:#0ca30c; --crit:#ef5350; } }
+  :root[data-theme="dark"] { color-scheme: dark; --plane:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10); --s1: #3987e5;--s2: #d95926;--s3: #199e70;--s4: #c98500; --good-text:#0ca30c; --crit:#ef5350; }
+  body { margin:0; background:var(--plane); color:var(--ink); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:32px 20px 64px; display:grid; gap:20px; }
+  .eyebrow { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  h1 { font-size:27px; font-weight:700; margin:4px 0 2px; text-wrap:balance; }
+  header p { color:var(--ink-2); max-width:70ch; margin:6px 0 0; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+  .tile { background:var(--surface); border:1px solid var(--ring); border-radius:10px; padding:14px 16px; }
+  .tile .v { font-size:26px; font-weight:700; } .tile .v small { font-size:14px; font-weight:600; color:var(--ink-2); }
+  .tile .l { font-size:12.5px; color:var(--ink-2); margin-top:2px; }
+  .tile .verdict { font-size:13px; color:var(--ink-2); margin:8px 0 0; font-style:italic; }
+  .tile.consensus { border-color:var(--s1); }
+  .card { background:var(--surface); border:1px solid var(--ring); border-radius:10px; padding:18px 20px; }
+  .card h2 { font-size:15px; font-weight:650; margin:0 0 10px; }
+  .grid2 { display:grid; grid-template-columns:1fr; gap:20px; }
+  @media (min-width:880px) { .grid2 { grid-template-columns:1fr 1fr; } }
+  ul.value { margin:0; padding-left:1.1em; display:grid; gap:8px; color:var(--ink-2); }
+  ul.value .who { color:var(--muted); font-size:12.5px; }
+  .progress { display:flex; align-items:center; gap:12px; }
+  .progress .bar { flex:1; height:8px; background:var(--grid); border-radius:99px; overflow:hidden; }
+  .progress .bar > div { height:100%; width:0; background:var(--s3); border-radius:99px; transition:width .2s; }
+  .progress .num { font-variant-numeric:tabular-nums; font-size:13px; color:var(--ink-2); white-space:nowrap; }
+  .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .chip { display:inline-flex; align-items:center; gap:6px; font:12.5px system-ui; padding:4px 11px;
+    border-radius:999px; border:1px solid var(--axis); background:none; color:var(--muted); cursor:pointer; }
+  .chip.on { color:var(--ink); border-color:var(--ink-2); background:var(--surface); }
+  .chip b { font-variant-numeric:tabular-nums; }
+  .chip .dot { width:9px; height:9px; border-radius:99px; display:inline-block; }
+  select { font:12.5px system-ui; padding:4px 8px; border-radius:7px; border:1px solid var(--axis);
+    background:var(--surface); color:var(--ink); }
+  .sev { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    padding:2px 8px; border-radius:99px; color:#fff; white-space:nowrap; }
+  .sev-critical { background:var(--crit); } .sev-major { background:var(--s2); }
+  .sev-minor { background:var(--s4); } .sev-info { background:var(--s1); }
+  .dot.sev-critical { background:var(--crit); } .dot.sev-major { background:var(--s2); }
+  .dot.sev-minor { background:var(--s4); } .dot.sev-info { background:var(--s1); }
+  .finding { background:var(--surface); border:1px solid var(--ring); border-radius:10px; margin-bottom:8px; }
+  .finding.hidden { display:none; }
+  .finding summary { display:flex; align-items:center; gap:9px; padding:10px 14px; cursor:pointer;
+    flex-wrap:wrap; list-style:none; }
+  .finding summary::-webkit-details-marker { display:none; }
+  .finding .f-title { font-weight:600; flex:1; min-width:200px; }
+  .finding.done .f-title { text-decoration:line-through; color:var(--muted); font-weight:400; }
+  .finding .cat { font-size:11px; color:var(--muted); border:1px solid var(--grid); border-radius:5px; padding:1px 6px; }
+  .finding .loc { font-family:ui-monospace,monospace; font-size:11.5px; color:var(--muted); }
+  .finding .rv-tag { font-size:13px; }
+  .eff { font-family:ui-monospace,monospace; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .f-body { padding:2px 16px 14px 42px; color:var(--ink-2); font-size:14px; }
+  .f-body p { margin:6px 0; max-width:75ch; }
+  .f-body .rec strong { color:var(--good-text); }
+  pre.fix { background:var(--plane); border:1px solid var(--grid); border-radius:8px; padding:10px 12px;
+    font-size:12.5px; overflow-x:auto; }
+  .btn { font:12.5px system-ui; padding:5px 12px; border-radius:7px; border:1px solid var(--axis);
+    background:var(--surface); color:var(--ink); cursor:pointer; margin-top:6px; }
+  .btn:hover { border-color:var(--ink-2); }
+  .done-box { width:16px; height:16px; accent-color:var(--s3); flex-shrink:0; }
+  ul.steps { margin:0; padding:0; list-style:none; display:grid; gap:9px; }
+  ul.steps li { display:grid; grid-template-columns:24px 1fr auto; gap:10px; align-items:baseline;
+    font-size:14px; border-top:1px solid var(--grid); padding-top:9px; }
+  ul.steps li:first-child { border-top:0; padding-top:0; }
+  ul.steps .box { width:15px; height:15px; border:1.6px solid var(--axis); border-radius:4px; margin-top:2px; }
+  ul.steps .box.done { background:var(--s3); border-color:var(--s3); color:#fff; font-size:11px;
+    line-height:15px; text-align:center; font-weight:700; }
+  ul.steps li.done > span:nth-child(2) { text-decoration:line-through; color:var(--muted); }
+  ul.steps .who { color:var(--muted); font-size:12.5px; }
+  footer { font-size:12.5px; color:var(--muted); max-width:78ch; }
+  #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--ink);
+    color:var(--plane); font-size:13px; padding:8px 16px; border-radius:8px; opacity:0; transition:opacity .15s; }
+</style>
+</head>
+<body data-report-id="dd8c12d7ec">
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Revue de code · ai-migration-kit · main@2abab0b · 2026-07-23</div>
+    <h1>Audit de la suite de six skills du kit contre le guide officiel Anthropic « The Complete Guide to Building Skills for Claude ».</h1>
+    <p>skills/*/SKILL.md (frontmatter + corps + references), tests/, manifests du plugin — jaugés contre les chapitres Fundamentals, Planning &amp; Design, Testing, Distribution et Patterns du guide (30 pages).</p>
+  </header>
+  <div class="tiles"><div class="tile reviewer">
+<div class="v">🔥 7<small>/10</small></div>
+<div class="l">Elon Musk</div>
+<p class="verdict">“La charpente est celle que le guide enseigne — c&#x27;est la couche distribution qui manque : trois descriptions hors limite, zéro métadonnée, un seul skill testé au déclenchement.”</p>
+</div></div>
+  
+  <div class="card">
+    <h2>Constats</h2>
+    <div class="progress"><div class="bar"><div id="pbar"></div></div>
+      <span class="num"><span id="pdone">0</span>/6 traités</span></div>
+    <div class="filters" style="margin:12px 0 14px">
+      <button class="chip on" data-filter="severity" data-value="major"><span class="dot sev-major"></span>Majeur <b>3</b></button><button class="chip on" data-filter="severity" data-value="minor"><span class="dot sev-minor"></span>Mineur <b>3</b></button><select id="cat"><option value="">Tous</option><option value="correctness">correctness</option><option value="documentation">documentation</option><option value="dx">dx</option><option value="simplicity">simplicity</option><option value="testing">testing</option></select>
+      <button class="chip" id="hide-done">Masquer les faits</button>
+      <button class="chip" id="export-md">Copier le restant en Markdown</button>
+    </div>
+    <div id="findings"><details class="finding" data-id="1" data-severity="major"
+ data-reviewer="elon" data-category="correctness"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-major">Majeur</span>
+<span class="f-title">Trois descriptions dépassent la limite de 1024 caractères du standard</span>
+<span class="cat">correctness</span><code class="loc">skills/implement-issue/SKILL.md:3</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>Le guide fixe « Under 1024 characters » comme exigence du champ description. Mesuré : implement-issue 1561, merge-pr 1477, get-repo-profile 1223 caractères. À l&#x27;upload sur Claude.ai ces skills seraient rejetés ; sur le standard ouvert Agent Skills ils sont non conformes ; en Claude Code c&#x27;est du frontmatter (niveau 1, toujours chargé) payé à chaque session par chaque installeur. ✅ RÉSOLU (2026-07-23, même session) : les trois descriptions compressées à 915 / 917 / 903 caractères (format [Quoi] + [Quand] + [déclencheurs]) ; la limite est désormais verrouillée en CI par tests/skills/check-frontmatter.py.</p>
+<p class="rec"><strong>→</strong> Compresser les trois descriptions au format [Quoi] + [Quand] + [phrases de déclenchement] en ≤ 1024 caractères. Conserver les déclencheurs négatifs (« Does NOT apply to ») mais laconiques ; déplacer la nuance détaillée dans la section « What this does » du corps.</p>
+
+<button class="btn copy-fix" data-id="1">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="2" data-severity="major"
+ data-reviewer="elon" data-category="documentation"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-major">Majeur</span>
+<span class="f-title">Aucune métadonnée de distribution : compatibility, license, metadata.version absents des six skills</span>
+<span class="cat">documentation</span><code class="loc">skills/legacy-upgrade/SKILL.md:2</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>Le kit est public et ses skills ont des exigences d&#x27;environnement dures (legacy-upgrade : RoselineMCP + dotnet ≥ 8 + git + python3 ; lifecycle : gh + skills superpowers + code-review). Le guide prévoit le champ compatibility (1-500 caractères) exactement pour cela, plus metadata (author, version) et license. requirements.json couvre la vérification au runtime ; compatibility couvre la déclaration à la distribution (Claude.ai, standard ouvert, autres plateformes) — il manque cette moitié du contrat. ✅ RÉSOLU (2026-07-23, même session) : license: MIT + compatibility (≤ 500 car.) + metadata (author / version 1.6.0 / suite: ai-migration-kit) sur les six skills ; fichier LICENSE (MIT) à la racine ; champ license dans plugin.json ; présence gardée en CI.</p>
+<p class="rec"><strong>→</strong> Ajouter aux six SKILL.md : compatibility (dérivé de requirements.json), metadata.version (aligné sur le CHANGELOG du kit), metadata.author, et license (décision MIT/Apache-2.0 au niveau repo, répercutée dans le frontmatter).</p>
+
+<button class="btn copy-fix" data-id="2">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="3" data-severity="major"
+ data-reviewer="elon" data-category="testing"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-major">Majeur</span>
+<span class="f-title">Cinq skills sur six sans tests de déclenchement</span>
+<span class="cat">testing</span>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>Le chapitre Testing du guide prescrit des listes should-trigger / should-not-trigger (10-20 requêtes, cible : déclenchement sur 90 % des requêtes pertinentes). La méthode a été appliquée une seule fois — followups, benché skill-creator 16/16 contre 12/16 sans skill — puis plus jamais. Les trois skills importés (create-issue, implement-issue, merge-pr) ont des verbes ultra-génériques (« file an issue », « merge ») : risque réel de sur-déclenchement chez les installeurs, et aucun signal pour le détecter. ✅ RÉSOLU (2026-07-23, même session) : tests/skills/&lt;name&gt;.triggers.md créés pour les six skills (listes should / should-not en anglais, les « should NOT » ciblant les verbes génériques) ; présence et sections non vides gardées en CI par check-frontmatter.py. Reste à exécuter le banc skill-creator sur ces listes à la prochaine modification de description.</p>
+<p class="rec"><strong>→</strong> Créer tests/skills/&lt;name&gt;.triggers.md par skill : liste should-trigger (requêtes évidentes + paraphrases) et should-not-trigger (sujets adjacents). Les passer au banc skill-creator à chaque modification de description — la méthode déjà prouvée sur followups, généralisée.</p>
+
+<button class="btn copy-fix" data-id="3">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="4" data-severity="minor"
+ data-reviewer="elon" data-category="simplicity"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Mineur</span>
+<span class="f-title">Duplication SKILL.md ↔ references dans implement-issue et merge-pr</span>
+<span class="cat">simplicity</span><code class="loc">skills/implement-issue/SKILL.md:94</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>Le bloc bash du Step 2 d&#x27;implement-issue (~25 lignes, localisation du plan) existe quasi verbatim dans references/github-mechanics.md §2 ; même schéma entre merge-pr Step 3 et merge-mechanics.md §3. Le guide : SKILL.md focalisé sur le contrat, le détail en references/. Deux exemplaires du même snippet, c&#x27;est une divergence programmée — et 2 945/3 081 mots de corps là où la moitié suffirait. ✅ RÉSOLU (2026-07-23, même session) : les Steps 2 et 6 d&#x27;implement-issue et le Step 3 de merge-pr renvoient désormais aux recettes uniques des references (github-mechanics §2/§4, merge-mechanics §3) ; le volet PR du tick, qui ne vivait que dans le SKILL.md, a été déplacé dans §4 ; corps réduits à 2 744 et 3 006 mots.</p>
+<p class="rec"><strong>→</strong> Un seul exemplaire par snippet : SKILL.md garde le contrat et le résultat attendu, references/ garde la recette complète, lien explicite entre les deux (le pattern « Reference bundled resources clearly » du guide).</p>
+
+<button class="btn copy-fix" data-id="4">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="5" data-severity="minor"
+ data-reviewer="elon" data-category="documentation"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Mineur</span>
+<span class="f-title">Pas de section Troubleshooting structurée (Erreur → Cause → Solution)</span>
+<span class="cat">documentation</span><code class="loc">skills/legacy-upgrade/SKILL.md</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>Le template recommandé du guide se termine par une section Troubleshooting au format Erreur/Cause/Solution. Le savoir équivalent du kit existe mais éparpillé (« Gotchas (hard-won) », « Environment gotchas », « Garde-fous »). L&#x27;utilisateur qui voit le préflight échouer, RoselineMCP déconnecté ou un gate rouge en phase 4 n&#x27;a pas de table unique où chercher. ✅ RÉSOLU (2026-07-23, même session) : section « Common issues (error → cause → solution) » à 5 entrées dans legacy-upgrade ; tables Troubleshooting dans github-mechanics.md et merge-mechanics.md (§8 converti au format), les bullets prose correspondants retirés pour éviter la duplication.</p>
+<p class="rec"><strong>→</strong> Ajouter un « Common issues » (Erreur → Cause → Solution) dans legacy-upgrade (préflight échoué, roseline absent, workload manquant, gate rouge) et consolider les gotchas des skills lifecycle sous le même format dans leurs references.</p>
+
+<button class="btn copy-fix" data-id="5">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="6" data-severity="minor"
+ data-reviewer="elon" data-category="dx"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Mineur</span>
+<span class="f-title">Phrases de déclenchement monolingues selon le skill</span>
+<span class="cat">dx</span><code class="loc">skills/followups/SKILL.md:3</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>followups déclenche sur « fais le point », « qu&#x27;est-ce qui reste » (français, avec un complément anglais partiel) ; legacy-upgrade décrit en anglais pur alors que son corps est bilingue. Pour un kit public à audience mixte, un utilisateur anglophone disant « what&#x27;s still open » ou francophone disant « moderniser cette app » doit déclencher aussi. Le guide : inclure les phrases que les utilisateurs disent vraiment. ✅ RÉSOLU (2026-07-23, même session) : déclencheurs FR ajoutés aux cinq descriptions anglophones et déclencheurs EN à followups, le tout sous la limite des 1024 caractères ; les bancs de test de déclenchement restent monolingues anglais sur demande utilisateur.</p>
+<p class="rec"><strong>→</strong> Chaque description porte 2-3 phrases de déclenchement par langue (FR + EN), sans dépasser la limite des 1024 caractères (à faire en même temps que le finding 1).</p>
+
+<button class="btn copy-fix" data-id="6">Copier le prompt de fix</button>
+</div>
+</details></div>
+  </div>
+  <div class="card"><h2>Plan d&#x27;action</h2><ul class="steps"><li class="done"><span class="box done" aria-hidden="true">✓</span><span>Compresser les 3 descriptions hors limite à ≤ 1024 caractères ([Quoi]+[Quand]+[déclencheurs], négatifs laconiques) <span class="who">— porté par Elon Musk</span></span><span class="eff">M</span></li><li class="done"><span class="box done" aria-hidden="true">✓</span><span>Ajouter compatibility + metadata.version (+ license) aux six skills — le miroir distribution de requirements.json <span class="who">— porté par Elon Musk</span></span><span class="eff">S</span></li><li class="done"><span class="box done" aria-hidden="true">✓</span><span>Créer les listes should/should-not par skill sous tests/skills/ et les passer au banc skill-creator <span class="who">— porté par Elon Musk</span></span><span class="eff">M</span></li></ul></div>
+  <div class="card"><h2>Les vérités qui dérangent</h2><ul class="value truths"><li>🔥 <em>“Si quelqu&#x27;un uploadait vos six skills sur Claude.ai demain matin, combien passeraient la validation — et pourquoi ne l&#x27;avez-vous jamais vérifié ?”</em> <span class="who">— Elon Musk</span></li></ul></div>
+  <div class="card"><h2>Ce qui est réussi</h2><ul class="value"><li>legacy-upgrade est un cas d&#x27;école de divulgation progressive : 54 lignes de SKILL.md, references chargées phase par phase — exactement le modèle du guide.</li><li>Les scripts déterministes bundlés (preflight.sh, repo-profile.sh, followups.py) sont la « technique avancée » de la page 26 du guide : code is deterministic, language isn&#x27;t.</li><li>Les déclencheurs négatifs (« Does NOT apply to… ») sont déjà en place — la solution officielle du guide au sur-déclenchement.</li><li>Hygiène frontmatter irréprochable : kebab-case partout, pas de XML, pas de README dans les dossiers de skills.</li><li>La fusion en un seul plugin est validée par le guide page 27 (« Consider skill packs for related capabilities »).</li><li>followups a été benché exactement selon la méthode du guide (skill-creator, 16/16 vs 12/16) — la référence interne à généraliser.</li></ul></div>
+  <footer><p>Généré depuis report.json par legends-review — les données vivent dans le JSON, le HTML est toujours régénéré, jamais édité à la main.</p></footer>
+</div>
+<div id="toast" role="status"></div>
+<script type="application/json" id="data">{"reportId": "dd8c12d7ec", "lang": "fr", "repo": "ai-migration-kit", "branch": "main", "commit": "2abab0b", "date": "2026-07-23", "labels": {"fix_intro": "Corrige ce constat de revue de code :", "fix_outro": "Implémente le fix, garde le changement minimal, et vérifie avec les tests du projet.", "remaining_title": "Suivis de revue de code", "copied": "Copié !"}, "reviewers": {"elon": {"name": "Elon Musk", "emoji": "🔥"}}, "findings": [{"id": 1, "reviewer": "elon", "severity": "major", "category": "correctness", "title": "Trois descriptions dépassent la limite de 1024 caractères du standard", "file": "skills/implement-issue/SKILL.md", "line": 3, "description": "Le guide fixe « Under 1024 characters » comme exigence du champ description. Mesuré : implement-issue 1561, merge-pr 1477, get-repo-profile 1223 caractères. À l'upload sur Claude.ai ces skills seraient rejetés ; sur le standard ouvert Agent Skills ils sont non conformes ; en Claude Code c'est du frontmatter (niveau 1, toujours chargé) payé à chaque session par chaque installeur. ✅ RÉSOLU (2026-07-23, même session) : les trois descriptions compressées à 915 / 917 / 903 caractères (format [Quoi] + [Quand] + [déclencheurs]) ; la limite est désormais verrouillée en CI par tests/skills/check-frontmatter.py.", "recommendation": "Compresser les trois descriptions au format [Quoi] + [Quand] + [phrases de déclenchement] en ≤ 1024 caractères. Conserver les déclencheurs négatifs (« Does NOT apply to ») mais laconiques ; déplacer la nuance détaillée dans la section « What this does » du corps.", "fix_hint": null, "effort": "M"}, {"id": 2, "reviewer": "elon", "severity": "major", "category": "documentation", "title": "Aucune métadonnée de distribution : compatibility, license, metadata.version absents des six skills", "file": "skills/legacy-upgrade/SKILL.md", "line": 2, "description": "Le kit est public et ses skills ont des exigences d'environnement dures (legacy-upgrade : RoselineMCP + dotnet ≥ 8 + git + python3 ; lifecycle : gh + skills superpowers + code-review). Le guide prévoit le champ compatibility (1-500 caractères) exactement pour cela, plus metadata (author, version) et license. requirements.json couvre la vérification au runtime ; compatibility couvre la déclaration à la distribution (Claude.ai, standard ouvert, autres plateformes) — il manque cette moitié du contrat. ✅ RÉSOLU (2026-07-23, même session) : license: MIT + compatibility (≤ 500 car.) + metadata (author / version 1.6.0 / suite: ai-migration-kit) sur les six skills ; fichier LICENSE (MIT) à la racine ; champ license dans plugin.json ; présence gardée en CI.", "recommendation": "Ajouter aux six SKILL.md : compatibility (dérivé de requirements.json), metadata.version (aligné sur le CHANGELOG du kit), metadata.author, et license (décision MIT/Apache-2.0 au niveau repo, répercutée dans le frontmatter).", "fix_hint": null, "effort": "S"}, {"id": 3, "reviewer": "elon", "severity": "major", "category": "testing", "title": "Cinq skills sur six sans tests de déclenchement", "file": null, "line": null, "description": "Le chapitre Testing du guide prescrit des listes should-trigger / should-not-trigger (10-20 requêtes, cible : déclenchement sur 90 % des requêtes pertinentes). La méthode a été appliquée une seule fois — followups, benché skill-creator 16/16 contre 12/16 sans skill — puis plus jamais. Les trois skills importés (create-issue, implement-issue, merge-pr) ont des verbes ultra-génériques (« file an issue », « merge ») : risque réel de sur-déclenchement chez les installeurs, et aucun signal pour le détecter. ✅ RÉSOLU (2026-07-23, même session) : tests/skills/<name>.triggers.md créés pour les six skills (listes should / should-not en anglais, les « should NOT » ciblant les verbes génériques) ; présence et sections non vides gardées en CI par check-frontmatter.py. Reste à exécuter le banc skill-creator sur ces listes à la prochaine modification de description.", "recommendation": "Créer tests/skills/<name>.triggers.md par skill : liste should-trigger (requêtes évidentes + paraphrases) et should-not-trigger (sujets adjacents). Les passer au banc skill-creator à chaque modification de description — la méthode déjà prouvée sur followups, généralisée.", "fix_hint": null, "effort": "M"}, {"id": 4, "reviewer": "elon", "severity": "minor", "category": "simplicity", "title": "Duplication SKILL.md ↔ references dans implement-issue et merge-pr", "file": "skills/implement-issue/SKILL.md", "line": 94, "description": "Le bloc bash du Step 2 d'implement-issue (~25 lignes, localisation du plan) existe quasi verbatim dans references/github-mechanics.md §2 ; même schéma entre merge-pr Step 3 et merge-mechanics.md §3. Le guide : SKILL.md focalisé sur le contrat, le détail en references/. Deux exemplaires du même snippet, c'est une divergence programmée — et 2 945/3 081 mots de corps là où la moitié suffirait. ✅ RÉSOLU (2026-07-23, même session) : les Steps 2 et 6 d'implement-issue et le Step 3 de merge-pr renvoient désormais aux recettes uniques des references (github-mechanics §2/§4, merge-mechanics §3) ; le volet PR du tick, qui ne vivait que dans le SKILL.md, a été déplacé dans §4 ; corps réduits à 2 744 et 3 006 mots.", "recommendation": "Un seul exemplaire par snippet : SKILL.md garde le contrat et le résultat attendu, references/ garde la recette complète, lien explicite entre les deux (le pattern « Reference bundled resources clearly » du guide).", "fix_hint": null, "effort": "M"}, {"id": 5, "reviewer": "elon", "severity": "minor", "category": "documentation", "title": "Pas de section Troubleshooting structurée (Erreur → Cause → Solution)", "file": "skills/legacy-upgrade/SKILL.md", "line": null, "description": "Le template recommandé du guide se termine par une section Troubleshooting au format Erreur/Cause/Solution. Le savoir équivalent du kit existe mais éparpillé (« Gotchas (hard-won) », « Environment gotchas », « Garde-fous »). L'utilisateur qui voit le préflight échouer, RoselineMCP déconnecté ou un gate rouge en phase 4 n'a pas de table unique où chercher. ✅ RÉSOLU (2026-07-23, même session) : section « Common issues (error → cause → solution) » à 5 entrées dans legacy-upgrade ; tables Troubleshooting dans github-mechanics.md et merge-mechanics.md (§8 converti au format), les bullets prose correspondants retirés pour éviter la duplication.", "recommendation": "Ajouter un « Common issues » (Erreur → Cause → Solution) dans legacy-upgrade (préflight échoué, roseline absent, workload manquant, gate rouge) et consolider les gotchas des skills lifecycle sous le même format dans leurs references.", "fix_hint": null, "effort": "S"}, {"id": 6, "reviewer": "elon", "severity": "minor", "category": "dx", "title": "Phrases de déclenchement monolingues selon le skill", "file": "skills/followups/SKILL.md", "line": 3, "description": "followups déclenche sur « fais le point », « qu'est-ce qui reste » (français, avec un complément anglais partiel) ; legacy-upgrade décrit en anglais pur alors que son corps est bilingue. Pour un kit public à audience mixte, un utilisateur anglophone disant « what's still open » ou francophone disant « moderniser cette app » doit déclencher aussi. Le guide : inclure les phrases que les utilisateurs disent vraiment. ✅ RÉSOLU (2026-07-23, même session) : déclencheurs FR ajoutés aux cinq descriptions anglophones et déclencheurs EN à followups, le tout sous la limite des 1024 caractères ; les bancs de test de déclenchement restent monolingues anglais sur demande utilisateur.", "recommendation": "Chaque description porte 2-3 phrases de déclenchement par langue (FR + EN), sans dépasser la limite des 1024 caractères (à faire en même temps que le finding 1).", "fix_hint": null, "effort": "S"}], "actions": [{"rank": 1, "title": "Compresser les 3 descriptions hors limite à ≤ 1024 caractères ([Quoi]+[Quand]+[déclencheurs], négatifs laconiques)", "effort": "M", "done": true}, {"rank": 2, "title": "Ajouter compatibility + metadata.version (+ license) aux six skills — le miroir distribution de requirements.json", "effort": "S", "done": true}, {"rank": 3, "title": "Créer les listes should/should-not par skill sous tests/skills/ et les passer au banc skill-creator", "effort": "M", "done": true}]}</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const KEY = 'legends-review:' + DATA.reportId;
+const state = JSON.parse(localStorage.getItem(KEY) || '{}');
+const findings = [...document.querySelectorAll('.finding')];
+const toast = document.getElementById('toast');
+let hideDone = false;
+
+function notify(msg) {
+  toast.textContent = msg; toast.style.opacity = '1';
+  setTimeout(() => toast.style.opacity = '0', 1400);
+}
+function copyText(text, msg) {
+  const done = () => notify(msg || DATA.labels.copied);
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => fallback());
+  else fallback();
+  function fallback() {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove(); done();
+  }
+}
+function refresh() {
+  const sevOn = new Set([...document.querySelectorAll('.chip.on[data-filter="severity"]')].map(c => c.dataset.value));
+  const rvChips = [...document.querySelectorAll('.chip[data-filter="reviewer"]')];
+  const rvOn = new Set(rvChips.filter(c => c.classList.contains('on')).map(c => c.dataset.value));
+  const cat = document.getElementById('cat') ? document.getElementById('cat').value : '';
+  let done = 0;
+  findings.forEach(el => {
+    const isDone = el.dataset.id in state ? !!state[el.dataset.id] : el.dataset.resolved === '1';
+    el.classList.toggle('done', isDone);
+    el.querySelector('.done-box').checked = isDone;
+    if (isDone) done++;
+    const visible = sevOn.has(el.dataset.severity)
+      && (!rvChips.length || rvOn.has(el.dataset.reviewer))
+      && (!cat || el.dataset.category === cat)
+      && !(hideDone && isDone);
+    el.classList.toggle('hidden', !visible);
+  });
+  document.getElementById('pdone').textContent = done;
+  document.getElementById('pbar').style.width = (findings.length ? 100 * done / findings.length : 0) + '%';
+}
+findings.forEach(el => el.querySelector('.done-box').addEventListener('change', e => {
+  state[el.dataset.id] = e.target.checked;
+  localStorage.setItem(KEY, JSON.stringify(state));
+  refresh();
+}));
+document.querySelectorAll('.chip[data-filter]').forEach(c =>
+  c.addEventListener('click', () => { c.classList.toggle('on'); refresh(); }));
+const catSel = document.getElementById('cat');
+if (catSel) catSel.addEventListener('change', refresh);
+document.getElementById('hide-done').addEventListener('click', e => {
+  hideDone = !hideDone; e.target.classList.toggle('on', hideDone); refresh();
+});
+function fixPrompt(f) {
+  const rv = DATA.reviewers[f.reviewer] || {name: f.reviewer};
+  const loc = f.file ? f.file + (f.line ? ':' + f.line : '') : '';
+  return [DATA.labels.fix_intro, '',
+    'Repo: ' + DATA.repo + (DATA.branch ? ' (' + DATA.branch + (DATA.commit ? '@' + DATA.commit : '') + ')' : ''),
+    loc ? 'File: ' + loc : null,
+    'Severity: ' + f.severity + (f.category ? ' - Category: ' + f.category : '') + ' - ' + rv.name + ' review',
+    'Finding: ' + f.title, '', f.description, '',
+    'Recommended fix: ' + f.recommendation,
+    f.fix_hint ? '\n' + f.fix_hint : null,
+    '', DATA.labels.fix_outro].filter(x => x !== null).join('\n');
+}
+document.querySelectorAll('.copy-fix').forEach(b => b.addEventListener('click', () => {
+  const f = DATA.findings.find(x => String(x.id) === b.dataset.id);
+  copyText(fixPrompt(f));
+}));
+document.getElementById('export-md').addEventListener('click', () => {
+  const remaining = DATA.findings.filter(f => !state[f.id]);
+  const bySev = {};
+  remaining.forEach(f => (bySev[f.severity] = bySev[f.severity] || []).push(f));
+  const lines = ['# ' + DATA.labels.remaining_title + ' — ' + DATA.repo + ' (' + DATA.date + ')', ''];
+  ['critical', 'major', 'minor', 'info'].forEach(s => {
+    if (!bySev[s]) return;
+    lines.push('## ' + s.charAt(0).toUpperCase() + s.slice(1), '');
+    bySev[s].forEach(f => {
+      const loc = f.file ? ' — `' + f.file + (f.line ? ':' + f.line : '') + '`' : '';
+      lines.push('- [ ] **' + f.title + '**' + loc + (f.effort ? ' (' + f.effort + ')' : ''));
+      lines.push('  ' + f.recommendation);
+    });
+    lines.push('');
+  });
+  if (DATA.actions.length) {
+    lines.push('## Actions', '');
+    DATA.actions.forEach(a => lines.push((a.rank || '-') + '. [' + (a.done ? 'x' : ' ') + '] ' + a.title + (a.effort ? ' (' + a.effort + ')' : '')));
+  }
+  copyText(lines.join('\n'));
+});
+refresh();
+</script>
+</body>
+</html>

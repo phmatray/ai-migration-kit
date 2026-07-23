@@ -20,10 +20,11 @@ jobs:
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo
 
-      - name: Plugin manifests are valid JSON
+      - name: Plugin manifests and requirements are valid JSON
         run: |
           python3 -m json.tool .claude-plugin/plugin.json > /dev/null
           python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
+          python3 -m json.tool requirements.json > /dev/null
 
       - name: Every phase guide names its RoselineMCP tools
         run: |
@@ -35,6 +36,12 @@ jobs:
 
       - name: Preflight --json emits valid JSON
         run: ./scripts/preflight.sh --json | python3 -m json.tool > /dev/null
+
+      - name: Preflight golden test (requirements.json = source unique)
+        run: ./tests/preflight/test.sh
+
+      - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists)
+        run: python3 tests/skills/check-frontmatter.py
 
       - name: Inventory script runs and emits valid JSON
         run: ./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null

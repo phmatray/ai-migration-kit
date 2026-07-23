@@ -1,6 +1,21 @@
 ---
 name: followups
-description: Consolide et met à jour les suivis ouverts des migrations (next_steps/deferred des migration/report.json + backlog du kit). Use whenever the user asks what remains open, wants a status of pending decisions or follow-ups across migrated repos, says a follow-up item is done, or decides to close/abandon one — triggers on « fais le point », « qu'est-ce qui reste », « suivis », « follow-ups », « next steps », « c'est fait, coche-le », « on ne le fera pas », /migrate-followups. Also run it at the end of every migration (phase 7) so the open tail stays current.
+description: >-
+  Consolide et met à jour les suivis ouverts des migrations (next_steps/deferred des
+  migration/report.json + backlog du kit). Use whenever the user asks what remains open, wants a
+  status of pending decisions or follow-ups across migrated repos, says a follow-up item is done,
+  or decides to close/abandon one — triggers on « fais le point », « qu'est-ce qui reste »,
+  « suivis », « c'est fait, coche-le », « on ne le fera pas », "what's still open", "status of the
+  follow-ups", "next steps", "mark it done", "we won't do that one", /migrate-followups. Also run
+  it at the end of every migration (phase 7) so the open tail stays current.
+license: MIT
+compatibility: >-
+  Requires python3 (scripts/followups.py) and read access to the migrated repos'
+  migration/report.json; git to commit updates at the source.
+metadata:
+  author: Philippe Matray
+  version: 1.6.0
+  suite: ai-migration-kit
 ---
 
 # Suivis de migration — agrégation et mise à jour
@@ -57,6 +72,15 @@ Le précédent : popcorn-time, « non poursuivi par décision, pas par manque de
 
 Ajouter à `next_steps` avec le format du rapport : `{ "text": …, "effort": "~N min", "owner": true }`
 si la décision appartient au propriétaire — puis dashboard + commit, comme ci-dessus.
+
+## Convertir un suivi en issue GitHub
+
+Quand le repo cible vit sur GitHub, un suivi qui mérite un vrai ticket se convertit via le skill
+**`create-issue`** du kit (brainstorm → spec → plan d'implémentation dans le corps de l'issue,
+profil du repo via `get-repo-profile`). Le rapport reste la vérité —
+jamais de liste parallèle : ajouter l'URL à l'entrée (`"issue": "https://github.com/…/issues/N"`)
+plutôt que de la retirer, puis dashboard + commit. Le suivi se clôt par le protocole « fait »
+quand l'issue est fermée ; l'issue pointe vers le repo, l'entrée pointe vers l'issue.
 
 ## Garde-fous
 

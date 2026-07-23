@@ -3,6 +3,44 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.6.0] — 2026-07-23
+
+Solution unifiée : le kit intègre les skills issue/PR génériques, et les prérequis ont une
+source unique.
+
+### Ajouté
+- **`requirements.json`** : source unique des prérequis (outils, MCP requis/recommandés, skills de
+  session — y compris les dépendances des skills issue/PR : gh, superpowers, code-review).
+  `scripts/preflight.sh` la lit désormais au lieu d'embarquer sa propre liste ; README et la
+  phase 0 du SKILL.md y pointent au lieu de dupliquer l'énumération (trois copies → une).
+  Testé en CI (`tests/preflight/test.sh` : JSON valide, couverture intégrale du manifest, échec
+  réel sur REQUIS manquant).
+- **Quatre skills issue/PR génériques intégrés au kit** — `skills/create-issue` (issue semée
+  brainstorm → spec → plan cochable), `skills/implement-issue` (plan → PR draft → ready, un commit
+  par tâche), `skills/merge-pr` (attente CI, boucle de corrections, squash-merge, suivis),
+  `skills/get-repo-profile` (générateur du profil par repo) + `skills/_shared`. Importés d'un autre
+  projet puis **dé-spécifiés** : descriptions, numéros d'issues CI, liens ADR, taxonomie de labels
+  et fichiers temporaires propres au repo d'origine retirés — tout fait spécifique au repo vit dans
+  le repo-profile (`.claude/skills/repo-profile.md`), comme l'abstraction le promettait. Le restant
+  de l'import (orchestrateur de flotte, lanceur d'IDE, profil du repo d'origine, settings.json aux
+  hooks inexistants) n'a pas été retenu.
+- **Pont `followups` → `create-issue`** : un suivi qui mérite un ticket se convertit en issue
+  GitHub via le skill du kit ; l'entrée du `report.json` garde l'URL de l'issue — jamais de liste
+  parallèle (SKILL.md `followups` + règle 8).
+- **Conformité au guide Anthropic des skills** (revue elon du 2026-07-23, rapport dans
+  `reviews/2026-07-23-elon/`) : les 6 descriptions tiennent sous la limite de 1024 caractères du
+  standard (3 compressées) et portent des déclencheurs bilingues FR/EN ; frontmatter complété sur
+  les 6 skills (`license: MIT`, `compatibility` — miroir distribution de `requirements.json` —,
+  `metadata.author/version/suite`) ; fichier `LICENSE` (MIT) ; **tests de déclenchement par skill**
+  (`tests/skills/<name>.triggers.md`, listes should / should-not en anglais) gardés en CI par
+  `tests/skills/check-frontmatter.py` (limites du guide + listes présentes) ; dédoublonnage
+  SKILL.md ↔ references sur `implement-issue` et `merge-pr` (les recettes gh/jq vivent une seule
+  fois, dans les references) ; sections **Troubleshooting** (erreur → cause → solution) dans
+  `legacy-upgrade` et les references lifecycle.
+- **`ARCHITECTURE.md`** : graphe d'appels des skills (mermaid, rendu par GitHub), graphe des
+  dépendances externes (MCP, plugins, outils), matrice de dépendances par skill et table des
+  sources uniques par préoccupation.
+
 ## [1.5.0] — 2026-07-23
 
 Le pipeline rend compte de sa queue : suivis consolidés et mis à jour à la source.

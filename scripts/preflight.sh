@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
 # preflight.sh — vérifie l'outillage requis/recommandé avant toute migration (phase 0).
+# La liste des prérequis vit dans requirements.json à la racine du kit (source unique) :
+# ce script la lit et l'évalue, il n'embarque aucune liste en dur.
 # Sortie : table d'états, ou JSON structuré avec --json (à verser dans migration/report.json).
 # Code retour 1 si un REQUIS manque, 0 sinon.
-# Les capacités de session (skills frontend-design, dataviz…) ne sont pas vérifiables
-# depuis bash : l'agent les confirme lui-même dans sa liste de skills (SKILL.md, phase 0, étape 2).
+# Les capacités de session (sessionSkills du manifest) ne sont pas vérifiables depuis bash :
+# l'agent les confirme lui-même dans sa liste de skills (SKILL.md, phase 0, étape 2).
 set -uo pipefail
 
 JSON=0
 [ "${1:-}" = "--json" ] && JSON=1
 
+KIT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REQ="$KIT_DIR/requirements.json"
+
+# Amorçage : python3 lit le manifest — sans lui, rien d'autre n'est vérifiable.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "MANQUANT ✗  python3 — requis pour lire requirements.json (et par les scripts du kit)" >&2
+  exit 1
+fi
+[ -f "$REQ" ] || { echo "ERR: manifest introuvable — $REQ" >&2; exit 2; }
+
 FAIL=0
 RESULTS=()
 
 record() { RESULTS+=("$1|$2|$3"); }
-check() { # level(requis|recommande), name, test-command, hint
-  if eval "$3" >/dev/null 2>&1; then record ok "$2" ""
-  elif [ "$1" = requis ]; then record manquant "$2" "$4"; FAIL=1
-  else record absent "$2" "$4"; fi
-}
 
 # SDK : comparaison numérique du major (>= 8) — pas d'énumération qui pourrit à chaque version .NET.
 sdk_ok() {
@@ -27,20 +34,43 @@ sdk_ok() {
 # Un serveur MCP configuré mais mort ne compte pas : sa ligne d'état ne doit pas signaler d'échec.
 mcp_ok() { claude mcp list 2>/dev/null | grep -i "$1" | grep -qivE 'fail|error|✗'; }
 
-check requis "dotnet SDK >= 8" "sdk_ok" "installer un SDK .NET LTS"
-check requis "git" "command -v git" "installer git"
-check requis "python3" "command -v python3" "requis par les scripts du kit (inventaire, dashboard)"
+# requirements.json → une ligne tabulée par entrée : kind, level, name, test/match, hint.
+manifest() {
+python3 - "$REQ" <<'PY'
+import json, sys
+req = json.load(open(sys.argv[1]))
+for t in req.get("tools", []):
+    print("\t".join(["tool", t["level"], t["name"], t["test"], t.get("hint", "")]))
+for m in req.get("mcps", []):
+    print("\t".join(["mcp", m["level"], m["name"], m["match"], m.get("hint", "")]))
+# "-" en 4e colonne : un champ vide serait avalé par read (tab = IFS whitespace en bash).
+for s in req.get("sessionSkills", []):
+    print("\t".join(["skill", s["level"], "skill " + s["name"], "-", s.get("when", "")]))
+PY
+}
 
-if command -v claude >/dev/null 2>&1; then
-  check requis "RoselineMCP connecté" "mcp_ok roseline" "claude mcp add roseline … (obligatoire pour l'analyse C#)"
-  check recommande "context7 MCP connecté" "mcp_ok context7" "recommandé : docs à jour des frameworks cibles"
-else
-  record inconnu "MCP (roseline, context7)" "CLI claude absente (normal en CI) — à confirmer en session"
-fi
+CLAUDE_CLI=1
+command -v claude >/dev/null 2>&1 || CLAUDE_CLI=0
 
-check recommande "gh CLI authentifié" "gh auth status" "publication GitHub (repos, Pages, CI)"
-check recommande "node / npx" "command -v npx" "Tailwind CSS (UI réécrites)"
-check recommande "Chrome headless" "command -v google-chrome || command -v chromium || test -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'" "vérification visuelle des rendus"
+while IFS=$'\t' read -r kind level name test hint; do
+  case "$kind" in
+    tool)
+      if eval "$test" >/dev/null 2>&1; then record ok "$name" ""
+      elif [ "$level" = requis ]; then record manquant "$name" "$hint"; FAIL=1
+      else record absent "$name" "$hint"; fi
+      ;;
+    mcp)
+      if [ "$CLAUDE_CLI" -eq 0 ]; then
+        record inconnu "$name" "CLI claude absente (normal en CI) — à confirmer en session"
+      elif mcp_ok "$test"; then record ok "$name" ""
+      elif [ "$level" = requis ]; then record manquant "$name" "$hint"; FAIL=1
+      else record absent "$name" "$hint"; fi
+      ;;
+    skill)
+      record inconnu "$name" "capacité de session — à confirmer par l'agent ($hint)"
+      ;;
+  esac
+done < <(manifest)
 
 if [ "$JSON" -eq 1 ]; then
   printf '{"ok": %s, "checks": [' "$([ "$FAIL" -eq 0 ] && echo true || echo false)"
@@ -54,7 +84,7 @@ if [ "$JSON" -eq 1 ]; then
   exit "$FAIL"
 fi
 
-echo "== ai-migration-kit préflight =="
+echo "== ai-migration-kit préflight (manifest : requirements.json) =="
 for r in "${RESULTS[@]}"; do
   IFS='|' read -r st name hint <<<"$r"
   case "$st" in

@@ -1,8 +1,9 @@
 {
   "name": "ai-migration-kit",
   "displayName": "AI Migration Kit",
-  "version": "1.5.0",
-  "description": "Complete, verified, easy and fast upgrades of legacy .NET applications, powered by RoselineMCP (Roslyn). Six-phase pipeline: assess, baseline, retarget, remediate, modernize, verify.",
+  "version": "1.6.0",
+  "description": "Complete, verified, easy and fast upgrades of legacy .NET applications, powered by RoselineMCP (Roslyn). Six-phase pipeline: assess, baseline, retarget, remediate, modernize, verify — plus generic GitHub issue/PR lifecycle skills (create-issue, implement-issue, merge-pr) parameterized by a per-repo profile.",
   "author": { "name": "Philippe Matray" },
-  "keywords": ["migration", "legacy", "dotnet", "csharp", "roslyn", "roseline", "upgrade"]
+  "license": "MIT",
+  "keywords": ["migration", "legacy", "dotnet", "csharp", "roslyn", "roseline", "upgrade", "github", "issues", "pull-requests"]
 }

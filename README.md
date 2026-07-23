@@ -27,9 +27,11 @@ Full portfolio audit, per-app reports and the lessons each wave fed back into th
 
 ## Prerequisites
 
-- [Claude Code](https://code.claude.com) with the **RoselineMCP** server configured (`claude mcp list` should show `roseline`).
-- .NET SDK for the target framework (latest LTS recommended).
-- The target application in a git repository.
+The canonical list — required and recommended tools, MCP servers and session skills — lives in
+[`requirements.json`](requirements.json), the single source that `scripts/preflight.sh` (phase 0)
+reads and verifies. In short: [Claude Code](https://code.claude.com) with **RoselineMCP** connected
+(`claude mcp list` should show `roseline`), a .NET SDK (latest LTS recommended), git, python3 — and
+the target application in a git repository.
 
 ## Install
 
@@ -64,7 +66,27 @@ The kit's front door: a **read-only executive audit** that speaks to decision-ma
 | 6 | **Verify** | Final gate + generated executive dashboard | `analyze_solution` | `migration/report.html` (generated) + `report.md`, all green |
 | 7 | **Deliver** | CI + deployment from kit templates, production verified | — | public URL answers on deep routes, screenshot reviewed |
 
-A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) gates the whole pipeline: required tooling (dotnet, git, python3, a **connected RoselineMCP**) hard-fails; recommended capabilities (context7 MCP, gh, node, headless Chrome) degrade **loudly** — every absence is recorded in the report with the fallback used. Session-level skills (frontend-design, dataviz) are confirmed by the agent itself at phase 0.
+A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) gates the whole pipeline. It reads the prerequisite manifest [`requirements.json`](requirements.json) — the single source for required/recommended tools, MCP servers and session skills: required items hard-fail; recommended capabilities degrade **loudly** — every absence is recorded in the report with the fallback used. Session-level skills (the manifest's `sessionSkills`) are confirmed by the agent itself at phase 0.
+
+## The issue/PR lifecycle skills
+
+The kit also ships four generic GitHub workflow skills — usable on any repo, not just migrations:
+
+| Skill | Job |
+|---|---|
+| `create-issue` | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
+| `implement-issue` | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
+| `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, file follow-ups, tear down. |
+| `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the three skills above consume. Run once per repo, commit the profile. |
+
+Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
+conflict hot-spots) lives in that committed per-repo profile — the skills themselves stay portable
+(`skills/_shared/` holds their common procedures). They are the natural tail of a migration:
+phase 7's `followups` queue hands items that deserve a real ticket to `create-issue` (the report
+keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Their dependencies
+(authenticated `gh`, the superpowers skill set, a code-review skill) are declared in
+[`requirements.json`](requirements.json). Call graph and full dependency matrix:
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Safety rails
 
@@ -76,12 +98,19 @@ A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) ga
 
 ```
 .claude-plugin/         plugin + marketplace manifests
+ARCHITECTURE.md         skill call graph + dependency matrix (mermaid)
+requirements.json       single source for prerequisites (tools, MCPs, session skills) — read by preflight.sh
 commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit, /migrate-followups
 skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
 skills/followups/       consolidated follow-up queue across migrated repos, updated at the source
+skills/create-issue/    generic issue/PR lifecycle: seeded issue (brainstorm → spec → plan)
+skills/implement-issue/ generic issue/PR lifecycle: plan → draft PR → ready
+skills/merge-pr/        generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
+skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
+skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main)
 scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
-tests/                  golden tests of the report generator and followups aggregator (CI-run)
+tests/                  golden tests of the report generator, followups aggregator and preflight (CI-run)
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
 docs/case-studies/      real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output
