@@ -46,6 +46,17 @@ A Claude Code plugin that upgrades legacy .NET applications through a seven-phas
 - **Easy** — one command: `/migrate`. Start read-only with `/migrate-assess`.
 - **Fast** — mechanical fixes are applied in bulk with Roslyn code fixes; agent time is spent only on judgment calls.
 
+## Features
+
+- **Seven-phase gated pipeline** — Assess → Baseline → Retarget → Remediate → Modernize → Verify → Deliver, each phase ending at a build/test/diagnostics gate before the next one starts.
+- **RoselineMCP-powered C# analysis** — Roslyn-backed solution diagnostics, bulk code fixes, surgical member edits, safe renames and reference/call-graph impact analysis drive every transformation step.
+- **Read-only executive audit** — `/migrate-audit` produces a costed report (effort in days, risk register, recommended target) per app, plus a portfolio value/effort synthesis across several apps.
+- **Resumable migrations** — gate commits and `migration/` artifacts let an interrupted `/migrate` re-enter at the last green phase instead of starting over.
+- **Generated executive dashboard** — phase 6 emits `migration/report.html` and `report.json` with measured per-phase timings derived from gate commits, not a manual stopwatch.
+- **Issue/PR lifecycle skills** — portable `create-issue`, `implement-issue`, `merge-pr` and `get-repo-profile` skills usable on any repo, driven by a committed per-repo profile.
+- **Preflight safety gate** — `scripts/preflight.sh` verifies required/recommended tools, MCP servers and session skills declared in `requirements.json` before phase 1 starts.
+- **CI/deployment templates** — `templates/ci-dotnet.yml` and `templates/deploy-pages-blazor.yml` wire a migrated app straight into GitHub Actions and Pages.
+
 ## Proven in production
 
 Four dead-platform apps (WinRT 8.x, Windows Phone, UWP) audited, migrated to Blazor WebAssembly
