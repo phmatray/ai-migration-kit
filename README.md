@@ -1,3 +1,5 @@
+![ai-migration-kit banner](.github/banner.png)
+
 # AI Migration Kit
 
 > « Mise à niveau complète, parfaite, facile et rapide de n'importe quelle application legacy » — powered by **RoselineMCP**.
