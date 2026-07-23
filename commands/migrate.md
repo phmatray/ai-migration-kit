@@ -9,4 +9,6 @@ Target: `$ARGUMENTS` if given (a `.sln` path or directory), otherwise auto-disco
 
 **Resume, never restart:** if the target already carries a `migration/` folder or a `migration/<yyyy-mm-dd>` branch, follow the skill's resume protocol — locate the last green gate (gate commits + artifacts), announce the resume point, and re-enter at the phase after it. A green phase is never replayed.
 
+**Verdict gate (end of phase 1):** branch on the `verdict` written to `migration/assessment.md`. `ALREADY_MODERN` → **stop after phase 1** exactly like `/migrate-assess` (present the assessment, then offer `/migrate-verify` for a quality report — modern ≠ clean; never run a net`N`→net`N` retarget). `RED_BY_TFM_LAG` → the phase-2 baseline is deferred; phase 3 retargets first and captures the first post-retarget green as the recorded baseline. `NORMAL` → the standard phases 1–7.
+
 Non-negotiables from the skill: RoselineMCP for all C# analysis/mutation, preview-first mutations, a red gate stops the pipeline, dedicated `migration/<yyyy-mm-dd>` branch, commit at every green gate, delivered = verified in production (phase 7, delivery playbook). Finish by presenting `migration/report.md`, the verified production URL — or the recorded owner decision when no production target exists — and the up-to-date follow-ups queue.

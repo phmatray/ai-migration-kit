@@ -22,42 +22,12 @@ rendra rentable (YAGNI sinon).
   de repo, le skill ne se déclenche presque jamais (positifs ≈ 0/3), donc la mesure est au
   plancher ; seul signal fiable : zéro sur-déclenchement sur les 10 quasi-pièges. Description
   d'origine conservée. Déclencheur : premier sous-déclenchement constaté en session réelle.
-- **Verdict « déjà moderne → stop » absent du pipeline** : `/migrate` confond « migrer une app
-  dépassée » et « il y a du travail à faire ». `phase-1-assess.md` étape 6 recommande *toujours*
-  « latest LTS TFM », même quand l'app y est déjà (net10.0 → net10.0), et rien n'empêche `/migrate`
-  d'enchaîner sur une phase 3 (retarget) à vide, une phase 5 (idiomes déjà modernes) à vide, puis
-  une phase 7 qui déploie du Blazor sur Pages… pour un outil CLI sans cible web. `audit-executive.md`
-  ne définit que deux profils (« TFM obsolète », « réécriture UI ») — aucun profil « sain, rien à
-  migrer », alors même que la leçon vague 3 y vit déjà à l'envers (« un robot de mise à jour n'est
-  pas un signe de vie » vise le faux-moderne : TFM ancien arrosé par Renovate ; le vrai-moderne
-  n'a pas de verdict). Correctif proposé : une **porte de modernité** en fin de phase 1 — si tous
-  les TFM ∈ {dernière LTS, cible demandée} ET aucun runtime hors-support ET aucun cluster d'API
-  obsolète (SYSLIB/packages.config/BinaryFormatter), alors cible recommandée = « aucune, déjà à
-  jour », `assessment.md` porte `verdict: ALREADY_MODERN`, et `/migrate` s'arrête après la phase 1
-  (comme `/migrate-assess`) au lieu d'entrer en phase 3. Router explicitement vers `/migrate-verify`
-  (porte qualité phase 6) le cas d'une app moderne qui veut quand même un rapport : moderne ≠ propre
-  — le seul `dotnet restore` qui a abouti sur StaticWGen a remonté une dépendance transitive à
-  vulnérabilité haute (NU1903, `System.Security.Cryptography.Xml` 9.0.0, dans `_build`). La
-  plomberie existe déjà (les variantes `/migrate-assess` = phase 1 seule et `/migrate-verify` =
-  phase 6 seule sont en place) ; seul manque le branchement du verdict. Déclencheur : premier
-  `/migrate` visant une cible déjà à jour — **atteint le 2026-07-23** (dogfood sur
-  `Atypical-Consulting/StaticWGen` : net10.0 partout, SDK épinglé 10.0.302 `rollForward:
-  latestFeature`, paquets à jour tenus par Renovate).
-- **Le retarget peut être le fix du baseline (baseline rouge par retard du TFM)** : la phase 2 exige
-  un build/restore vert « avant de toucher » — mais quand un robot (Renovate) pousse le graphe de
-  *paquets* au-delà du TFM, le repo est déjà rouge AVANT toute migration : `net9.0` + EF Core 10 /
-  ASP.NET 10 (paquets net10 uniquement) → `NU1202`, restore impossible. La porte « baseline vert
-  d'abord » ne peut pas tenir ; le retarget net9→net10 EST le prérequis du restore vert, pas
-  l'inverse. Correctif proposé : la phase 1/2 reconnaît le cas « baseline rouge causé par un TFM en
-  retard sur ses paquets » (signature : `NU1202 package X supports netN.0` sur un TFM `netM.0`,
-  M<N) et pose le premier vert POST-retarget comme baseline, en le consignant. Sœur de la porte
-  « déjà moderne → stop » (même étape, symptôme inverse). Corollaire (règles 5 + 9) : faire compiler
-  un build cassé de longue date peut exposer une grosse casse **pré-existante et non liée au
-  framework** (DotnetChain : refactor de domaine à moitié fini, 536 erreurs CS dont la prod) — le kit
-  répare tout le vérifiable et **nomme les bords** (tests d'une feature supprimée, refactor de design)
-  sans inventer le comportement manquant. Déclencheur : premier `/migrate` sur un baseline rouge par
-  retard de TFM — **atteint le 2026-07-23** (vague `phmatray/DotnetChain`, net9→net10, PR #64 mergée
-  dans `dev` : Renovate avait poussé EF/ASP.NET 10 sur un TFM net9 ; réparé en entier, 88 tests verts).
+> **Implémentés en v1.9.0 (2026-07-23) — sortis du backlog.** La **porte de verdict de fin de phase 1**
+> (`verdict: ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL`) couvre les deux items dont le déclencheur a
+> sauté ce jour-là : « déjà moderne → stop » (dogfood `Atypical-Consulting/StaticWGen`) et « le
+> retarget est le fix du baseline » (vague `phmatray/DotnetChain`, PR #64). C'étaient les deux bords
+> d'un même classifieur (même étape, symptômes inverses), livrés comme un seul changement. Détails :
+> `CHANGELOG.md` [1.9.0], cases de régression dans `phase-1-assess.md` (« Verdict fixtures »).
 
 ## Non-adoptions (décisions fermées)
 

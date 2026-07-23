@@ -1,6 +1,6 @@
 # Phase 3 — Retarget
 
-**Entry criteria:** phase 2 gate green; dependency order of projects known from the assessment.
+**Entry criteria:** phase 2 gate green — or *deferred* for `verdict: RED_BY_TFM_LAG`, where phase 2 could not reach a green baseline because the TFM lagged its packages (see phase 2, step 1); dependency order of projects known from the assessment.
 
 ## Steps
 
@@ -13,6 +13,7 @@
 3. **Break triage:** for each build error `File.cs(L,C): error CSxxxx` → `get_symbol_at_position(file, L)` to identify the symbol → `get_symbol_info` for its signature/docs. If the fix touches an API used elsewhere, run `find_references` first and apply the change bottom-up. Use `edit_member` (preview → apply) for the code change.
 4. After all projects: full `dotnet build` at solution level, then `dotnet test`.
 5. Commit per green project: `migration: phase 3 retarget <Project> -> <tfm>`.
+6. **Deferred baseline (`verdict: RED_BY_TFM_LAG` only).** The first green solution-level build + test on the new TFM **is** the baseline phase 2 deferred: record it now in `migration/baseline.md` (build result, test count + pass count, `analyze_solution` error/warning counts, `dotnet --version`) and commit `migration: phase 3 baseline captured post-retarget (N tests green, E errors / W warnings)`. Phases 4 and 6 compare against these numbers. (For `NORMAL`, the baseline already exists from phase 2 — skip this step.)
 
 ## RoselineMCP calls
 

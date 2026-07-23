@@ -14,7 +14,7 @@ compatibility: >-
   requirements.json at the kit root, verified by scripts/preflight.sh (phase 0).
 metadata:
   author: Philippe Matray
-  version: 1.8.0
+  version: 1.9.0
   suite: ai-migration-kit
 ---
 
@@ -49,7 +49,7 @@ there — never from the current working directory, which is the *target* repo.
 
 | # | Phase | Purpose | Exit gate | Reference |
 |---|-------|---------|-----------|-----------|
-| 1 | Assess | Read-only inventory and risk map | `migration/assessment.md` written; zero files modified | `references/phase-1-assess.md` |
+| 1 | Assess | Read-only inventory, risk map + **verdict** | `migration/assessment.md` written with a `verdict` (`ALREADY_MODERN` stops the pipeline here); zero files modified | `references/phase-1-assess.md` |
 | 2 | Baseline | Prove the app is green before touching it | Build + tests green; `migration/baseline.md` committed | `references/phase-2-baseline.md` |
 | 3 | Retarget | New TFM + updated packages, dependency order | Full solution builds on the new TFM | `references/phase-3-retarget.md` |
 | 4 | Remediate | Drive diagnostics to zero errors | 0 errors, warnings ≤ baseline, tests green | `references/phase-4-remediate.md` |
@@ -63,7 +63,7 @@ Load each phase's reference file **when you enter that phase**, not before — k
 
 All pipeline artifacts live in a `migration/` folder at the target repo root:
 
-- `migration/assessment.md` — phase 1 output (inventory, diagnostics histogram, risk map, recommended target).
+- `migration/assessment.md` — phase 1 output (inventory, diagnostics histogram, risk map, recommended target) led by the **`verdict`** (`ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL`) that `/migrate` branches on (phase-1-assess step 6).
 - `migration/baseline.md` — phase 2 output (build/test/diagnostic counts that later gates compare against).
 - `migration/report.md` — phase 6 output (before/after evidence, changes, follow-ups).
 - `migration/report.json` — the report's data: KPIs, gates, next steps / follow-up queue, the **phase timeline** (`phases[]`, derived from the gate commits — see `references/phase-6-verify.md`) and the **`lessons` entry** (rule 8). Single source rendered by `<kit>/scripts/report-dashboard.py` into `report.html`, and what `followups.py` reads.
@@ -71,6 +71,7 @@ All pipeline artifacts live in a `migration/` folder at the target repo root:
 ## Scope variants
 
 - `/migrate` — the full pipeline, phases 1–7 (assess → deliver). It ends in verified production (hard rule 8) — or with the recorded owner decision when no production target exists.
+- **Verdict gate** — phase 1 classifies the target (phase-1-assess step 6) and `/migrate` branches on it: `ALREADY_MODERN` (already at target, in support, no obsolete-API cluster) **stops after phase 1** like `/migrate-assess` and offers `/migrate-verify` (modern ≠ clean) — never a net`N`→net`N` retarget; `RED_BY_TFM_LAG` (baseline red because a bot pushed packages past the TFM — `NU1202`) defers the phase-2 baseline so the retarget can produce the first green (phase 3 records it); `NORMAL` runs the standard path.
 - **Resume** — `/migrate` on a repo that already carries a `migration/` folder or a `migration/<yyyy-mm-dd>` branch never starts over. Locate the last green gate: the gate commits name their phase (rule 4) and the artifacts confirm it (`assessment.md` → phase 1 done, `baseline.md` → phase 2, `report.md`/`report.html` → phase 6). Announce "in-progress migration detected — resuming at phase N", then re-enter at the phase after that gate. A green phase is never replayed.
 - `/migrate-assess` — phase 1 only. Absolute guarantee: no file in the target repo is created or modified except `migration/assessment.md`.
 - `/migrate-verify` — phase 6 only; re-runnable at any time after a migration.

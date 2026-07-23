@@ -1,9 +1,10 @@
 # Audit exécutif (`/migrate-audit`)
 
-Produit d'entrée du kit : un audit **lecture seule** qui parle aux décideurs. Deux profils d'app :
+Produit d'entrée du kit : un audit **lecture seule** qui parle aux décideurs. Trois profils d'app :
 
 - **Modernisation in place** (TFM obsolète, même plateforme UI) → l'audit prolonge `phase-1-assess.md` avec chiffrage et risques.
 - **Réécriture de plateforme UI** (WinRT, UWP, Windows Phone, WPF → Blazor) → la plateforme cible n'existe plus ou ne porte pas vers le web ; on chiffre la réécriture de l'UI et le **portage tel quel de la logique**.
+- **Saine, rien à migrer** (tous les TFM déjà à la cible, runtime en support, aucun cluster d'API obsolète) → verdict `ALREADY_MODERN` de la phase 1 (`phase-1-assess.md` étape 6) : l'audit conclut **« aucune migration requise »**, chiffrage nul, et n'oriente **jamais** vers un retarget net`N`→net`N`. Si le propriétaire veut une garantie, router vers `/migrate-verify` (porte qualité, phase 6) — moderne ≠ propre : un `dotnet restore` vert peut remonter une vulnérabilité transitive haute (dogfood StaticWGen : `NU1903`).
 
 ## Règles
 

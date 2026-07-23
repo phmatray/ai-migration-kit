@@ -1,0 +1,99 @@
+{
+  "schema": "legends-review/1",
+  "date": "2026-07-23",
+  "repo": "ai-migration-kit",
+  "branch": "main",
+  "commit": "a75be47",
+  "review_type": "solo",
+  "change_summary": "Backlog prioritization: two dogfood triggers fired the same day (2026-07-23) and they are the two edges of one end-of-phase-1 verdict gate.",
+  "scope": "docs/backlog.md against the phase files it targets (phase-1-assess.md, phase-2-baseline.md, commands/migrate.md); the decision of what to implement now.",
+  "reviewers": [
+    {
+      "id": "elon",
+      "name": "Elon Musk",
+      "emoji": "🔥",
+      "rating": 8,
+      "verdict": "You already know what to build — two triggers fired the same day and they're the same change; stop writing it down and wire the phase-1 verdict.",
+      "hard_truth": "Your own dogfooding found the pipeline does something dumb on the two most likely non-happy-path inputs — so why is that a backlog note and not the current diff?",
+      "assessment": [
+        { "area": "Backlog discipline", "rating": "green", "notes": "Every item carries an explicit profitability trigger and YAGNI otherwise; non-adoptions recorded. Rare and good." },
+        { "area": "Prioritization signal", "rating": "green", "notes": "Two of seven triggers fired via dogfooding; five have not. The file answers its own question." },
+        { "area": "Scope of the fix", "rating": "yellow", "notes": "The two fired items are one classifier at the end of phase 1, not two tickets — risk of splitting into contradictory logic." },
+        { "area": "Correctness of current pipeline", "rating": "red", "notes": "/migrate deploys Blazor for a CLI on an already-modern target, and phase 2 refuses TFM-lag-red repos it was built for." },
+        { "area": "Velocity", "rating": "yellow", "notes": "Healthy per-wave lessons, but the last two commits are backlog notes from dogfooding, not the fix they describe." },
+        { "area": "Test lock-in", "rating": "yellow", "notes": "The two dogfood cases prove the bug today but nothing pins them as regression cases for the new gate." }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": 1,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "correctness",
+      "title": "/migrate produces nonsense on an already-modern target (no ALREADY_MODERN verdict)",
+      "file": "skills/legacy-upgrade/references/phase-1-assess.md",
+      "line": 13,
+      "description": "Phase 1 step 6 always recommends 'latest LTS TFM', even net10.0 -> net10.0, and nothing stops /migrate from running an empty phase 3 (retarget), an empty phase 5 (idioms already modern), then a phase 7 that deploys Blazor to GitHub Pages for a tool with no web surface. audit-executive.md defines only 'obsolete TFM' and 'UI rewrite' profiles — there is no 'healthy, nothing to migrate' profile. Dogfood-proven on Atypical-Consulting/StaticWGen (net10.0 everywhere, SDK pinned, packages current).",
+      "recommendation": "Add a modernity gate at the end of phase 1: if all TFMs are in {latest LTS, requested target} AND no out-of-support runtime AND no obsolete-API cluster (SYSLIB/packages.config/BinaryFormatter), set recommended target = 'none, already up to date', write verdict: ALREADY_MODERN into assessment.md, and have /migrate stop after phase 1 (like /migrate-assess). Route a modern-but-wants-a-report case explicitly to /migrate-verify (phase 6) — modern != clean; StaticWGen's only successful restore surfaced NU1903 (System.Security.Cryptography.Xml 9.0.0, high-severity transitive).",
+      "effort": "M"
+    },
+    {
+      "id": 2,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "correctness",
+      "title": "Phase 2 green-baseline gate blocks the exact repos the tool exists for (TFM lagging its packages)",
+      "file": "skills/legacy-upgrade/references/phase-2-baseline.md",
+      "line": 7,
+      "description": "Phase 2 step 1 demands a green build/restore 'before touching' and says a red baseline is 'a prerequisite task, not part of the migration'. But when a bot (Renovate) pushes the package graph past the TFM — net9.0 + EF Core 10 / ASP.NET 10 (net10-only packages) — restore is impossible (NU1202) BEFORE any migration. The gate cannot hold: the net9->net10 retarget IS the prerequisite for a green restore, not the reverse. Dogfood-proven on phmatray/DotnetChain (PR #64 merged into dev, 88 tests green).",
+      "recommendation": "Have phase 1/2 recognize the 'baseline red caused by a TFM lagging its packages' case (signature: NU1202 'package X supports netN.0' on a TFM netM.0 with M<N), set verdict: RED_BY_TFM_LAG, and establish the first green POST-retarget as the recorded baseline. Corollary (rules 5 + 9): making a long-broken build compile can expose large pre-existing, framework-unrelated breakage (DotnetChain: half-finished domain refactor, 536 CS errors) — the kit repairs everything verifiable and names the edges without inventing missing behavior.",
+      "effort": "M"
+    },
+    {
+      "id": 3,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "simplicity",
+      "title": "Findings 1 and 2 are one end-of-phase-1 classifier, not two tickets",
+      "file": "commands/migrate.md",
+      "line": 10,
+      "description": "The backlog itself notes item #7 is the sister of item #6 — same step, inverse symptom. Both are decisions made at the single point where phase 1 hands off to phase 2. Shipping them as two independent PRs will grow two overlapping pieces of classification logic that can disagree (e.g. a repo that is both current-TFM and red-on-restore). The plumbing to act on the verdict already exists: /migrate-assess = phase 1 only, /migrate-verify = phase 6 only.",
+      "recommendation": "Wire ONE verdict field on assessment.md — verdict: {ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL} — computed at the end of phase 1, and branch /migrate on it at exactly one place: ALREADY_MODERN -> stop (offer /migrate-verify), RED_BY_TFM_LAG -> retarget-then-baseline, NORMAL -> proceed to phase 2 unchanged. Update the SKILL.md pipeline table and Artifact contract to document the verdict. No new scope command.",
+      "effort": "M"
+    },
+    {
+      "id": 4,
+      "reviewer": "elon",
+      "severity": "minor",
+      "category": "testing",
+      "title": "New verdict gate has no regression lock (dogfood cases will be forgotten)",
+      "file": "docs/backlog.md",
+      "line": 25,
+      "description": "StaticWGen (ALREADY_MODERN) and DotnetChain (RED_BY_TFM_LAG) prove the two verdicts today, but nothing pins them as regression cases. In three months the classifier can silently drift and re-introduce the empty-phase deploy or the false-negative baseline block, with no test to catch it.",
+      "recommendation": "Capture each dogfood case as a documented assessment fixture: the input signature (TFMs, package graph, diagnostics) and the expected verdict. Add them to the phase-1 reference (or a golden test alongside the other kit golden tests) so the verdict logic is covered the way followups (16/16) and the report generator already are.",
+      "effort": "S"
+    },
+    {
+      "id": 5,
+      "reviewer": "elon",
+      "severity": "info",
+      "category": "architecture",
+      "title": "The other five backlog items have unfired triggers — keep them unbuilt",
+      "file": "docs/backlog.md",
+      "line": 6,
+      "description": "sync-artifacts (needs ~5 migrated repos), mcp-list timeout (needs a first freeze), the 6-skill trigger bench (needs the next description edit), FR->EN reference translation (needs a non-francophone user), and followups trigger tuning (needs a first real-session under-trigger) all have triggers that have NOT fired. Building any now is speculative work against the backlog's own YAGNI rule.",
+      "recommendation": "Do nothing on these five this cycle. Leave them in the file with their triggers intact. Revisit each only when its named trigger actually fires.",
+      "effort": "S"
+    }
+  ],
+  "actions": [
+    { "rank": 1, "title": "Ship ONE end-of-phase-1 verdict gate covering both symptoms (ALREADY_MODERN stop + RED_BY_TFM_LAG retarget-then-baseline), NORMAL unchanged", "champion": "elon", "effort": "M", "finding_ids": [1, 2, 3] },
+    { "rank": 2, "title": "Pin StaticWGen and DotnetChain as documented regression cases for the verdict so it can't drift", "champion": "elon", "effort": "S", "finding_ids": [4] },
+    { "rank": 3, "title": "Leave the other five backlog items unbuilt until their triggers fire", "champion": "elon", "effort": "S", "finding_ids": [5] }
+  ],
+  "praise": [
+    "The backlog is disciplined the way most teams never manage: every item names the trigger that makes it profitable, and the non-adoptions (Idea Tree, interaction modes, novelty search) are recorded so a closed decision survives future sessions.",
+    "You found both of these bugs by dogfooding your own tool on real repos (StaticWGen, DotnetChain) — the fastest possible signal, and the reason you can prioritize from evidence instead of taste."
+  ]
+}

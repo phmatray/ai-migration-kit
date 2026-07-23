@@ -3,6 +3,38 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.9.0] — 2026-07-23
+
+Porte de **verdict de fin de phase 1** — les deux items du backlog dont le déclencheur a sauté le
+même jour (2026-07-23), livrés comme **un seul changement** parce que ce sont les deux bords d'un
+même classifieur (même étape, symptômes inverses). En une ligne : la phase 1 devient une vraie
+porte — elle classe la cible avant de laisser `/migrate` avancer, au lieu de toujours dire « go ».
+
+### Ajouté
+- **`verdict: <ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL>` en tête de `migration/assessment.md`**
+  (`phase-1-assess.md` étape 6) — calculé en fin de phase 1, c'est ce sur quoi `/migrate` branche
+  (SKILL.md : table du pipeline, contrat d'artefacts, Scope variants).
+- **`ALREADY_MODERN` → stop après la phase 1** (dogfood `Atypical-Consulting/StaticWGen`, net10
+  partout, paquets tenus par Renovate) : plus de phase 3 (retarget) à vide, ni de phase 7 déployant
+  du Blazor sur Pages pour un outil CLI sans cible web. Routé vers `/migrate-verify` — moderne ≠
+  propre : le restore vert de StaticWGen a remonté `NU1903` (vuln transitive haute). Troisième
+  profil « saine, rien à migrer » ajouté à `audit-executive.md` (`/migrate-audit`).
+- **`RED_BY_TFM_LAG` → le retarget EST le prérequis du baseline** (vague `phmatray/DotnetChain`,
+  net9→net10, PR #64) : quand un robot pousse les paquets au-delà du TFM (`NU1202`, restore
+  impossible avant migration), la porte « baseline vert d'abord » ne peut pas tenir. La phase 2
+  consigne le baseline comme *différé* (`phase-2-baseline.md` étape 1) et la phase 3 capte le
+  premier vert post-retarget comme baseline enregistré (`phase-3-retarget.md` étape 6).
+- **Verrou de régression** : les deux cas dogfood (StaticWGen, DotnetChain) épinglés en fixtures
+  documentées dans `phase-1-assess.md` (« Verdict fixtures ») — re-dériver un autre verdict pour
+  l'une de ces signatures est une régression, pas un jugement.
+
+### Modifié
+- `commands/migrate.md` et `commands/migrate-assess.md` : branchement et routage explicites selon
+  le verdict (aucune commande de portée nouvelle — la plomberie `/migrate-assess` = phase 1 seule
+  et `/migrate-verify` = phase 6 seule existait déjà).
+- `docs/backlog.md` : les deux items implémentés sortent du backlog (les cinq à déclencheur non
+  atteint et les non-adoptions restent).
+
 ## [1.8.0] — 2026-07-23
 
 Implémentation intégrale de la revue jobs du jour (`reviews/2026-07-23-jobs/`, lentille Arbor :
