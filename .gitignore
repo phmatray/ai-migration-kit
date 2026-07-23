@@ -3,3 +3,5 @@ obj/
 *.user
 .DS_Store
 migration/
+# Les fixtures de tests sont versionnées même sous migration/ :
+!tests/**/migration/

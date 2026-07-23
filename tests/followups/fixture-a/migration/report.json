@@ -1,0 +1,82 @@
+{
+  "app": "FixtureA",
+  "target": "net10.0",
+  "date": "2026-01-01",
+  "headline": "Migration de démonstration",
+  "badge": "Vérifié",
+  "summary": "Fixture du test golden — aucune donnée réelle. Chaque valeur ci-dessous est vérifiée par tests/report-dashboard/test.sh.",
+  "kpis": [
+    {
+      "v": "42",
+      "label": "tests verts"
+    },
+    {
+      "v": "85",
+      "unit": "%",
+      "label": "couverture mesurée (lignes)"
+    }
+  ],
+  "business": [
+    {
+      "strong": "Actif réactivé.",
+      "text": "Exemple de valeur business de la fixture."
+    }
+  ],
+  "coverage": {
+    "cobertura": "fixture-cobertura.xml",
+    "exclude": [
+      "Fixture.Web"
+    ],
+    "note": "fixture"
+  },
+  "before_after": [
+    [
+      "Plateforme",
+      "WinRT (morte)",
+      "Blazor WASM"
+    ]
+  ],
+  "code_bodies": [
+    {
+      "label": "Porté verbatim",
+      "loc": 100,
+      "tip": "code legacy copié tel quel"
+    },
+    {
+      "label": "Écrit (wrapper + UI)",
+      "loc": 50,
+      "tip": "code neuf, testé séparément"
+    }
+  ],
+  "code_note": "",
+  "gates": [
+    {
+      "title": "Baseline",
+      "text": "build + tests verts avant modification",
+      "commit": "abc1234"
+    }
+  ],
+  "branch": "migration/2026-01-01",
+  "next_steps": [
+    {
+      "text": "Tâche une heure",
+      "effort": "~1 h"
+    },
+    {
+      "text": "Décision propriétaire A",
+      "effort": "~10 min",
+      "owner": true
+    },
+    {
+      "text": "Tâche demi-heure à virgule",
+      "effort": "~0,5 h"
+    }
+  ],
+  "deferred": [
+    {
+      "strong": "Différé A",
+      "text": "pour mémoire."
+    }
+  ],
+  "method": "Fixture de test — générée pour vérifier le générateur, pas une migration réelle."
+}
