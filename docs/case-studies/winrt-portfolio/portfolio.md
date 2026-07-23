@@ -36,13 +36,12 @@ Six applications sur plateformes mortes ou mourantes représentent **34 611 LOC,
    - **[chords](chords.md)** : lib PCL 2015 portée verbatim (3 065 LOC, 0 modifiée), bug d'épellation de 11 ans corrigé par wrapper (les tests de 2015 enfin verts), 34 tests — **en ligne : https://phmatray.github.io/chords/**. Chronométrée : **18 min** grâce au process industrialisé — la mutualisation estimée à −15/20 % est très en-dessous de la réalité.
 2. **Vague 2 (18 j estimés)** : `fleurs-du-mal-winrt` — la vitrine publique. **✅ FAITE ET DÉPLOYÉE (2026-07-23).**
    - **[fleurs-du-mal-winrt](fleurs-du-mal-winrt.md)** : corpus (133 poèmes) et modèles portés octet pour octet, recherche legacy caractérisée (35 tests, couverture 91 %), frontispice original de l'artiste repris tel quel, thèmes Idéal/Spleen, PWA — **en lecture : https://phmatray.github.io/fleurs-du-mal-winrt/**. Chronométrée : **~30 min** (pour 18 j estimés).
-3. **Vague 3 (29 j estimés)** : `pokedex`. **✅ FAITE (2026-07-23) — publication en attente propriétaire.**
+3. **Vague 3 (29 j estimés)** : `pokedex`. **✅ FAITE ET DÉPLOYÉE (2026-07-23)** : https://phmatray.github.io/pokedexg/
    - **[pokedex](pokedex.md)** : l'audit corrigé sur pièces — le « backend moderne » était un
      zombie netcoreapp1.0 jamais branché au frontend ; la vraie source (SQLite veekun 49 Mo +
      15 requêtes SQL de 2014 + 2 713 assets) est conservée **verbatim** derrière une API
      statique générée au build. 53 tests, Roslyn 0/0, hors-ligne prouvé serveur coupé,
-     thèmes Rubis/Saphir. Chronométrée : **~1 h** (pour 29 j estimés). Le repo étant privé,
-     GitHub Pages attend la décision du propriétaire.
+     thèmes Rubis/Saphir. Chronométrée : **~1 h** (pour 29 j estimés).
 4. **Optionnel (28 j)** : `popcorn-time` en démo technique privée (risque YTS documenté).
 5. **Hold** : `winrt-mobile-vikings` — 0,5 j de vérification d'API avant toute décision. Un portefeuille se gère aussi en décidant ce qu'on ne migre **pas**.
 
