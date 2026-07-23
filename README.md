@@ -140,3 +140,17 @@ docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output
 ## Proof it works
 
 See [docs/demo-walkthrough.md](docs/demo-walkthrough.md): a genuine run of the pipeline migrating `samples/LegacyShop` from out-of-support **net6.0** to **net10.0**, with real RoselineMCP diagnostics before/after and green tests at the end.
+
+---
+
+<!-- portfolio-sections:start -->
+
+## Contributing
+
+Contributions are welcome. Open an issue first to discuss any significant change.
+
+1. Fork the repository and create your branch (`git checkout -b feat/my-feature`)
+2. Commit your changes (`git commit -m 'feat: ...'`)
+3. Push the branch and open a Pull Request
+
+<!-- portfolio-sections:end -->
