@@ -1,22 +1,22 @@
 {
-  "description": "Source unique des prérequis du kit (outils, serveurs MCP, skills de session). Lue par scripts/preflight.sh (phase 0) ; citée par README.md et skills/legacy-upgrade/SKILL.md. Ajouter/retirer un prérequis se fait ICI, jamais dans une liste en dur.",
+  "description": "Single source of truth for the kit's prerequisites (tools, MCP servers, session skills). Read by scripts/preflight.sh (phase 0); cited by README.md and skills/legacy-upgrade/SKILL.md. `level` is the migration-pipeline gate: required = phase-0 hard fail, recommended = documented degradation. `requiredBy` lists the skills that hard-require the entry at their own preconditions step; `token` is the string CI expects in each of those skills' compatibility frontmatter (tests/skills/check-frontmatter.py). Add or remove a prerequisite HERE, never in a hard-coded list. Values must not contain tab characters (tab is the internal field separator).",
   "tools": [
-    { "name": "dotnet SDK >= 8", "level": "requis", "test": "sdk_ok", "hint": "installer un SDK .NET LTS" },
-    { "name": "git", "level": "requis", "test": "command -v git", "hint": "installer git" },
-    { "name": "python3", "level": "requis", "test": "command -v python3", "hint": "requis par les scripts du kit (inventaire, dashboard)" },
-    { "name": "gh CLI authentifié", "level": "recommande", "test": "gh auth status", "hint": "publication GitHub (repos, Pages, CI) + skills issue/PR (create-issue, implement-issue, merge-pr)" },
-    { "name": "node / npx", "level": "recommande", "test": "command -v npx", "hint": "Tailwind CSS (UI réécrites)" },
-    { "name": "Chrome headless", "level": "recommande", "test": "command -v google-chrome || command -v chromium || test -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'", "hint": "vérification visuelle des rendus" }
+    { "name": "dotnet SDK >= 8", "level": "required", "test": "sdk_ok", "hint": "install an LTS .NET SDK" },
+    { "name": "git", "level": "required", "test": "command -v git", "hint": "install git" },
+    { "name": "python3", "level": "required", "test": "command -v python3", "hint": "required by the kit's scripts (inventory, dashboard)" },
+    { "name": "gh CLI (authenticated)", "level": "recommended", "test": "gh auth status", "requiredBy": ["create-issue", "implement-issue", "merge-pr"], "token": "gh CLI", "hint": "GitHub publishing (repos, Pages, CI)" },
+    { "name": "node / npx", "level": "recommended", "test": "command -v npx", "hint": "Tailwind CSS (rewritten UIs)" },
+    { "name": "Chrome headless", "level": "recommended", "test": "command -v google-chrome || command -v chromium || test -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'", "hint": "visual verification of rendered output" }
   ],
   "mcps": [
-    { "name": "RoselineMCP connecté", "match": "roseline", "level": "requis", "hint": "claude mcp add roseline … (obligatoire pour l'analyse C#)" },
-    { "name": "context7 MCP connecté", "match": "context7", "level": "recommande", "hint": "recommandé : docs à jour des frameworks cibles" }
+    { "name": "RoselineMCP connected", "match": "roseline", "level": "required", "hint": "claude mcp add roseline … (mandatory for all C# analysis)" },
+    { "name": "context7 MCP connected", "match": "context7", "level": "recommended", "hint": "recommended: up-to-date docs for the target frameworks" }
   ],
   "sessionSkills": [
-    { "name": "frontend-design", "level": "requis", "when": "avant d'écrire une UI réécrite" },
-    { "name": "dataviz", "level": "requis", "when": "avant tout dashboard (audit ou rapport)" },
-    { "name": "artifact-design", "level": "requis", "when": "avant tout dashboard (audit ou rapport)" },
-    { "name": "superpowers (brainstorming, writing-plans, using-git-worktrees, subagent-driven-development)", "level": "recommande", "when": "requis par les skills issue/PR — create-issue, implement-issue, merge-pr" },
-    { "name": "code-review", "level": "recommande", "when": "passe de revue avant le ready-flip (implement-issue)" }
+    { "name": "frontend-design", "level": "required", "when": "before writing any rewritten UI" },
+    { "name": "dataviz", "level": "required", "when": "before any dashboard (audit or report)" },
+    { "name": "artifact-design", "level": "required", "when": "before any dashboard (audit or report)" },
+    { "name": "superpowers (brainstorming, writing-plans, using-git-worktrees, subagent-driven-development)", "level": "recommended", "requiredBy": ["create-issue", "implement-issue"], "token": "superpowers", "when": "brainstorm/plan/worktree/TDD machinery for the lifecycle skills" },
+    { "name": "code-review", "level": "recommended", "requiredBy": ["implement-issue"], "token": "code-review", "when": "review pass before the ready-flip" }
   ]
 }

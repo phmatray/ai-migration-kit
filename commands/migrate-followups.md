@@ -1,14 +1,14 @@
 ---
-description: Consolide les suivis ouverts des repos migrés (décisions propriétaire, tâches, différés) et les met à jour à la source
+description: Consolidate the migrated repos' open follow-ups (owner decisions, tasks, deferrals) and update them at the source
 argument-hint: [repo-dir ...]
 ---
 
-Invoque le skill `followups`.
+Invoke the `followups` skill.
 
-Cibles : chaque répertoire passé dans `$ARGUMENTS` (sinon, les repos migrés connus de la
-session/mémoire ; sinon, demander). Ajouter le backlog du kit si accessible.
+Targets: each directory passed in `$ARGUMENTS` (otherwise, the migrated repos known from the
+session/memory; otherwise, ask). Add the kit's backlog if accessible.
 
-Discipline : agrégation exclusivement via `scripts/followups.py` (règle 7) ; toute mise à jour
-(fait / clos par décision / ajout) s'applique dans le `migration/report.json` du repo concerné,
-avec dashboard régénéré et commit — jamais de liste parallèle. Termine en présentant la vue
-consolidée et les actions possibles.
+Discipline: aggregation exclusively via `<kit>/scripts/followups.py` (rule 7; path anchoring per
+the skill); every update (done / closed by decision / addition) applies in the affected repo's
+`migration/report.json`, with the dashboard regenerated and a commit — never a parallel list.
+Finish by presenting the consolidated view and the possible actions.

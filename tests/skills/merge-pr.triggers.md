@@ -3,6 +3,9 @@
 Bench: skill-creator evals. Target: ≥ 90% of "should" queries, none of the "should NOT" queries.
 Very generic verb ("merge") — the "should NOT" list is the critical part.
 
+CI (check-frontmatter.py) guards only that this list exists with both sections; the bench
+itself is manual — re-run it via skill-creator whenever the skill's description changes.
+
 ## Should trigger
 
 - "merge PR 279"

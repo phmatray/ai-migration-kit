@@ -57,8 +57,10 @@ truthful instead of evaporating in chat.
 
 Solid = required (the skill stops or degrades hard without it). Dashed = recommended
 (documented degradation). Canonical machine-readable source: [`requirements.json`](requirements.json),
-verified by `scripts/preflight.sh` at phase 0; each skill's frontmatter mirrors its own needs in
-`compatibility`.
+verified by `scripts/preflight.sh` at phase 0; entries hard-required by a specific skill carry a
+`requiredBy` list, cross-checked in CI against that skill's `compatibility` frontmatter by
+`tests/skills/check-frontmatter.py` — so the manifest and the distributed metadata cannot drift
+apart silently.
 
 ```mermaid
 graph LR
@@ -135,7 +137,7 @@ target repo — generated once by `get-repo-profile`, committed, then consumed w
 
 | Concern | Single source |
 |---|---|
-| Prerequisites (runtime check) | `requirements.json` → `scripts/preflight.sh` (phase 0) |
+| Prerequisites (runtime check) | `requirements.json` (levels + per-skill `requiredBy`) → `scripts/preflight.sh` (phase 0) |
 | Prerequisites (distribution) | each SKILL.md's `compatibility` frontmatter |
 | Repo-specific facts for the lifecycle trio | `.claude/skills/repo-profile.md` (per target repo) |
 | Migration state & follow-up queue | `migration/report.json` per migrated repo (never a parallel list) |

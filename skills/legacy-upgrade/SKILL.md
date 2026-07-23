@@ -5,8 +5,8 @@ description: >-
   out-of-support runtime, obsolete APIs, old packages, or legacy idioms. Triggers on "upgrade this
   app", "migrate to .NET 10", "modernize this codebase", "this project targets an old framework",
   « mets à niveau cette app », « migre vers .NET 10 », « modernise ce code legacy », /migrate,
-  /migrate-assess, /migrate-verify. Drives a six-phase, gate-verified pipeline where RoselineMCP
-  performs all C# analysis and code transformation.
+  /migrate-assess, /migrate-verify. Drives a seven-phase, gate-verified pipeline — assessment
+  through verified production — where RoselineMCP performs all C# analysis and code transformation.
 license: MIT
 compatibility: >-
   Requires the RoselineMCP server (Roslyn) for all C# analysis and mutation, a .NET SDK >= 8, git
@@ -14,7 +14,7 @@ compatibility: >-
   requirements.json at the kit root, verified by scripts/preflight.sh (phase 0).
 metadata:
   author: Philippe Matray
-  version: 1.6.0
+  version: 1.7.0
   suite: ai-migration-kit
 ---
 
@@ -22,11 +22,16 @@ metadata:
 
 Upgrade a legacy application completely, verifiably, easily, and fast. You are the orchestrator: drive the phases **in order**, never advancing past a red gate.
 
-## Phase 0 — Préflight (avant toute autre action)
+Throughout this skill and its references, **`<kit>`** is the plugin root — resolve it as
+`<skill-dir>/../..`, where `<skill-dir>` is this skill's base directory (given when the skill
+loads). Every kit script and template path (`<kit>/scripts/…`, `<kit>/templates/…`) resolves from
+there — never from the current working directory, which is the *target* repo.
 
-1. **Exécuter `scripts/preflight.sh`** (déterministe ; un REQUIS manquant = stop). La liste canonique des prérequis — outils, serveurs MCP, skills de session, avec leur niveau requis/recommandé — vit dans **`requirements.json`** à la racine du kit : le script la lit, rien n'est dupliqué ici. Pour ajouter ou retirer un prérequis, on édite CE fichier. Relancer avec `--json` pour la version machine à verser dans `migration/report.json`.
-2. **Confirmer les capacités de session** (le script ne voit pas la session) : pour chaque entrée `sessionSkills` et chaque MCP de `requirements.json`, vérifier la présence dans TA liste de skills/outils. Les moments d'usage restent des règles dures : `mcp__roseline__*` **obligatoire** pour tout C# (sinon stop et demander la configuration) ; `context7` avant les phases 3/5 et avant toute UI ; `frontend-design` **avant d'écrire une UI réécrite** ; `dataviz` + `artifact-design` **avant tout dashboard** (audit ou rapport).
-3. **Dégradation documentée, jamais silencieuse** : chaque capacité recommandée absente est consignée dans le rapport avec la parade utilisée (sortie `preflight.sh --json` + les confirmations de session ; règle identique au repli RoselineMCP de l'audit).
+## Phase 0 — Preflight (before anything else)
+
+1. **Run `<kit>/scripts/preflight.sh`** (deterministic; a missing REQUIRED item = stop). The canonical prerequisite list — tools, MCP servers, session skills, each required or recommended, plus the `requiredBy` list where a specific skill hard-requires an entry — lives in **`<kit>/requirements.json`**: the script reads it, nothing is duplicated here. To add or remove a prerequisite, edit THAT file. Re-run with `--json` for the machine version to store in `migration/report.json`.
+2. **Confirm the session capabilities** (the script cannot see the session): for every `sessionSkills` entry and every MCP in `requirements.json`, verify presence in YOUR list of skills/tools. The usage moments stay hard rules: `mcp__roseline__*` **mandatory** for any C# (otherwise stop and ask for the configuration); `context7` before phases 3/5 and before any UI; `frontend-design` **before writing a rewritten UI**; `dataviz` + `artifact-design` **before any dashboard** (audit or report).
+3. **Documented degradation, never silent**: every absent recommended capability is recorded in the report with the fallback used (`preflight.sh --json` output + the session confirmations; same rule as the audit's RoselineMCP fallback).
 
 ## Hard rules
 
@@ -36,8 +41,8 @@ Upgrade a legacy application completely, verifiably, easily, and fast. You are t
 4. **Branch and commit discipline.** Work on a dedicated `migration/<yyyy-mm-dd>` branch in the target repo. Commit at every green gate with a message naming the phase.
 5. **No behavior changes.** The migration preserves observable behavior. Behavior fixes discovered along the way are recorded in the report as follow-ups, not applied.
 6. **The deliverable never narrates its migration.** No banner, footer, meta tag or user-facing string mentions the port, the tooling or the process — the end user gets a product, not a case study. Provenance lives in the README, `migration/report.md` and git history. (In-code comments that encode a maintenance constraint — "verbatim port, do not modernize" — stay.)
-7. **Scripts et templates du kit obligatoires.** Quand le kit fournit un outil pour une étape, l'improvisation est interdite : inventaire → `scripts/audit-inventory.sh` ; rapport → `scripts/report-dashboard.py` (jamais de HTML manuel) ; CI → `templates/ci-dotnet.yml` ; déploiement Blazor → `templates/deploy-pages-blazor.yml`. C'est ce qui rend les migrations reproductibles et comparables.
-8. **Livrée = en production.** Le pipeline ne s'arrête pas au vert local : suivre `references/delivery-playbook.md` (branche par défaut, workflows depuis les templates, Pages, vérification de la prod avec route profonde + capture regardée). La phase 7 se conclut par un passage du skill `followups` (`scripts/followups.py` sur les repos migrés) : la queue de suivis — décisions propriétaire, tâches, différés — est présentée à jour au moment de quitter le repo. Un suivi qui mérite un ticket se convertit en issue GitHub via le skill `create-issue` du kit (voir le skill `followups`).
+7. **Kit scripts and templates are mandatory.** When the kit ships a tool for a step, improvising is forbidden: inventory → `<kit>/scripts/audit-inventory.sh`; report → `<kit>/scripts/report-dashboard.py` (never hand-written HTML); CI → `<kit>/templates/ci-dotnet.yml`; Blazor deployment → `<kit>/templates/deploy-pages-blazor.yml`. This is what makes migrations reproducible and comparable.
+8. **Delivered = in production.** The pipeline does not stop at local green: follow `references/delivery-playbook.md` (default branch, workflows from the kit templates, Pages, production verified with a deep route + a reviewed screenshot). Phase 7 closes with a pass of the `followups` skill (`<kit>/scripts/followups.py` over the migrated repos): the follow-up queue — owner decisions, tasks, deliberate deferrals — is presented up to date before leaving the repo. A follow-up that deserves a real ticket becomes a GitHub issue via the kit's `create-issue` skill (see the `followups` skill). An app with **no production target** closes phase 7 by recording that owner decision in the report — documented, never silent.
 
 ## The pipeline
 
@@ -48,8 +53,8 @@ Upgrade a legacy application completely, verifiably, easily, and fast. You are t
 | 3 | Retarget | New TFM + updated packages, dependency order | Full solution builds on the new TFM | `references/phase-3-retarget.md` |
 | 4 | Remediate | Drive diagnostics to zero errors | 0 errors, warnings ≤ baseline, tests green | `references/phase-4-remediate.md` |
 | 5 | Modernize | Opt-in idiom upgrades | Build + tests green after each item | `references/phase-5-modernize.md` |
-| 6 | Verify | Final gate + report | `migration/report.html` généré + `report.md`; all gates green | `references/phase-6-verify.md` |
-| 7 | Deliver | Production (CI, Pages, vérif) | URL publique vérifiée (route profonde + capture) | `references/delivery-playbook.md` |
+| 6 | Verify | Final gate + report | `migration/report.html` generated + `report.md`; all gates green | `references/phase-6-verify.md` |
+| 7 | Deliver | Production (CI, Pages, verification) | Public URL verified (deep route + reviewed screenshot) | `references/delivery-playbook.md` |
 
 Load each phase's reference file **when you enter that phase**, not before — keep context small.
 
@@ -63,16 +68,16 @@ All pipeline artifacts live in a `migration/` folder at the target repo root:
 
 ## Scope variants
 
-- `/migrate` — phases 1–6.
+- `/migrate` — the full pipeline, phases 1–7 (assess → deliver). It ends in verified production (hard rule 8) — or with the recorded owner decision when no production target exists.
 - `/migrate-assess` — phase 1 only. Absolute guarantee: no file in the target repo is created or modified except `migration/assessment.md`.
 - `/migrate-verify` — phase 6 only; re-runnable at any time after a migration.
-- Non-.NET legacy apps: the six-phase methodology still applies, but phases 3–5 use the ecosystem's own tooling; RoselineMCP covers the C# path.
+- Non-.NET legacy apps: the same seven-phase methodology applies, but phases 3–5 use the ecosystem's own tooling; RoselineMCP covers the C# path.
 
 ## Common issues (error → cause → solution)
 
 | Error | Cause | Solution |
 |---|---|---|
-| Preflight prints `PRÉFLIGHT ÉCHOUÉ` on a required line | Required tool absent (dotnet/git/python3) or RoselineMCP not connected | Install the tool / `claude mcp add roseline …`, re-run `scripts/preflight.sh` — never start phase 1 on red |
+| Preflight prints `PREFLIGHT FAILED` on a required line | Required tool absent (dotnet/git/python3) or RoselineMCP not connected | Install the tool / `claude mcp add roseline …`, re-run `<kit>/scripts/preflight.sh` — never start phase 1 on red |
 | `mcp__roseline__*` missing from the session's tool list | Server configured but this session started without it (or it died) | Check `claude mcp list`, restart the session; without roseline, stop — hard rule 1 forbids C# work without it |
 | Build red right after the phase 3 retarget | Packages bumped out of dependency order | Roll back to the last green-gate commit; re-bump following the dependency graph, building between bumps |
 | Phase 4 gate: warnings above baseline | Bulk fixes introduced new diagnostics | `list_diagnostics` grouped by id, fix by code — never widen the baseline to pass the gate |

@@ -3,6 +3,56 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.7.0] — 2026-07-23
+
+Implémentation intégrale de la seconde revue elon du jour (`reviews/2026-07-23-elon-2/`, lentille
+cohérence / workflow prédictif / déterminisme) : les 9 findings résolus.
+
+### Modifié
+- **Le pipeline finit en production, partout** : `/migrate` couvre officiellement les phases 1–7
+  (la contradiction commande « 1–6 » / règle 8 « livrée = en production » est tranchée) ; la marque
+  « six-phase » corrigée en « seven-phase » (README, plugin.json, description du skill) ; une app
+  sans cible de production clôt la phase 7 par la décision propriétaire consignée — documentée,
+  jamais silencieuse.
+- **Ancrage `<kit>` des scripts et templates** : `legacy-upgrade` et `followups` résolvent
+  désormais tout chemin du kit depuis `<skill-dir>/../..` (comme `get-repo-profile` le faisait
+  déjà), jamais depuis le CWD — une installation marketplace fonctionne à froid. Verrouillé en CI
+  par un step « foreign working directory » (préflight, inventaire, followups, repo-profile
+  exécutés depuis un répertoire étranger).
+- **`requirements.json` exprime la requiredness par skill** : champ `requiredBy` (+ `token`) sur
+  gh CLI (create-issue, implement-issue, merge-pr), superpowers (create-issue, implement-issue)
+  et code-review (implement-issue) — la contradiction littérale « level: recommande / when:
+  requis » est éliminée. Le préflight affiche `[hard-required by: …]` et émet `requiredBy` en
+  JSON ; cross-check manifest ↔ frontmatter `compatibility` en CI (check-frontmatter.py).
+- **Le préflight émet son JSON via python3** (échappement réel, plus de printf artisanal ni de
+  séparateur `|` collisionnable — la dette backlog « échappement JSON des hints » est levée) ;
+  sortie et statuts en anglais (`ok`/`missing`/`absent`/`unknown`, niveaux
+  `required`/`recommended`).
+- **Anglais sur la surface distribuée** : SKILL.md `followups` et `legacy-upgrade` unifiés en
+  anglais (fini le FR/EN au milieu du fichier), commandes `migrate-audit` et `migrate-followups`
+  traduites. Restent français par décision : CHANGELOG, études de cas, sortie de `followups.py`
+  (elle alimente les rapports français) et 4 references de `legacy-upgrade` (dette backloguée
+  avec déclencheur).
+- `create-issue` ne prépare plus l'identité de commit (il ne committe jamais) ; `plugin.json`
+  n'énumère plus les phases (une string marketing qui répète le README dérive).
+
+### Ajouté
+- **`tests/repo-profile/test.sh`** : golden test du seul script du kit qui n'en avait pas —
+  `show` (profil présent / NO_PROFILE exit 3), `detect` hors git (exit 4), et le contrat TODO
+  sur un repo minimal (sections présentes + fallbacks réellement déclenchés).
+- **`implement-issue` : réconciliation du miroir PR à la reprise** — le PATCH de l'issue et
+  l'édition du corps de la PR ne sont pas atomiques ; la boucle du Step 6 resynchronise
+  désormais la liste `### Plan` depuis l'état canonique de l'issue avant de reprendre.
+- Note d'honnêteté dans les 6 listes `tests/skills/*.triggers.md` : la CI garde la présence,
+  le banc lui-même est manuel (entrée backlog avec déclencheur : prochaine modification de
+  description).
+
+### Corrigé
+- **`repo-profile.sh` : fallbacks TODO morts** — `grep … | head || echo TODO` ne peut jamais
+  tirer (head sort à 0 sur entrée vide) ; toutes les sondes passent par `emit_or_todo()` (une
+  seule convention, `probe()` supprimée) et le contrat « champ indétectable ⇒ ligne TODO » est
+  tenu (gardé par le nouveau golden test).
+
 ## [1.6.0] — 2026-07-23
 
 Solution unifiée : le kit intègre les skills issue/PR génériques, et les prérequis ont une

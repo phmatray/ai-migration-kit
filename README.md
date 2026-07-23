@@ -2,7 +2,7 @@
 
 > « Mise à niveau complète, parfaite, facile et rapide de n'importe quelle application legacy » — powered by **RoselineMCP**.
 
-A Claude Code plugin that upgrades legacy .NET applications through a six-phase, gate-verified pipeline. RoselineMCP (a Roslyn-powered MCP server) is the engine for every C# analysis and transformation step: solution diagnostics, bulk code fixes, surgical member edits, safe renames, and impact analysis via references and call graphs.
+A Claude Code plugin that upgrades legacy .NET applications through a seven-phase, gate-verified pipeline that ends in verified production. RoselineMCP (a Roslyn-powered MCP server) is the engine for every C# analysis and transformation step: solution diagnostics, bulk code fixes, surgical member edits, safe renames, and impact analysis via references and call graphs.
 
 - **Complete** — from first assessment to a verified migration report, not just a csproj bump.
 - **Verified** — every phase ends at a gate (build, tests, diagnostics baseline); a red gate stops the pipeline.
@@ -46,7 +46,7 @@ claude plugin install ai-migration-kit
 cd your-legacy-app
 claude
 > /migrate-assess          # read-only audit → migration/assessment.md
-> /migrate                 # full pipeline (phases 1–6)
+> /migrate                 # full pipeline (phases 1–7, through verified production)
 > /migrate-verify          # re-runnable final quality gate
 ```
 
@@ -66,7 +66,7 @@ The kit's front door: a **read-only executive audit** that speaks to decision-ma
 | 6 | **Verify** | Final gate + generated executive dashboard | `analyze_solution` | `migration/report.html` (generated) + `report.md`, all green |
 | 7 | **Deliver** | CI + deployment from kit templates, production verified | — | public URL answers on deep routes, screenshot reviewed |
 
-A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) gates the whole pipeline. It reads the prerequisite manifest [`requirements.json`](requirements.json) — the single source for required/recommended tools, MCP servers and session skills: required items hard-fail; recommended capabilities degrade **loudly** — every absence is recorded in the report with the fallback used. Session-level skills (the manifest's `sessionSkills`) are confirmed by the agent itself at phase 0.
+A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) gates the whole pipeline. It reads the prerequisite manifest [`requirements.json`](requirements.json) — the single source for required/recommended tools, MCP servers and session skills: required items hard-fail; recommended capabilities degrade **loudly** — every absence is recorded in the report with the fallback used, and entries a specific skill hard-requires carry a `requiredBy` list that skill enforces at its own preconditions step. Session-level skills (the manifest's `sessionSkills`) are confirmed by the agent itself at phase 0.
 
 ## The issue/PR lifecycle skills
 

@@ -1,0 +1,211 @@
+{
+  "schema": "legends-review/1",
+  "date": "2026-07-23",
+  "repo": "ai-migration-kit",
+  "branch": "main",
+  "commit": "2a3bef8",
+  "review_type": "solo",
+  "change_summary": "Revue de v1.6.0 (solution unifiée : skills lifecycle intégrés, requirements.json source unique) sous la lentille demandée : cohérence des skills, workflow prédictif, déterminisme.",
+  "scope": "Le commit v1.6.0 intégral (34 fichiers, ~3 200 lignes) : les 6 SKILL.md, _shared/, references, scripts (preflight.sh, repo-profile.sh), tests (preflight, check-frontmatter, triggers), commands/, manifests, ARCHITECTURE.md, README.",
+  "reviewers": [
+    {
+      "id": "elon",
+      "name": "Elon Musk",
+      "emoji": "🔥",
+      "rating": 7.5,
+      "verdict": "L'usine est réelle et la discipline est réelle — mais un kit qui vend du déterminisme ne peut pas avoir trois réponses à « où finit /migrate » et des scripts introuvables dès qu'on l'installe sans son auteur.",
+      "hard_truth": "Un inconnu installe le plugin depuis la marketplace demain et tape /migrate dans son repo — à quelle ligne est-ce que ça casse, et pourquoi faut-il encore que ce soit vous dans la pièce pour que le « déterministe » fonctionne ?",
+      "assessment": [
+        {
+          "area": "Complexity",
+          "rating": "yellow",
+          "notes": "~2 900 lignes de prose lifecycle ; divulgation progressive bien faite, mais cérémonie résiduelle (create-issue prépare une identité de commit jamais utilisée)."
+        },
+        {
+          "area": "Performance",
+          "rating": "green",
+          "notes": "References chargées par phase, scripts en une passe, descriptions sous la limite — le contexte traité en ressource rare."
+        },
+        {
+          "area": "Security",
+          "rating": "green",
+          "notes": "eval des champs test de requirements.json : assumé mais ce fichier est du code, pas de la config. Auth gh vérifiée avant tout acte irréversible."
+        },
+        {
+          "area": "Observability",
+          "rating": "green",
+          "notes": "Dégradation bruyante par doctrine, préflight --json versé au rapport, golden tests, dashboards."
+        },
+        {
+          "area": "Maintainability",
+          "rating": "yellow",
+          "notes": "La discipline « source unique » est réelle — et trois dérives de contrat ont shippé dans le commit qui la revendique."
+        },
+        {
+          "area": "Test Coverage",
+          "rating": "yellow",
+          "notes": "4 scripts golden-testés + garde frontmatter ; mais repo-profile.sh a zéro test et le banc de déclenchement n'est jamais exécuté."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": 1,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "coherence",
+      "title": "Où finit /migrate ? Trois contrats contradictoires autour de la phase 7",
+      "file": "skills/legacy-upgrade/SKILL.md",
+      "line": 67,
+      "description": "commands/migrate.md dit « phases 1 à 6, présente migration/report.md ». La règle 8 du SKILL.md dit « Livrée = en production — le pipeline ne s'arrête pas au vert local ». La table du pipeline liste une phase 7 (Deliver) que la marque nie (« six-phase » dans README ligne 5 et plugin.json) et qu'aucune commande ne porte. Un utilisateur ne peut pas prédire si /migrate se termine sur un rapport local ou une URL publique vérifiée — sur le workflow phare du kit. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : /migrate couvre désormais les phases 1–7 (commands/migrate.md + scope variants du SKILL.md) ; marque « seven-phase » corrigée dans README et la description du skill ; l'énumération de phases de plugin.json supprimée ; le cas « pas de cible de production » clôt la phase 7 par la décision propriétaire consignée.",
+      "recommendation": "Trancher : soit /migrate couvre 1–7 (mettre à jour commands/migrate.md et la marque « six-phase » partout : README, plugin.json, intro du SKILL.md), soit la livraison devient une commande explicite (/migrate-deliver) et la règle 8 est reformulée comme contrat de cette commande. Une seule réponse, répétée sur toutes les surfaces.",
+      "effort": "S",
+      "resolved": true
+    },
+    {
+      "id": 2,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "determinism",
+      "title": "Chemins des scripts du kit indéfinis en installation plugin — deux conventions, une casse",
+      "file": "skills/legacy-upgrade/SKILL.md",
+      "line": 27,
+      "description": "legacy-upgrade phase 0 dit « scripts/preflight.sh », followups dit « python3 scripts/followups.py » (et report-dashboard.py) — chemins relatifs au CWD, qui est le repo cible, pas le kit. Installé depuis la marketplace, ces fichiers sont introuvables : le pipeline se bloque, ou l'agent improvise — ce que la règle 7 interdit précisément. get-repo-profile a résolu ce problème avec l'ancrage <skill-dir> ; les skills de la suite migration ne l'ont pas suivi. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : ancrage <kit> = <skill-dir>/../.. défini dans legacy-upgrade (phase 0, règles 7-8) et followups, commandes alignées ; step CI « foreign working directory » exécutant préflight, inventaire, followups et repo-profile depuis un répertoire étranger.",
+      "recommendation": "Ancrer chaque appel de script sur <skill-dir> (ou une résolution KIT_DIR documentée en tête de chaque SKILL.md), comme get-repo-profile. Ajouter un test CI qui exécute preflight.sh et followups.py depuis un répertoire de travail étranger au kit pour verrouiller la convention.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 3,
+      "reviewer": "elon",
+      "severity": "major",
+      "category": "coherence",
+      "title": "requirements.json aplatit les niveaux par suite — « level: recommande / when: requis » dans la même entrée",
+      "file": "requirements.json",
+      "line": 19,
+      "description": "L'entrée superpowers porte level « recommande » et un champ when qui dit littéralement « requis par les skills issue/PR ». Même contradiction pour gh et code-review : recommandés dans le manifest, requis dans le frontmatter compatibility des trois skills lifecycle et en gras dans la matrice d'ARCHITECTURE.md. Conséquence concrète : le préflight sort vert sans gh, l'utilisateur croit le kit prêt, et /create-issue s'arrête net à l'étape 1. La « source unique » perd exactement l'information que v1.6.0 prétend unifier. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : requiredBy + token ajoutés au manifest (gh CLI, superpowers, code-review) — la contradiction level/when éliminée ; le préflight affiche [hard-required by: …] et émet requiredBy en JSON (golden test étendu) ; cross-check manifest ↔ compatibility en CI (check-frontmatter.py).",
+      "recommendation": "Étendre le schéma du manifest avec la requiredness par suite (ex. requiredBy: [\"lifecycle\"] vs [\"migration\"]) ; le préflight affiche le niveau par suite. Ajouter un test golden croisant requirements.json ↔ le frontmatter compatibility de chaque skill, pour que la prochaine divergence casse la CI et non l'utilisateur.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 4,
+      "reviewer": "elon",
+      "severity": "minor",
+      "category": "correctness",
+      "title": "repo-profile.sh detect : les fallbacks TODO après pipeline sont du code mort",
+      "file": "skills/get-repo-profile/scripts/repo-profile.sh",
+      "line": 72,
+      "description": "« grep … | head -5 || echo TODO » : head (comme sed et sort aux lignes 77 et 129-130) sort à 0 sur entrée vide, donc le || echo ne s'exécute jamais. Le contrat du script — « tout champ sans réponse imprime TODO » — est violé sur l'identité de commit et le grain d'architecture, les deux champs où generating.md dit qu'une valeur fabriquée est une mine. La fonction probe() gère ce cas correctement mais ces sondes inline la contournent. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : toutes les sondes passent par emit_or_todo() (capture puis test de vacuité), probe() supprimée — une seule convention ; le contrat TODO est gardé par le nouveau golden test.",
+      "recommendation": "Faire passer toutes les sondes par probe() (qui teste la vacuité de la sortie), ou capturer la sortie dans une variable et tester [ -n ] avant d'imprimer le fallback TODO. Une seule convention dans le script.",
+      "effort": "S",
+      "resolved": true
+    },
+    {
+      "id": 5,
+      "reviewer": "elon",
+      "severity": "minor",
+      "category": "testing",
+      "title": "repo-profile.sh est le seul script du kit sans test — jamais exécuté en CI",
+      "file": "skills/get-repo-profile/scripts/repo-profile.sh",
+      "line": 1,
+      "description": "preflight.sh, report-dashboard.py, followups.py et contrast-check.py sont tous golden-testés en CI. Les 143 lignes de sondes du script le plus récent ne sont exécutées nulle part : une régression (comme le finding 4, déjà présent) ne serait jamais détectée. C'est la doctrine du kit — outillage obligatoire ⇒ outillage testé — appliquée partout sauf sur le dernier arrivé. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : tests/repo-profile/test.sh créé (show sans/avec profil, detect hors git exit 4, contrat TODO sur repo minimal) et branché en CI.",
+      "recommendation": "Golden test en CI : « show » sur un répertoire sans profil (attend NO_PROFILE, exit 3) et avec profil fixture ; « detect » sur un repo fixture (samples/LegacyShop convient) en vérifiant les sections attendues ET la présence des lignes TODO sur les champs indétectables — ce qui aurait attrapé le finding 4.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 6,
+      "reviewer": "elon",
+      "severity": "minor",
+      "category": "correctness",
+      "title": "preflight --json : JSON fabriqué au printf sans échappement, séparateur interne « | »",
+      "file": "scripts/preflight.sh",
+      "line": 76,
+      "description": "La sortie --json est assemblée par printf sans échappement, et les résultats transitent par un séparateur « | » (record/IFS). Un hint de requirements.json contenant un guillemet double, un antislash ou un pipe corrompt silencieusement la sortie JSON ou le parsing interne — précisément le genre de casse silencieuse que la doctrine du kit interdit. python3 est déjà une dépendance dure du même script (il lit le manifest). ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : JSON émis par python3 (json.dumps, résultats passés en argv), séparateur tab documenté dans le manifest ; la dette backlog « échappement JSON des hints » est levée.",
+      "recommendation": "Émettre le JSON via python3 (json.dumps) à partir des résultats — le script paie déjà le coût de python3 ; supprimer l'émetteur printf et le séparateur « | » au profit d'un format sans collision (tab, déjà utilisé pour le manifest).",
+      "effort": "S",
+      "resolved": true
+    },
+    {
+      "id": 7,
+      "reviewer": "elon",
+      "severity": "minor",
+      "category": "testing",
+      "title": "Les listes de déclenchement sont des données statiques — la cible ≥ 90 % n'est exécutée nulle part",
+      "file": "tests/skills/check-frontmatter.py",
+      "line": 58,
+      "description": "La CI garde l'existence des tests/skills/*.triggers.md et la non-vacuité de leurs sections — pas le comportement. Seul followups a jamais vu le banc skill-creator (16/16, v1.5.0) ; les cinq autres listes, dont les verbes ultra-génériques de create-issue et merge-pr, n'ont jamais été exécutées. La dette était actée dans la revue du matin ; tant qu'elle reste ouverte, le mot « tests » surpromet le déterminisme du déclenchement. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : note d'honnêteté ajoutée aux 6 listes (la CI garde la présence, le banc est manuel) + entrée backlog avec déclencheur « prochaine modification de description » ; l'exécution du banc lui-même attend ce déclencheur.",
+      "recommendation": "Passer les six listes au banc skill-creator une première fois (baseline), puis instituer la règle déjà écrite : re-bencher à chaque modification de description. Si le banc reste manuel, renommer honnêtement (contracts/ plutôt que tests/) ou documenter dans le fichier que la garde CI ne couvre que la présence.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 8,
+      "reviewer": "elon",
+      "severity": "info",
+      "category": "coherence",
+      "title": "Patchwork linguistique : FR, EN, et FR/EN mélangés dans le même fichier",
+      "file": "skills/legacy-upgrade/SKILL.md",
+      "line": 25,
+      "description": "followups est 100 % français, les quatre skills lifecycle 100 % anglais, et legacy-upgrade bascule au milieu du fichier : règles 1-6 en anglais, phase 0 et règles 7-8 en français. Les modèles s'en accommodent ; les contributeurs et les installeurs d'un kit public, moins. L'incohérence signale un produit assemblé plutôt qu'unifié — à rebours du titre de la release. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : SKILL.md legacy-upgrade et followups unifiés en anglais, commandes migrate-audit/migrate-followups traduites ; restent français par décision documentée : CHANGELOG, études de cas, sortie de followups.py, 4 references (dette backloguée avec déclencheur).",
+      "recommendation": "Une langue par surface : l'anglais pour tout ce qui est distribué (SKILL.md, references, README technique), le français là où l'audience est délibérément francophone (case studies). Au minimum, unifier legacy-upgrade en un seul fichier monolingue.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 9,
+      "reviewer": "elon",
+      "severity": "info",
+      "category": "robustness",
+      "title": "implement-issue : un crash entre le PATCH de l'issue et l'édition de la PR laisse le miroir périmé pour toujours",
+      "file": "skills/implement-issue/SKILL.md",
+      "line": 199,
+      "description": "Step 6.4 coche la tâche dans deux sources : le plan de l'issue (canonique) puis la liste ### Plan de la PR (miroir). Un crash entre les deux laisse le miroir en retard, et la reprise — qui ne lit que l'issue — ne le réconcilie jamais : la ligne non cochée reste fausse jusqu'au merge, en contradiction avec la promesse « Step 6 keeps it in lock-step ». ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : le Step 6 d'implement-issue ouvre désormais par la réconciliation du miroir ### Plan depuis l'état canonique de l'issue à toute reprise ; gotcha ajouté dans github-mechanics.md.",
+      "recommendation": "Ajouter une réconciliation au démarrage du Step 6 (reprise) ou au Step 9 : régénérer la liste ### Plan de la PR depuis l'état canonique de l'issue — une passe idempotente et bon marché.",
+      "effort": "S",
+      "resolved": true
+    }
+  ],
+  "actions": [
+    {
+      "rank": 1,
+      "title": "Trancher le contrat de phase 7 (/migrate jusqu'à la production, ou une commande de livraison explicite) et corriger la marque « six phases » partout",
+      "champion": "elon",
+      "effort": "S",
+      "finding_ids": [
+        1
+      ]
+    },
+    {
+      "rank": 2,
+      "title": "Ancrer tous les appels de scripts du kit sur <skill-dir> comme get-repo-profile, prouvé par un test CI depuis un CWD étranger",
+      "champion": "elon",
+      "effort": "M",
+      "finding_ids": [
+        2
+      ]
+    },
+    {
+      "rank": 3,
+      "title": "requirements.json : requiredness par suite + test golden manifest ↔ compatibility ; tester repo-profile.sh, émettre le JSON du préflight via python3",
+      "champion": "elon",
+      "effort": "M",
+      "finding_ids": [
+        3,
+        4,
+        5,
+        6
+      ]
+    }
+  ],
+  "praise": [
+    "Le pont followups → create-issue → implement-issue → merge-pr, avec l'URL gardée dans le report.json (« jamais de liste parallèle »), est la bonne décision de premiers principes : une seule vérité, les autres surfaces pointent vers elle.",
+    "ARCHITECTURE.md documente un graphe d'appels qui correspond réellement au code des skills — plus rare que ça ne devrait l'être.",
+    "La dé-spécification des skills importés est réelle : tout fait propre au repo d'origine vit dans le repo-profile, comme l'abstraction le promettait — et ce qui ne méritait pas l'import n'a pas été importé.",
+    "_shared/ (preconditions, sync-with-main) élimine la duplication entre les trois skills lifecycle au lieu de la documenter.",
+    "La table des trois causes d'un check « skipped » dans merge-pr (et le refus de gater sur un nom de job) est de l'ingénierie de terrain codifiée — le genre de savoir qui meurt d'habitude dans un terminal.",
+    "Le golden test du préflight vérifie l'échec réel (PATH réduit → exit 1) et pas seulement le chemin heureux."
+  ]
+}

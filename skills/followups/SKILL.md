@@ -14,78 +14,82 @@ compatibility: >-
   migration/report.json; git to commit updates at the source.
 metadata:
   author: Philippe Matray
-  version: 1.6.0
+  version: 1.7.0
   suite: ai-migration-kit
 ---
 
-# Suivis de migration — agrégation et mise à jour
+# Migration follow-ups — aggregation and updates
 
-Le pipeline livre des apps vérifiées **et** une queue de suivis : décisions qui n'appartiennent
-qu'au propriétaire, tâches rapides, différés assumés. Cette queue vit déjà, structurée, dans le
-`migration/report.json` de chaque repo migré (`next_steps`, `deferred`) — ce skill la fait
-remonter et la met à jour **à la source**. Jamais de liste parallèle : un tracker séparé
-divergerait des rapports, qui sont la vérité exécutive et l'entrée du dashboard.
+The pipeline delivers verified apps **and** a queue of follow-ups: decisions that belong to the
+owner alone, quick tasks, deliberate deferrals. That queue already lives, structured, in each
+migrated repo's `migration/report.json` (`next_steps`, `deferred`) — this skill surfaces it and
+updates it **at the source**. Never a parallel list: a separate tracker would diverge from the
+reports, which are the executive truth and the dashboard's input.
 
-## Faire le point
+Throughout, **`<kit>`** is the plugin root — resolve it as `<skill-dir>/../..`, where
+`<skill-dir>` is this skill's base directory (given when the skill loads). Kit script paths
+resolve from there, never from the current working directory.
 
-1. Déterminer les repos : ceux passés en argument, sinon les repos migrés connus de la
-   conversation/mémoire, sinon demander. Ajouter `--backlog docs/backlog.md` si le repo du kit
-   est accessible (dettes à déclencheur).
-2. Exécuter l'outil du kit (obligatoire — règle 7, jamais d'agrégation manuelle) :
+## Taking stock
+
+1. Determine the repos: those passed as arguments, else the migrated repos known from the
+   conversation/memory, else ask. Add `--backlog <kit>/docs/backlog.md` if the kit repo is
+   accessible (trigger-tagged debts).
+2. Run the kit's tool (mandatory — rule 7, never manual aggregation):
    ```bash
-   python3 scripts/followups.py <repo1> <repo2> … --backlog docs/backlog.md
+   python3 "<kit>/scripts/followups.py" <repo1> <repo2> … --backlog "<kit>/docs/backlog.md"
    ```
-3. Présenter la sortie telle quelle (elle est déjà triée : décisions propriétaire d'abord,
-   puis tâches par effort croissant) et proposer la suite : trancher une décision, exécuter
-   une tâche rapide, ou clore par décision.
+3. Present the output as-is (it is already sorted: owner decisions first, then tasks by
+   increasing effort) and offer the next moves: settle a decision, run a quick task, or close
+   by decision.
 
-L'outil signale les repos sans `migration/report.json` — c'est une erreur à remonter, pas à
-masquer (un repo migré sans rapport a un problème plus grave que ses suivis).
+The tool flags repos without a `migration/report.json` — that is an error to surface, not to
+mask (a migrated repo without a report has a bigger problem than its follow-ups).
 
-## Marquer un suivi « fait »
+## Marking a follow-up "done"
 
-Un suivi terminé disparaît de `next_steps` — l'historique vit dans git, pas dans le JSON :
+A finished follow-up disappears from `next_steps` — history lives in git, not in the JSON:
 
-1. Dans le repo concerné : retirer l'entrée de `next_steps` dans `migration/report.json`.
-2. Dans `migration/report.md`, cocher la ligne correspondante (`- [x] …`) — la trace lisible.
-3. Régénérer le dashboard : `python3 scripts/report-dashboard.py migration/report.json`
-   (chemin du kit ; la sortie atterrit à côté du report.json).
-4. Committer dans ce repo : `chore: suivi clos — <résumé de l'item>`.
+1. In the affected repo: remove the entry from `next_steps` in `migration/report.json`.
+2. In `migration/report.md`, tick the matching line (`- [x] …`) — the readable trace.
+3. Regenerate the dashboard: `python3 "<kit>/scripts/report-dashboard.py" migration/report.json`
+   (the output lands next to the report.json).
+4. Commit in that repo: `chore: follow-up closed — <item summary>`.
 
-Si l'accomplissement mérite une preuve (ex. « PWA installée sur appareil »), la demander ou la
-noter dans le message de commit — la doctrine du kit est « fait = vérifié ».
+If the accomplishment deserves proof (e.g. "PWA installed on device"), ask for it or note it in
+the commit message — the kit's doctrine is "done = verified".
 
-## Clore par décision (« on ne le fera pas »)
+## Closing by decision ("we won't do it")
 
-Abandonner un suivi est un état légitime et **documenté**, jamais une suppression muette :
+Abandoning a follow-up is a legitimate, **documented** state, never a silent deletion:
 
-1. Retirer l'entrée de `next_steps` et l'ajouter à `deferred` :
+1. Remove the entry from `next_steps` and add it to `deferred`:
    ```json
-   { "strong": "Non poursuivi par décision (AAAA-MM-JJ)", "text": "<l'item d'origine — et la raison si donnée>" }
+   { "strong": "Not pursued by decision (YYYY-MM-DD)", "text": "<the original item — and the reason if given>" }
    ```
-2. Cocher/annoter la ligne dans `report.md` (`- [x] ~~…~~ — non poursuivi par décision`).
-3. Régénérer le dashboard, committer : `chore: suivi clos par décision — <résumé>`.
+2. Tick/annotate the line in `report.md` (`- [x] ~~…~~ — not pursued by decision`).
+3. Regenerate the dashboard, commit: `chore: follow-up closed by decision — <summary>`.
 
-Le précédent : popcorn-time, « non poursuivi par décision, pas par manque de capacité ».
+The precedent: popcorn-time, "not pursued by decision, not by lack of capability".
 
-## Ajouter un suivi découvert après coup
+## Adding a follow-up discovered after the fact
 
-Ajouter à `next_steps` avec le format du rapport : `{ "text": …, "effort": "~N min", "owner": true }`
-si la décision appartient au propriétaire — puis dashboard + commit, comme ci-dessus.
+Add to `next_steps` using the report's format: `{ "text": …, "effort": "~N min", "owner": true }`
+if the decision belongs to the owner — then dashboard + commit, as above.
 
-## Convertir un suivi en issue GitHub
+## Converting a follow-up into a GitHub issue
 
-Quand le repo cible vit sur GitHub, un suivi qui mérite un vrai ticket se convertit via le skill
-**`create-issue`** du kit (brainstorm → spec → plan d'implémentation dans le corps de l'issue,
-profil du repo via `get-repo-profile`). Le rapport reste la vérité —
-jamais de liste parallèle : ajouter l'URL à l'entrée (`"issue": "https://github.com/…/issues/N"`)
-plutôt que de la retirer, puis dashboard + commit. Le suivi se clôt par le protocole « fait »
-quand l'issue est fermée ; l'issue pointe vers le repo, l'entrée pointe vers l'issue.
+When the target repo lives on GitHub, a follow-up that deserves a real ticket converts via the
+kit's **`create-issue`** skill (brainstorm → spec → implementation plan in the issue body, repo
+profile via `get-repo-profile`). The report stays the truth — never a parallel list: add the URL
+to the entry (`"issue": "https://github.com/…/issues/N"`) rather than removing it, then
+dashboard + commit. The follow-up closes through the "done" protocol once the issue is closed;
+the issue points at the repo, the entry points at the issue.
 
-## Garde-fous
+## Guard-rails
 
-- **Toute mutation se fait dans le repo cible et s'y committe** — un suivi modifié sans commit
-  n'existe pas.
-- Le backlog du kit (`docs/backlog.md`) s'édite à la main (ses entrées portent leur déclencheur
-  YAGNI) ; ce skill le lit, il ne le réécrit pas.
-- Ne jamais inventer d'items : tout vient des rapports, du backlog, ou d'une demande explicite.
+- **Every mutation happens in the target repo and is committed there** — a follow-up modified
+  without a commit does not exist.
+- The kit's backlog (`docs/backlog.md`) is hand-edited (its entries carry their YAGNI trigger);
+  this skill reads it, it does not rewrite it.
+- Never invent items: everything comes from the reports, the backlog, or an explicit request.

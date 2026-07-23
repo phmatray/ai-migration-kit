@@ -225,6 +225,9 @@ continue to Step 9 (full build/tests + format gate) — never push a merge you h
 - **`jq -Rs` for the body.** Hand-building the JSON (or `-f body=`) mangles plans full of backticks,
   code fences, and `<` `>`. `jq -Rs '{body:.}'` is lossless.
 - **Whole-file sed is forbidden.** Tick per task, not per repo — see §4.
+- **Reconcile the mirror on resume.** The issue PATCH and the PR-body edit aren't atomic; a crash
+  between them leaves the PR's `### Plan` line unticked forever unless the next run re-syncs it
+  from the issue state (the canonical source) before entering the loop.
 - **Empty commit is intentional.** It exists only so a draft PR can open before any code lands; the
   first real task commit immediately makes it meaningful. Don't squash it away mid-run.
 - **Sync before ready — merge, not rebase.** The full procedure (and the why) is in

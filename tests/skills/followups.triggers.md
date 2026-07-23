@@ -3,6 +3,9 @@
 Bench: skill-creator evals (already passed 16/16 vs 12/16 without the skill, v1.5.0). Target:
 ≥ 90% of "should" queries, none of the "should NOT" queries.
 
+CI (check-frontmatter.py) guards only that this list exists with both sections; the bench
+itself is manual — re-run it via skill-creator whenever the skill's description changes.
+
 ## Should trigger
 
 - "what's still open across the migrated repos?"

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Golden test du préflight : requirements.json est la source unique — la sortie --json est du
-# JSON valide, couvre chaque entrée du manifest, et un REQUIS introuvable fait échouer (exit 1).
+# Preflight golden test: requirements.json is the single source — the --json output is valid
+# JSON, covers every manifest entry, and a missing REQUIRED item fails the run (exit 1).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-# 1. La sortie --json est du JSON valide (le préflight peut sortir 0 ou 1 selon la machine).
+# 1. The --json output is valid JSON (the preflight may exit 0 or 1 depending on the machine).
 out=$(./scripts/preflight.sh --json || true)
 echo "$out" | python3 -m json.tool >/dev/null
 
-# 2. Chaque entrée du manifest apparaît dans la sortie — rien n'est silencieusement ignoré.
+# 2. Every manifest entry appears in the output — nothing is silently skipped.
 python3 - "$out" <<'PY'
 import json, sys
 out = json.loads(sys.argv[1])
@@ -17,17 +17,25 @@ names = {c["name"] for c in out["checks"]}
 expected = [t["name"] for t in req["tools"]] + [m["name"] for m in req["mcps"]] \
          + ["skill " + s["name"] for s in req["sessionSkills"]]
 missing = [n for n in expected if n not in names]
-assert not missing, f"entrées du manifest absentes de la sortie: {missing}"
+assert not missing, f"manifest entries absent from the output: {missing}"
+# 3. requiredBy survives the round-trip (manifest → preflight → JSON).
+by_name = {c["name"]: c for c in out["checks"]}
+for entry in req["tools"] + req["mcps"] + req["sessionSkills"]:
+    want = entry.get("requiredBy")
+    if want:
+        name = entry["name"] if entry in req["tools"] + req["mcps"] else "skill " + entry["name"]
+        got = by_name[name].get("requiredBy")
+        assert got == want, f"requiredBy mismatch for {name}: {got} != {want}"
 PY
 
-# 3. Un REQUIS introuvable ⇒ exit 1 et statut « manquant ». PATH réduit au strict nécessaire
-#    pour lire le manifest (bash + python3 + dirname) : git/dotnet deviennent introuvables.
+# 4. A missing REQUIRED item ⇒ exit 1 and status "missing". PATH reduced to the bare minimum
+#    needed to read the manifest (bash + python3 + dirname): git/dotnet become unfindable.
 tmp=$(mktemp -d)
 for c in bash python3 dirname; do ln -s "$(command -v "$c")" "$tmp/$c"; done
 if PATH="$tmp" bash ./scripts/preflight.sh --json > "$tmp/out.json" 2>/dev/null; then
-  echo "le préflight aurait dû échouer sans l'outillage requis"; exit 1
+  echo "the preflight should have failed without the required tooling"; exit 1
 fi
-grep -q '"status": "manquant"' "$tmp/out.json"
+grep -q '"status": "missing"' "$tmp/out.json"
 rm -rf "$tmp"
 
 echo "preflight golden test OK"

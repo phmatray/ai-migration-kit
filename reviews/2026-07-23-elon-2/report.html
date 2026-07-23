@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code review ai-migration-kit — 2026-07-23</title>
+<style>
+  :root { color-scheme: light; --plane:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e;
+    --muted:#898781; --grid:#e1e0d9; --axis:#c3c2b7; --ring:rgba(11,11,11,0.10);
+    --s1: #2a78d6;--s2: #eb6834;--s3: #1baf7a;--s4: #eda100; --good-text:#006300; --crit:#c62828; }
+  @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { color-scheme: dark; --plane:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10); --s1: #3987e5;--s2: #d95926;--s3: #199e70;--s4: #c98500; --good-text:#0ca30c; --crit:#ef5350; } }
+  :root[data-theme="dark"] { color-scheme: dark; --plane:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10); --s1: #3987e5;--s2: #d95926;--s3: #199e70;--s4: #c98500; --good-text:#0ca30c; --crit:#ef5350; }
+  body { margin:0; background:var(--plane); color:var(--ink); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:32px 20px 64px; display:grid; gap:20px; }
+  .eyebrow { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  h1 { font-size:27px; font-weight:700; margin:4px 0 2px; text-wrap:balance; }
+  header p { color:var(--ink-2); max-width:70ch; margin:6px 0 0; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+  .tile { background:var(--surface); border:1px solid var(--ring); border-radius:10px; padding:14px 16px; }
+  .tile .v { font-size:26px; font-weight:700; } .tile .v small { font-size:14px; font-weight:600; color:var(--ink-2); }
+  .tile .l { font-size:12.5px; color:var(--ink-2); margin-top:2px; }
+  .tile .verdict { font-size:13px; color:var(--ink-2); margin:8px 0 0; font-style:italic; }
+  .tile.consensus { border-color:var(--s1); }
+  .card { background:var(--surface); border:1px solid var(--ring); border-radius:10px; padding:18px 20px; }
+  .card h2 { font-size:15px; font-weight:650; margin:0 0 10px; }
+  .grid2 { display:grid; grid-template-columns:1fr; gap:20px; }
+  @media (min-width:880px) { .grid2 { grid-template-columns:1fr 1fr; } }
+  ul.value { margin:0; padding-left:1.1em; display:grid; gap:8px; color:var(--ink-2); }
+  ul.value .who { color:var(--muted); font-size:12.5px; }
+  .progress { display:flex; align-items:center; gap:12px; }
+  .progress .bar { flex:1; height:8px; background:var(--grid); border-radius:99px; overflow:hidden; }
+  .progress .bar > div { height:100%; width:0; background:var(--s3); border-radius:99px; transition:width .2s; }
+  .progress .num { font-variant-numeric:tabular-nums; font-size:13px; color:var(--ink-2); white-space:nowrap; }
+  .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .chip { display:inline-flex; align-items:center; gap:6px; font:12.5px system-ui; padding:4px 11px;
+    border-radius:999px; border:1px solid var(--axis); background:none; color:var(--muted); cursor:pointer; }
+  .chip.on { color:var(--ink); border-color:var(--ink-2); background:var(--surface); }
+  .chip b { font-variant-numeric:tabular-nums; }
+  .chip .dot { width:9px; height:9px; border-radius:99px; display:inline-block; }
+  select { font:12.5px system-ui; padding:4px 8px; border-radius:7px; border:1px solid var(--axis);
+    background:var(--surface); color:var(--ink); }
+  .sev { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    padding:2px 8px; border-radius:99px; color:#fff; white-space:nowrap; }
+  .sev-critical { background:var(--crit); } .sev-major { background:var(--s2); }
+  .sev-minor { background:var(--s4); } .sev-info { background:var(--s1); }
+  .dot.sev-critical { background:var(--crit); } .dot.sev-major { background:var(--s2); }
+  .dot.sev-minor { background:var(--s4); } .dot.sev-info { background:var(--s1); }
+  .finding { background:var(--surface); border:1px solid var(--ring); border-radius:10px; margin-bottom:8px; }
+  .finding.hidden { display:none; }
+  .finding summary { display:flex; align-items:center; gap:9px; padding:10px 14px; cursor:pointer;
+    flex-wrap:wrap; list-style:none; }
+  .finding summary::-webkit-details-marker { display:none; }
+  .finding .f-title { font-weight:600; flex:1; min-width:200px; }
+  .finding.done .f-title { text-decoration:line-through; color:var(--muted); font-weight:400; }
+  .finding .cat { font-size:11px; color:var(--muted); border:1px solid var(--grid); border-radius:5px; padding:1px 6px; }
+  .finding .loc { font-family:ui-monospace,monospace; font-size:11.5px; color:var(--muted); }
+  .finding .rv-tag { font-size:13px; }
+  .eff { font-family:ui-monospace,monospace; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .f-body { padding:2px 16px 14px 42px; color:var(--ink-2); font-size:14px; }
+  .f-body p { margin:6px 0; max-width:75ch; }
+  .f-body .rec strong { color:var(--good-text); }
+  pre.fix { background:var(--plane); border:1px solid var(--grid); border-radius:8px; padding:10px 12px;
+    font-size:12.5px; overflow-x:auto; }
+  .btn { font:12.5px system-ui; padding:5px 12px; border-radius:7px; border:1px solid var(--axis);
+    background:var(--surface); color:var(--ink); cursor:pointer; margin-top:6px; }
+  .btn:hover { border-color:var(--ink-2); }
+  .done-box { width:16px; height:16px; accent-color:var(--s3); flex-shrink:0; }
+  ul.steps { margin:0; padding:0; list-style:none; display:grid; gap:9px; }
+  ul.steps li { display:grid; grid-template-columns:24px 1fr auto; gap:10px; align-items:baseline;
+    font-size:14px; border-top:1px solid var(--grid); padding-top:9px; }
+  ul.steps li:first-child { border-top:0; padding-top:0; }
+  ul.steps .box { width:15px; height:15px; border:1.6px solid var(--axis); border-radius:4px; margin-top:2px; }
+  ul.steps .box.done { background:var(--s3); border-color:var(--s3); color:#fff; font-size:11px;
+    line-height:15px; text-align:center; font-weight:700; }
+  ul.steps li.done > span:nth-child(2) { text-decoration:line-through; color:var(--muted); }
+  ul.steps .who { color:var(--muted); font-size:12.5px; }
+  footer { font-size:12.5px; color:var(--muted); max-width:78ch; }
+  #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--ink);
+    color:var(--plane); font-size:13px; padding:8px 16px; border-radius:8px; opacity:0; transition:opacity .15s; }
+</style>
+</head>
+<body data-report-id="dd8c12d7ec">
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Code review · ai-migration-kit · main@2a3bef8 · 2026-07-23</div>
+    <h1>Revue de v1.6.0 (solution unifiée : skills lifecycle intégrés, requirements.json source unique) sous la lentille demandée : cohérence des skills, workflow prédictif, déterminisme.</h1>
+    <p>Le commit v1.6.0 intégral (34 fichiers, ~3 200 lignes) : les 6 SKILL.md, _shared/, references, scripts (preflight.sh, repo-profile.sh), tests (preflight, check-frontmatter, triggers), commands/, manifests, ARCHITECTURE.md, README.</p>
+  </header>
+  <div class="tiles"><div class="tile reviewer">
+<div class="v">🔥 7.5<small>/10</small></div>
+<div class="l">Elon Musk</div>
+<p class="verdict">“L&#x27;usine est réelle et la discipline est réelle — mais un kit qui vend du déterminisme ne peut pas avoir trois réponses à « où finit /migrate » et des scripts introuvables dès qu&#x27;on l&#x27;installe sans son auteur.”</p>
+</div></div>
+  
+  <div class="card">
+    <h2>Findings</h2>
+    <div class="progress"><div class="bar"><div id="pbar"></div></div>
+      <span class="num"><span id="pdone">0</span>/9 addressed</span></div>
+    <div class="filters" style="margin:12px 0 14px">
+      <button class="chip on" data-filter="severity" data-value="major"><span class="dot sev-major"></span>Major <b>3</b></button><button class="chip on" data-filter="severity" data-value="minor"><span class="dot sev-minor"></span>Minor <b>4</b></button><button class="chip on" data-filter="severity" data-value="info"><span class="dot sev-info"></span>Info <b>2</b></button><select id="cat"><option value="">All</option><option value="coherence">coherence</option><option value="correctness">correctness</option><option value="determinism">determinism</option><option value="robustness">robustness</option><option value="testing">testing</option></select>
+      <button class="chip" id="hide-done">Hide done</button>
+      <button class="chip" id="export-md">Copy remaining as Markdown</button>
+    </div>
+    <div id="findings"><details class="finding" data-id="1" data-severity="major"
+ data-reviewer="elon" data-category="coherence"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-major">Major</span>
+<span class="f-title">Où finit /migrate ? Trois contrats contradictoires autour de la phase 7</span>
+<span class="cat">coherence</span><code class="loc">skills/legacy-upgrade/SKILL.md:67</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>commands/migrate.md dit « phases 1 à 6, présente migration/report.md ». La règle 8 du SKILL.md dit « Livrée = en production — le pipeline ne s&#x27;arrête pas au vert local ». La table du pipeline liste une phase 7 (Deliver) que la marque nie (« six-phase » dans README ligne 5 et plugin.json) et qu&#x27;aucune commande ne porte. Un utilisateur ne peut pas prédire si /migrate se termine sur un rapport local ou une URL publique vérifiée — sur le workflow phare du kit. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : /migrate couvre désormais les phases 1–7 (commands/migrate.md + scope variants du SKILL.md) ; marque « seven-phase » corrigée dans README et la description du skill ; l&#x27;énumération de phases de plugin.json supprimée ; le cas « pas de cible de production » clôt la phase 7 par la décision propriétaire consignée.</p>
+<p class="rec"><strong>→</strong> Trancher : soit /migrate couvre 1–7 (mettre à jour commands/migrate.md et la marque « six-phase » partout : README, plugin.json, intro du SKILL.md), soit la livraison devient une commande explicite (/migrate-deliver) et la règle 8 est reformulée comme contrat de cette commande. Une seule réponse, répétée sur toutes les surfaces.</p>
+
+<button class="btn copy-fix" data-id="1">Copy fix prompt</button>
+</div>
+</details><details class="finding" data-id="2" data-severity="major"
+ data-reviewer="elon" data-category="determinism"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-major">Major</span>
+<span class="f-title">Chemins des scripts du kit indéfinis en installation plugin — deux conventions, une casse</span>
+<span class="cat">determinism</span><code class="loc">skills/legacy-upgrade/SKILL.md:27</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>legacy-upgrade phase 0 dit « scripts/preflight.sh », followups dit « python3 scripts/followups.py » (et report-dashboard.py) — chemins relatifs au CWD, qui est le repo cible, pas le kit. Installé depuis la marketplace, ces fichiers sont introuvables : le pipeline se bloque, ou l&#x27;agent improvise — ce que la règle 7 interdit précisément. get-repo-profile a résolu ce problème avec l&#x27;ancrage &lt;skill-dir&gt; ; les skills de la suite migration ne l&#x27;ont pas suivi. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : ancrage &lt;kit&gt; = &lt;skill-dir&gt;/../.. défini dans legacy-upgrade (phase 0, règles 7-8) et followups, commandes alignées ; step CI « foreign working directory » exécutant préflight, inventaire, followups et repo-profile depuis un répertoire étranger.</p>
+<p class="rec"><strong>→</strong> Ancrer chaque appel de script sur &lt;skill-dir&gt; (ou une résolution KIT_DIR documentée en tête de chaque SKILL.md), comme get-repo-profile. Ajouter un test CI qui exécute preflight.sh et followups.py depuis un répertoire de travail étranger au kit pour verrouiller la convention.</p>
+
+<button class="btn copy-fix" data-id="2">Copy fix prompt</button>
+</div>
+</details><details class="finding" data-id="3" data-severity="major"
+ data-reviewer="elon" data-category="coherence"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-major">Major</span>
+<span class="f-title">requirements.json aplatit les niveaux par suite — « level: recommande / when: requis » dans la même entrée</span>
+<span class="cat">coherence</span><code class="loc">requirements.json:19</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>L&#x27;entrée superpowers porte level « recommande » et un champ when qui dit littéralement « requis par les skills issue/PR ». Même contradiction pour gh et code-review : recommandés dans le manifest, requis dans le frontmatter compatibility des trois skills lifecycle et en gras dans la matrice d&#x27;ARCHITECTURE.md. Conséquence concrète : le préflight sort vert sans gh, l&#x27;utilisateur croit le kit prêt, et /create-issue s&#x27;arrête net à l&#x27;étape 1. La « source unique » perd exactement l&#x27;information que v1.6.0 prétend unifier. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : requiredBy + token ajoutés au manifest (gh CLI, superpowers, code-review) — la contradiction level/when éliminée ; le préflight affiche [hard-required by: …] et émet requiredBy en JSON (golden test étendu) ; cross-check manifest ↔ compatibility en CI (check-frontmatter.py).</p>
+<p class="rec"><strong>→</strong> Étendre le schéma du manifest avec la requiredness par suite (ex. requiredBy: [&quot;lifecycle&quot;] vs [&quot;migration&quot;]) ; le préflight affiche le niveau par suite. Ajouter un test golden croisant requirements.json ↔ le frontmatter compatibility de chaque skill, pour que la prochaine divergence casse la CI et non l&#x27;utilisateur.</p>
+
+<button class="btn copy-fix" data-id="3">Copy fix prompt</button>
+</div>
+</details><details class="finding" data-id="4" data-severity="minor"
+ data-reviewer="elon" data-category="correctness"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Minor</span>
+<span class="f-title">repo-profile.sh detect : les fallbacks TODO après pipeline sont du code mort</span>
+<span class="cat">correctness</span><code class="loc">skills/get-repo-profile/scripts/repo-profile.sh:72</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>« grep … | head -5 || echo TODO » : head (comme sed et sort aux lignes 77 et 129-130) sort à 0 sur entrée vide, donc le || echo ne s&#x27;exécute jamais. Le contrat du script — « tout champ sans réponse imprime TODO » — est violé sur l&#x27;identité de commit et le grain d&#x27;architecture, les deux champs où generating.md dit qu&#x27;une valeur fabriquée est une mine. La fonction probe() gère ce cas correctement mais ces sondes inline la contournent. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : toutes les sondes passent par emit_or_todo() (capture puis test de vacuité), probe() supprimée — une seule convention ; le contrat TODO est gardé par le nouveau golden test.</p>
+<p class="rec"><strong>→</strong> Faire passer toutes les sondes par probe() (qui teste la vacuité de la sortie), ou capturer la sortie dans une variable et tester [ -n ] avant d&#x27;imprimer le fallback TODO. Une seule convention dans le script.</p>
+
+<button class="btn copy-fix" data-id="4">Copy fix prompt</button>
+</div>
+</details><details class="finding" data-id="5" data-severity="minor"
+ data-reviewer="elon" data-category="testing"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Minor</span>
+<span class="f-title">repo-profile.sh est le seul script du kit sans test — jamais exécuté en CI</span>
+<span class="cat">testing</span><code class="loc">skills/get-repo-profile/scripts/repo-profile.sh:1</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>preflight.sh, report-dashboard.py, followups.py et contrast-check.py sont tous golden-testés en CI. Les 143 lignes de sondes du script le plus récent ne sont exécutées nulle part : une régression (comme le finding 4, déjà présent) ne serait jamais détectée. C&#x27;est la doctrine du kit — outillage obligatoire ⇒ outillage testé — appliquée partout sauf sur le dernier arrivé. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : tests/repo-profile/test.sh créé (show sans/avec profil, detect hors git exit 4, contrat TODO sur repo minimal) et branché en CI.</p>
+<p class="rec"><strong>→</strong> Golden test en CI : « show » sur un répertoire sans profil (attend NO_PROFILE, exit 3) et avec profil fixture ; « detect » sur un repo fixture (samples/LegacyShop convient) en vérifiant les sections attendues ET la présence des lignes TODO sur les champs indétectables — ce qui aurait attrapé le finding 4.</p>
+
+<button class="btn copy-fix" data-id="5">Copy fix prompt</button>
+</div>
+</details><details class="finding" data-id="6" data-severity="minor"
+ data-reviewer="elon" data-category="correctness"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Minor</span>
+<span class="f-title">preflight --json : JSON fabriqué au printf sans échappement, séparateur interne « | »</span>
+<span class="cat">correctness</span><code class="loc">scripts/preflight.sh:76</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>La sortie --json est assemblée par printf sans échappement, et les résultats transitent par un séparateur « | » (record/IFS). Un hint de requirements.json contenant un guillemet double, un antislash ou un pipe corrompt silencieusement la sortie JSON ou le parsing interne — précisément le genre de casse silencieuse que la doctrine du kit interdit. python3 est déjà une dépendance dure du même script (il lit le manifest). ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : JSON émis par python3 (json.dumps, résultats passés en argv), séparateur tab documenté dans le manifest ; la dette backlog « échappement JSON des hints » est levée.</p>
+<p class="rec"><strong>→</strong> Émettre le JSON via python3 (json.dumps) à partir des résultats — le script paie déjà le coût de python3 ; supprimer l&#x27;émetteur printf et le séparateur « | » au profit d&#x27;un format sans collision (tab, déjà utilisé pour le manifest).</p>
+
+<button class="btn copy-fix" data-id="6">Copy fix prompt</button>
+</div>
+</details><details class="finding" data-id="7" data-severity="minor"
+ data-reviewer="elon" data-category="testing"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Minor</span>
+<span class="f-title">Les listes de déclenchement sont des données statiques — la cible ≥ 90 % n&#x27;est exécutée nulle part</span>
+<span class="cat">testing</span><code class="loc">tests/skills/check-frontmatter.py:58</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>La CI garde l&#x27;existence des tests/skills/*.triggers.md et la non-vacuité de leurs sections — pas le comportement. Seul followups a jamais vu le banc skill-creator (16/16, v1.5.0) ; les cinq autres listes, dont les verbes ultra-génériques de create-issue et merge-pr, n&#x27;ont jamais été exécutées. La dette était actée dans la revue du matin ; tant qu&#x27;elle reste ouverte, le mot « tests » surpromet le déterminisme du déclenchement. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : note d&#x27;honnêteté ajoutée aux 6 listes (la CI garde la présence, le banc est manuel) + entrée backlog avec déclencheur « prochaine modification de description » ; l&#x27;exécution du banc lui-même attend ce déclencheur.</p>
+<p class="rec"><strong>→</strong> Passer les six listes au banc skill-creator une première fois (baseline), puis instituer la règle déjà écrite : re-bencher à chaque modification de description. Si le banc reste manuel, renommer honnêtement (contracts/ plutôt que tests/) ou documenter dans le fichier que la garde CI ne couvre que la présence.</p>
+
+<button class="btn copy-fix" data-id="7">Copy fix prompt</button>
+</div>
+</details><details class="finding" data-id="8" data-severity="info"
+ data-reviewer="elon" data-category="coherence"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-info">Info</span>
+<span class="f-title">Patchwork linguistique : FR, EN, et FR/EN mélangés dans le même fichier</span>
+<span class="cat">coherence</span><code class="loc">skills/legacy-upgrade/SKILL.md:25</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>followups est 100 % français, les quatre skills lifecycle 100 % anglais, et legacy-upgrade bascule au milieu du fichier : règles 1-6 en anglais, phase 0 et règles 7-8 en français. Les modèles s&#x27;en accommodent ; les contributeurs et les installeurs d&#x27;un kit public, moins. L&#x27;incohérence signale un produit assemblé plutôt qu&#x27;unifié — à rebours du titre de la release. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : SKILL.md legacy-upgrade et followups unifiés en anglais, commandes migrate-audit/migrate-followups traduites ; restent français par décision documentée : CHANGELOG, études de cas, sortie de followups.py, 4 references (dette backloguée avec déclencheur).</p>
+<p class="rec"><strong>→</strong> Une langue par surface : l&#x27;anglais pour tout ce qui est distribué (SKILL.md, references, README technique), le français là où l&#x27;audience est délibérément francophone (case studies). Au minimum, unifier legacy-upgrade en un seul fichier monolingue.</p>
+
+<button class="btn copy-fix" data-id="8">Copy fix prompt</button>
+</div>
+</details><details class="finding" data-id="9" data-severity="info"
+ data-reviewer="elon" data-category="robustness"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-info">Info</span>
+<span class="f-title">implement-issue : un crash entre le PATCH de l&#x27;issue et l&#x27;édition de la PR laisse le miroir périmé pour toujours</span>
+<span class="cat">robustness</span><code class="loc">skills/implement-issue/SKILL.md:199</code>
+<span class="rv-tag" title="Elon Musk">🔥</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>Step 6.4 coche la tâche dans deux sources : le plan de l&#x27;issue (canonique) puis la liste ### Plan de la PR (miroir). Un crash entre les deux laisse le miroir en retard, et la reprise — qui ne lit que l&#x27;issue — ne le réconcilie jamais : la ligne non cochée reste fausse jusqu&#x27;au merge, en contradiction avec la promesse « Step 6 keeps it in lock-step ». ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : le Step 6 d&#x27;implement-issue ouvre désormais par la réconciliation du miroir ### Plan depuis l&#x27;état canonique de l&#x27;issue à toute reprise ; gotcha ajouté dans github-mechanics.md.</p>
+<p class="rec"><strong>→</strong> Ajouter une réconciliation au démarrage du Step 6 (reprise) ou au Step 9 : régénérer la liste ### Plan de la PR depuis l&#x27;état canonique de l&#x27;issue — une passe idempotente et bon marché.</p>
+
+<button class="btn copy-fix" data-id="9">Copy fix prompt</button>
+</div>
+</details></div>
+  </div>
+  <div class="card"><h2>Action plan</h2><ul class="steps"><li class="done"><span class="box done" aria-hidden="true">✓</span><span>Trancher le contrat de phase 7 (/migrate jusqu&#x27;à la production, ou une commande de livraison explicite) et corriger la marque « six phases » partout <span class="who">— championed by Elon Musk</span></span><span class="eff">S</span></li><li class="done"><span class="box done" aria-hidden="true">✓</span><span>Ancrer tous les appels de scripts du kit sur &lt;skill-dir&gt; comme get-repo-profile, prouvé par un test CI depuis un CWD étranger <span class="who">— championed by Elon Musk</span></span><span class="eff">M</span></li><li class="done"><span class="box done" aria-hidden="true">✓</span><span>requirements.json : requiredness par suite + test golden manifest ↔ compatibility ; tester repo-profile.sh, émettre le JSON du préflight via python3 <span class="who">— championed by Elon Musk</span></span><span class="eff">M</span></li></ul></div>
+  <div class="card"><h2>The hard truths</h2><ul class="value truths"><li>🔥 <em>“Un inconnu installe le plugin depuis la marketplace demain et tape /migrate dans son repo — à quelle ligne est-ce que ça casse, et pourquoi faut-il encore que ce soit vous dans la pièce pour que le « déterministe » fonctionne ?”</em> <span class="who">— Elon Musk</span></li></ul></div>
+  <div class="card"><h2>What&#x27;s genuinely good</h2><ul class="value"><li>Le pont followups → create-issue → implement-issue → merge-pr, avec l&#x27;URL gardée dans le report.json (« jamais de liste parallèle »), est la bonne décision de premiers principes : une seule vérité, les autres surfaces pointent vers elle.</li><li>ARCHITECTURE.md documente un graphe d&#x27;appels qui correspond réellement au code des skills — plus rare que ça ne devrait l&#x27;être.</li><li>La dé-spécification des skills importés est réelle : tout fait propre au repo d&#x27;origine vit dans le repo-profile, comme l&#x27;abstraction le promettait — et ce qui ne méritait pas l&#x27;import n&#x27;a pas été importé.</li><li>_shared/ (preconditions, sync-with-main) élimine la duplication entre les trois skills lifecycle au lieu de la documenter.</li><li>La table des trois causes d&#x27;un check « skipped » dans merge-pr (et le refus de gater sur un nom de job) est de l&#x27;ingénierie de terrain codifiée — le genre de savoir qui meurt d&#x27;habitude dans un terminal.</li><li>Le golden test du préflight vérifie l&#x27;échec réel (PATH réduit → exit 1) et pas seulement le chemin heureux.</li></ul></div>
+  <footer><p>Generated from report.json by legends-review — data lives in the JSON, the HTML is always regenerated, never edited by hand.</p></footer>
+</div>
+<div id="toast" role="status"></div>
+<script type="application/json" id="data">{"reportId": "dd8c12d7ec", "lang": "en", "repo": "ai-migration-kit", "branch": "main", "commit": "2a3bef8", "date": "2026-07-23", "labels": {"fix_intro": "Fix this code review finding:", "fix_outro": "Implement the fix, keep the change minimal, and verify with the project's tests.", "remaining_title": "Code review follow-ups", "copied": "Copied!"}, "reviewers": {"elon": {"name": "Elon Musk", "emoji": "🔥"}}, "findings": [{"id": 1, "reviewer": "elon", "severity": "major", "category": "coherence", "title": "Où finit /migrate ? Trois contrats contradictoires autour de la phase 7", "file": "skills/legacy-upgrade/SKILL.md", "line": 67, "description": "commands/migrate.md dit « phases 1 à 6, présente migration/report.md ». La règle 8 du SKILL.md dit « Livrée = en production — le pipeline ne s'arrête pas au vert local ». La table du pipeline liste une phase 7 (Deliver) que la marque nie (« six-phase » dans README ligne 5 et plugin.json) et qu'aucune commande ne porte. Un utilisateur ne peut pas prédire si /migrate se termine sur un rapport local ou une URL publique vérifiée — sur le workflow phare du kit. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : /migrate couvre désormais les phases 1–7 (commands/migrate.md + scope variants du SKILL.md) ; marque « seven-phase » corrigée dans README et la description du skill ; l'énumération de phases de plugin.json supprimée ; le cas « pas de cible de production » clôt la phase 7 par la décision propriétaire consignée.", "recommendation": "Trancher : soit /migrate couvre 1–7 (mettre à jour commands/migrate.md et la marque « six-phase » partout : README, plugin.json, intro du SKILL.md), soit la livraison devient une commande explicite (/migrate-deliver) et la règle 8 est reformulée comme contrat de cette commande. Une seule réponse, répétée sur toutes les surfaces.", "fix_hint": null, "effort": "S"}, {"id": 2, "reviewer": "elon", "severity": "major", "category": "determinism", "title": "Chemins des scripts du kit indéfinis en installation plugin — deux conventions, une casse", "file": "skills/legacy-upgrade/SKILL.md", "line": 27, "description": "legacy-upgrade phase 0 dit « scripts/preflight.sh », followups dit « python3 scripts/followups.py » (et report-dashboard.py) — chemins relatifs au CWD, qui est le repo cible, pas le kit. Installé depuis la marketplace, ces fichiers sont introuvables : le pipeline se bloque, ou l'agent improvise — ce que la règle 7 interdit précisément. get-repo-profile a résolu ce problème avec l'ancrage <skill-dir> ; les skills de la suite migration ne l'ont pas suivi. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : ancrage <kit> = <skill-dir>/../.. défini dans legacy-upgrade (phase 0, règles 7-8) et followups, commandes alignées ; step CI « foreign working directory » exécutant préflight, inventaire, followups et repo-profile depuis un répertoire étranger.", "recommendation": "Ancrer chaque appel de script sur <skill-dir> (ou une résolution KIT_DIR documentée en tête de chaque SKILL.md), comme get-repo-profile. Ajouter un test CI qui exécute preflight.sh et followups.py depuis un répertoire de travail étranger au kit pour verrouiller la convention.", "fix_hint": null, "effort": "M"}, {"id": 3, "reviewer": "elon", "severity": "major", "category": "coherence", "title": "requirements.json aplatit les niveaux par suite — « level: recommande / when: requis » dans la même entrée", "file": "requirements.json", "line": 19, "description": "L'entrée superpowers porte level « recommande » et un champ when qui dit littéralement « requis par les skills issue/PR ». Même contradiction pour gh et code-review : recommandés dans le manifest, requis dans le frontmatter compatibility des trois skills lifecycle et en gras dans la matrice d'ARCHITECTURE.md. Conséquence concrète : le préflight sort vert sans gh, l'utilisateur croit le kit prêt, et /create-issue s'arrête net à l'étape 1. La « source unique » perd exactement l'information que v1.6.0 prétend unifier. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : requiredBy + token ajoutés au manifest (gh CLI, superpowers, code-review) — la contradiction level/when éliminée ; le préflight affiche [hard-required by: …] et émet requiredBy en JSON (golden test étendu) ; cross-check manifest ↔ compatibility en CI (check-frontmatter.py).", "recommendation": "Étendre le schéma du manifest avec la requiredness par suite (ex. requiredBy: [\"lifecycle\"] vs [\"migration\"]) ; le préflight affiche le niveau par suite. Ajouter un test golden croisant requirements.json ↔ le frontmatter compatibility de chaque skill, pour que la prochaine divergence casse la CI et non l'utilisateur.", "fix_hint": null, "effort": "M"}, {"id": 4, "reviewer": "elon", "severity": "minor", "category": "correctness", "title": "repo-profile.sh detect : les fallbacks TODO après pipeline sont du code mort", "file": "skills/get-repo-profile/scripts/repo-profile.sh", "line": 72, "description": "« grep … | head -5 || echo TODO » : head (comme sed et sort aux lignes 77 et 129-130) sort à 0 sur entrée vide, donc le || echo ne s'exécute jamais. Le contrat du script — « tout champ sans réponse imprime TODO » — est violé sur l'identité de commit et le grain d'architecture, les deux champs où generating.md dit qu'une valeur fabriquée est une mine. La fonction probe() gère ce cas correctement mais ces sondes inline la contournent. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : toutes les sondes passent par emit_or_todo() (capture puis test de vacuité), probe() supprimée — une seule convention ; le contrat TODO est gardé par le nouveau golden test.", "recommendation": "Faire passer toutes les sondes par probe() (qui teste la vacuité de la sortie), ou capturer la sortie dans une variable et tester [ -n ] avant d'imprimer le fallback TODO. Une seule convention dans le script.", "fix_hint": null, "effort": "S"}, {"id": 5, "reviewer": "elon", "severity": "minor", "category": "testing", "title": "repo-profile.sh est le seul script du kit sans test — jamais exécuté en CI", "file": "skills/get-repo-profile/scripts/repo-profile.sh", "line": 1, "description": "preflight.sh, report-dashboard.py, followups.py et contrast-check.py sont tous golden-testés en CI. Les 143 lignes de sondes du script le plus récent ne sont exécutées nulle part : une régression (comme le finding 4, déjà présent) ne serait jamais détectée. C'est la doctrine du kit — outillage obligatoire ⇒ outillage testé — appliquée partout sauf sur le dernier arrivé. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : tests/repo-profile/test.sh créé (show sans/avec profil, detect hors git exit 4, contrat TODO sur repo minimal) et branché en CI.", "recommendation": "Golden test en CI : « show » sur un répertoire sans profil (attend NO_PROFILE, exit 3) et avec profil fixture ; « detect » sur un repo fixture (samples/LegacyShop convient) en vérifiant les sections attendues ET la présence des lignes TODO sur les champs indétectables — ce qui aurait attrapé le finding 4.", "fix_hint": null, "effort": "M"}, {"id": 6, "reviewer": "elon", "severity": "minor", "category": "correctness", "title": "preflight --json : JSON fabriqué au printf sans échappement, séparateur interne « | »", "file": "scripts/preflight.sh", "line": 76, "description": "La sortie --json est assemblée par printf sans échappement, et les résultats transitent par un séparateur « | » (record/IFS). Un hint de requirements.json contenant un guillemet double, un antislash ou un pipe corrompt silencieusement la sortie JSON ou le parsing interne — précisément le genre de casse silencieuse que la doctrine du kit interdit. python3 est déjà une dépendance dure du même script (il lit le manifest). ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : JSON émis par python3 (json.dumps, résultats passés en argv), séparateur tab documenté dans le manifest ; la dette backlog « échappement JSON des hints » est levée.", "recommendation": "Émettre le JSON via python3 (json.dumps) à partir des résultats — le script paie déjà le coût de python3 ; supprimer l'émetteur printf et le séparateur « | » au profit d'un format sans collision (tab, déjà utilisé pour le manifest).", "fix_hint": null, "effort": "S"}, {"id": 7, "reviewer": "elon", "severity": "minor", "category": "testing", "title": "Les listes de déclenchement sont des données statiques — la cible ≥ 90 % n'est exécutée nulle part", "file": "tests/skills/check-frontmatter.py", "line": 58, "description": "La CI garde l'existence des tests/skills/*.triggers.md et la non-vacuité de leurs sections — pas le comportement. Seul followups a jamais vu le banc skill-creator (16/16, v1.5.0) ; les cinq autres listes, dont les verbes ultra-génériques de create-issue et merge-pr, n'ont jamais été exécutées. La dette était actée dans la revue du matin ; tant qu'elle reste ouverte, le mot « tests » surpromet le déterminisme du déclenchement. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : note d'honnêteté ajoutée aux 6 listes (la CI garde la présence, le banc est manuel) + entrée backlog avec déclencheur « prochaine modification de description » ; l'exécution du banc lui-même attend ce déclencheur.", "recommendation": "Passer les six listes au banc skill-creator une première fois (baseline), puis instituer la règle déjà écrite : re-bencher à chaque modification de description. Si le banc reste manuel, renommer honnêtement (contracts/ plutôt que tests/) ou documenter dans le fichier que la garde CI ne couvre que la présence.", "fix_hint": null, "effort": "M"}, {"id": 8, "reviewer": "elon", "severity": "info", "category": "coherence", "title": "Patchwork linguistique : FR, EN, et FR/EN mélangés dans le même fichier", "file": "skills/legacy-upgrade/SKILL.md", "line": 25, "description": "followups est 100 % français, les quatre skills lifecycle 100 % anglais, et legacy-upgrade bascule au milieu du fichier : règles 1-6 en anglais, phase 0 et règles 7-8 en français. Les modèles s'en accommodent ; les contributeurs et les installeurs d'un kit public, moins. L'incohérence signale un produit assemblé plutôt qu'unifié — à rebours du titre de la release. ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : SKILL.md legacy-upgrade et followups unifiés en anglais, commandes migrate-audit/migrate-followups traduites ; restent français par décision documentée : CHANGELOG, études de cas, sortie de followups.py, 4 references (dette backloguée avec déclencheur).", "recommendation": "Une langue par surface : l'anglais pour tout ce qui est distribué (SKILL.md, references, README technique), le français là où l'audience est délibérément francophone (case studies). Au minimum, unifier legacy-upgrade en un seul fichier monolingue.", "fix_hint": null, "effort": "M"}, {"id": 9, "reviewer": "elon", "severity": "info", "category": "robustness", "title": "implement-issue : un crash entre le PATCH de l'issue et l'édition de la PR laisse le miroir périmé pour toujours", "file": "skills/implement-issue/SKILL.md", "line": 199, "description": "Step 6.4 coche la tâche dans deux sources : le plan de l'issue (canonique) puis la liste ### Plan de la PR (miroir). Un crash entre les deux laisse le miroir en retard, et la reprise — qui ne lit que l'issue — ne le réconcilie jamais : la ligne non cochée reste fausse jusqu'au merge, en contradiction avec la promesse « Step 6 keeps it in lock-step ». ✅ RÉSOLU (2026-07-23, même session, v1.7.0) : le Step 6 d'implement-issue ouvre désormais par la réconciliation du miroir ### Plan depuis l'état canonique de l'issue à toute reprise ; gotcha ajouté dans github-mechanics.md.", "recommendation": "Ajouter une réconciliation au démarrage du Step 6 (reprise) ou au Step 9 : régénérer la liste ### Plan de la PR depuis l'état canonique de l'issue — une passe idempotente et bon marché.", "fix_hint": null, "effort": "S"}], "actions": [{"rank": 1, "title": "Trancher le contrat de phase 7 (/migrate jusqu'à la production, ou une commande de livraison explicite) et corriger la marque « six phases » partout", "effort": "S", "done": true}, {"rank": 2, "title": "Ancrer tous les appels de scripts du kit sur <skill-dir> comme get-repo-profile, prouvé par un test CI depuis un CWD étranger", "effort": "M", "done": true}, {"rank": 3, "title": "requirements.json : requiredness par suite + test golden manifest ↔ compatibility ; tester repo-profile.sh, émettre le JSON du préflight via python3", "effort": "M", "done": true}]}</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const KEY = 'legends-review:' + DATA.reportId;
+const state = JSON.parse(localStorage.getItem(KEY) || '{}');
+const findings = [...document.querySelectorAll('.finding')];
+const toast = document.getElementById('toast');
+let hideDone = false;
+
+function notify(msg) {
+  toast.textContent = msg; toast.style.opacity = '1';
+  setTimeout(() => toast.style.opacity = '0', 1400);
+}
+function copyText(text, msg) {
+  const done = () => notify(msg || DATA.labels.copied);
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => fallback());
+  else fallback();
+  function fallback() {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove(); done();
+  }
+}
+function refresh() {
+  const sevOn = new Set([...document.querySelectorAll('.chip.on[data-filter="severity"]')].map(c => c.dataset.value));
+  const rvChips = [...document.querySelectorAll('.chip[data-filter="reviewer"]')];
+  const rvOn = new Set(rvChips.filter(c => c.classList.contains('on')).map(c => c.dataset.value));
+  const cat = document.getElementById('cat') ? document.getElementById('cat').value : '';
+  let done = 0;
+  findings.forEach(el => {
+    const isDone = el.dataset.id in state ? !!state[el.dataset.id] : el.dataset.resolved === '1';
+    el.classList.toggle('done', isDone);
+    el.querySelector('.done-box').checked = isDone;
+    if (isDone) done++;
+    const visible = sevOn.has(el.dataset.severity)
+      && (!rvChips.length || rvOn.has(el.dataset.reviewer))
+      && (!cat || el.dataset.category === cat)
+      && !(hideDone && isDone);
+    el.classList.toggle('hidden', !visible);
+  });
+  document.getElementById('pdone').textContent = done;
+  document.getElementById('pbar').style.width = (findings.length ? 100 * done / findings.length : 0) + '%';
+}
+findings.forEach(el => el.querySelector('.done-box').addEventListener('change', e => {
+  state[el.dataset.id] = e.target.checked;
+  localStorage.setItem(KEY, JSON.stringify(state));
+  refresh();
+}));
+document.querySelectorAll('.chip[data-filter]').forEach(c =>
+  c.addEventListener('click', () => { c.classList.toggle('on'); refresh(); }));
+const catSel = document.getElementById('cat');
+if (catSel) catSel.addEventListener('change', refresh);
+document.getElementById('hide-done').addEventListener('click', e => {
+  hideDone = !hideDone; e.target.classList.toggle('on', hideDone); refresh();
+});
+function fixPrompt(f) {
+  const rv = DATA.reviewers[f.reviewer] || {name: f.reviewer};
+  const loc = f.file ? f.file + (f.line ? ':' + f.line : '') : '';
+  return [DATA.labels.fix_intro, '',
+    'Repo: ' + DATA.repo + (DATA.branch ? ' (' + DATA.branch + (DATA.commit ? '@' + DATA.commit : '') + ')' : ''),
+    loc ? 'File: ' + loc : null,
+    'Severity: ' + f.severity + (f.category ? ' - Category: ' + f.category : '') + ' - ' + rv.name + ' review',
+    'Finding: ' + f.title, '', f.description, '',
+    'Recommended fix: ' + f.recommendation,
+    f.fix_hint ? '\n' + f.fix_hint : null,
+    '', DATA.labels.fix_outro].filter(x => x !== null).join('\n');
+}
+document.querySelectorAll('.copy-fix').forEach(b => b.addEventListener('click', () => {
+  const f = DATA.findings.find(x => String(x.id) === b.dataset.id);
+  copyText(fixPrompt(f));
+}));
+document.getElementById('export-md').addEventListener('click', () => {
+  const remaining = DATA.findings.filter(f => !state[f.id]);
+  const bySev = {};
+  remaining.forEach(f => (bySev[f.severity] = bySev[f.severity] || []).push(f));
+  const lines = ['# ' + DATA.labels.remaining_title + ' — ' + DATA.repo + ' (' + DATA.date + ')', ''];
+  ['critical', 'major', 'minor', 'info'].forEach(s => {
+    if (!bySev[s]) return;
+    lines.push('## ' + s.charAt(0).toUpperCase() + s.slice(1), '');
+    bySev[s].forEach(f => {
+      const loc = f.file ? ' — `' + f.file + (f.line ? ':' + f.line : '') + '`' : '';
+      lines.push('- [ ] **' + f.title + '**' + loc + (f.effort ? ' (' + f.effort + ')' : ''));
+      lines.push('  ' + f.recommendation);
+    });
+    lines.push('');
+  });
+  if (DATA.actions.length) {
+    lines.push('## Actions', '');
+    DATA.actions.forEach(a => lines.push((a.rank || '-') + '. [' + (a.done ? 'x' : ' ') + '] ' + a.title + (a.effort ? ' (' + a.effort + ')' : '')));
+  }
+  copyText(lines.join('\n'));
+});
+refresh();
+</script>
+</body>
+</html>

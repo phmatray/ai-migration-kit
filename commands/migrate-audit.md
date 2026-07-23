@@ -1,10 +1,10 @@
 ---
-description: Audit exécutif lecture seule — effort chiffré, risques, cible recommandée ; multi-apps → synthèse portefeuille
+description: Read-only executive audit — costed effort, risks, recommended target; multiple apps → portfolio synthesis
 argument-hint: [app-dir ...]
 ---
 
-Invoque le skill `legacy-upgrade` et exécute un **audit exécutif** selon `references/audit-executive.md`.
+Invoke the `legacy-upgrade` skill and run an **executive audit** per `references/audit-executive.md`.
 
-Cibles : chaque répertoire passé dans `$ARGUMENTS` (sinon, le répertoire courant).
+Targets: each directory passed in `$ARGUMENTS` (otherwise, the current directory).
 
-Discipline : lecture seule absolue sur les apps ; chiffres exclusivement issus de `scripts/audit-inventory.sh` ; tentative RoselineMCP `analyze_solution` consignée (succès ou échec de chargement) ; formule d'effort et correspondances API du guide appliquées uniformément. Plusieurs apps → un rapport par app + synthèse portefeuille (matrice valeur/effort, ordre de migration, première vague). Termine en présentant la synthèse.
+Discipline: strictly read-only on the apps; every number comes from `<kit>/scripts/audit-inventory.sh` (path anchoring per the skill); the RoselineMCP `analyze_solution` attempt is recorded (load success or failure); the guide's effort formula and API mappings applied uniformly. Multiple apps → one report per app + a portfolio synthesis (value/effort matrix, migration order, first wave). Finish by presenting the synthesis.

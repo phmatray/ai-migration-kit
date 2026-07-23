@@ -3,6 +3,9 @@
 Bench: skill-creator evals (Anthropic skills guide, Testing chapter). Target: the skill loads on
 ≥ 90% of "should" queries and on none of the "should NOT" queries.
 
+CI (check-frontmatter.py) guards only that this list exists with both sections; the bench
+itself is manual — re-run it via skill-creator whenever the skill's description changes.
+
 ## Should trigger
 
 - "upgrade this app to the latest .NET"

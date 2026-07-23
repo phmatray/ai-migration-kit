@@ -17,7 +17,7 @@ compatibility: >-
   identity probes — without it the profile is generated with flagged TODOs instead.
 metadata:
   author: Philippe Matray
-  version: 1.6.0
+  version: 1.7.0
   suite: ai-migration-kit
 ---
 

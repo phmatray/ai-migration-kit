@@ -40,7 +40,20 @@ jobs:
       - name: Preflight golden test (requirements.json = source unique)
         run: ./tests/preflight/test.sh
 
-      - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists)
+      - name: Repo-profile script golden test (show/detect, TODO-fallback contract)
+        run: ./tests/repo-profile/test.sh
+
+      - name: Kit scripts run from a foreign working directory (plugin-install simulation)
+        run: |
+          KIT="$PWD"
+          cd "$(mktemp -d)"
+          bash "$KIT/scripts/preflight.sh" --json | python3 -m json.tool > /dev/null
+          bash "$KIT/scripts/audit-inventory.sh" "$KIT/samples/LegacyShop" | python3 -m json.tool > /dev/null
+          python3 "$KIT/scripts/followups.py" "$KIT/tests/followups/fixture-a" --backlog "$KIT/docs/backlog.md" > /dev/null
+          out=$(bash "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" show "$KIT") || true
+          [ "$out" = "NO_PROFILE" ]   # kit has no profile: the deterministic answer, from any CWD
+
+      - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists, requirements cross-check)
         run: python3 tests/skills/check-frontmatter.py
 
       - name: Inventory script runs and emits valid JSON
