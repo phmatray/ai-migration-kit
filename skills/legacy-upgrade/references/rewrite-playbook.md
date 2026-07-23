@@ -10,7 +10,37 @@ Complète les phases 1–6 (modernisation in place) ; validé sur la vague 1 du 
 3. **Corriger par wrapper, jamais dans le legacy.** La sémantique manquante (validation, détection d'état, compteurs) vit dans une classe qui enveloppe le code porté. Le legacy reste intact et prouvé ; le neuf est testé séparément.
 4. **Réécrire l'UI seulement ensuite**, sur un cœur déjà vert.
 
-## Protocoles issus des vagues 1 et 2 (sokoban, chords, fleurs-du-mal)
+## Protocoles issus des vagues 1 à 3 (sokoban, chords, fleurs-du-mal, pokedexg)
+
+- **SQL legacy sur SQLite moderne** (vague 3) : des requêtes de l'ère 2014-2016 peuvent
+  utiliser un ON qui référence une table jointe plus à droite — l'ancien moteur l'acceptait,
+  le moderne répond « ON clause references tables to its right ». Reconstruction minimale :
+  réordonner les jointures pour que chaque ON ne voie que des tables déjà jointes (sémantique
+  identique sur des LEFT JOIN d'égalité), en-tête RECONSTRUCTION dans le fichier .sql, et
+  test de caractérisation sur le résultat. **Exécuter chaque requête legacy tôt** : c'est un
+  test de fumée gratuit du moteur cible.
+- **Assets hors projet : jamais de `Content Link` Blazor** (vague 3) : un asset lié depuis un
+  autre dossier (`<Content Include="..\..\Legacy\Assets\**" Link="wwwroot\...">`) est servi
+  **200 avec 0 octet** par le serveur de dev — mapping fantôme, silencieux. Copier
+  physiquement dans `wwwroot` via une cible MSBuild (`SkipUnchangedFiles`), dossier gitignoré,
+  et **builder avant de publier** (l'évaluation des globs `wwwroot/**` précède les cibles :
+  un publish à froid sans build préalable perdrait les fichiers). Preuve obligatoire :
+  `dotnet publish` à froid puis `ls` du dossier publié.
+- **Cascade Tailwind 4** (vague 3) : toute règle élément (`a { color: … }`) écrite hors calque
+  écrase les utilitaires (`text-…`), qui vivent dans `@layer utilities`. Les styles de base
+  vont dans `@layer base` — sinon le symptôme est un texte invisible ou mal coloré que seul
+  `getComputedStyle` explique.
+- **PWA à contenu par-route : le précache est le contrat** (vague 3) : quand chaque fiche
+  charge son JSON à la demande, « hors ligne » ne vaut que pour les pages déjà visitées. Si
+  l'app d'origine était **installée** avec tout son contenu local, la parité exige de
+  précharger données (+ petites images) au service worker (`Promise.allSettled`, jamais
+  `addAll` tout-ou-rien) et d'assumer par écrit ce qui reste en cache-à-la-visite.
+- **Hors-ligne prouvable sans production** (vague 3) : quand la prod n'existe pas encore,
+  couper le DNS ne coupe pas un serveur local joint par IP — la vraie coupure est de **tuer
+  le serveur** après l'amorçage (profil persistant, 2-3 visites en ligne), puis d'ouvrir une
+  route jamais visitée.
+
+### Protocoles des vagues 1 et 2
 
 - **Inventorier les assets binaires locaux AVANT de dessiner l'UI** (leçon vague 2 : le dessin
   original d'une artiste, `Assets/Background.png`, cœur du design 2014, avait failli être perdu).

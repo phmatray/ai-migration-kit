@@ -3,6 +3,28 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.4.1] — 2026-07-23
+
+Leçons de la vague 3 (pokedexg : UWP 2016 + « backend » netcoreapp1.0 → Blazor WASM + API statique).
+
+### Ajouté
+- **Détection des projets zombies** dans `audit-inventory.sh` : `projectDetails[].targetFramework`
+  (lu du csproj) et `zombie: true` quand un TFM ancien (netcoreapp1/2, netstandard1, PCL, UAP)
+  reçoit des paquets 10+ — un robot de mise à jour n'est pas un signe de vie. L'audit de pokedexg
+  avait pris un webservice netcoreapp1.0 arrosé par Renovate pour un « backend déjà moderne ».
+- **Prémisses vérifiées, jamais déduites** (audit-executive.md) : TFM lus des csproj, tests
+  prouvés par attributs (jamais par un nom de projet dans une .sln — référence pendante chez
+  pokedexg), flux de données prouvé par l'appelant (HttpClient) avant d'écrire « branché ».
+- **Cinq protocoles vague 3** (rewrite-playbook) : SQL legacy sur SQLite moderne (ON réordonné,
+  RECONSTRUCTION) ; assets hors projet copiés par cible MSBuild — jamais `Content Link`
+  (servi 200/0 octet) — et build avant publish ; cascade Tailwind (`@layer base`) ; précache
+  service worker = contrat d'une app installée ; hors-ligne prouvé en tuant le serveur quand
+  la production n'existe pas encore.
+
+### Corrigé
+- **`report-dashboard.py` écrit sa sortie à côté du report.json** (plus jamais dans le cwd —
+  le dashboard de la vague 3 avait atterri à la racine du repo migré) ; test golden étendu.
+
 ## [1.4.0] — 2026-07-23
 
 Le pipeline vérifie désormais ses promesses (review post-vague 2).

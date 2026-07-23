@@ -240,17 +240,20 @@ def render(r):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("report_json")
-    ap.add_argument("-o", "--output", default="report.html")
+    ap.add_argument("-o", "--output", default=None,
+                    help="défaut : report.html à côté du report.json (pas dans le cwd)")
     args = ap.parse_args()
     r = json.loads(Path(args.report_json).read_text())
-    # Les chemins du JSON (cobertura, capture) sont relatifs au JSON lui-même, pas au cwd.
+    # Les chemins du JSON (cobertura, capture) sont relatifs au JSON lui-même, pas au cwd —
+    # et la sortie aussi : le dashboard vit à côté de son rapport.
     base = Path(args.report_json).resolve().parent
     if not Path(r["coverage"]["cobertura"]).is_absolute():
         r["coverage"]["cobertura"] = str(base / r["coverage"]["cobertura"])
     if r.get("screenshot") and not Path(r["screenshot"]["path"]).is_absolute():
         r["screenshot"]["path"] = str(base / r["screenshot"]["path"])
-    Path(args.output).write_text(render(r))
-    print(f"OK {args.output}", file=sys.stderr)
+    output = Path(args.output) if args.output else base / "report.html"
+    output.write_text(render(r))
+    print(f"OK {output}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -104,12 +104,33 @@ has_tests = any(re.search(r'\[(Fact|Test|TestMethod)\]', p.read_text(encoding='u
 # gonflé la part de logique portable de l'audit. Un projet dont l'UI vit en .xaml/.razor
 # n'est pas un squelette même avec peu de .cs.
 ui_files = files('*.razor') + xaml
+
+# Le TFM dit la vérité, pas les versions de paquets — leçon vague 3 : un webservice
+# netcoreapp1.0 passait pour « déjà moderne » parce que Renovate y poussait des paquets
+# 10.x. Un TFM ancien avec des paquets récents = projet mort maquillé (zombie).
+def tfm(text):
+    m = re.findall(r'<TargetFrameworks?>([^<]+)</TargetFrameworks?>', text)
+    if m:
+        return m[0]
+    m = re.findall(r'<TargetFrameworkVersion>([^<]+)</TargetFrameworkVersion>', text)
+    return f'net-framework {m[0]}' if m else ''
+
+LEGACY_TFM = re.compile(r'netcoreapp[12]\.|netstandard1\.|net-framework|uap|portable', re.I)
+
 proj_details = []
 for p in csproj:
     own = [c for c in cs if p.parent in c.parents]
     own_ui = [u for u in ui_files if p.parent in u.parents]
     l = loc(own)
+    t = tfm(proj_texts[p])
+    # « récent » = majeure à deux chiffres (10+) sur une VRAIE référence de paquet : les
+    # majeures 8/9 existaient déjà en 2016 (Newtonsoft 9.0.1…) et ToolsVersion="12.0"
+    # des vieux csproj créeraient des faux positifs.
+    recent_pkgs = bool(re.search(r'PackageReference[^>]*Version="\d{2}\.', proj_texts[p])
+                       or re.search(r'<Version>\d{2}\.', proj_texts[p]))
     proj_details.append({'name': p.stem, 'csFiles': len(own), 'loc': l,
+                         'targetFramework': t,
+                         'zombie': bool(LEGACY_TFM.search(t)) and recent_pkgs,
                          'skeleton': (len(own) <= 1 or l < 30) and not own_ui})
 
 print(json.dumps({
@@ -120,6 +141,7 @@ print(json.dumps({
     'projects': sorted(p.stem for p in csproj),
     'projectDetails': sorted(proj_details, key=lambda x: -x['loc']),
     'skeletonProjects': sorted(x['name'] for x in proj_details if x['skeleton']),
+    'zombieProjects': sorted(x['name'] for x in proj_details if x['zombie']),
     'xamlPages': len(pages), 'xamlControls': len(controls), 'xamlOther': len(other_xaml),
     'xamlPageNames': sorted(p.stem for p in pages),
     'csFiles': len(cs),

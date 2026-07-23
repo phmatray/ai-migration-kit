@@ -9,6 +9,15 @@ cd "$(dirname "$0")/../.."
 out="$(mktemp -d)/report.html"
 python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json -o "$out" 2>/dev/null
 
+# Sans -o, la sortie atterrit À CÔTÉ du report.json — jamais dans le cwd (vague 3 : le
+# dashboard de pokedexg s'était retrouvé à la racine du repo migré).
+defaut="tests/report-dashboard/report.html"
+rm -f "$defaut"
+python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json 2>/dev/null
+[ -f "$defaut" ] || { echo "ÉCHEC : sans -o, report.html doit être écrit à côté du report.json"; exit 1; }
+[ ! -f report.html ] || { echo "ÉCHEC : sans -o, rien ne doit être écrit dans le cwd"; exit 1; }
+rm -f "$defaut"
+
 assert() { grep -qF "$1" "$out" || { echo "ÉCHEC : « $1 » absent du HTML généré ($out)"; exit 1; }; }
 refuse() { ! grep -qF "$1" "$out" || { echo "ÉCHEC : « $1 » présent alors qu'il devrait être exclu ($out)"; exit 1; }; }
 

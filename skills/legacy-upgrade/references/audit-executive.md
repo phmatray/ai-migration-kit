@@ -45,6 +45,20 @@ ordres de grandeur), soit invendable (des minutes sans référentiel).
 (≤ 1 fichier réel ou < 30 LOC) : ils ne comptent **jamais** dans la part de logique portable ni
 dans le chiffrage — une « architecture en couches » peut n'être qu'un échafaudage.
 
+**Prémisses vérifiées, jamais déduites** (leçon vague 3 — l'audit de pokedexg s'était trompé
+deux fois) :
+- **Le TFM dit la vérité, pas les versions de paquets.** `projectDetails[].targetFramework`
+  vient du csproj ; `zombie: true` signale un TFM ancien (netcoreapp1/2, netstandard1, PCL,
+  UAP) où un robot de mise à jour pousse des paquets 10+. Un webservice netcoreapp1.0 arrosé
+  par Renovate avait été audité « backend déjà moderne, à conserver tel quel » — il ne
+  compilait plus depuis des années et n'avait **jamais été branché au frontend**. Un robot de
+  mise à jour n'est pas un signe de vie.
+- **Des tests existent quand `hasTests` le dit** (attributs [Fact]/[Test] trouvés dans le
+  code), jamais parce qu'un nom de projet « Tests » traîne dans une .sln — celle de pokedexg
+  référençait un projet de tests supprimé depuis des années (référence pendante).
+- **Un flux de données se prouve par un appel** : chercher le HttpClient (ou équivalent) qui
+  consomme l'API supposée avant d'écrire « frontend branché au backend » dans un audit.
+
 ## Correspondances API Windows → web
 
 | Cluster | Équivalent Blazor/web |
