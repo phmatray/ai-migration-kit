@@ -8,3 +8,5 @@ Invoke the `legacy-upgrade` skill and run an **executive audit** per `references
 Targets: each directory passed in `$ARGUMENTS` (otherwise, the current directory).
 
 Discipline: strictly read-only on the apps; every number comes from `<kit>/scripts/audit-inventory.sh` (path anchoring per the skill); the RoselineMCP `analyze_solution` attempt is recorded (load success or failure); the guide's effort formula and API mappings applied uniformly. Multiple apps → one report per app + a portfolio synthesis (value/effort matrix, migration order, first wave). Finish by presenting the synthesis.
+
+**Multiple apps: fan out.** The per-app inventories are independent by construction (one JSON per repo) — dispatch one subagent per app to run the inventory and draft that app's report in parallel, each under the same discipline (read-only, kit scripts mandatory). The orchestrator keeps only the cross-app step for itself: the portfolio synthesis.

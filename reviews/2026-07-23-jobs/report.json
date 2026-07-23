@@ -1,0 +1,166 @@
+{
+  "schema": "legends-review/1",
+  "date": "2026-07-23",
+  "repo": "ai-migration-kit",
+  "branch": "main",
+  "commit": "2a3bef8",
+  "review_type": "solo",
+  "change_summary": "Analyse produit : quelles approches d'Arbor (RUC-NLPIR) mériteraient d'entrer dans l'ai-migration-kit — et lesquelles refuser.",
+  "scope": "Pas un diff — le kit v1.6.0 entier (pipeline legacy-upgrade, followups, lifecycle) jaugé contre les mécanismes d'Arbor : Idea Tree, coordinator/executor, discipline de merge sur données tenues à l'écart, budget/convergence, resume/checkpoint, rétropropagation d'insights, recherche de nouveauté, modes d'interaction.",
+  "reviewers": [
+    {
+      "id": "steve",
+      "name": "Steve Jobs",
+      "emoji": "🍎",
+      "rating": 8,
+      "verdict": "Arbor cherche son chemin ; votre kit sait où il va — volez-lui ses ceintures de sécurité, jamais son volant.",
+      "hard_truth": "La mémoire du kit vit dans la discipline de Philippe, pas dans le produit — le jour où quelqu'un d'autre lance /migrate, les leçons cessent de remonter.",
+      "assessment": [
+        {
+          "area": "API Elegance",
+          "rating": "green",
+          "notes": "Une commande, /migrate ; les variantes de portée (assess/verify/audit) sont nettes."
+        },
+        {
+          "area": "Naming & Consistency",
+          "rating": "green",
+          "notes": "Phases numérotées, gates nommés, artefacts sous migration/ — on devine la surface."
+        },
+        {
+          "area": "Developer Experience",
+          "rating": "yellow",
+          "notes": "Un /migrate interrompu n'a pas de chemin de reprise documenté — Arbor a --resume, pas vous."
+        },
+        {
+          "area": "Error Messages & Failures",
+          "rating": "yellow",
+          "notes": "Gates rouges nets, mais la boucle de remédiation (phase 4) peut tourner sans converger, sans signal."
+        },
+        {
+          "area": "Documentation & Discoverability",
+          "rating": "green",
+          "notes": "Le README raconte une histoire avec des preuves live — quatre URLs, des minutes mesurées."
+        },
+        {
+          "area": "Defaults & Convention",
+          "rating": "green",
+          "notes": "Preview-first, branche dédiée, commit à chaque gate vert : ça marche sans manuel."
+        },
+        {
+          "area": "The Last 10%",
+          "rating": "yellow",
+          "notes": "Le chiffre-titre (18 min) est mesuré à la main, et la rétropropagation des leçons reste une habitude, pas un contrat."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": 1,
+      "reviewer": "steve",
+      "severity": "major",
+      "category": "dx",
+      "title": "Pas de reprise explicite d'un /migrate interrompu (le --resume d'Arbor manque)",
+      "file": "skills/legacy-upgrade/SKILL.md",
+      "line": 66,
+      "description": "Arbor se reprend d'un Ctrl+C : `arbor --resume` recharge l'état et continue. Le kit a de fait les mêmes checkpoints — un commit à chaque gate vert, l'état dans migration/report.json — mais aucune affordance ne les lit. Une session interrompue en phase 4 oblige la suivante à deviner où reprendre : relire les artefacts, reconstituer la phase courante, risquer de rejouer une phase déjà verte. Les checkpoints existent ; le produit ne les exploite pas. ✅ RÉSOLU (2026-07-23, v1.8.0) : protocole de reprise dans SKILL.md (Scope variants — Resume : détection de migration/ + commits de porte nommant leur phase, artefacts en confirmation, annonce du point de reprise, ré-entrée à la phase suivante, une phase verte n'est jamais rejouée) ; « Resume, never restart » dans commands/migrate.md ; ligne « Session interrupted mid-pipeline » dans Common issues ; propriété « Resume » documentée au README.",
+      "recommendation": "Au lancement, /migrate détecte un dossier migration/ existant et le dernier commit de gate vert (message nommant la phase, règle 4), annonce « migration en cours détectée — reprise en phase N » et ré-entre à la phase suivant le dernier gate vert. Documenter ce comportement dans SKILL.md (Scope variants) et commands/migrate.md.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 2,
+      "reviewer": "steve",
+      "severity": "major",
+      "category": "error-handling",
+      "title": "Phase 4 sans garde de convergence — la boucle de remédiation peut tourner à vide",
+      "file": "skills/legacy-upgrade/SKILL.md",
+      "line": 49,
+      "description": "Arbor borne toute exploration : max_cycles, max_turns par executor, politique de convergence. La phase 4 du kit (« drive diagnostics to zero ») est une boucle sans limite : sur un repo pathologique où les bulk-fixes créent autant de diagnostics qu'ils en résolvent, rien ne détecte la non-convergence — le pipeline consomme du budget agent sans signal d'échec, ce qui contredit la promesse « fast » du produit. ✅ RÉSOLU (2026-07-23, v1.8.0) : hard rule 9 « Remediation must converge » (compte d'erreurs suivi à chaque passe ; deux passes consécutives sans baisse = stop, retour à la dernière porte verte, blocage consigné avec les diagnostics restants groupés par id, décision au propriétaire) ; garde de convergence dans phase-4-remediate §4 ; ligne dédiée dans Common issues.",
+      "recommendation": "Règle de convergence en phase 4 : si deux passes consécutives de remédiation ne réduisent pas le compte d'erreurs, stop — retour au dernier commit vert, la situation est consignée dans le rapport comme blocage avec les diagnostics restants groupés par id, et l'humain décide. Une ligne dans les hard rules + une entrée dans Common issues.",
+      "effort": "S",
+      "resolved": true
+    },
+    {
+      "id": 3,
+      "reviewer": "steve",
+      "severity": "minor",
+      "category": "observability",
+      "title": "Le chiffre-titre du kit (« 18 min ») est mesuré à la main, pas par l'outillage",
+      "file": "README.md",
+      "line": 18,
+      "description": "Arbor horodate tout : run_stats, events.jsonl, rapport final généré. La colonne « Measured pipeline time » du README est l'argument commercial n°1 du kit — et c'est le seul chiffre du produit qu'aucun script ne capture. C'est contraire à la règle 7 du kit lui-même (les outils déterministes rendent les migrations reproductibles et comparables) : la preuve phare repose sur un chronomètre humain. ✅ RÉSOLU (2026-07-23, v1.8.0) : `phases[]` (début/fin/minutes par phase) dans migration/report.json, dérivé des commits de porte de la branche de migration (phase-6-verify §6 — un fait généré depuis git, jamais un chronomètre) ; carte « Chronologie du pipeline » dans report-dashboard.py avec total calculé ; contrat d'artefacts (SKILL.md) et README (« Measured time ») mis à jour ; test golden étendu (fixture `phases` + assertions minutes/total).",
+      "recommendation": "Horodater chaque phase dans migration/report.json (début, fin, durée par phase + total pipeline) au moment où le gate passe au vert ; report-dashboard.py affiche la ligne de temps par phase. La colonne du README devient un fait généré, cité depuis le rapport.",
+      "effort": "S",
+      "resolved": true
+    },
+    {
+      "id": 4,
+      "reviewer": "steve",
+      "severity": "minor",
+      "category": "documentation",
+      "title": "La rétropropagation des leçons est une culture, pas un contrat de phase 7",
+      "file": "skills/legacy-upgrade/SKILL.md",
+      "line": 52,
+      "description": "Le cœur d'Arbor est la backpropagation : chaque expérience remonte « ce qui a marché / ce qui a échoué » vers les nœuds ancêtres, et l'arbre en hérite. Le kit vit déjà cela — la vague 2 a produit v1.3.2 (asset-inventory), la vague 3 a produit v1.4.1 (projets zombies) — mais rien ne l'exige : c'est la discipline de l'opérateur, pas une étape du pipeline. Un autre utilisateur livrera en production sans que ses leçons ne touchent jamais le kit, et le produit cessera d'apprendre. ✅ RÉSOLU (2026-07-23, v1.8.0) : règle 8 étendue — la phase 7 se clôt par l'entrée `lessons` de report.json (référence du changement appliqué au kit, ou « rien à apprendre de cette vague » explicite) et une vague sans entrée leçons est incomplète ; étape 9 du delivery-playbook (schéma `lessons[]` : strong/text/ref) ; carte « Leçons de la vague » dans le dashboard ; report-template mis à jour ; test golden étendu.",
+      "recommendation": "Étape formelle en phase 7 (delivery-playbook) : la migration se conclut par une entrée « leçons » dans migration/report.json — soit un renvoi vers un diff appliqué au kit (ligne Common issues, playbook, garde de script), soit un « rien à apprendre de cette vague » explicite. Le rapport final l'affiche ; une vague sans entrée leçons est incomplète.",
+      "effort": "S",
+      "resolved": true
+    },
+    {
+      "id": 5,
+      "reviewer": "steve",
+      "severity": "info",
+      "category": "dx",
+      "title": "L'audit de portefeuille est séquentiel — le dispatch parallèle d'Arbor s'y appliquerait",
+      "file": "commands/migrate-audit.md",
+      "line": 1,
+      "description": "Arbor dispatch ses executors en parallèle dans des worktrees isolés (RunExecutorParallel). L'audit de portefeuille du kit traite les apps l'une après l'autre, alors que les inventaires par app sont indépendants par construction (audit-inventory.sh produit un JSON par repo) et que la seule étape réellement transverse est la synthèse portefeuille. ✅ RÉSOLU (2026-07-23, v1.8.0) : paragraphe « Multiple apps: fan out » dans commands/migrate-audit.md — un sous-agent par app (inventaire + rapport d'app en parallèle, même discipline lecture seule / scripts du kit obligatoires), l'orchestrateur ne garde que la synthèse portefeuille. Aucun script modifié.",
+      "recommendation": "Documenter le pattern fan-out dans /migrate-audit : un sous-agent par app cible exécute inventaire + rapport d'app en parallèle, l'orchestrateur ne garde pour lui que la synthèse (matrice valeur/effort, ordre de migration). Aucun changement de script requis.",
+      "effort": "M",
+      "resolved": true
+    },
+    {
+      "id": 6,
+      "reviewer": "steve",
+      "severity": "info",
+      "category": "simplicity",
+      "title": "Consigner les non-adoptions : Idea Tree, modes d'interaction et novelty search sont hors périmètre",
+      "file": "docs/backlog.md",
+      "line": 1,
+      "description": "Arbor et le kit sont des produits opposés : Arbor explore un espace ouvert (métrique à maximiser, meilleure solution inconnue) ; le kit exécute un chemin connu vers une destination binaire (build vert, tests verts, prod vérifiée). Importer l'arbre d'hypothèses, les modes d'interaction (auto/direction/review) ou la recherche de nouveauté ajouterait des concepts sans améliorer une seule migration — et détruirait la propriété qui fait la valeur du kit : 18 minutes, déterministe, reproductible. Sans décision écrite, la tentation de « faire explorer » le pipeline reviendra. ✅ RÉSOLU (2026-07-23, v1.8.0) : section « Non-adoptions (décisions fermées) » dans docs/backlog.md — Idea Tree / recherche multi-hypothèses, ui.interaction_mode, novelty search alphaXiv, chacun refusé avec sa justification et une condition de réouverture explicite (changement de nature du kit, jamais une migration).",
+      "recommendation": "Entrée « non-adoptions » dans docs/backlog.md : Idea Tree / recherche multi-hypothèses, ui.interaction_mode, novelty search alphaXiv — refusés avec la justification (pipeline déterministe ≠ recherche exploratoire), pour que la décision survive à la session.",
+      "effort": "S",
+      "resolved": true
+    }
+  ],
+  "actions": [
+    {
+      "rank": 1,
+      "title": "Donner au kit son --resume : /migrate détecte une migration en cours et reprend au dernier gate vert",
+      "champion": "steve",
+      "effort": "M",
+      "finding_ids": [1]
+    },
+    {
+      "rank": 2,
+      "title": "Emprunter la discipline de budget d'Arbor : garde de convergence en phase 4 + minutes par phase générées dans report.json",
+      "champion": "steve",
+      "effort": "S",
+      "finding_ids": [2, 3]
+    },
+    {
+      "rank": 3,
+      "title": "Contractualiser la rétropropagation (entrée « leçons » obligatoire en phase 7) et consigner les non-adoptions au backlog",
+      "champion": "steve",
+      "effort": "S",
+      "finding_ids": [4, 6]
+    }
+  ],
+  "praise": [
+    "Le kit possède déjà la meilleure idée d'Arbor sans l'avoir copiée : la validation sur données tenues à l'écart, c'est exactement les tests de caractérisation + « never weaken a gate » — la discipline de merge d'Arbor appliquée au comportement plutôt qu'à une métrique.",
+    "La boucle vagues → versions (v1.3.2 née du frontispice de la vague 2, v1.4.1 née du backend zombie de la vague 3) est une vraie rétropropagation d'insights — vécue avant d'être formalisée.",
+    "Règle 6 — « le livrable ne raconte pas sa migration » : du goût pur. Arbor n'a rien d'équivalent ; c'est le genre de détail qui fait un produit.",
+    "La table du README — quatre URLs live, des estimations en jours contre des minutes mesurées — est de la preuve avant le discours. C'est la démo qu'on montre à un partenaire au jour un."
+  ]
+}

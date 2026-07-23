@@ -12,7 +12,10 @@ Toute migration (in place ou réécriture) livre **deux fichiers** committés da
    estimation vs réalisé) · **valeur business** (ce que la migration change : actif réactivé, risque
    éteint par preuve, coût de maintenance, réutilisabilité) · capture du produit · couverture par
    classe (graphique) · avant/après · code porté vs écrit vs testé · portes franchies (une par
-   commit) · **Prochaines étapes** · Suivis différés · méthode et limites.
+   commit) · **chronologie du pipeline** (`phases[]` — minutes par phase, dérivées des commits de
+   porte, jamais chronométrées à la main ; cf. phase-6-verify §6) · **Prochaines étapes** · Suivis
+   différés · **leçons de la vague** (`lessons` — rétropropagées au kit ou « rien à apprendre »
+   explicite ; cf. delivery-playbook §9) · méthode et limites.
 2. **`migration/report.md` — le résumé diffable** (grep/diff-friendly) : mêmes chiffres condensés,
    lien vers le dashboard.
 

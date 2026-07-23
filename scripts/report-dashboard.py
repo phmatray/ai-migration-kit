@@ -113,6 +113,29 @@ def render(r):
         for s in r["next_steps"])
     deferred = "".join(
         f'<li><strong>{esc(d["strong"])}</strong> — {esc(d["text"])}</li>' for d in r["deferred"])
+    timeline = ""
+    if r.get("phases"):
+        ph_rows = [{"label": f'{p["phase"]}. {p["name"]}', "value": max(p["minutes"], 0.1),
+                    "display": f'{p["minutes"]} min',
+                    "tip": f'{p["name"]} : {p["start"]} → {p["end"]}', "hue": i}
+                   for i, p in enumerate(r["phases"])]
+        total = round(sum(p["minutes"] for p in r["phases"]))
+        ph_svg = hbar_chart(
+            ph_rows, "Minutes par phase du pipeline",
+            f"Total : {total} min — dérivé des commits de porte (git), jamais chronométré à la main",
+            multi_hue=True)
+        timeline = ('<div class="card"><h2>Chronologie du pipeline</h2>'
+                    '<p class="sub">Minutes par phase, mesurées depuis les commits de porte.</p>'
+                    f'{ph_svg}</div>')
+    lessons = ""
+    if r.get("lessons"):
+        lesson_items = "".join(
+            f'<li><strong>{esc(l["strong"])}</strong> {esc(l["text"])}'
+            + (f' <code>{esc(l["ref"])}</code>' if l.get("ref") else "") + "</li>"
+            for l in r["lessons"])
+        lessons = ('<div class="card"><h2>Leçons de la vague</h2>'
+                   '<p class="sub">Ce que cette migration a appris au kit — rétropropagé à la source.</p>'
+                   f'<ul class="value">{lesson_items}</ul></div>')
     shot = ""
     if r.get("screenshot"):
         s = r["screenshot"]
@@ -212,9 +235,11 @@ def render(r):
   <div class="card"><h2>Portes franchies</h2>
     <p class="sub">Une porte = un commit vert sur la branche <code>{esc(r["branch"])}</code>.</p>
     <ol class="gates">{gates}</ol></div>
+  {timeline}
   <div class="card"><h2>Prochaines étapes</h2>
     <p class="sub">Chemin critique vers la production, dans l'ordre.</p><ul class="steps">{steps}</ul></div>
   <div class="card"><h2>Suivis différés</h2><ul class="defer">{deferred}</ul></div>
+  {lessons}
   <footer><p><strong>Méthode.</strong> {esc(r["method"])}</p></footer>
 </div>
 <div id="tip" role="status" aria-hidden="true"></div>

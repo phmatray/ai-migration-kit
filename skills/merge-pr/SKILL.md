@@ -18,7 +18,7 @@ compatibility: >-
   by get-repo-profile.
 metadata:
   author: Philippe Matray
-  version: 1.7.0
+  version: 1.8.0
   suite: ai-migration-kit
 ---
 

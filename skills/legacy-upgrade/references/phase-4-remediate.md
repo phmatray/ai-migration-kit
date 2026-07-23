@@ -15,6 +15,10 @@
    | `Remoting` / `AppDomain` isolation | out-of-process or `AssemblyLoadContext` |
    For each: `find_references` on the legacy type → rewrite each use site with `edit_member` (preview → apply) → keep signatures compatible in this phase (sync façade over async is acceptable here; true async is phase 5).
 4. Loop steps 1–3 until `list_diagnostics` reports **0 errors** and warning count ≤ the phase-2 baseline.
+   **Convergence guard (hard rule 9):** record the error count after every pass. If two consecutive
+   passes do not reduce it, stop the loop — roll back to the last green-gate commit, record the
+   blockage in the report (remaining diagnostics grouped by id, what was tried and why it did not
+   converge), and hand the decision to the owner. Never keep burning passes on a flat error count.
 5. Full `dotnet test` green.
 
 ## RoselineMCP calls

@@ -22,3 +22,23 @@ rendra rentable (YAGNI sinon).
   de repo, le skill ne se déclenche presque jamais (positifs ≈ 0/3), donc la mesure est au
   plancher ; seul signal fiable : zéro sur-déclenchement sur les 10 quasi-pièges. Description
   d'origine conservée. Déclencheur : premier sous-déclenchement constaté en session réelle.
+
+## Non-adoptions (décisions fermées)
+
+Évaluées et **refusées** — consignées pour que la décision survive aux sessions. Source : revue
+jobs du 2026-07-23 (`reviews/2026-07-23-jobs/`), lentille Arbor (RUC-NLPIR) — le kit a adopté les
+ceintures de sécurité d'Arbor (reprise, garde de convergence, chronologie mesurée, rétropropagation
+contractuelle, v1.8.0), et refuse son volant :
+
+- **Arbre d'hypothèses / recherche multi-hypothèses (Idea Tree)** : Arbor explore un espace ouvert
+  (métrique à maximiser, meilleure solution inconnue) ; le kit exécute un chemin connu vers une
+  destination binaire (build vert, tests verts, prod vérifiée). Greffer l'exploration détruirait la
+  propriété qui fait sa valeur — déterministe, reproductible, minutes mesurées.
+- **Modes d'interaction (`ui.interaction_mode` auto/direction/review/collaborative)** : les
+  variantes de portée du kit (`/migrate-assess` lecture seule, `/migrate`, `/migrate-verify`)
+  couvrent déjà le besoin sans concept supplémentaire.
+- **Recherche de nouveauté (novelty search alphaXiv)** : un verdict de nouveauté académique
+  n'améliore aucune migration.
+
+Réouverture : uniquement si le kit change de nature (optimisation d'une métrique ouverte — perfs,
+taille de bundle — où l'exploration paie), jamais pour une migration.

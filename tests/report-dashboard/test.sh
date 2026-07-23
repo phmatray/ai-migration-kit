@@ -32,6 +32,15 @@ assert 'Wrapper : 1/2 lignes couvertes'
 assert 'Global : 85 % lignes · 70 % branches'
 # Le filtre d'exclusion fonctionne :
 refuse 'ExcludedWeb'
+# Chronologie du pipeline (phases[]) : minutes par phase + total calculé, jamais recopié :
+assert 'Chronologie du pipeline'
+assert '1. Assess'
+assert '6 min'
+assert 'Total : 10 min'
+# Leçons de la vague (lessons) : rétropropagation rendue, avec sa référence kit :
+assert 'Leçons de la vague'
+assert 'Leçon de fixture.'
+assert 'kit@0000000'
 # Autonome et thémé : pas de ressource externe, thème sombre présent
 refuse 'http://'
 refuse 'https://'

@@ -29,6 +29,13 @@
     { "title": "Baseline", "text": "build + tests verts avant modification", "commit": "abc1234" }
   ],
   "branch": "migration/2026-01-01",
+  "phases": [
+    { "phase": 1, "name": "Assess", "start": "2026-01-01T09:00:00+01:00", "end": "2026-01-01T09:04:00+01:00", "minutes": 4 },
+    { "phase": 2, "name": "Baseline", "start": "2026-01-01T09:04:00+01:00", "end": "2026-01-01T09:10:00+01:00", "minutes": 6 }
+  ],
+  "lessons": [
+    { "strong": "Leçon de fixture.", "text": "exemple de leçon rétropropagée au kit.", "ref": "kit@0000000" }
+  ],
   "next_steps": [
     { "text": "Déployer avec fallback SPA", "effort": "~1 h" },
     { "text": "Décider du sort du repo legacy", "effort": "—", "owner": true }

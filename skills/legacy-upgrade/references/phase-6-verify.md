@@ -15,7 +15,14 @@
    - Changes: chronological commit list of the migration branch (`git log --oneline`),
    - **Next steps**: ordered, actionable checklist to production (merge, deploy, CI, owner decisions) with effort hints,
    - Follow-ups: behavior quirks found (from characterization tests), deferred modernizations, packages held back and why.
-6. Final commit: `migration: phase 6 verified — report`.
+6. **Phase timeline — measured, never hand-timed.** Derive per-phase timings from the green-gate
+   commits of the migration branch (`git log --reverse --format='%cI %s'` — each gate commit names
+   its phase, rule 4; a phase starts when the previous gate closed) and write them to
+   `migration/report.json` as `phases[]`:
+   `{"phase": <n>, "name": "<Phase>", "start": "<ISO 8601>", "end": "<ISO 8601>", "minutes": <n>}`.
+   `report-dashboard.py` renders the timeline card; the kit's advertised pipeline minutes are
+   quoted from here — a generated fact, not a stopwatch.
+7. Final commit: `migration: phase 6 verified — report`.
 
 ## RoselineMCP calls
 

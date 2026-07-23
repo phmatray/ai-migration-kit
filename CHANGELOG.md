@@ -3,6 +3,42 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.8.0] — 2026-07-23
+
+Implémentation intégrale de la revue jobs du jour (`reviews/2026-07-23-jobs/`, lentille Arbor :
+quelles disciplines du framework de recherche RUC-NLPIR/Arbor méritent d'entrer dans un pipeline
+déterministe — et lesquelles refuser) : les 6 findings résolus. En une ligne : le kit adopte les
+ceintures de sécurité d'Arbor (reprise, convergence, temps mesuré, rétropropagation), et refuse
+son volant (l'exploration arborescente).
+
+### Ajouté
+- **Reprise d'un `/migrate` interrompu** (le `--resume` d'Arbor) : le pipeline détecte le dossier
+  `migration/` et les commits de porte (leur message nomme la phase — règle 4, les artefacts
+  confirment), annonce le point de reprise et ré-entre à la phase qui suit la dernière porte
+  verte ; une phase verte n'est jamais rejouée (SKILL.md Scope variants + Common issues,
+  commande `/migrate`).
+- **Règle 9 — la remédiation doit converger** (la politique de budget d'Arbor) : deux passes de
+  phase 4 consécutives sans baisse du compte d'erreurs = stop, retour à la dernière porte verte,
+  blocage consigné au rapport (diagnostics restants groupés par id), décision au propriétaire
+  (SKILL.md + phase-4-remediate + Common issues).
+- **Chronologie du pipeline mesurée** : `migration/report.json` porte `phases[]` (début/fin/minutes
+  par phase), **dérivée des commits de porte** (`git log` de la branche de migration, phase-6-verify
+  §6) — le « temps pipeline mesuré » du README devient un fait généré, jamais un chronomètre
+  humain ; `report-dashboard.py` rend la carte « Chronologie du pipeline » avec le total calculé
+  (test golden étendu).
+- **La rétropropagation devient un contrat** (le backpropagate d'Arbor) : la phase 7 se clôt par
+  une entrée `lessons` dans `report.json` — référence du changement appliqué au kit ou « rien à
+  apprendre de cette vague » explicite ; une vague sans entrée leçons est incomplète (règle 8,
+  delivery-playbook étape 9, report-template) ; le dashboard rend la carte « Leçons de la vague »
+  (test golden étendu).
+- **Audit de portefeuille en éventail** : `/migrate-audit` multi-apps documente le fan-out — un
+  sous-agent par app (les inventaires sont indépendants par construction), l'orchestrateur ne
+  garde que la synthèse portefeuille. Aucun script modifié.
+- **Non-adoptions consignées** (docs/backlog.md, section « décisions fermées ») : arbre
+  d'hypothèses / Idea Tree, modes d'interaction, novelty search — refusés avec justification
+  (pipeline déterministe ≠ recherche exploratoire) et condition de réouverture, pour que la
+  décision survive aux sessions.
+
 ## [1.7.0] — 2026-07-23
 
 Implémentation intégrale de la seconde revue elon du jour (`reviews/2026-07-23-elon-2/`, lentille

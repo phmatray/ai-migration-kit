@@ -14,7 +14,7 @@ compatibility: >-
   requirements.json at the kit root, verified by scripts/preflight.sh (phase 0).
 metadata:
   author: Philippe Matray
-  version: 1.7.0
+  version: 1.8.0
   suite: ai-migration-kit
 ---
 
@@ -42,7 +42,8 @@ there — never from the current working directory, which is the *target* repo.
 5. **No behavior changes.** The migration preserves observable behavior. Behavior fixes discovered along the way are recorded in the report as follow-ups, not applied.
 6. **The deliverable never narrates its migration.** No banner, footer, meta tag or user-facing string mentions the port, the tooling or the process — the end user gets a product, not a case study. Provenance lives in the README, `migration/report.md` and git history. (In-code comments that encode a maintenance constraint — "verbatim port, do not modernize" — stay.)
 7. **Kit scripts and templates are mandatory.** When the kit ships a tool for a step, improvising is forbidden: inventory → `<kit>/scripts/audit-inventory.sh`; report → `<kit>/scripts/report-dashboard.py` (never hand-written HTML); CI → `<kit>/templates/ci-dotnet.yml`; Blazor deployment → `<kit>/templates/deploy-pages-blazor.yml`. This is what makes migrations reproducible and comparable.
-8. **Delivered = in production.** The pipeline does not stop at local green: follow `references/delivery-playbook.md` (default branch, workflows from the kit templates, Pages, production verified with a deep route + a reviewed screenshot). Phase 7 closes with a pass of the `followups` skill (`<kit>/scripts/followups.py` over the migrated repos): the follow-up queue — owner decisions, tasks, deliberate deferrals — is presented up to date before leaving the repo. A follow-up that deserves a real ticket becomes a GitHub issue via the kit's `create-issue` skill (see the `followups` skill). An app with **no production target** closes phase 7 by recording that owner decision in the report — documented, never silent.
+8. **Delivered = in production.** The pipeline does not stop at local green: follow `references/delivery-playbook.md` (default branch, workflows from the kit templates, Pages, production verified with a deep route + a reviewed screenshot). Phase 7 closes with a pass of the `followups` skill (`<kit>/scripts/followups.py` over the migrated repos): the follow-up queue — owner decisions, tasks, deliberate deferrals — is presented up to date before leaving the repo. A follow-up that deserves a real ticket becomes a GitHub issue via the kit's `create-issue` skill (see the `followups` skill). An app with **no production target** closes phase 7 by recording that owner decision in the report — documented, never silent. Phase 7 also closes the loop on the kit itself: the report's `lessons` entry either points at the kit change this wave produced, or states "nothing to learn from this wave" explicitly (delivery playbook, step 9) — a wave without a `lessons` entry is incomplete.
+9. **Remediation must converge.** Track the error count after every phase-4 pass; if two consecutive passes do not reduce it, stop the loop — roll back to the last green-gate commit, record the blockage in the report (remaining diagnostics grouped by id, what was tried), and hand the decision to the owner. Burning passes on a flat error count is a failure mode, not progress.
 
 ## The pipeline
 
@@ -65,10 +66,12 @@ All pipeline artifacts live in a `migration/` folder at the target repo root:
 - `migration/assessment.md` — phase 1 output (inventory, diagnostics histogram, risk map, recommended target).
 - `migration/baseline.md` — phase 2 output (build/test/diagnostic counts that later gates compare against).
 - `migration/report.md` — phase 6 output (before/after evidence, changes, follow-ups).
+- `migration/report.json` — the report's data: KPIs, gates, next steps / follow-up queue, the **phase timeline** (`phases[]`, derived from the gate commits — see `references/phase-6-verify.md`) and the **`lessons` entry** (rule 8). Single source rendered by `<kit>/scripts/report-dashboard.py` into `report.html`, and what `followups.py` reads.
 
 ## Scope variants
 
 - `/migrate` — the full pipeline, phases 1–7 (assess → deliver). It ends in verified production (hard rule 8) — or with the recorded owner decision when no production target exists.
+- **Resume** — `/migrate` on a repo that already carries a `migration/` folder or a `migration/<yyyy-mm-dd>` branch never starts over. Locate the last green gate: the gate commits name their phase (rule 4) and the artifacts confirm it (`assessment.md` → phase 1 done, `baseline.md` → phase 2, `report.md`/`report.html` → phase 6). Announce "in-progress migration detected — resuming at phase N", then re-enter at the phase after that gate. A green phase is never replayed.
 - `/migrate-assess` — phase 1 only. Absolute guarantee: no file in the target repo is created or modified except `migration/assessment.md`.
 - `/migrate-verify` — phase 6 only; re-runnable at any time after a migration.
 - Non-.NET legacy apps: the same seven-phase methodology applies, but phases 3–5 use the ecosystem's own tooling; RoselineMCP covers the C# path.
@@ -82,3 +85,5 @@ All pipeline artifacts live in a `migration/` folder at the target repo root:
 | Build red right after the phase 3 retarget | Packages bumped out of dependency order | Roll back to the last green-gate commit; re-bump following the dependency graph, building between bumps |
 | Phase 4 gate: warnings above baseline | Bulk fixes introduced new diagnostics | `list_diagnostics` grouped by id, fix by code — never widen the baseline to pass the gate |
 | `dotnet test` fails locally on a missing prerequisite (workload, DB) | The app has a CI-only prerequisite | Run per-project builds / filtered suites and record the degradation in the report — documented, never silent |
+| Phase 4 loops — error count stopped dropping | Fixes introduce as many diagnostics as they resolve (pathological repo) | Hard rule 9: after two passes without reduction, stop — roll back to the last green gate, record the remaining diagnostics (grouped by id) in the report, escalate to the owner |
+| Session interrupted mid-pipeline | Crash, context loss, or user stop between gates | Re-run `/migrate`: it detects the `migration/` folder and the gate commits, announces the resume point, and re-enters at the phase after the last green gate (see Scope variants — Resume) |

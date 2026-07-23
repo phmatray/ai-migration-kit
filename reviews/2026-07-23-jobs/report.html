@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revue de code ai-migration-kit — 2026-07-23</title>
+<style>
+  :root { color-scheme: light; --plane:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e;
+    --muted:#898781; --grid:#e1e0d9; --axis:#c3c2b7; --ring:rgba(11,11,11,0.10);
+    --s1: #2a78d6;--s2: #eb6834;--s3: #1baf7a;--s4: #eda100; --good-text:#006300; --crit:#c62828; }
+  @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { color-scheme: dark; --plane:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10); --s1: #3987e5;--s2: #d95926;--s3: #199e70;--s4: #c98500; --good-text:#0ca30c; --crit:#ef5350; } }
+  :root[data-theme="dark"] { color-scheme: dark; --plane:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10); --s1: #3987e5;--s2: #d95926;--s3: #199e70;--s4: #c98500; --good-text:#0ca30c; --crit:#ef5350; }
+  body { margin:0; background:var(--plane); color:var(--ink); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:32px 20px 64px; display:grid; gap:20px; }
+  .eyebrow { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  h1 { font-size:27px; font-weight:700; margin:4px 0 2px; text-wrap:balance; }
+  header p { color:var(--ink-2); max-width:70ch; margin:6px 0 0; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+  .tile { background:var(--surface); border:1px solid var(--ring); border-radius:10px; padding:14px 16px; }
+  .tile .v { font-size:26px; font-weight:700; } .tile .v small { font-size:14px; font-weight:600; color:var(--ink-2); }
+  .tile .l { font-size:12.5px; color:var(--ink-2); margin-top:2px; }
+  .tile .verdict { font-size:13px; color:var(--ink-2); margin:8px 0 0; font-style:italic; }
+  .tile.consensus { border-color:var(--s1); }
+  .card { background:var(--surface); border:1px solid var(--ring); border-radius:10px; padding:18px 20px; }
+  .card h2 { font-size:15px; font-weight:650; margin:0 0 10px; }
+  .grid2 { display:grid; grid-template-columns:1fr; gap:20px; }
+  @media (min-width:880px) { .grid2 { grid-template-columns:1fr 1fr; } }
+  ul.value { margin:0; padding-left:1.1em; display:grid; gap:8px; color:var(--ink-2); }
+  ul.value .who { color:var(--muted); font-size:12.5px; }
+  .progress { display:flex; align-items:center; gap:12px; }
+  .progress .bar { flex:1; height:8px; background:var(--grid); border-radius:99px; overflow:hidden; }
+  .progress .bar > div { height:100%; width:0; background:var(--s3); border-radius:99px; transition:width .2s; }
+  .progress .num { font-variant-numeric:tabular-nums; font-size:13px; color:var(--ink-2); white-space:nowrap; }
+  .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .chip { display:inline-flex; align-items:center; gap:6px; font:12.5px system-ui; padding:4px 11px;
+    border-radius:999px; border:1px solid var(--axis); background:none; color:var(--muted); cursor:pointer; }
+  .chip.on { color:var(--ink); border-color:var(--ink-2); background:var(--surface); }
+  .chip b { font-variant-numeric:tabular-nums; }
+  .chip .dot { width:9px; height:9px; border-radius:99px; display:inline-block; }
+  select { font:12.5px system-ui; padding:4px 8px; border-radius:7px; border:1px solid var(--axis);
+    background:var(--surface); color:var(--ink); }
+  .sev { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    padding:2px 8px; border-radius:99px; color:#fff; white-space:nowrap; }
+  .sev-critical { background:var(--crit); } .sev-major { background:var(--s2); }
+  .sev-minor { background:var(--s4); } .sev-info { background:var(--s1); }
+  .dot.sev-critical { background:var(--crit); } .dot.sev-major { background:var(--s2); }
+  .dot.sev-minor { background:var(--s4); } .dot.sev-info { background:var(--s1); }
+  .finding { background:var(--surface); border:1px solid var(--ring); border-radius:10px; margin-bottom:8px; }
+  .finding.hidden { display:none; }
+  .finding summary { display:flex; align-items:center; gap:9px; padding:10px 14px; cursor:pointer;
+    flex-wrap:wrap; list-style:none; }
+  .finding summary::-webkit-details-marker { display:none; }
+  .finding .f-title { font-weight:600; flex:1; min-width:200px; }
+  .finding.done .f-title { text-decoration:line-through; color:var(--muted); font-weight:400; }
+  .finding .cat { font-size:11px; color:var(--muted); border:1px solid var(--grid); border-radius:5px; padding:1px 6px; }
+  .finding .loc { font-family:ui-monospace,monospace; font-size:11.5px; color:var(--muted); }
+  .finding .rv-tag { font-size:13px; }
+  .eff { font-family:ui-monospace,monospace; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .f-body { padding:2px 16px 14px 42px; color:var(--ink-2); font-size:14px; }
+  .f-body p { margin:6px 0; max-width:75ch; }
+  .f-body .rec strong { color:var(--good-text); }
+  pre.fix { background:var(--plane); border:1px solid var(--grid); border-radius:8px; padding:10px 12px;
+    font-size:12.5px; overflow-x:auto; }
+  .btn { font:12.5px system-ui; padding:5px 12px; border-radius:7px; border:1px solid var(--axis);
+    background:var(--surface); color:var(--ink); cursor:pointer; margin-top:6px; }
+  .btn:hover { border-color:var(--ink-2); }
+  .done-box { width:16px; height:16px; accent-color:var(--s3); flex-shrink:0; }
+  ul.steps { margin:0; padding:0; list-style:none; display:grid; gap:9px; }
+  ul.steps li { display:grid; grid-template-columns:24px 1fr auto; gap:10px; align-items:baseline;
+    font-size:14px; border-top:1px solid var(--grid); padding-top:9px; }
+  ul.steps li:first-child { border-top:0; padding-top:0; }
+  ul.steps .box { width:15px; height:15px; border:1.6px solid var(--axis); border-radius:4px; margin-top:2px; }
+  ul.steps .box.done { background:var(--s3); border-color:var(--s3); color:#fff; font-size:11px;
+    line-height:15px; text-align:center; font-weight:700; }
+  ul.steps li.done > span:nth-child(2) { text-decoration:line-through; color:var(--muted); }
+  ul.steps .who { color:var(--muted); font-size:12.5px; }
+  footer { font-size:12.5px; color:var(--muted); max-width:78ch; }
+  #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--ink);
+    color:var(--plane); font-size:13px; padding:8px 16px; border-radius:8px; opacity:0; transition:opacity .15s; }
+</style>
+</head>
+<body data-report-id="8732de2ee2">
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Revue de code · ai-migration-kit · main@2a3bef8 · 2026-07-23</div>
+    <h1>Analyse produit : quelles approches d&#x27;Arbor (RUC-NLPIR) mériteraient d&#x27;entrer dans l&#x27;ai-migration-kit — et lesquelles refuser.</h1>
+    <p>Pas un diff — le kit v1.6.0 entier (pipeline legacy-upgrade, followups, lifecycle) jaugé contre les mécanismes d&#x27;Arbor : Idea Tree, coordinator/executor, discipline de merge sur données tenues à l&#x27;écart, budget/convergence, resume/checkpoint, rétropropagation d&#x27;insights, recherche de nouveauté, modes d&#x27;interaction.</p>
+  </header>
+  <div class="tiles"><div class="tile reviewer">
+<div class="v">🍎 8<small>/10</small></div>
+<div class="l">Steve Jobs</div>
+<p class="verdict">“Arbor cherche son chemin ; votre kit sait où il va — volez-lui ses ceintures de sécurité, jamais son volant.”</p>
+</div></div>
+  
+  <div class="card">
+    <h2>Constats</h2>
+    <div class="progress"><div class="bar"><div id="pbar"></div></div>
+      <span class="num"><span id="pdone">0</span>/6 traités</span></div>
+    <div class="filters" style="margin:12px 0 14px">
+      <button class="chip on" data-filter="severity" data-value="major"><span class="dot sev-major"></span>Majeur <b>2</b></button><button class="chip on" data-filter="severity" data-value="minor"><span class="dot sev-minor"></span>Mineur <b>2</b></button><button class="chip on" data-filter="severity" data-value="info"><span class="dot sev-info"></span>Info <b>2</b></button><select id="cat"><option value="">Tous</option><option value="documentation">documentation</option><option value="dx">dx</option><option value="error-handling">error-handling</option><option value="observability">observability</option><option value="simplicity">simplicity</option></select>
+      <button class="chip" id="hide-done">Masquer les faits</button>
+      <button class="chip" id="export-md">Copier le restant en Markdown</button>
+    </div>
+    <div id="findings"><details class="finding" data-id="1" data-severity="major"
+ data-reviewer="steve" data-category="dx"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-major">Majeur</span>
+<span class="f-title">Pas de reprise explicite d&#x27;un /migrate interrompu (le --resume d&#x27;Arbor manque)</span>
+<span class="cat">dx</span><code class="loc">skills/legacy-upgrade/SKILL.md:66</code>
+<span class="rv-tag" title="Steve Jobs">🍎</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>Arbor se reprend d&#x27;un Ctrl+C : `arbor --resume` recharge l&#x27;état et continue. Le kit a de fait les mêmes checkpoints — un commit à chaque gate vert, l&#x27;état dans migration/report.json — mais aucune affordance ne les lit. Une session interrompue en phase 4 oblige la suivante à deviner où reprendre : relire les artefacts, reconstituer la phase courante, risquer de rejouer une phase déjà verte. Les checkpoints existent ; le produit ne les exploite pas. ✅ RÉSOLU (2026-07-23, v1.8.0) : protocole de reprise dans SKILL.md (Scope variants — Resume : détection de migration/ + commits de porte nommant leur phase, artefacts en confirmation, annonce du point de reprise, ré-entrée à la phase suivante, une phase verte n&#x27;est jamais rejouée) ; « Resume, never restart » dans commands/migrate.md ; ligne « Session interrupted mid-pipeline » dans Common issues ; propriété « Resume » documentée au README.</p>
+<p class="rec"><strong>→</strong> Au lancement, /migrate détecte un dossier migration/ existant et le dernier commit de gate vert (message nommant la phase, règle 4), annonce « migration en cours détectée — reprise en phase N » et ré-entre à la phase suivant le dernier gate vert. Documenter ce comportement dans SKILL.md (Scope variants) et commands/migrate.md.</p>
+
+<button class="btn copy-fix" data-id="1">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="2" data-severity="major"
+ data-reviewer="steve" data-category="error-handling"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-major">Majeur</span>
+<span class="f-title">Phase 4 sans garde de convergence — la boucle de remédiation peut tourner à vide</span>
+<span class="cat">error-handling</span><code class="loc">skills/legacy-upgrade/SKILL.md:49</code>
+<span class="rv-tag" title="Steve Jobs">🍎</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>Arbor borne toute exploration : max_cycles, max_turns par executor, politique de convergence. La phase 4 du kit (« drive diagnostics to zero ») est une boucle sans limite : sur un repo pathologique où les bulk-fixes créent autant de diagnostics qu&#x27;ils en résolvent, rien ne détecte la non-convergence — le pipeline consomme du budget agent sans signal d&#x27;échec, ce qui contredit la promesse « fast » du produit. ✅ RÉSOLU (2026-07-23, v1.8.0) : hard rule 9 « Remediation must converge » (compte d&#x27;erreurs suivi à chaque passe ; deux passes consécutives sans baisse = stop, retour à la dernière porte verte, blocage consigné avec les diagnostics restants groupés par id, décision au propriétaire) ; garde de convergence dans phase-4-remediate §4 ; ligne dédiée dans Common issues.</p>
+<p class="rec"><strong>→</strong> Règle de convergence en phase 4 : si deux passes consécutives de remédiation ne réduisent pas le compte d&#x27;erreurs, stop — retour au dernier commit vert, la situation est consignée dans le rapport comme blocage avec les diagnostics restants groupés par id, et l&#x27;humain décide. Une ligne dans les hard rules + une entrée dans Common issues.</p>
+
+<button class="btn copy-fix" data-id="2">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="3" data-severity="minor"
+ data-reviewer="steve" data-category="observability"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Mineur</span>
+<span class="f-title">Le chiffre-titre du kit (« 18 min ») est mesuré à la main, pas par l&#x27;outillage</span>
+<span class="cat">observability</span><code class="loc">README.md:18</code>
+<span class="rv-tag" title="Steve Jobs">🍎</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>Arbor horodate tout : run_stats, events.jsonl, rapport final généré. La colonne « Measured pipeline time » du README est l&#x27;argument commercial n°1 du kit — et c&#x27;est le seul chiffre du produit qu&#x27;aucun script ne capture. C&#x27;est contraire à la règle 7 du kit lui-même (les outils déterministes rendent les migrations reproductibles et comparables) : la preuve phare repose sur un chronomètre humain. ✅ RÉSOLU (2026-07-23, v1.8.0) : `phases[]` (début/fin/minutes par phase) dans migration/report.json, dérivé des commits de porte de la branche de migration (phase-6-verify §6 — un fait généré depuis git, jamais un chronomètre) ; carte « Chronologie du pipeline » dans report-dashboard.py avec total calculé ; contrat d&#x27;artefacts (SKILL.md) et README (« Measured time ») mis à jour ; test golden étendu (fixture `phases` + assertions minutes/total).</p>
+<p class="rec"><strong>→</strong> Horodater chaque phase dans migration/report.json (début, fin, durée par phase + total pipeline) au moment où le gate passe au vert ; report-dashboard.py affiche la ligne de temps par phase. La colonne du README devient un fait généré, cité depuis le rapport.</p>
+
+<button class="btn copy-fix" data-id="3">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="4" data-severity="minor"
+ data-reviewer="steve" data-category="documentation"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-minor">Mineur</span>
+<span class="f-title">La rétropropagation des leçons est une culture, pas un contrat de phase 7</span>
+<span class="cat">documentation</span><code class="loc">skills/legacy-upgrade/SKILL.md:52</code>
+<span class="rv-tag" title="Steve Jobs">🍎</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>Le cœur d&#x27;Arbor est la backpropagation : chaque expérience remonte « ce qui a marché / ce qui a échoué » vers les nœuds ancêtres, et l&#x27;arbre en hérite. Le kit vit déjà cela — la vague 2 a produit v1.3.2 (asset-inventory), la vague 3 a produit v1.4.1 (projets zombies) — mais rien ne l&#x27;exige : c&#x27;est la discipline de l&#x27;opérateur, pas une étape du pipeline. Un autre utilisateur livrera en production sans que ses leçons ne touchent jamais le kit, et le produit cessera d&#x27;apprendre. ✅ RÉSOLU (2026-07-23, v1.8.0) : règle 8 étendue — la phase 7 se clôt par l&#x27;entrée `lessons` de report.json (référence du changement appliqué au kit, ou « rien à apprendre de cette vague » explicite) et une vague sans entrée leçons est incomplète ; étape 9 du delivery-playbook (schéma `lessons[]` : strong/text/ref) ; carte « Leçons de la vague » dans le dashboard ; report-template mis à jour ; test golden étendu.</p>
+<p class="rec"><strong>→</strong> Étape formelle en phase 7 (delivery-playbook) : la migration se conclut par une entrée « leçons » dans migration/report.json — soit un renvoi vers un diff appliqué au kit (ligne Common issues, playbook, garde de script), soit un « rien à apprendre de cette vague » explicite. Le rapport final l&#x27;affiche ; une vague sans entrée leçons est incomplète.</p>
+
+<button class="btn copy-fix" data-id="4">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="5" data-severity="info"
+ data-reviewer="steve" data-category="dx"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-info">Info</span>
+<span class="f-title">L&#x27;audit de portefeuille est séquentiel — le dispatch parallèle d&#x27;Arbor s&#x27;y appliquerait</span>
+<span class="cat">dx</span><code class="loc">commands/migrate-audit.md:1</code>
+<span class="rv-tag" title="Steve Jobs">🍎</span><span class="eff">M</span>
+</summary>
+<div class="f-body">
+<p>Arbor dispatch ses executors en parallèle dans des worktrees isolés (RunExecutorParallel). L&#x27;audit de portefeuille du kit traite les apps l&#x27;une après l&#x27;autre, alors que les inventaires par app sont indépendants par construction (audit-inventory.sh produit un JSON par repo) et que la seule étape réellement transverse est la synthèse portefeuille. ✅ RÉSOLU (2026-07-23, v1.8.0) : paragraphe « Multiple apps: fan out » dans commands/migrate-audit.md — un sous-agent par app (inventaire + rapport d&#x27;app en parallèle, même discipline lecture seule / scripts du kit obligatoires), l&#x27;orchestrateur ne garde que la synthèse portefeuille. Aucun script modifié.</p>
+<p class="rec"><strong>→</strong> Documenter le pattern fan-out dans /migrate-audit : un sous-agent par app cible exécute inventaire + rapport d&#x27;app en parallèle, l&#x27;orchestrateur ne garde pour lui que la synthèse (matrice valeur/effort, ordre de migration). Aucun changement de script requis.</p>
+
+<button class="btn copy-fix" data-id="5">Copier le prompt de fix</button>
+</div>
+</details><details class="finding" data-id="6" data-severity="info"
+ data-reviewer="steve" data-category="simplicity"
+ data-resolved="1">
+<summary>
+<input type="checkbox" class="done-box" aria-label="done" onclick="event.stopPropagation()">
+<span class="sev sev-info">Info</span>
+<span class="f-title">Consigner les non-adoptions : Idea Tree, modes d&#x27;interaction et novelty search sont hors périmètre</span>
+<span class="cat">simplicity</span><code class="loc">docs/backlog.md:1</code>
+<span class="rv-tag" title="Steve Jobs">🍎</span><span class="eff">S</span>
+</summary>
+<div class="f-body">
+<p>Arbor et le kit sont des produits opposés : Arbor explore un espace ouvert (métrique à maximiser, meilleure solution inconnue) ; le kit exécute un chemin connu vers une destination binaire (build vert, tests verts, prod vérifiée). Importer l&#x27;arbre d&#x27;hypothèses, les modes d&#x27;interaction (auto/direction/review) ou la recherche de nouveauté ajouterait des concepts sans améliorer une seule migration — et détruirait la propriété qui fait la valeur du kit : 18 minutes, déterministe, reproductible. Sans décision écrite, la tentation de « faire explorer » le pipeline reviendra. ✅ RÉSOLU (2026-07-23, v1.8.0) : section « Non-adoptions (décisions fermées) » dans docs/backlog.md — Idea Tree / recherche multi-hypothèses, ui.interaction_mode, novelty search alphaXiv, chacun refusé avec sa justification et une condition de réouverture explicite (changement de nature du kit, jamais une migration).</p>
+<p class="rec"><strong>→</strong> Entrée « non-adoptions » dans docs/backlog.md : Idea Tree / recherche multi-hypothèses, ui.interaction_mode, novelty search alphaXiv — refusés avec la justification (pipeline déterministe ≠ recherche exploratoire), pour que la décision survive à la session.</p>
+
+<button class="btn copy-fix" data-id="6">Copier le prompt de fix</button>
+</div>
+</details></div>
+  </div>
+  <div class="card"><h2>Plan d&#x27;action</h2><ul class="steps"><li class="done"><span class="box done" aria-hidden="true">✓</span><span>Donner au kit son --resume : /migrate détecte une migration en cours et reprend au dernier gate vert <span class="who">— porté par Steve Jobs</span></span><span class="eff">M</span></li><li class="done"><span class="box done" aria-hidden="true">✓</span><span>Emprunter la discipline de budget d&#x27;Arbor : garde de convergence en phase 4 + minutes par phase générées dans report.json <span class="who">— porté par Steve Jobs</span></span><span class="eff">S</span></li><li class="done"><span class="box done" aria-hidden="true">✓</span><span>Contractualiser la rétropropagation (entrée « leçons » obligatoire en phase 7) et consigner les non-adoptions au backlog <span class="who">— porté par Steve Jobs</span></span><span class="eff">S</span></li></ul></div>
+  <div class="card"><h2>Les vérités qui dérangent</h2><ul class="value truths"><li>🍎 <em>“La mémoire du kit vit dans la discipline de Philippe, pas dans le produit — le jour où quelqu&#x27;un d&#x27;autre lance /migrate, les leçons cessent de remonter.”</em> <span class="who">— Steve Jobs</span></li></ul></div>
+  <div class="card"><h2>Ce qui est réussi</h2><ul class="value"><li>Le kit possède déjà la meilleure idée d&#x27;Arbor sans l&#x27;avoir copiée : la validation sur données tenues à l&#x27;écart, c&#x27;est exactement les tests de caractérisation + « never weaken a gate » — la discipline de merge d&#x27;Arbor appliquée au comportement plutôt qu&#x27;à une métrique.</li><li>La boucle vagues → versions (v1.3.2 née du frontispice de la vague 2, v1.4.1 née du backend zombie de la vague 3) est une vraie rétropropagation d&#x27;insights — vécue avant d&#x27;être formalisée.</li><li>Règle 6 — « le livrable ne raconte pas sa migration » : du goût pur. Arbor n&#x27;a rien d&#x27;équivalent ; c&#x27;est le genre de détail qui fait un produit.</li><li>La table du README — quatre URLs live, des estimations en jours contre des minutes mesurées — est de la preuve avant le discours. C&#x27;est la démo qu&#x27;on montre à un partenaire au jour un.</li></ul></div>
+  <footer><p>Généré depuis report.json par legends-review — les données vivent dans le JSON, le HTML est toujours régénéré, jamais édité à la main.</p></footer>
+</div>
+<div id="toast" role="status"></div>
+<script type="application/json" id="data">{"reportId": "8732de2ee2", "lang": "fr", "repo": "ai-migration-kit", "branch": "main", "commit": "2a3bef8", "date": "2026-07-23", "labels": {"fix_intro": "Corrige ce constat de revue de code :", "fix_outro": "Implémente le fix, garde le changement minimal, et vérifie avec les tests du projet.", "remaining_title": "Suivis de revue de code", "copied": "Copié !"}, "reviewers": {"steve": {"name": "Steve Jobs", "emoji": "🍎"}}, "findings": [{"id": 1, "reviewer": "steve", "severity": "major", "category": "dx", "title": "Pas de reprise explicite d'un /migrate interrompu (le --resume d'Arbor manque)", "file": "skills/legacy-upgrade/SKILL.md", "line": 66, "description": "Arbor se reprend d'un Ctrl+C : `arbor --resume` recharge l'état et continue. Le kit a de fait les mêmes checkpoints — un commit à chaque gate vert, l'état dans migration/report.json — mais aucune affordance ne les lit. Une session interrompue en phase 4 oblige la suivante à deviner où reprendre : relire les artefacts, reconstituer la phase courante, risquer de rejouer une phase déjà verte. Les checkpoints existent ; le produit ne les exploite pas. ✅ RÉSOLU (2026-07-23, v1.8.0) : protocole de reprise dans SKILL.md (Scope variants — Resume : détection de migration/ + commits de porte nommant leur phase, artefacts en confirmation, annonce du point de reprise, ré-entrée à la phase suivante, une phase verte n'est jamais rejouée) ; « Resume, never restart » dans commands/migrate.md ; ligne « Session interrupted mid-pipeline » dans Common issues ; propriété « Resume » documentée au README.", "recommendation": "Au lancement, /migrate détecte un dossier migration/ existant et le dernier commit de gate vert (message nommant la phase, règle 4), annonce « migration en cours détectée — reprise en phase N » et ré-entre à la phase suivant le dernier gate vert. Documenter ce comportement dans SKILL.md (Scope variants) et commands/migrate.md.", "fix_hint": null, "effort": "M"}, {"id": 2, "reviewer": "steve", "severity": "major", "category": "error-handling", "title": "Phase 4 sans garde de convergence — la boucle de remédiation peut tourner à vide", "file": "skills/legacy-upgrade/SKILL.md", "line": 49, "description": "Arbor borne toute exploration : max_cycles, max_turns par executor, politique de convergence. La phase 4 du kit (« drive diagnostics to zero ») est une boucle sans limite : sur un repo pathologique où les bulk-fixes créent autant de diagnostics qu'ils en résolvent, rien ne détecte la non-convergence — le pipeline consomme du budget agent sans signal d'échec, ce qui contredit la promesse « fast » du produit. ✅ RÉSOLU (2026-07-23, v1.8.0) : hard rule 9 « Remediation must converge » (compte d'erreurs suivi à chaque passe ; deux passes consécutives sans baisse = stop, retour à la dernière porte verte, blocage consigné avec les diagnostics restants groupés par id, décision au propriétaire) ; garde de convergence dans phase-4-remediate §4 ; ligne dédiée dans Common issues.", "recommendation": "Règle de convergence en phase 4 : si deux passes consécutives de remédiation ne réduisent pas le compte d'erreurs, stop — retour au dernier commit vert, la situation est consignée dans le rapport comme blocage avec les diagnostics restants groupés par id, et l'humain décide. Une ligne dans les hard rules + une entrée dans Common issues.", "fix_hint": null, "effort": "S"}, {"id": 3, "reviewer": "steve", "severity": "minor", "category": "observability", "title": "Le chiffre-titre du kit (« 18 min ») est mesuré à la main, pas par l'outillage", "file": "README.md", "line": 18, "description": "Arbor horodate tout : run_stats, events.jsonl, rapport final généré. La colonne « Measured pipeline time » du README est l'argument commercial n°1 du kit — et c'est le seul chiffre du produit qu'aucun script ne capture. C'est contraire à la règle 7 du kit lui-même (les outils déterministes rendent les migrations reproductibles et comparables) : la preuve phare repose sur un chronomètre humain. ✅ RÉSOLU (2026-07-23, v1.8.0) : `phases[]` (début/fin/minutes par phase) dans migration/report.json, dérivé des commits de porte de la branche de migration (phase-6-verify §6 — un fait généré depuis git, jamais un chronomètre) ; carte « Chronologie du pipeline » dans report-dashboard.py avec total calculé ; contrat d'artefacts (SKILL.md) et README (« Measured time ») mis à jour ; test golden étendu (fixture `phases` + assertions minutes/total).", "recommendation": "Horodater chaque phase dans migration/report.json (début, fin, durée par phase + total pipeline) au moment où le gate passe au vert ; report-dashboard.py affiche la ligne de temps par phase. La colonne du README devient un fait généré, cité depuis le rapport.", "fix_hint": null, "effort": "S"}, {"id": 4, "reviewer": "steve", "severity": "minor", "category": "documentation", "title": "La rétropropagation des leçons est une culture, pas un contrat de phase 7", "file": "skills/legacy-upgrade/SKILL.md", "line": 52, "description": "Le cœur d'Arbor est la backpropagation : chaque expérience remonte « ce qui a marché / ce qui a échoué » vers les nœuds ancêtres, et l'arbre en hérite. Le kit vit déjà cela — la vague 2 a produit v1.3.2 (asset-inventory), la vague 3 a produit v1.4.1 (projets zombies) — mais rien ne l'exige : c'est la discipline de l'opérateur, pas une étape du pipeline. Un autre utilisateur livrera en production sans que ses leçons ne touchent jamais le kit, et le produit cessera d'apprendre. ✅ RÉSOLU (2026-07-23, v1.8.0) : règle 8 étendue — la phase 7 se clôt par l'entrée `lessons` de report.json (référence du changement appliqué au kit, ou « rien à apprendre de cette vague » explicite) et une vague sans entrée leçons est incomplète ; étape 9 du delivery-playbook (schéma `lessons[]` : strong/text/ref) ; carte « Leçons de la vague » dans le dashboard ; report-template mis à jour ; test golden étendu.", "recommendation": "Étape formelle en phase 7 (delivery-playbook) : la migration se conclut par une entrée « leçons » dans migration/report.json — soit un renvoi vers un diff appliqué au kit (ligne Common issues, playbook, garde de script), soit un « rien à apprendre de cette vague » explicite. Le rapport final l'affiche ; une vague sans entrée leçons est incomplète.", "fix_hint": null, "effort": "S"}, {"id": 5, "reviewer": "steve", "severity": "info", "category": "dx", "title": "L'audit de portefeuille est séquentiel — le dispatch parallèle d'Arbor s'y appliquerait", "file": "commands/migrate-audit.md", "line": 1, "description": "Arbor dispatch ses executors en parallèle dans des worktrees isolés (RunExecutorParallel). L'audit de portefeuille du kit traite les apps l'une après l'autre, alors que les inventaires par app sont indépendants par construction (audit-inventory.sh produit un JSON par repo) et que la seule étape réellement transverse est la synthèse portefeuille. ✅ RÉSOLU (2026-07-23, v1.8.0) : paragraphe « Multiple apps: fan out » dans commands/migrate-audit.md — un sous-agent par app (inventaire + rapport d'app en parallèle, même discipline lecture seule / scripts du kit obligatoires), l'orchestrateur ne garde que la synthèse portefeuille. Aucun script modifié.", "recommendation": "Documenter le pattern fan-out dans /migrate-audit : un sous-agent par app cible exécute inventaire + rapport d'app en parallèle, l'orchestrateur ne garde pour lui que la synthèse (matrice valeur/effort, ordre de migration). Aucun changement de script requis.", "fix_hint": null, "effort": "M"}, {"id": 6, "reviewer": "steve", "severity": "info", "category": "simplicity", "title": "Consigner les non-adoptions : Idea Tree, modes d'interaction et novelty search sont hors périmètre", "file": "docs/backlog.md", "line": 1, "description": "Arbor et le kit sont des produits opposés : Arbor explore un espace ouvert (métrique à maximiser, meilleure solution inconnue) ; le kit exécute un chemin connu vers une destination binaire (build vert, tests verts, prod vérifiée). Importer l'arbre d'hypothèses, les modes d'interaction (auto/direction/review) ou la recherche de nouveauté ajouterait des concepts sans améliorer une seule migration — et détruirait la propriété qui fait la valeur du kit : 18 minutes, déterministe, reproductible. Sans décision écrite, la tentation de « faire explorer » le pipeline reviendra. ✅ RÉSOLU (2026-07-23, v1.8.0) : section « Non-adoptions (décisions fermées) » dans docs/backlog.md — Idea Tree / recherche multi-hypothèses, ui.interaction_mode, novelty search alphaXiv, chacun refusé avec sa justification et une condition de réouverture explicite (changement de nature du kit, jamais une migration).", "recommendation": "Entrée « non-adoptions » dans docs/backlog.md : Idea Tree / recherche multi-hypothèses, ui.interaction_mode, novelty search alphaXiv — refusés avec la justification (pipeline déterministe ≠ recherche exploratoire), pour que la décision survive à la session.", "fix_hint": null, "effort": "S"}], "actions": [{"rank": 1, "title": "Donner au kit son --resume : /migrate détecte une migration en cours et reprend au dernier gate vert", "effort": "M", "done": true}, {"rank": 2, "title": "Emprunter la discipline de budget d'Arbor : garde de convergence en phase 4 + minutes par phase générées dans report.json", "effort": "S", "done": true}, {"rank": 3, "title": "Contractualiser la rétropropagation (entrée « leçons » obligatoire en phase 7) et consigner les non-adoptions au backlog", "effort": "S", "done": true}]}</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const KEY = 'legends-review:' + DATA.reportId;
+const state = JSON.parse(localStorage.getItem(KEY) || '{}');
+const findings = [...document.querySelectorAll('.finding')];
+const toast = document.getElementById('toast');
+let hideDone = false;
+
+function notify(msg) {
+  toast.textContent = msg; toast.style.opacity = '1';
+  setTimeout(() => toast.style.opacity = '0', 1400);
+}
+function copyText(text, msg) {
+  const done = () => notify(msg || DATA.labels.copied);
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => fallback());
+  else fallback();
+  function fallback() {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove(); done();
+  }
+}
+function refresh() {
+  const sevOn = new Set([...document.querySelectorAll('.chip.on[data-filter="severity"]')].map(c => c.dataset.value));
+  const rvChips = [...document.querySelectorAll('.chip[data-filter="reviewer"]')];
+  const rvOn = new Set(rvChips.filter(c => c.classList.contains('on')).map(c => c.dataset.value));
+  const cat = document.getElementById('cat') ? document.getElementById('cat').value : '';
+  let done = 0;
+  findings.forEach(el => {
+    const isDone = el.dataset.id in state ? !!state[el.dataset.id] : el.dataset.resolved === '1';
+    el.classList.toggle('done', isDone);
+    el.querySelector('.done-box').checked = isDone;
+    if (isDone) done++;
+    const visible = sevOn.has(el.dataset.severity)
+      && (!rvChips.length || rvOn.has(el.dataset.reviewer))
+      && (!cat || el.dataset.category === cat)
+      && !(hideDone && isDone);
+    el.classList.toggle('hidden', !visible);
+  });
+  document.getElementById('pdone').textContent = done;
+  document.getElementById('pbar').style.width = (findings.length ? 100 * done / findings.length : 0) + '%';
+}
+findings.forEach(el => el.querySelector('.done-box').addEventListener('change', e => {
+  state[el.dataset.id] = e.target.checked;
+  localStorage.setItem(KEY, JSON.stringify(state));
+  refresh();
+}));
+document.querySelectorAll('.chip[data-filter]').forEach(c =>
+  c.addEventListener('click', () => { c.classList.toggle('on'); refresh(); }));
+const catSel = document.getElementById('cat');
+if (catSel) catSel.addEventListener('change', refresh);
+document.getElementById('hide-done').addEventListener('click', e => {
+  hideDone = !hideDone; e.target.classList.toggle('on', hideDone); refresh();
+});
+function fixPrompt(f) {
+  const rv = DATA.reviewers[f.reviewer] || {name: f.reviewer};
+  const loc = f.file ? f.file + (f.line ? ':' + f.line : '') : '';
+  return [DATA.labels.fix_intro, '',
+    'Repo: ' + DATA.repo + (DATA.branch ? ' (' + DATA.branch + (DATA.commit ? '@' + DATA.commit : '') + ')' : ''),
+    loc ? 'File: ' + loc : null,
+    'Severity: ' + f.severity + (f.category ? ' - Category: ' + f.category : '') + ' - ' + rv.name + ' review',
+    'Finding: ' + f.title, '', f.description, '',
+    'Recommended fix: ' + f.recommendation,
+    f.fix_hint ? '\n' + f.fix_hint : null,
+    '', DATA.labels.fix_outro].filter(x => x !== null).join('\n');
+}
+document.querySelectorAll('.copy-fix').forEach(b => b.addEventListener('click', () => {
+  const f = DATA.findings.find(x => String(x.id) === b.dataset.id);
+  copyText(fixPrompt(f));
+}));
+document.getElementById('export-md').addEventListener('click', () => {
+  const remaining = DATA.findings.filter(f => !state[f.id]);
+  const bySev = {};
+  remaining.forEach(f => (bySev[f.severity] = bySev[f.severity] || []).push(f));
+  const lines = ['# ' + DATA.labels.remaining_title + ' — ' + DATA.repo + ' (' + DATA.date + ')', ''];
+  ['critical', 'major', 'minor', 'info'].forEach(s => {
+    if (!bySev[s]) return;
+    lines.push('## ' + s.charAt(0).toUpperCase() + s.slice(1), '');
+    bySev[s].forEach(f => {
+      const loc = f.file ? ' — `' + f.file + (f.line ? ':' + f.line : '') + '`' : '';
+      lines.push('- [ ] **' + f.title + '**' + loc + (f.effort ? ' (' + f.effort + ')' : ''));
+      lines.push('  ' + f.recommendation);
+    });
+    lines.push('');
+  });
+  if (DATA.actions.length) {
+    lines.push('## Actions', '');
+    DATA.actions.forEach(a => lines.push((a.rank || '-') + '. [' + (a.done ? 'x' : ' ') + '] ' + a.title + (a.effort ? ' (' + a.effort + ')' : '')));
+  }
+  copyText(lines.join('\n'));
+});
+refresh();
+</script>
+</body>
+</html>

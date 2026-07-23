@@ -27,6 +27,13 @@ les templates du kit sont **obligatoires** (pas de workflow artisanal).
    pas seulement la produire.
 8. **Boucler le rapport** : cocher les étapes livrées dans `migration/report.json`, régénérer le
    dashboard (`scripts/report-dashboard.py`), committer.
+9. **Rétropropager les leçons (contrat de phase 7, règle 8)** : la migration se clôt par une entrée
+   `lessons` dans `migration/report.json` — soit la référence du changement appliqué au kit
+   (commit/PR : ligne Common issues, protocole de playbook, garde de script), soit un
+   « rien à apprendre de cette vague » explicite. Schéma :
+   `"lessons": [{ "strong": "<titre>.", "text": "<la leçon>", "ref": "kit@<commit> (optionnel)" }]`.
+   Le dashboard rend la carte « Leçons de la vague » ; une vague sans entrée `lessons` est
+   incomplète — le pipeline ne quitte pas le repo sans elle.
 
 ## Pièges connus (tous rencontrés en vague 1)
 
