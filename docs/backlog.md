@@ -43,6 +43,21 @@ rendra rentable (YAGNI sinon).
   `/migrate` visant une cible déjà à jour — **atteint le 2026-07-23** (dogfood sur
   `Atypical-Consulting/StaticWGen` : net10.0 partout, SDK épinglé 10.0.302 `rollForward:
   latestFeature`, paquets à jour tenus par Renovate).
+- **Le retarget peut être le fix du baseline (baseline rouge par retard du TFM)** : la phase 2 exige
+  un build/restore vert « avant de toucher » — mais quand un robot (Renovate) pousse le graphe de
+  *paquets* au-delà du TFM, le repo est déjà rouge AVANT toute migration : `net9.0` + EF Core 10 /
+  ASP.NET 10 (paquets net10 uniquement) → `NU1202`, restore impossible. La porte « baseline vert
+  d'abord » ne peut pas tenir ; le retarget net9→net10 EST le prérequis du restore vert, pas
+  l'inverse. Correctif proposé : la phase 1/2 reconnaît le cas « baseline rouge causé par un TFM en
+  retard sur ses paquets » (signature : `NU1202 package X supports netN.0` sur un TFM `netM.0`,
+  M<N) et pose le premier vert POST-retarget comme baseline, en le consignant. Sœur de la porte
+  « déjà moderne → stop » (même étape, symptôme inverse). Corollaire (règles 5 + 9) : faire compiler
+  un build cassé de longue date peut exposer une grosse casse **pré-existante et non liée au
+  framework** (DotnetChain : refactor de domaine à moitié fini, 536 erreurs CS dont la prod) — le kit
+  répare tout le vérifiable et **nomme les bords** (tests d'une feature supprimée, refactor de design)
+  sans inventer le comportement manquant. Déclencheur : premier `/migrate` sur un baseline rouge par
+  retard de TFM — **atteint le 2026-07-23** (vague `phmatray/DotnetChain`, net9→net10, PR #64 mergée
+  dans `dev` : Renovate avait poussé EF/ASP.NET 10 sur un TFM net9 ; réparé en entier, 88 tests verts).
 
 ## Non-adoptions (décisions fermées)
 
