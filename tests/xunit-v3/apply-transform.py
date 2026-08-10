@@ -77,6 +77,7 @@ def validate_pairing(xunit_version: str, coverage_version: str) -> None:
             f"Move both legs in the same change (see MTP_COMPAT)."
         )
 
+
 # The v2 packages the transform removes. `xunit` and `xunit.runner.visualstudio` are replaced by
 # `xunit.v3` (which brings its own Microsoft Testing Platform runner); Microsoft.NET.Test.Sdk is the
 # VSTest host and `coverlet.collector` the VSTest coverage collector — neither has a role under MTP,

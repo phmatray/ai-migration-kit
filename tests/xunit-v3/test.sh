@@ -15,6 +15,12 @@ cd "$(dirname "$0")/../.."
 KIT="$PWD"
 FIXTURE="$KIT/samples/LegacyShop"
 
+# Section 7 injects a bad coverage version through this variable. Inherited from the caller's
+# environment it would instead redirect EVERY transform below onto a version nobody chose — the
+# suite would still be green, having tested something other than the pin it claims to test. The
+# only place it may be set is the one invocation that means to set it.
+unset XUNIT_V3_COVERAGE_VERSION
+
 # The fixture is the "before" state and must survive this script untouched, on every exit path
 # (including a failure mid-run) — otherwise a red test would also silently rewrite the fixture.
 #
