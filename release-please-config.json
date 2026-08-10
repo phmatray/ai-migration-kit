@@ -4,6 +4,7 @@
   "bump-patch-for-minor-pre-major": false,
   "packages": {
     ".": {
+      "$comment": "COUPLING (#27): consumers install a version-keyed cache of this plugin (#6), so a skills fix only reaches them once a release is cut here. This repo squash-merges, which makes the PR *title* the commit release-please reads on main — so the guarantee depends on that title carrying a releasable type. scripts/release-title-gate.sh enforces it in CI for PRs touching skills/**. Change the merge strategy (or that script's releasable set) and the guarantee has to be re-established somewhere else. Two known holes the gate does NOT close, because it only sees the pull_request event: overriding the squash subject at merge time (`gh pr merge --squash --subject …`, or editing the message in GitHub's merge box) lands a different commit than the one that was gated, and a direct push to main is never gated at all. JSON carries no comments; this key is inert — release-please reads named fields only, and the config schema allows extra keys inside a package entry.",
       "release-type": "simple",
       "package-name": "ai-migration-kit",
       "include-component-in-tag": false,
