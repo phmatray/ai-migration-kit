@@ -6,6 +6,14 @@
   "packageRules": [
     {
       "description": [
+        "samples/LegacyShop is a FIXTURE frozen on purpose: xunit 2.4.2 / Microsoft.NET.Test.Sdk 17.3.2 / net6.0 is the 'before' state the whole kit demonstrates migrating away from, and tests/xunit-v3/test.sh asserts those exact versions.",
+        "Renovate must not touch it. PR #25 bumped it to Test.Sdk 17.14.1 and was automerged under the shared preset's non-major automerge rule; 17.14.1 refuses net6.0 outright, so main went red and stayed red until this was reverted. A dependency bot cannot tell a deliberate museum piece from a stale dependency — so it is told here."
+      ],
+      "matchFileNames": ["samples/LegacyShop/**"],
+      "enabled": false
+    },
+    {
+      "description": [
         "The xunit test package and the Microsoft.Testing.Platform extension family move as ONE decision. Which MTP major applies is chosen by the xunit package id, not its version: xunit.v3 3.2.2 resolves to Microsoft.Testing.Platform 1.9.1 (CodeCoverage 17.x), while xunit.v3.mtp-v2 3.2.2 — same major, a stable release — resolves to MTP 2.0.2 (CodeCoverage 18.x).",
         "A split major bump restores clean and builds clean, then dies at run time with TypeLoadException on Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer.",
         "Grouping alone would NOT stop this. A group only batches updates that are pending in the same run, and today only one leg has a major available (CodeCoverage 18.x, while xunit.v3 stable is still on the v1 line) — so a group would ship precisely the one-leg bump, under a title implying both moved. Majors are therefore disabled for the whole family: crossing the MTP v1/v2 boundary is a deliberate migration that moves every leg together, by hand, against MTP_COMPAT in tests/xunit-v3/apply-transform.py. Non-major updates stay on the shared preset's rules."
