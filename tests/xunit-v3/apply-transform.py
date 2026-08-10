@@ -7,9 +7,13 @@ test (`tests/xunit-v3/test.sh`) runs it against a scratch copy of `samples/Legac
 then counts the tests that actually execute.
 
   usage: apply-transform.py <app-dir> [--skip-output-type] [--tfm net10.0]
+                            [--coverage-version 17.14.2]
 
 `--skip-output-type` deliberately omits `<OutputType>Exe</OutputType>` so the test can pin
-what happens when the single most likely mistake is made. Never pass it in real migrations.
+what happens when the single most likely mistake is made. `--coverage-version` lets the test
+inject a deliberately mismatched pair. Never pass either in a real migration — and note they
+are FLAGS, not environment variables, so nothing a shell happens to carry can steer this
+script.
 
 The pinned xunit.v3 version below is this test's witness, not a recommendation: a real
 migration resolves the current version from the live feed (context7), as the reference says.
@@ -19,7 +23,6 @@ PACKAGE ID (`xunit.v3` vs `xunit.v3.mtp-v2` — both major 3, opposite MTP lines
 `validate_pairing` enforces it, because the mismatch is invisible until a test run dies.
 """
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
@@ -48,9 +51,11 @@ MTP_COMPAT = {
 # (`--collect:"XPlat Code Coverage"`) is ignored and produces no file at all, silently. The MTP
 # coverage extension is what puts cobertura back, so the transform installs it.
 #
-# The env override exists so the golden test can inject a bad pair without editing this file.
-# Nothing in the pipeline sets it; a real migration resolves live versions via context7.
-COVERAGE_EXT_VERSION = os.environ.get("XUNIT_V3_COVERAGE_VERSION", "17.14.2")
+# Overridable only by `--coverage-version`, never by the environment. The golden test needs to inject
+# a bad pair; an env var would have granted that to every OTHER caller too, including a hand-run
+# migration whose shell happened to carry the variable — and when the stray value shares the expected
+# major, validate_pairing waves it through and the substitution is completely silent.
+COVERAGE_EXT_VERSION = "17.14.2"
 
 
 def _major_of(version: str) -> int:
@@ -170,11 +175,13 @@ def _insert_before(text: str, closing_tag: str, lines) -> str | None:
     return text[: m.start()] + block + text[m.start():]
 
 
-def transform_test_csproj(text: str, with_output_type: bool) -> str:
+def transform_test_csproj(text: str, with_output_type: bool,
+                          coverage_version: str = COVERAGE_EXT_VERSION) -> str:
     # The guard belongs at the point that actually emits the pair, not only in main(): this
     # function is importable, and a caller reaching it directly would otherwise write both
-    # PackageReferences with no pairing check at all.
-    validate_pairing(XUNIT_V3_PACKAGE, COVERAGE_EXT_VERSION)
+    # PackageReferences with no pairing check at all. It validates the version about to be
+    # WRITTEN, not the module default — otherwise `--coverage-version` would slip past it.
+    validate_pairing(XUNIT_V3_PACKAGE, coverage_version)
 
     # 1. Drop the v2 package references, then any ItemGroup they left empty.
     text = drop_packages(text, DROP)
@@ -183,7 +190,7 @@ def transform_test_csproj(text: str, with_output_type: bool) -> str:
     # 2. Add the v3 packages in their own ItemGroup, above the first remaining one.
     new_refs = [
         f'<PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage"'
-        f' Version="{COVERAGE_EXT_VERSION}" />',
+        f' Version="{coverage_version}" />',
         f'<PackageReference Include="{XUNIT_V3_PACKAGE}" Version="{XUNIT_V3_VERSION}" />',
     ]
     m = re.search(r"^([ \t]*)<ItemGroup>", text, re.M)
@@ -250,19 +257,25 @@ def rewrite_usings(root: Path) -> int:
 
 
 def main() -> int:
-    # Before anything is read or written: the two pins this script is about to bake into a csproj
-    # must agree. A mismatch is cheap to catch here and expensive to catch at run time.
-    try:
-        validate_pairing(XUNIT_V3_PACKAGE, COVERAGE_EXT_VERSION)
-    except ValueError as exc:
-        print(exc, file=sys.stderr)
-        return 1
-
     ap = argparse.ArgumentParser()
     ap.add_argument("app_dir", type=Path)
     ap.add_argument("--skip-output-type", action="store_true")
     ap.add_argument("--tfm", default="net10.0")
+    ap.add_argument(
+        "--coverage-version", default=COVERAGE_EXT_VERSION,
+        help="Microsoft.Testing.Extensions.CodeCoverage version to write. Test-only: it exists so "
+             "the golden test can inject a deliberately mismatched pair. Never pass it in a real "
+             "migration — resolve the version from the live feed instead.",
+    )
     args = ap.parse_args()
+
+    # Before anything is read or written: the pair this run is about to bake into a csproj must
+    # agree. Parsed first, so `--help` still prints usage when the pair is deliberately bad.
+    try:
+        validate_pairing(XUNIT_V3_PACKAGE, args.coverage_version)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
     root = args.app_dir
     if not root.is_dir():
@@ -279,7 +292,8 @@ def main() -> int:
         text = retarget(text, args.tfm)
         if is_test_project(text):
             try:
-                text = transform_test_csproj(text, with_output_type=not args.skip_output_type)
+                text = transform_test_csproj(text, with_output_type=not args.skip_output_type,
+                                             coverage_version=args.coverage_version)
             except RuntimeError as exc:
                 print(f"{csproj}: {exc}", file=sys.stderr)
                 return 1

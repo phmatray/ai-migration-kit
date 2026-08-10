@@ -30,12 +30,6 @@ cd "$(dirname "$0")/../.."
 KIT="$PWD"
 FIXTURE="$KIT/samples/LegacyShop"
 
-# Section 7 injects a bad coverage version through this variable. Inherited from the caller's
-# environment it would instead redirect EVERY transform below onto a version nobody chose — the
-# suite would still be green, having tested something other than the pin it claims to test. The
-# only place it may be set is the one invocation that means to set it.
-unset XUNIT_V3_COVERAGE_VERSION
-
 # Run a Python snippet with a kit script already loaded as `mod`:
 #
 #   py_module <script-path> [args…] <<'PY'
@@ -610,8 +604,8 @@ cp "$shapes/pairing/p/p.csproj" "$scratch/pairing-before.csproj"
 
 # 7a. A deliberately mismatched pair must be refused, non-zero, before anything is written.
 pair_log="$scratch/pairing.log"
-if XUNIT_V3_COVERAGE_VERSION="$bad_coverage" \
-   python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/pairing" > "$pair_log" 2>&1; then
+if python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/pairing" \
+     --coverage-version "$bad_coverage" > "$pair_log" 2>&1; then
   echo "FAIL: the transform accepted CodeCoverage $bad_coverage alongside xunit.v3 $xunit_version."
   echo "      That pair builds clean and dies at run time — the mismatch must be refused here."
   exit 1
@@ -630,6 +624,25 @@ done
 cmp -s "$shapes/pairing/p/p.csproj" "$scratch/pairing-before.csproj" || {
   echo "FAIL: the bad pair was refused, but only after rewriting the csproj — the check must"
   echo "      run before the transform touches anything."; exit 1; }
+
+# 7c. The override is the FLAG and nothing else. An exported XUNIT_V3_COVERAGE_VERSION must not
+#     reach the emitted csproj: the reference points agents at this script, so a value left in a
+#     shell — or in a CI env block — would otherwise redirect a real migration onto a version
+#     nobody chose, silently whenever it shares the expected major. A test hook must not be
+#     reachable by accident from the production path.
+mkdir -p "$shapes/ambient/p"
+cp "$scratch/pairing-before.csproj" "$shapes/ambient/p/p.csproj"
+pinned_coverage=$(read_const COVERAGE_EXT_VERSION)
+export XUNIT_V3_COVERAGE_VERSION="17.0.99"
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/ambient" > /dev/null
+unset XUNIT_V3_COVERAGE_VERSION
+if grep -qF '17.0.99' "$shapes/ambient/p/p.csproj"; then
+  echo "FAIL: an exported XUNIT_V3_COVERAGE_VERSION reached the csproj — the environment must not"
+  echo "      steer a hand-run transform:"; grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1
+fi
+grep -qF "$pinned_coverage" "$shapes/ambient/p/p.csproj" || {
+  echo "FAIL: the transform did not write its pinned coverage version ($pinned_coverage):"
+  grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1; }
 
 # 7b. The map is the contract: the pinned pair satisfies it, and an unmapped major says so
 #     instead of guessing a compatible extension.
