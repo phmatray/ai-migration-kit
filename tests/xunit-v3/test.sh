@@ -394,6 +394,11 @@ dotnet sln "$scratch/multi/LegacyShop.sln" add \
   "$scratch/multi/tests/LegacyShop.Catalog.Tests/LegacyShop.Catalog.Tests.csproj" > /dev/null
 python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/multi" > /dev/null
 
+# Pristine, transformed, not yet built — 4f and 4g mutate a copy each. Taken HERE rather than
+# after the run below so they start from a clean tree: a coverage/ or a bin/ carried over from
+# this run would let their assertions read yesterday's artefacts.
+cp -R "$scratch/multi" "$scratch/pristine"
+
 cd "$scratch/multi"
 rm -rf coverage
 if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/multi-cov.log" 2>&1; then
@@ -437,6 +442,77 @@ if bash -c "$GUARD_STEP" > /dev/null 2>&1; then
   exit 1
 fi
 echo "  [4e] the empty-coverage guard accepts per-project reports and still refuses nothing"
+cd "$KIT"
+
+# ---------------------------------------------------------------------------
+# 4f. A test project that CANNOT collect coverage must fail the run, not shrink the report set.
+#
+#     Issue #31 assumed a project missing Microsoft.Testing.Extensions.CodeCoverage would
+#     contribute nothing while its siblings still reported — leaving the job green on a union
+#     that is quietly partial, the same wrong-answer shape as #17 one level up.
+#
+#     Measured instead (2026-08-10, SDK 10.0.302, xunit.v3 3.2.2, CodeCoverage 17.14.2):
+#     `--coverage` is an option CONTRIBUTED BY that extension, so without it MTP does not skip
+#     collection — it refuses the option, `Unknown option '--coverage'`, and the test app exits
+#     non-zero. Under the step's `set -euo pipefail` that fails the step outright, before the
+#     guard below ever runs. The report set is never silently partial for this cause.
+#
+#     So the guarantee #31 asked for already holds — but by ACCIDENT of MTP's argument parsing,
+#     with nothing pinning it. An MTP release that downgraded an unknown option to a warning
+#     would reopen the hole in silence, and the guard could not see it: one healthy sibling's
+#     report satisfies a presence check. This case is that pin.
+#
+#     It asserts the REASON, not merely a non-zero exit. A restore failure or a build break also
+#     exits non-zero and would satisfy a bare `if ! …; then` while proving nothing — the trap 4a
+#     documents for itself.
+# ---------------------------------------------------------------------------
+cp -R "$scratch/pristine" "$scratch/nocov"
+python3 - "$scratch/nocov/tests/LegacyShop.Catalog.Tests/LegacyShop.Catalog.Tests.csproj" <<'PY'
+import re, sys
+path = sys.argv[1]
+before = open(path, encoding="utf-8").read()
+after = re.sub(r'[ \t]*<PackageReference Include="Microsoft\.Testing\.Extensions\.CodeCoverage"[^\n]*\n',
+               '', before)
+if after == before:
+    sys.exit("no Microsoft.Testing.Extensions.CodeCoverage reference to remove — apply-transform.py "
+             "changed shape, and this case would silently test the healthy configuration instead")
+open(path, "w", encoding="utf-8").write(after)
+PY
+
+cd "$scratch/nocov"
+rm -rf coverage
+if SOLUTION='' bash -c "$MTP_STEP" > "$scratch/nocov.log" 2>&1; then
+  echo "FAIL: the coverage step SUCCEEDED with a test project that cannot collect coverage."
+  echo "      #31's hole is then real: green run, silently partial report set. Reports written:"
+  echo "      $(find coverage -name '*.cobertura.xml' | wc -l | tr -d ' ') for 2 test projects."
+  echo "      The guard cannot catch this — one sibling's report satisfies a presence check."
+  tail -20 "$scratch/nocov.log"; exit 1
+fi
+# The console names the log but not the reason; MTP writes the reason there, in UTF-16.
+nocov_detail=$(find "$scratch/nocov" -name 'LegacyShop.Catalog.Tests_*.log' -print -quit)
+[ -n "$nocov_detail" ] || {
+  echo "FAIL: the run failed but MTP wrote no per-project log, so the reason cannot be checked:"
+  tail -20 "$scratch/nocov.log"; exit 1; }
+python3 - "$nocov_detail" <<'PY'
+import sys
+raw = open(sys.argv[1], "rb").read()
+# Chosen by BOM, never by trial decoding. `raw.decode("utf-16")` does NOT raise on UTF-8 input of
+# even length — it returns mojibake — so a try/except chain that puts utf-16 first silently turns
+# a readable log into garbage the marker can never be found in, and the case then fails claiming
+# the wrong reason. MTP writes UTF-16-LE with a BOM (measured: b"\xff\xfe"); anything else is
+# read as UTF-8.
+if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+    text = raw.decode("utf-16")
+else:
+    text = raw.decode("utf-8", errors="replace")
+if "Unknown option '--coverage'" not in text:
+    sys.exit("the step failed, but NOT because --coverage was refused. A restore failure or a "
+             "build break exits non-zero too, so this case would pass for the wrong reason and "
+             "stop pinning anything. First 30 lines of MTP's log:\n\n"
+             + "\n".join(text.splitlines()[:30]))
+PY
+echo "  [4f] a test project without the coverage extension is REFUSED (--coverage unknown), not"
+echo "       quietly dropped from the report set"
 cd "$KIT"
 
 # ---------------------------------------------------------------------------
