@@ -155,5 +155,11 @@ The transform is not only prose: `<kit>/tests/xunit-v3/apply-transform.py` appli
 `samples/LegacyShop` — 6 tests before, 6 tests after, the namespace rewrite exercised, and the
 no-`Exe` variant pinned. Read the script when this file is ambiguous; it is the witness.
 
+It **verifies its own work and refuses rather than half-applying**: if the v3 reference, the MTP
+properties or `OutputType` did not land, or a v2 package survived, it exits non-zero instead of
+reporting success — a transform that silently did nothing produces exactly the broken state this
+item exists to prevent. It also only retargets TFMs *below* the v3 floor and never collapses a
+multi-targeted list, so running it on a published library does not quietly drop a target.
+
 ⚠️ `samples/LegacyShop` itself stays on **xunit 2.4.2 / net6.0** permanently — it is the kit's
 "before" state and CI asserts it stays green *and* legacy. Every experiment runs on a copy.
