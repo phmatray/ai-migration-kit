@@ -51,28 +51,31 @@
 set -euo pipefail
 
 TOOL=guarded-push
+NOTHING="Nothing sent."
 
 # refuse(), usage() and the branch assertion itself live in _assert-branch.sh, shared with
-# guarded-commit.sh so the invariant has one home (#44) — see that file for the resolution rules
-# and for why a hardcoded --help line range is a trap. The `||` fallback keeps a failing cd out of
-# `set -e`'s hands — see guarded-commit.sh for why an unexplained exit 1 is the worst outcome here.
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$0")
+# guarded-commit.sh so the invariant has one home (#44). This bootstrap is deliberately identical
+# to that guard's, line for line and comment for comment — it is the part that cannot be shared,
+# because it is what loads the shared part, so it is kept mechanical with no prose to drift.
+# See guarded-commit.sh for the reasoning behind each step.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$SELF")
 ASSERT="$SCRIPT_DIR/_assert-branch.sh"
 
-# Fail CLOSED, in this script's own voice — refuse() is in the file that is missing. Bash's own
-# "No such file or directory" from the `.` below exits 1, the code this script documents as
-# "git's own failure", which a caller may read as transient and retry.
-if [ ! -f "$ASSERT" ] || [ ! -r "$ASSERT" ]; then
-  {
-    printf '%s: REFUSED — cannot read the branch assertion, so it cannot guard anything:\n' "$TOOL"
-    printf '                %s\n' "$ASSERT"
-    printf '            Nothing sent. The guards are not standalone files: reinstall the kit, or\n'
-    printf '            put _assert-branch.sh back beside this script.\n'
-  } >&2
+if [ -r "$ASSERT" ]; then . "$ASSERT" || true; fi
+if ! command -v assert_branch >/dev/null 2>&1 || ! command -v refuse >/dev/null 2>&1; then
+  printf '%s: REFUSED — cannot load its branch assertion, so it cannot guard anything:\n  %s\n  %s The guards are not standalone files: reinstall the kit, or restore _assert-branch.sh beside this script.\n' \
+    "$TOOL" "$ASSERT" "$NOTHING" >&2
   exit 2
 fi
-# shellcheck source=./_assert-branch.sh
-. "$ASSERT"
 
 REPO="."
 REMOTE="origin"
@@ -110,6 +113,15 @@ assert_branch "$TOOL" \
             pull request. Nothing sent. Re-check out '$EXPECTED' (in a worktree of its own)
             and retry."
 
+# The helper tolerates an unreadable HEAD because a COMMIT legitimately has none — an unborn
+# branch is where a first commit starts. A PUSH does not: with no sha there is nothing to prove
+# reached the remote, and this guard's entire promise is that it can prove it. Sharing the helper
+# must not quietly relax that, so require the witness here, BEFORE the write, rather than
+# discover its absence afterwards as an exit 4.
+[ -n "$head_sha" ] || refuse "$TOOL" \
+  "HEAD in $REPO points at no commit — '$EXPECTED' is an unborn branch, so there is nothing
+            to push and nothing this guard could verify on the remote. Nothing sent."
+
 # ---------------------------------------------------------------- push
 
 set +e
@@ -130,7 +142,7 @@ fi
 # the OTHER branch (push.default=simple pushes the current one), while the read-back below still
 # finds the expected branch sitting at its old tip — which happens to equal the `head_sha` captured
 # earlier, so the guard would certify a push it never made.
-now_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+now_branch=$(head_branch_of "$REPO")
 now_sha=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
 
 if [ "$now_branch" != "$EXPECTED" ] || [ "$now_sha" != "$head_sha" ]; then

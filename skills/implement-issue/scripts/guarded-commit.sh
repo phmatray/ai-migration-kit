@@ -50,38 +50,47 @@
 set -euo pipefail
 
 TOOL=guarded-commit
+NOTHING="Nothing committed."
 
 # refuse(), usage() and the branch assertion itself live in _assert-branch.sh, so this guard and
-# guarded-push.sh share ONE definition of the invariant rather than a copy each (#44).
+# guarded-push.sh share ONE definition of the invariant rather than a copy each (#44). This
+# bootstrap is the one part that cannot be shared — it is what loads the shared part — so it is
+# kept mechanical: no hand-aligned prose to drift between the two copies.
 #
-# Resolved relative to THIS FILE and never to the working directory: the kit is installed as a
-# plugin and its scripts are invoked by absolute path from wherever the agent happens to be.
-# `pwd -P` after the cd so a symlinked guard looks beside its real file rather than beside the
-# link, and a cleared CDPATH so an inherited one cannot send that cd somewhere else entirely.
-#
-# The `||` fallback is not decoration. This is a plain assignment from a command substitution, so
-# under `set -e` a failing cd would kill the script THERE, with exit 1 and not a word — and exit 1
+# $0 is resolved through any symlinks first. `pwd -P` canonicalizes the *directory* and never the
+# script link itself, so on its own it would send a guard reached through a symlink looking for
+# the helper beside the LINK. Before this file existed the guards were self-contained and a
+# symlink install worked; keeping that true is the point of this loop. No `readlink -f` — macOS's
+# readlink has no -f.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+
+# The `||` fallback is not decoration: this is a plain assignment from a command substitution, so
+# under `set -e` a failing cd would kill the script THERE with exit 1 and not a word — and exit 1
 # is the code this script documents as "git's own failure", which a caller may read as transient
-# and retry. Falling back to the unresolved dirname sends every such case into the refusal below,
-# which is the path with a test behind it.
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$0")
+# and retry. Falling back sends every such case into the refusal below, the path with a test.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$SELF")
 ASSERT="$SCRIPT_DIR/_assert-branch.sh"
 
-# Fail CLOSED, and say so in this script's own voice — refuse() is in the file that is missing.
-# A guard that cannot load its assertion is not a guard, and the alternative is bash's own
-# "No such file or directory" from the `.` below, which exits 1: the code this script documents
-# as "git's own failure", so the caller would be entitled to read it as transient and retry.
-if [ ! -f "$ASSERT" ] || [ ! -r "$ASSERT" ]; then
-  {
-    printf '%s: REFUSED — cannot read the branch assertion, so it cannot guard anything:\n' "$TOOL"
-    printf '                 %s\n' "$ASSERT"
-    printf '             Nothing committed. The guards are not standalone files: reinstall the kit,\n'
-    printf '             or put _assert-branch.sh back beside this script.\n'
-  } >&2
+# Fail CLOSED, in this script's own voice — refuse() is in the file that may be missing.
+#
+# The test is whether the assertion is CALLABLE, not whether the file is readable: an empty or
+# truncated helper (a partial install, an interrupted write, a checkout in flight) is perfectly
+# readable, sources without error, and defines nothing — and the first call would then die with
+# bash's `command not found`, exit 127, which appears in no exit-code table and so falls into the
+# documented "git's own exit code" bucket. That is the misreading this whole block exists to stop.
+if [ -r "$ASSERT" ]; then . "$ASSERT" || true; fi
+if ! command -v assert_branch >/dev/null 2>&1 || ! command -v refuse >/dev/null 2>&1; then
+  printf '%s: REFUSED — cannot load its branch assertion, so it cannot guard anything:\n  %s\n  %s The guards are not standalone files: reinstall the kit, or restore _assert-branch.sh beside this script.\n' \
+    "$TOOL" "$ASSERT" "$NOTHING" >&2
   exit 2
 fi
-# shellcheck source=./_assert-branch.sh
-. "$ASSERT"
 
 REPO="."
 EXPECTED=""
@@ -141,8 +150,9 @@ fi
 # ---------------------------------------------------------------- assert again, after
 
 # A successful commit is not proof it landed where you asked: HEAD can move between the check
-# above and the commit itself. Re-read rather than assume.
-now_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+# above and the commit itself. Re-read rather than assume — through the same reader the pre-flight
+# used, so the one subtle thing about reading a branch name has one home and not three.
+now_branch=$(head_branch_of "$REPO")
 expected_now=$(git -C "$REPO" rev-parse --quiet --verify "refs/heads/$EXPECTED" 2>/dev/null || true)
 
 if [ "$now_branch" != "$EXPECTED" ]; then

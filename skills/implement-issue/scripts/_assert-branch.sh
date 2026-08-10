@@ -33,10 +33,20 @@
 #       line is added above it, and --help is exactly what someone reads when they have hit an exit
 #       code they do not recognise.
 #
+#   head_branch_of <repo>
+#       Echo the branch HEAD points at, or nothing at all when HEAD is detached. Used by
+#       assert_branch below AND by each guard's post-write re-assertion, so the one subtle thing
+#       about reading a branch name lives in one function rather than in three places.
+#
 #   assert_branch <tool-name> <detached-message> <mismatch-message>
 #       Reads   $REPO      the worktree to inspect
 #               $EXPECTED  the branch the caller says this task owns
 #       Sets    $head_sha  HEAD's full sha — the witness for the caller's own post-write comparison
+#
+#       Those two are read as globals, per this file's contract, so a caller that forgets to set
+#       one would die on `set -u`'s "unbound variable" with exit 1 — the ambiguous "git's own
+#       failure" code this entire file exists to avoid, produced by the one function whose job is
+#       to refuse with 2. They are therefore checked, not assumed.
 #       Returns 0 only when HEAD is a branch and that branch is $EXPECTED. Every other outcome —
 #       $REPO is not a directory, not a git repository, HEAD is detached, HEAD is another branch —
 #       refuses with exit 2 and writes nothing.
@@ -69,19 +79,27 @@ refuse() {
 
 usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
 
+# `symbolic-ref` and not `rev-parse --abbrev-ref HEAD`: on a detached HEAD the latter prints the
+# literal string "HEAD", which compares as a plain branch name and would sail past a naive string
+# test. symbolic-ref simply fails, which is the answer we want — so an empty answer here means
+# "detached", and every caller reads it that way.
+head_branch_of() { git -C "$1" symbolic-ref --quiet --short HEAD 2>/dev/null || true; }
+
 assert_branch() {
   local tool="$1" detached_message="$2" mismatch_message="$3"
   local head_branch
+
+  # The contract's two globals, checked rather than assumed — see the header for why an unbound
+  # variable would be the worst possible outcome of a guard's own assertion.
+  [ -n "${REPO:-}" ]     || refuse "$tool" "internal: \$REPO is unset — the caller must set it before calling assert_branch."
+  [ -n "${EXPECTED:-}" ] || refuse "$tool" "internal: \$EXPECTED is unset — the caller must set it before calling assert_branch."
 
   [ -d "$REPO" ] || refuse "$tool" "-C path is not a directory: $REPO"
 
   git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 \
     || refuse "$tool" "not a git repository: $REPO"
 
-  # `symbolic-ref` and not `rev-parse --abbrev-ref HEAD`: on a detached HEAD the latter prints
-  # the literal string "HEAD", which compares as a plain branch name and would sail past a naive
-  # string test. symbolic-ref simply fails, which is the answer we want.
-  head_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  head_branch=$(head_branch_of "$REPO")
 
   [ -n "$head_branch" ] || refuse "$tool" "$detached_message"
 
@@ -89,8 +107,17 @@ assert_branch() {
     || refuse "$tool" "${mismatch_message//\{found\}/$head_branch}"
 
   # Tolerant of failure on purpose: on an unborn branch (freshly `git init`ed, nothing committed)
-  # symbolic-ref succeeds while `rev-parse HEAD` does not, and dying there under the caller's
-  # `set -e` would turn a legitimate first commit into an unexplained exit 1. The callers already
-  # treat an empty $head_sha as "there was no previous tip".
-  head_sha=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
+  # symbolic-ref succeeds while HEAD resolves to no commit, and dying there under the caller's
+  # `set -e` would turn a legitimate first commit into an unexplained exit 1. The callers treat an
+  # empty $head_sha as "there is no tip yet" — guarded-commit.sh because that is the normal state
+  # before a first commit, guarded-push.sh by refusing, because it has nothing to verify.
+  #
+  # `--verify --quiet` and NOT a bare `rev-parse HEAD 2>/dev/null || true`. That is the same trap
+  # this file already documents one function up, in its second costume: on an unborn branch
+  # `git rev-parse HEAD` prints the literal string "HEAD" ON STDOUT and exits 128, so `|| true`
+  # swallows the status and hands the caller "HEAD" as though it were a sha. Measured, not assumed
+  # — and guarded-commit.sh carried exactly that line before this refactor. `--verify --quiet`
+  # prints nothing and fails, which is the answer we want. An emptiness test is only a test if the
+  # empty case is actually capable of being empty.
+  head_sha=$(git -C "$REPO" rev-parse --verify --quiet HEAD 2>/dev/null || true)
 }
