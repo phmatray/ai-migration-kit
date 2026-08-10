@@ -135,6 +135,21 @@ you nothing. Measured on nuget.org (`*.nuspec` via `api.nuget.org/v3-flatcontain
 | **`xunit.v3`** 3.2.2 | `xunit.v3.mtp-v1` | 1.9.1 | **17.x** |
 | **`xunit.v3.mtp-v2`** 3.2.2 | `xunit.v3.core.mtp-v2` | 2.0.2 | **18.x** |
 
+**CodeCoverage is not the only package bound to that line** — the whole
+`Microsoft.Testing.*` family crosses the same boundary, and all of it *except* CodeCoverage simply
+versions **as** the platform:
+
+| package | with MTP v1 (`xunit.v3`) | with MTP v2 (`xunit.v3.mtp-v2`) |
+|---|---|---|
+| `Microsoft.Testing.Platform` | 1.x | 2.x |
+| `Microsoft.Testing.Platform.MSBuild` | 1.x | 2.x |
+| `Microsoft.Testing.Extensions.Telemetry` | 1.x | 2.x |
+| `Microsoft.Testing.Extensions.TrxReport.Abstractions` | 1.x | 2.x |
+| **`Microsoft.Testing.Extensions.CodeCoverage`** | **17.x** | **18.x** |
+
+The last row is **not a typo**: the coverage extension kept the numbering of its VSTest ancestor.
+Read it as "17 goes with 1, 18 goes with 2" — everything else is simply the platform's own major.
+
 Both are **major 3**, and `xunit.v3.mtp-v2` 3.2.0/3.2.1/3.2.2 are **stable**, not prerelease — so
 "3.x means 17.x" is wrong, and a rule keyed on the major refuses the correct MTP v2 pair while
 waving through the broken one. The map constrains the **major line only**; resolve the exact
@@ -150,10 +165,13 @@ Unhandled exception. System.TypeLoadException: Could not load type
 **Where this is machine-checked, and where it is not.** Be precise about the scope, because prose
 did not stop the mistake the first time and a false sense of coverage is no better:
 
-- `MTP_COMPAT` in `<kit>/tests/xunit-v3/apply-transform.py` holds the mapping, and
-  `validate_pairing` refuses a mismatched pair before the transform writes anything — naming both
-  packages instead of leaving you to decode that stack trace. An unmapped package id is refused
-  too, rather than paired with a guess.
+- `MTP_LINE` and `EXTENSION_MAJOR` in `<kit>/tests/xunit-v3/apply-transform.py` hold the mapping —
+  the xunit package id gives the platform line, the line gives each package's expected major — and
+  `validate_pairing` refuses a mismatched pair before the transform writes anything, naming both
+  packages instead of leaving you to decode that stack trace. It accepts a `package=` argument, so
+  any member of the family can be checked, not only the coverage extension. An unmapped **xunit**
+  id is refused rather than paired with a guess; an unlisted **extension** simply follows the line,
+  since refusing a package nobody has enumerated would block ones that are perfectly fine.
 - `<kit>/renovate.json` **disables major updates** for `xunit.v3*` and the
   `Microsoft.Testing.{Platform,Extensions}` family. Grouping them would not be enough: a group only
   batches updates pending in the same run, and when only one leg has a major available it ships
