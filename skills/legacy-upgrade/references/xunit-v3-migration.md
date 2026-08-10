@@ -168,10 +168,13 @@ did not stop the mistake the first time and a false sense of coverage is no bett
 - `MTP_LINE` and `EXTENSION_MAJOR` in `<kit>/tests/xunit-v3/apply-transform.py` hold the mapping —
   the xunit package id gives the platform line, the line gives each package's expected major — and
   `validate_pairing` refuses a mismatched pair before the transform writes anything, naming both
-  packages instead of leaving you to decode that stack trace. It accepts a `package=` argument, so
-  any member of the family can be checked, not only the coverage extension. An unmapped **xunit**
-  id is refused rather than paired with a guess; an unlisted **extension** simply follows the line,
-  since refusing a package nobody has enumerated would block ones that are perfectly fine.
+  packages instead of leaving you to decode that stack trace. An unmapped **xunit** id is refused
+  rather than paired with a guess; an unlisted **extension** simply follows the line, since refusing
+  a package nobody has enumerated would block ones that are perfectly fine.
+  ⚠ Scope: the transform validates **the coverage extension it writes**. `validate_pairing` takes a
+  `package=` argument so any family member *can* be checked, but nothing scans a csproj for
+  `Microsoft.Testing.*` references it already carries — so a project that pins one of those itself
+  can still end up straddling the line. Check those by hand against the table above.
 - `<kit>/renovate.json` **disables major updates** for `xunit.v3*` and the
   `Microsoft.Testing.{Platform,Extensions}` family. Grouping them would not be enough: a group only
   batches updates pending in the same run, and when only one leg has a major available it ships
