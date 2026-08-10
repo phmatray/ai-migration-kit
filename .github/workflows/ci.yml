@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The release gate diffs against the PR's base ref, which a depth-1 checkout can't reach.
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -72,6 +75,20 @@ jobs:
 
       - name: Tick-plan golden test (a bad body never reaches GitHub)
         run: ./tests/tick-plan/test.sh
+
+      - name: Release-gate golden test (a skills change must ship a version bump)
+        run: ./tests/release-gate/test.sh
+
+      - name: Release gate — this PR's skills changes must be releasable
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE="origin/${{ github.base_ref }}"
+          git diff --name-only "$BASE"...HEAD > /tmp/changed-files.txt
+          base_ver=$(git show "$BASE:.claude-plugin/plugin.json" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          head_ver=$(python3 -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])')
+          echo "base $base_ver → head $head_ver"
+          ./scripts/release-gate.sh "$base_ver" "$head_ver" /tmp/changed-files.txt
 
       - name: Contrast checker works (pass AND fail paths)
         run: |
