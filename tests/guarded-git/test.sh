@@ -17,8 +17,10 @@ cd "$(dirname "$0")/../.."
 
 KIT="$PWD"
 COMMIT="$KIT/skills/implement-issue/scripts/guarded-commit.sh"
+PUSH="$KIT/skills/implement-issue/scripts/guarded-push.sh"
 
 [ -x "$COMMIT" ] || { echo "FAIL: $COMMIT missing or not executable"; exit 1; }
+[ -x "$PUSH" ]   || { echo "FAIL: $PUSH missing or not executable"; exit 1; }
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -43,7 +45,22 @@ new_repo() {
   printf '%s' "$d"
 }
 
+# The same scratch repo, plus a LOCAL BARE repo wired up as `origin` and branch `a` already
+# pushed with an upstream. Local-only: these tests must never touch the network.
+new_repo_with_origin() {
+  local d; d=$(new_repo "$1")
+  git -C "$d" checkout -q a
+  git init -q --bare "$WORK/$1.git"
+  git -C "$d" remote add origin "$WORK/$1.git"
+  git -C "$d" push -q -u origin a
+  printf '%s' "$d"
+}
+
 tip() { git -C "$1" rev-parse "refs/heads/$2"; }
+
+# What the REMOTE actually holds — read from the bare repo itself, so the assertion never
+# depends on the local remote-tracking ref the push under test is what updates.
+remote_tip() { git -C "$WORK/$1.git" rev-parse --quiet --verify "refs/heads/$2" || true; }
 
 # Runs the guard without `set -e` aborting the test, capturing stdout+stderr and the code.
 # Sets RC and OUT (a file path).
@@ -221,5 +238,140 @@ set -e
 [ "$RC" -eq 0 ] || fail foreign "refused when run from another directory (exit $RC)"
 [ "$(tip "$R" a)" != "$before_a" ] || fail foreign "branch a did not advance"
 echo "  ok: foreign cwd — the guard follows -C, not the ambient directory"
+
+# ================================================================== guarded-push.sh
+#
+# `git push -u` exiting 0 does not prove the intended content reached the intended branch.
+# In the #26 incident it exited 0, printed "branch … set up to track …", and delivered the
+# commit into another agent's pull request. So the push is not believed until the remote is
+# read back and shown to carry exactly this HEAD.
+
+# ---------------------------------------------------------------- 9. refusal: wrong branch
+
+R=$(new_repo_with_origin push-wrong-branch)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work on a"
+git -C "$R" checkout -q b                       # a concurrent agent switches HEAD
+before_remote=$(remote_tip push-wrong-branch a)
+
+run push-wrong "$PUSH" -C "$R" a
+
+[ "$RC" -eq 2 ] || fail push-wrong "expected exit 2, got $RC"
+[ "$(remote_tip push-wrong-branch a)" = "$before_remote" ] || fail push-wrong "the remote moved on a refused push"
+[ -z "$(remote_tip push-wrong-branch b)" ] || fail push-wrong "branch b reached the remote — this IS the bug"
+echo "  ok: push-wrong-branch — refused (2), nothing left the machine"
+
+# ---------------------------------------------------------------- 10. push exits 0, remote did not move
+#
+# The silent mis-push, reproduced without a race: a `remote.origin.push` refspec sends some
+# OTHER ref to `a`. git push exits 0 and reports success — and `a` on the remote is not this
+# HEAD. Reading the exit code alone would call that a win.
+
+R=$(new_repo_with_origin push-diverged)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work that must reach the remote"
+git -C "$R" branch decoy b
+git -C "$R" config remote.origin.push refs/heads/decoy:refs/heads/a
+
+run push-diverged "$PUSH" -C "$R" a
+
+[ "$RC" -eq 4 ] || fail push-diverged "expected exit 4, got $RC"
+[ "$(remote_tip push-diverged a)" != "$(git -C "$R" rev-parse HEAD)" ] \
+  || fail push-diverged "fixture broken: the remote should NOT hold this HEAD"
+grep -qi 'remote' "$OUT" || fail push-diverged "the alert must say the remote disagrees"
+echo "  ok: push-diverged — push exited 0 but the remote held another commit; caught (4)"
+
+# ---------------------------------------------------------------- 11. a push that pushes nothing
+#
+# Same class, blunter: `--dry-run` exits 0 having moved nothing at all. An exit code is not
+# a delivery receipt.
+
+R=$(new_repo_with_origin push-dry-run)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work that never leaves"
+before_remote=$(remote_tip push-dry-run a)
+
+run push-dry-run "$PUSH" -C "$R" a -- --dry-run
+
+[ "$RC" -eq 4 ] || fail push-dry-run "expected exit 4, got $RC"
+[ "$(remote_tip push-dry-run a)" = "$before_remote" ] || fail push-dry-run "a dry run moved the remote"
+echo "  ok: push-dry-run — exit 0 from git, remote unmoved; caught (4)"
+
+# ---------------------------------------------------------------- 12. happy path
+
+R=$(new_repo_with_origin push-happy)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work that reaches the remote"
+head_sha=$(git -C "$R" rev-parse HEAD)
+
+run push-happy "$PUSH" -C "$R" a
+
+[ "$RC" -eq 0 ] || fail push-happy "a legitimate push was rejected (exit $RC)"
+[ "$(remote_tip push-happy a)" = "$head_sha" ] || fail push-happy "the remote does not carry HEAD"
+grep -q "$(git -C "$R" rev-parse --short HEAD)" "$OUT" || fail push-happy "output must report the sha it verified"
+echo "  ok: push-happy — pushed and proved origin/a == HEAD"
+
+# ---------------------------------------------------------------- 13. first push (-u passthrough)
+#
+# implement-issue's very first push is `git push -u origin <branch>` on a branch with no
+# upstream yet, so the guard has to carry those arguments through.
+
+R=$(new_repo_with_origin push-upstream)
+git -C "$R" checkout -q -b fresh
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work on a brand-new branch"
+head_sha=$(git -C "$R" rev-parse HEAD)
+
+run push-upstream "$PUSH" -C "$R" fresh -- -u origin fresh
+
+[ "$RC" -eq 0 ] || fail push-upstream "the first -u push was rejected (exit $RC)"
+[ "$(remote_tip push-upstream fresh)" = "$head_sha" ] || fail push-upstream "the remote does not carry HEAD"
+echo "  ok: push-upstream — -u origin <branch> passes through and verifies"
+
+# ---------------------------------------------------------------- 14. git's own failure
+
+R=$(new_repo_with_origin push-fails)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am work
+
+run push-fails "$PUSH" -C "$R" a -- nosuchremote a
+
+[ "$RC" -ne 0 ] || fail push-fails "a failed push reported success"
+[ "$RC" -ne 2 ] || fail push-fails "git's failure was mislabelled as a refusal"
+[ "$RC" -ne 4 ] || fail push-fails "git's failure was mislabelled as a diverged remote"
+echo "  ok: push-fails — propagated git's own exit code ($RC)"
+
+# ---------------------------------------------------------------- 15. detached HEAD + arguments
+
+R=$(new_repo_with_origin push-detached)
+git -C "$R" checkout -q --detach
+run push-detached "$PUSH" -C "$R" a
+[ "$RC" -eq 2 ] || fail push-detached "a detached HEAD must refuse (2), got $RC"
+grep -qi detached "$OUT" || fail push-detached "the refusal must say HEAD is detached"
+
+run push-no-branch "$PUSH" -C "$R"
+[ "$RC" -eq 2 ] || fail push-no-branch "a missing branch name must refuse (2), got $RC"
+
+run push-not-a-repo "$PUSH" -C "$WORK" a
+[ "$RC" -eq 2 ] || fail push-not-a-repo "a non-repo path must refuse (2), got $RC"
+echo "  ok: push arguments — detached HEAD and malformed invocations never reach git push"
+
+# ---------------------------------------------------------------- 16. foreign working directory
+
+R=$(new_repo_with_origin push-foreign)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work pushed from elsewhere"
+head_sha=$(git -C "$R" rev-parse HEAD)
+FOREIGN=$(mktemp -d "$WORK/push-foreign-cwd.XXXX")
+
+set +e
+OUT="$WORK/out.push-foreign"
+( cd "$FOREIGN" && bash "$PUSH" -C "$R" a ) > "$OUT" 2>&1
+RC=$?
+set -e
+
+[ "$RC" -eq 0 ] || fail push-foreign "refused when run from another directory (exit $RC)"
+[ "$(remote_tip push-foreign a)" = "$head_sha" ] || fail push-foreign "the remote does not carry HEAD"
+echo "  ok: push foreign cwd — the guard follows -C, not the ambient directory"
 
 echo "guarded-git golden test OK"
