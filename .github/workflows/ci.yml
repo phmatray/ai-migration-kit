@@ -20,6 +20,9 @@ jobs:
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo
 
+      - name: xunit v3 transform golden test (scratch copy, fixture untouched)
+        run: ./tests/xunit-v3/test.sh
+
       - name: Plugin manifests and requirements are valid JSON
         run: |
           python3 -m json.tool .claude-plugin/plugin.json > /dev/null

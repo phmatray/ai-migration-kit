@@ -3,6 +3,60 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+## [1.10.0] — 2026-08-10
+
+Le passage **xunit v2 → xunit.v3** devient une **décision explicite et gardée**, au lieu d'un
+non-choix. En une ligne : la migration ne peut plus livrer du net10 avec une plateforme de test
+d'avant-dernière génération sans que personne ne l'ait décidé — ni perdre la couverture en chemin.
+
+### Le problème, mesuré
+
+La phase 3 bumpe les paquets via `dotnet list package --outdated`. Sur un projet en `xunit` 2.4.2,
+cette commande propose **2.9.x** et ne proposera **jamais** `xunit.v3` : la v3 change
+l'**identifiant** de paquet, pas le numéro de version. Un changement d'ID est invisible pour
+`--outdated` **et pour Renovate**. Le dogfood le montre noir sur blanc — `docs/demo-walkthrough.md`
+enregistre une migration net10.0 dont le stack de test atterrit sur **xunit 2.9.3**.
+
+### Ajouté
+
+- **`testStack[]` dans `scripts/audit-inventory.sh`** — par projet de test : TFM, tous les paquets
+  avec leur version, `framework` et surtout **`xunitMajor`**. C'est ce qui rend la ligne majeure
+  visible en phase 1, donc arbitrable.
+- **`references/xunit-v3-migration.md`** — la procédure : 4 préconditions (plancher `net8.0`/`net472`,
+  paquets d'extension compatibles v3, compte de baseline connu, pas de `.runsettings` VSTest-only),
+  la table csproj, la table des renommages d'API, et la **porte de sortie qui COMPTE les tests**.
+  Toute précondition non tenue est un **report consigné avec son blocage nommé**, jamais un saut
+  silencieux.
+- **Item gardé dans la phase 5 (jeu étendu)** — jamais dans la phase 3 : le plancher v3 n'est
+  franchi qu'après le retarget, et fondre un changement d'hôte de test dans la porte du retarget
+  rend un rouge inattribuable.
+- **`tests/xunit-v3/`** — `apply-transform.py` (la forme exécutable de la référence) et un test
+  golden qui transforme une **copie** de `samples/LegacyShop` et vérifie que 6 tests s'exécutent
+  vraiment. Câblé dans la CI.
+
+### Corrigé
+
+- **`templates/ci-dotnet.yml` perdait toute la couverture sous MTP, en silence.** Mesuré :
+  `dotnet test --collect:"XPlat Code Coverage"` sur un projet xunit.v3 **sort en 0**, passe 6/6 et
+  **n'écrit aucun fichier** — seule trace, un `warning MTP0001`. L'artefact partait vide et
+  `report-dashboard.py` affichait « pas de couverture » sur une app testée. Le template détecte
+  désormais la plateforme, branche sur la bonne collecte, et **échoue si aucun
+  `coverage.cobertura.xml` n'a été produit** — une collecte qui ne produit rien ne doit pas passer
+  pour un succès.
+
+### Notes de terrain (payées comptant)
+
+- **Le piège `OutputType` documenté n'existe plus tel quel sur xunit.v3 3.2.2** : le paquet garde
+  lui-même le coup et **casse le build** (`error : xUnit.net v3 test projects must be executable`)
+  au lieu de compiler et n'exécuter aucun test. La garde est bienvenue, mais elle vit dans les
+  targets du paquet — c'est une propriété de la version référencée, pas de la migration. **La porte
+  qui compte les tests reste le contrat.**
+- **La ligne majeure de `Microsoft.Testing.Extensions.CodeCoverage` doit suivre celle de MTP.**
+  xunit.v3 3.2.2 tourne sur MTP **v1**, donc l'extension reste en **17.x** ; une 18.x restaure et
+  compile, puis meurt à l'exécution (`TypeLoadException` sur `IDataConsumer`).
+- **`samples/LegacyShop` reste en xunit 2.4.2 / net6.0**, définitivement : c'est l'état « avant ».
+  Toute expérimentation passe par une copie, et le test golden échoue si l'arbre committé bouge.
+
 ## [1.9.0] — 2026-07-23
 
 Porte de **verdict de fin de phase 1** — les deux items du backlog dont le déclencheur a sauté le
