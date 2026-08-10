@@ -13,6 +13,7 @@ import argparse
 import base64
 import html
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -25,20 +26,16 @@ def esc(s):
     return html.escape(str(s), quote=True)
 
 
-def _weighted_pct(rated):
-    """rated : [(taux 0..1, poids)] — moyenne pondérée par la taille de chaque rapport.
+CONDITIONS = re.compile(r"\((\d+)/(\d+)\)")
 
-    Un rapport deux fois plus gros pèse deux fois plus : additionner les pourcentages, ou en
-    faire une moyenne simple, donnerait un global faux dès que les projets de test n'ont pas
-    la même taille. Poids tous nuls (aucune branche nulle part) : on retombe sur la moyenne
-    simple, ce qui laisse le cas mono-rapport rendre exactement son propre taux.
+
+def _conditions(line):
+    """(branches couvertes, branches totales) d'une ligne — `condition-coverage="50% (1/2)"`.
+
+    Une ligne sans branche n'en déclare pas : elle pèse 0/0 et ne participe donc pas au taux.
     """
-    if not rated:
-        return 0
-    total = sum(w for _, w in rated)
-    if total == 0:
-        rated, total = [(r, 1) for r, _ in rated], len(rated)
-    return round(100 * sum(r * w for r, w in rated) / total)
+    m = CONDITIONS.search(line.get("condition-coverage") or "")
+    return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
 
 
 def parse_cobertura(paths, excluded_prefixes, included_names=None):
@@ -49,6 +46,13 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     plusieurs rapports est comptée UNE fois, hits sommés ligne à ligne — deux projets qui
     exercent la même bibliothèque ne doivent ni la dupliquer dans le tableau, ni gonfler son
     dénominateur.
+
+    ⚠ Les taux globaux sont RECALCULÉS sur les lignes fusionnées, jamais lus dans l'attribut
+    `line-rate` de la racine. Mesuré : deux projets de test d'une même solution instrumentent
+    la MÊME bibliothèque, donc chaque rapport déclare le total de lignes du produit entier.
+    Combiner les taux racine — même pondérés par `lines-valid` — compte ce total deux fois et
+    rend 35 % là où l'union en couvre 73 %. Le recalcul est aussi cohérent avec le tableau
+    qu'il légende : même périmètre, mêmes exclusions.
     """
     if isinstance(paths, (str, Path)):
         paths = [paths]
@@ -56,11 +60,8 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     # les fusionner mélangerait deux classes distinctes. L'ordre d'insertion est l'ordre du
     # document, donc les ex æquo gardent l'ordre d'origine après le tri (stable).
     merged = {}
-    rates = []
     for path in paths:
         root = ET.parse(path).getroot()
-        rates.append((float(root.get("line-rate")), float(root.get("lines-valid") or 0),
-                      float(root.get("branch-rate")), float(root.get("branches-valid") or 0)))
         for cls in root.iter("class"):
             name = cls.get("name")
             if "<" in name or "/" in name:
@@ -69,14 +70,23 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
                 continue
             if included_names and name.split(".")[-1] not in included_names:
                 continue
-            hits_by_line = merged.setdefault(name, {})
+            by_line = merged.setdefault(name, {})
             for l in cls.findall(".//line"):
-                number = l.get("number")
-                hits_by_line[number] = hits_by_line.get(number, 0) + int(l.get("hits"))
-    classes = []
-    for name, hits_by_line in merged.items():
-        covered = sum(1 for hits in hits_by_line.values() if hits > 0)
-        total = len(hits_by_line)
+                slot = by_line.setdefault(l.get("number"), [0, 0, 0])
+                covered, total = _conditions(l)
+                slot[0] += int(l.get("hits"))
+                # Le maximum, pas la somme : deux rapports qui couvrent LA MÊME branche
+                # rendraient 2/2 sur une ligne qui n'en a qu'une de couverte. Le maximum
+                # sous-estime quand ils en couvrent deux différentes — on préfère l'erreur
+                # qui ne surestime jamais une couverture.
+                slot[1], slot[2] = max(slot[1], covered), max(slot[2], total)
+    classes, lines_covered, lines_total, br_covered, br_total = [], 0, 0, 0, 0
+    for name, by_line in merged.items():
+        covered = sum(1 for hits, _, _ in by_line.values() if hits > 0)
+        total = len(by_line)
+        lines_covered, lines_total = lines_covered + covered, lines_total + total
+        br_covered += sum(c for _, c, _ in by_line.values())
+        br_total += sum(t for _, _, t in by_line.values())
         classes.append({
             "name": name.split(".")[-1],
             "covered": covered,
@@ -86,8 +96,8 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     classes.sort(key=lambda c: -c["pct"])
     return {
         "classes": classes,
-        "line_pct": _weighted_pct([(lr, lv) for lr, lv, _, _ in rates]),
-        "branch_pct": _weighted_pct([(br, bv) for _, _, br, bv in rates]),
+        "line_pct": round(100 * lines_covered / lines_total) if lines_total else 0,
+        "branch_pct": round(100 * br_covered / br_total) if br_total else 0,
     }
 
 
