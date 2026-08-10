@@ -162,6 +162,23 @@ jobs:
       #   env:
       #     BUNDLE_DIST: web/dist             # ← le répertoire committé, depuis la racine du dépôt
       #   run: |
+      #     # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
+      #     # inexistant>` sort en 0 avec une sortie VIDE : un chemin resté au placeholder, ou un
+      #     # répertoire renommé six mois plus tard, donnerait donc une étape verte à chaque run
+      #     # qui ne vérifie plus rien — « ça a l'air entretenu, ça ne mesure rien », exactement
+      #     # le défaut que cette étape existe pour empêcher, reproduit dans l'étape elle-même.
+      #     # Le vert est ici la couleur attendue, donc rien ne le signalerait jamais.
+      #     if [ -z "${BUNDLE_DIST:-}" ] || [ ! -d "$BUNDLE_DIST" ]; then
+      #       echo "::error::BUNDLE_DIST ('${BUNDLE_DIST:-}') n'est pas un répertoire de ce dépôt."
+      #       echo "Renseignez le chemin du bundle committé, ou retirez cette étape."
+      #       exit 1
+      #     fi
+      #     if ! git ls-files --error-unmatch -- "$BUNDLE_DIST" > /dev/null 2>&1; then
+      #       echo "::error::$BUNDLE_DIST n'est suivi par git pour aucun fichier."
+      #       echo "Cette garde ne vaut que pour un bundle COMMITTÉ : sans fichier suivi, elle"
+      #       echo "resterait verte sans rien mesurer."
+      #       exit 1
+      #     fi
       #     changes=$(git status --porcelain -- "$BUNDLE_DIST")
       #     if [ -n "$changes" ]; then
       #       echo "::error::$BUNDLE_DIST est périmé : il ne correspond plus à ses sources."

@@ -204,6 +204,34 @@ fi
 echo "  [4] passes on a bundle that matches its sources"
 
 # ---------------------------------------------------------------------------
+# 5b. A MISCONFIGURED guard must fail loudly, never pass quietly.
+#
+#     `git status --porcelain -- does/not/exist` exits 0 with EMPTY output. So a consumer who
+#     enables the block but leaves the placeholder path — or renames the bundle directory later —
+#     gets a step that is green on every run while checking nothing at all. That is the exact
+#     "looks tended, measures nothing" failure this whole issue is about, reproduced inside its
+#     own fix, and it is invisible precisely because green is the expected colour.
+#
+#     Measured, not assumed: the bare `git status` behaviour above was probed before this guard
+#     clause was written.
+# ---------------------------------------------------------------------------
+for bad in "" "does/not/exist"; do
+  B="$scratch/misconfigured-$(echo "$bad" | tr -c 'a-z' '-')"
+  mk_repo "$B" "index-EEEEEEEE.js"
+  set +e
+  ( cd "$B" && BUNDLE_DIST="$bad" bash "$scratch/guard.sh" ) > "$scratch/out-bad.txt" 2>&1
+  rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    echo "FAIL: the guard PASSED with BUNDLE_DIST='$bad' — it would be green forever while"
+    echo "      measuring nothing, which is the failure this issue exists to prevent:"
+    cat "$scratch/out-bad.txt"
+    exit 1
+  fi
+done
+echo "  [5b] refuses a misconfigured path instead of passing quietly on nothing"
+
+# ---------------------------------------------------------------------------
 # 5. As shipped, the block is inert: the template is valid YAML and carries
 #    neither step. A default-on gate on the 192 repos this does not apply to is
 #    exactly what the measurement ruled out.
