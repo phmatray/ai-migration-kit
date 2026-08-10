@@ -35,6 +35,11 @@ new_repo() {
   git -C "$d" config user.email test@example.com
   git -C "$d" config user.name "Guarded Git Test"
   git -C "$d" config commit.gpgsign false
+  # A global `core.hooksPath` (pre-commit, husky, lefthook) makes git ignore $d/.git/hooks, which
+  # would silently disarm case 4's pre-commit hook and turn the one case proving exit 3 into an
+  # environment-dependent red bar. Pin it, and drop any inherited commit template.
+  git -C "$d" config core.hooksPath "$d/.git/hooks"
+  git -C "$d" config --unset-all commit.template 2>/dev/null || true
   echo seed > "$d/seed.txt"
   git -C "$d" add seed.txt
   git -C "$d" commit -q -m seed
@@ -160,10 +165,34 @@ run head-moved "$COMMIT" -C "$R" a -- -am "feat: work that gets stolen mid-commi
 [ "$RC" -eq 3 ] || fail head-moved "expected exit 3, got $RC"
 [ "$(tip "$R" a)" = "$before_a" ] || fail head-moved "branch a moved, but the hook redirected the commit"
 [ "$(tip "$R" c)" != "$before_c" ] || fail head-moved "fixture broken: c should carry the stolen commit"
-grep -q "c@$(git -C "$R" rev-parse --short c)" "$OUT" \
+grep -q "$(git -C "$R" rev-parse --short c)" "$OUT" \
+  || fail head-moved "the alert must name the SHA of the commit that was made"
+grep -q "branch 'c'" "$OUT" \
   || fail head-moved "the alert must name WHERE the commit actually went"
 grep -qi 'cherry-pick' "$OUT" || fail head-moved "the alert must state the recovery"
 echo "  ok: head-moved — commit landed on c; reported (3) and named it, silence broken"
+
+# 4b. The same, but HEAD ends up DETACHED. This is the only case where the commit is reachable
+# from no ref at all and will be garbage-collected, so it is the one case where the sha is
+# load-bearing — and it was the one case the first implementation suppressed it in, because the
+# message was built around a branch name that does not exist here.
+
+R=$(new_repo head-detached-mid)
+git -C "$R" checkout -q a
+printf '#!/bin/sh\ngit checkout -q --detach\n' > "$R/.git/hooks/pre-commit"
+chmod +x "$R/.git/hooks/pre-commit"
+before_a=$(tip "$R" a)
+echo "task work" >> "$R/seed.txt"
+
+run head-detached-mid "$COMMIT" -C "$R" a -- -am "feat: work stranded on a detached HEAD"
+
+[ "$RC" -eq 3 ] || fail head-detached-mid "expected exit 3, got $RC"
+[ "$(tip "$R" a)" = "$before_a" ] || fail head-detached-mid "branch a moved unexpectedly"
+grep -q "$(git -C "$R" rev-parse --short HEAD)" "$OUT" \
+  || fail head-detached-mid "the sha is withheld exactly where nothing else can recover the commit"
+grep -qi 'garbage-collected\|DETACHED' "$OUT" \
+  || fail head-detached-mid "the alert must say the commit is on a detached HEAD"
+echo "  ok: head-detached-mid — sha printed even with no branch to name it"
 
 # ---------------------------------------------------------------- 5. the commit identity
 #
@@ -215,7 +244,32 @@ run extra-arg "$COMMIT" -C "$R" a b -- -am x
 
 run not-a-repo "$COMMIT" -C "$WORK" a -- -am x
 [ "$RC" -eq 2 ] || fail not-a-repo "a non-repo path must refuse (2), got $RC"
+
+# An option whose value is missing must REFUSE, not fall off `shift 2` into a bare `set -e`
+# exit 1 — exit 1 is the documented "git's own failure" bucket, so a typo would be read as a
+# git failure and retried.
+run dangling-C "$COMMIT" -C
+[ "$RC" -eq 2 ] || fail dangling-C "a valueless -C must refuse (2), got $RC"
+run dangling-c "$COMMIT" -C "$R" -c
+[ "$RC" -eq 2 ] || fail dangling-c "a valueless -c must refuse (2), got $RC"
 echo "  ok: arguments — a malformed invocation never reaches git commit"
+
+# ---------------------------------------------------------------- 7b. --help documents the codes
+#
+# `usage()` prints the header block. It used to be a hardcoded `sed -n '2,42p'`, which silently
+# stops before the exit-code table as soon as a line is added above it — and --help is exactly
+# what someone reads when they hit a code they do not recognise.
+
+for s in "$COMMIT" "$PUSH"; do
+  run "help-$(basename "$s")" "$s" --help
+  [ "$RC" -eq 0 ] || fail "help-$(basename "$s")" "--help exited $RC"
+  grep -q 'Usage:' "$OUT" || fail "help-$(basename "$s")" "--help printed no Usage: section"
+  for code in '  0 ' '  2 '; do
+    grep -q "^$code" "$OUT" || fail "help-$(basename "$s")" "--help omits exit code '$code'"
+  done
+  grep -q 'Exit codes:' "$OUT" || fail "help-$(basename "$s")" "--help omits the exit-code table"
+done
+echo "  ok: --help — both guards print their full header including the exit-code table"
 
 # ---------------------------------------------------------------- 8. foreign working directory
 #
@@ -354,7 +408,62 @@ run push-no-branch "$PUSH" -C "$R"
 
 run push-not-a-repo "$PUSH" -C "$WORK" a
 [ "$RC" -eq 2 ] || fail push-not-a-repo "a non-repo path must refuse (2), got $RC"
+
+run push-dangling-C "$PUSH" -C
+[ "$RC" -eq 2 ] || fail push-dangling-C "a valueless -C must refuse (2), got $RC"
+run push-dangling-remote "$PUSH" -C "$R" --remote
+[ "$RC" -eq 2 ] || fail push-dangling-remote "a valueless --remote must refuse (2), got $RC"
 echo "  ok: push arguments — detached HEAD and malformed invocations never reach git push"
+
+# ---------------------------------------------------------------- 17. the remote cannot be read
+#
+# The push succeeds; the read-back does not. Under `set -euo pipefail` a failing `git ls-remote`
+# inside a command substitution killed the script on the spot with git's own 128 and no output —
+# AFTER a successful push. 128 is the documented "the push failed, nothing else was done" bucket,
+# so the caller was told the exact opposite of what happened. Verification that fails is not
+# verification that passes: it must be exit 4, and it must say so.
+
+R=$(new_repo_with_origin push-unlistable)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work that really is pushed"
+head_sha=$(git -C "$R" rev-parse HEAD)
+
+# Push to the real remote, but verify one that does not exist — the caller-error shape the guard
+# must surface rather than die on.
+run push-unlistable "$PUSH" -C "$R" a --remote nosuchremote -- origin a
+
+[ "$RC" -eq 4 ] || fail push-unlistable "expected exit 4 on an unreadable remote, got $RC"
+[ -s "$OUT" ] || fail push-unlistable "died silently — the caller learns nothing"
+grep -qi 'unverified\|could not be listed' "$OUT" \
+  || fail push-unlistable "the alert must say the push is UNVERIFIED, not that it failed"
+[ "$(remote_tip push-unlistable a)" = "$head_sha" ] \
+  || fail push-unlistable "fixture broken: the push itself should have succeeded"
+echo "  ok: push-unlistable — push succeeded, read-back failed; reported (4), not a silent 128"
+
+# ---------------------------------------------------------------- 18. HEAD moved during the push
+#
+# The asymmetry the review caught: guarded-commit.sh re-asserts after writing, guarded-push.sh
+# did not. `git push` sends the CURRENT branch, so a checkout landing between the pre-flight
+# assert and the push sends someone else's work — while `ls-remote` still finds the expected
+# branch at the tip it already had, which equals the sha captured earlier. Both comparisons pass
+# and the guard certifies a push it never made.
+#
+# Simulated deterministically with a pre-push hook that re-points HEAD, the same technique case 4
+# uses for commits.
+
+R=$(new_repo_with_origin push-head-moved)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work on a"
+git -C "$R" push -q origin a                     # origin/a already equals HEAD…
+git -C "$R" branch decoy a
+printf '#!/bin/sh\ngit symbolic-ref HEAD refs/heads/decoy\n' > "$R/.git/hooks/pre-push"
+chmod +x "$R/.git/hooks/pre-push"
+
+run push-head-moved "$PUSH" -C "$R" a
+
+[ "$RC" -eq 4 ] || fail push-head-moved "expected exit 4 when HEAD moved mid-push, got $RC"
+grep -qi 'HEAD moved' "$OUT" || fail push-head-moved "the alert must say HEAD moved"
+echo "  ok: push-head-moved — re-asserts HEAD after pushing; no certificate for an unmade push"
 
 # ---------------------------------------------------------------- 16. foreign working directory
 

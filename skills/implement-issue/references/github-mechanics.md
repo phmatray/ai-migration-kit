@@ -211,8 +211,14 @@ Before creating anything, check whether a prior run already set things up (resum
 one that produced the incident in Step 4: being in *someone else's* worktree passes it.
 
 ```bash
-git worktree list | grep -F "$BRANCH"                    # THIS issue's worktree already present?
-gh pr list --head "$BRANCH" --json number,url,isDraft --jq '.[0]'   # PR already open?
+# --porcelain + grep -Fxq matches the branch column EXACTLY. A bare `grep -F "$BRANCH"` matches
+# substrings and the path column as well, so `feat/26-guard` would "resume" into
+# feat/26-guarded-git-writes' worktree — the wrong-checkout failure this is meant to prevent.
+git worktree list --porcelain | grep -Fxq "branch refs/heads/$BRANCH"   # THIS issue's worktree?
+gh pr list --head "$BRANCH" --json number,url,isDraft --jq '.[0]'       # PR already open?
+
+WORKTREE=<absolute path of that worktree>
+GUARDS=<this skill's own scripts/ directory>       # skills/implement-issue/scripts from the kit root
 ```
 
 If they exist, work in that worktree (with `git -C`) and reuse the PR — don't open a second one.
@@ -220,9 +226,9 @@ Otherwise create the worktree via `superpowers:using-git-worktrees`, then the dr
 scaffold commit so the branch is ahead of `main`):
 
 ```bash
-./skills/implement-issue/scripts/guarded-commit.sh <commit-identity> "$BRANCH" \
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
   -- --allow-empty -m "chore(#$ISSUE): scaffold draft PR"
-./skills/implement-issue/scripts/guarded-push.sh "$BRANCH" -- -u origin "$BRANCH"
+"$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH" -- -u origin "$BRANCH"
 gh pr create --draft --base main --head "$BRANCH" \
   --title "<type>(<scope>): <subject> (#$ISSUE)" --body "<body, Closes #$ISSUE>"
 # Title follows the profile's PR-title convention (commonly a Conventional Commits prefix plus a
@@ -230,8 +236,10 @@ gh pr create --draft --base main --head "$BRANCH" \
 ```
 
 The guards take `$BRANCH` explicitly and refuse (exit 2) if HEAD is anything else; `guarded-push.sh`
-additionally reads the remote back and exits 4 if it does not carry this HEAD. Both are local-only
-apart from that one ref read, and both run from any working directory via `-C <repo>`.
+additionally reads the remote back and exits 4 if it does not carry this HEAD. **Always pass
+`-C "$WORKTREE"`** — without it they default to the current directory, which is the ambient checkout
+this whole section tells you not to trust. And pass `--remote <name>` whenever the push targets
+something other than `origin`, or the guard verifies a ref the push never wrote.
 
 ---
 

@@ -39,12 +39,21 @@
 #   3  the commit was made but HEAD was NOT <expected-branch> afterwards: something moved the
 #      branch under this process. The commit EXISTS; the message names where it went.
 #   *  git commit's own exit code, if the commit itself failed. Nothing else was done.
+#
+# That last line is why every path here also prints a line starting `guarded-commit:` —
+# propagating git's status is what the contract asks for, but git (or a pre-commit hook, or a
+# wrapper on $PATH) can itself return 2 or 3, which would otherwise be indistinguishable from
+# this script's own verdicts. **Read the message, not only the code**: a git failure always says
+# "git commit failed (exit N)".
 
 set -euo pipefail
 
 refuse() { printf 'guarded-commit: REFUSED — %s\n' "$*" >&2; exit 2; }
 
-usage() { sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; }
+# Print the header block, whatever length it happens to be. A hardcoded `sed -n '2,42p'` silently
+# stops documenting the exit codes the moment a line is added above them — and --help is exactly
+# what someone reads when they hit an exit code they do not recognise.
+usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
 
 REPO="."
 EXPECTED=""
@@ -52,7 +61,8 @@ GIT_OPTS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -C)        REPO="${2:-}"; shift 2 ;;
+    -C)        [ -n "${2:-}" ] || refuse "-C needs a <repo-path>"
+               REPO="$2"; shift 2 ;;
     -c)        [ -n "${2:-}" ] || refuse "-c needs a <key>=<value>"
                GIT_OPTS+=(-c "$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -114,16 +124,27 @@ now_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || tru
 expected_now=$(git -C "$REPO" rev-parse --quiet --verify "refs/heads/$EXPECTED" 2>/dev/null || true)
 
 if [ "$now_branch" != "$EXPECTED" ]; then
+  # The sha is printed unconditionally, and FIRST. A detached HEAD is the one case where the
+  # commit is reachable from no ref at all and will eventually be garbage-collected, so it is
+  # precisely the case where withholding the sha loses the work — yet it is also the case where
+  # "$now_branch" is empty and a branch-name-shaped message has nothing to say.
+  new_sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '<unreadable>')
   {
     echo "guarded-commit: ALERT — the commit was made, but HEAD is now '${now_branch:-detached}',"
     echo "                not '$EXPECTED'. HEAD moved while this commit was being written."
+    echo "                The new commit is: $new_sha"
     if [ -n "$now_branch" ]; then
-      echo "                The new commit is at: $now_branch@$(git -C "$REPO" rev-parse --short HEAD)"
+      echo "                It is on branch '$now_branch'."
+    else
+      echo "                HEAD is DETACHED, so no branch points at it — it is reachable from"
+      echo "                nothing and will be garbage-collected. Save it NOW:"
+      echo "                    git -C $REPO branch <rescue-name> $new_sha"
     fi
     if [ "$expected_now" = "$before_sha" ]; then
       echo "                '$EXPECTED' did NOT advance — the work is on the wrong branch."
-      echo "                Recover by cherry-picking it onto '$EXPECTED' and reverting it on"
-      echo "                '${now_branch:-the other branch}'. Never force-push a branch you do not own."
+      echo "                Recover by cherry-picking $new_sha onto '$EXPECTED' and reverting it"
+      echo "                on '${now_branch:-the branch that took it}'. Never force-push a branch"
+      echo "                you do not own."
     fi
   } >&2
   exit 3

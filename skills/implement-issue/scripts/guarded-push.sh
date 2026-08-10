@@ -36,12 +36,24 @@
 #   4  the push reported success but the remote does NOT carry this HEAD. This is the silent
 #      mis-push: the work is not where the exit code implied it was.
 #   *  git push's own exit code, if the push itself failed. Nothing else was done.
+#
+# That last line is why every path here also prints a line starting `guarded-push:` —
+# propagating git's status is what the contract asks for, but git (or a pre-push hook, or a
+# wrapper on $PATH) can itself return 2 or 4, which would otherwise be indistinguishable from
+# this script's own verdicts. **Read the message, not only the code**: a git failure always says
+# "git push failed (exit N)".
+#
+# ⚠ `--remote` must name the remote the push actually writes to. Verifying `origin` while the
+# push args say `-- -u upstream <branch>` would read a ref nobody wrote; that mismatch surfaces
+# as exit 4 rather than as a false success, but it is a caller error, not a real divergence.
 
 set -euo pipefail
 
 refuse() { printf 'guarded-push: REFUSED — %s\n' "$*" >&2; exit 2; }
 
-usage() { sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; }
+# Print the header block, whatever length it happens to be — see guarded-commit.sh for why a
+# hardcoded line range is a trap.
+usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
 
 REPO="."
 REMOTE="origin"
@@ -49,8 +61,10 @@ EXPECTED=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -C)        REPO="${2:-}";   shift 2 ;;
-    --remote)  REMOTE="${2:-}"; shift 2 ;;
+    -C)        [ -n "${2:-}" ] || refuse "-C needs a <repo-path>"
+               REPO="$2";   shift 2 ;;
+    --remote)  [ -n "${2:-}" ] || refuse "--remote needs a <name>"
+               REMOTE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --)        shift; break ;;
     -*)        refuse "unknown option: $1" ;;
@@ -102,16 +116,57 @@ fi
 
 # ---------------------------------------------------------------- read the remote back
 
-# A ref listing, not a fetch: no objects are transferred, and it asks the remote rather than
-# the local refs/remotes/<remote>/<branch> cache — which is written by the very push whose
-# effect is in question, so it cannot serve as the witness for it.
-remote_sha=$(git -C "$REPO" ls-remote "$REMOTE" "refs/heads/$EXPECTED" 2>/dev/null | awk 'NR==1 {print $1}')
+# First: is HEAD still the branch we pushed from? guarded-commit.sh re-asserts after writing and
+# this must too. Without it, a checkout landing between the pre-flight assert and `git push` sends
+# the OTHER branch (push.default=simple pushes the current one), while the read-back below still
+# finds the expected branch sitting at its old tip — which happens to equal the `head_sha` captured
+# earlier, so the guard would certify a push it never made.
+now_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+now_sha=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
+
+if [ "$now_branch" != "$EXPECTED" ] || [ "$now_sha" != "$head_sha" ]; then
+  {
+    echo "guarded-push: ALERT — git push exited 0, but HEAD moved while it ran."
+    echo "              pushed from  $EXPECTED @ $head_sha"
+    echo "              HEAD is now  ${now_branch:-detached} @ ${now_sha:-<unreadable>}"
+    echo "              git push sends the CURRENT branch, so what reached $REMOTE may not be"
+    echo "              your work. Check the remote before pushing again."
+  } >&2
+  exit 4
+fi
+
+# Then: a ref listing, not a fetch — no objects are transferred, and it asks the remote rather
+# than the local refs/remotes/<remote>/<branch> cache, which is written by the very push whose
+# effect is in question and so cannot serve as the witness for it.
+#
+# `set +e` around it deliberately: under `set -euo pipefail` a failing `git ls-remote` inside a
+# command substitution kills this script on the spot, with git's own status (128) and with stderr
+# swallowed — after a push that already succeeded. The caller would read 128 as "the push failed,
+# nothing else was done", the exact inversion of what happened, and the ALERT below would be
+# unreachable. Verification failing is not the same as verification passing: it is exit 4.
+set +e
+remote_out=$(git -C "$REPO" ls-remote "$REMOTE" "refs/heads/$EXPECTED" 2>&1)
+ls_rc=$?
+set -e
+
+if [ "$ls_rc" -ne 0 ]; then
+  {
+    echo "guarded-push: ALERT — git push exited 0, but '$REMOTE' could not be listed, so the"
+    echo "              push is UNVERIFIED (git ls-remote exited $ls_rc):"
+    printf '%s\n' "$remote_out" | sed 's/^/                  /'
+    echo "              Treat the work as unpushed. If the push targeted a different remote,"
+    echo "              re-run with --remote <name> so the guard checks the one you wrote to."
+  } >&2
+  exit 4
+fi
+
+remote_sha=$(printf '%s\n' "$remote_out" | awk 'NR==1 {print $1}')
 
 if [ -z "$remote_sha" ]; then
   {
-    echo "guarded-push: ALERT — git push exited 0, but $REMOTE has no '$EXPECTED' to show for it"
-    echo "              (or the remote could not be listed). The push is NOT confirmed; treat the"
-    echo "              work as unpushed and retry rather than assuming it landed."
+    echo "guarded-push: ALERT — git push exited 0, but $REMOTE has no '$EXPECTED' to show for it."
+    echo "              The push is NOT confirmed; treat the work as unpushed and retry rather"
+    echo "              than assuming it landed."
   } >&2
   exit 4
 fi
@@ -128,5 +183,8 @@ if [ "$remote_sha" != "$head_sha" ]; then
   exit 4
 fi
 
-printf 'guarded-push: %s/%s == HEAD (%s), verified on the remote\n' \
-  "$REMOTE" "$EXPECTED" "$(git -C "$REPO" rev-parse --short HEAD)"
+# `$head_sha` and not a fresh `rev-parse HEAD`: the receipt must name the sha that was actually
+# compared against the remote. Re-reading HEAD here would let the message quote a commit that no
+# step ever verified.
+printf 'guarded-push: %s/%s == %s, verified on the remote\n' \
+  "$REMOTE" "$EXPECTED" "$(git -C "$REPO" rev-parse --short "$head_sha")"
