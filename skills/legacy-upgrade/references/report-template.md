@@ -32,6 +32,10 @@ Structure du résumé markdown :
 | | Avant | Après |
 (plateforme/TFM, packages, diagnostics, tests, points notables — chiffres mesurés uniquement)
 
+## Tests
+**Plateforme de test :** <VSTest | Microsoft Testing Platform> · **Tests exécutés :** <n> (baseline <n>)
+(l'item phase 5 « xunit v2 → v3 » : appliqué, non demandé, ou `deferred: <blocage nommé>`)
+
 ## Portes franchies
 (une entrée par porte verte = par commit : ce qui a été fait, preuve à l'appui)
 

@@ -207,4 +207,22 @@ grep -q 'Aucun rapport de couverture' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml has no guard against an empty coverage report"; exit 1; }
 echo "  [4/4c] templates/ci-dotnet.yml carries the MTP path and the empty-coverage guard"
 
+# ---------------------------------------------------------------------------
+# 5. The decision is wired into the pipeline, not just documented in a side file.
+#
+#    A reference nobody is routed to is a reference nobody reads: phase 1 must surface the line,
+#    phase 5 must own the gated item, and phase 6 must make the result land in the report.
+# ---------------------------------------------------------------------------
+grep -q 'xunitMajor' skills/legacy-upgrade/references/phase-1-assess.md \
+  || { echo "FAIL: phase-1-assess.md does not record the xunit major line"; exit 1; }
+grep -q 'xunit-v3-migration.md' skills/legacy-upgrade/references/phase-5-modernize.md \
+  || { echo "FAIL: phase-5-modernize.md does not route to xunit-v3-migration.md"; exit 1; }
+grep -qi 'baseline' skills/legacy-upgrade/references/phase-5-modernize.md \
+  || { echo "FAIL: phase-5-modernize.md states no counted-tests gate"; exit 1; }
+grep -qi 'test platform\|plateforme de test' skills/legacy-upgrade/references/phase-6-verify.md \
+  || { echo "FAIL: phase-6-verify.md does not record the test platform"; exit 1; }
+grep -qi 'plateforme de test' skills/legacy-upgrade/references/report-template.md \
+  || { echo "FAIL: report-template.md has no slot for the test platform"; exit 1; }
+echo "  [5/5] phases 1, 5 and 6 carry the decision, the route and the recorded outcome"
+
 echo "xunit v3 golden test OK"

@@ -15,6 +15,28 @@ Applied one item at a time, each followed by build + tests + commit:
 
 Primary constructors, collection expressions, records for DTOs, DI container adoption, minimal APIs. Same discipline: `find_references` before, `edit_member`/`rename_symbol` preview → apply, build + tests + commit after each.
 
+### Test platform — xunit v2 → xunit.v3
+
+Full procedure: **`references/xunit-v3-migration.md`**. It is in the *extended* set, never the safe
+set: it changes how the tests **run**, which the safe-set items do not. It is also never done in
+phase 3 — the v3 floor (`net8.0+` / `net472+`) is only cleared once the retarget has landed, and
+folding a test-host swap into the retarget's gate makes a red build impossible to attribute.
+
+Phase 1 recorded `testStack[].xunitMajor`. If it reads `2`, this item is *available*; run it only
+when the extended set was requested, and only if all four preconditions in the reference hold.
+**Any precondition that fails is a recorded deferral** — written into the report with the blocker
+named (`deferred: <package> has no v3 build`) — never a silent skip.
+
+Two things make this item different from every other one on this page:
+
+- **The exit gate counts tests, it does not read the build.** Green is `dotnet test` reporting a
+  count **≥ the phase-2 baseline count**. The failure mode here is a suite that stops running
+  while the build stays green, so "it compiles" is explicitly not evidence.
+- **Coverage does not survive on its own.** Under the Microsoft Testing Platform the VSTest
+  collector is ignored *silently* — exit 0, tests pass, no coverage file. The reference carries
+  the fix (coverage extension + MTP collection); `<kit>/templates/ci-dotnet.yml` already detects
+  the platform and fails the job when nothing was collected.
+
 ## RoselineMCP calls
 
 `apply_fixes`, `edit_member`, `rename_symbol`, `find_references`, `get_call_graph`.
