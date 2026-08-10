@@ -81,6 +81,17 @@ jobs:
           python3 "$KIT/scripts/followups.py" "$KIT/tests/followups/fixture-a" --backlog "$KIT/docs/backlog.md" > /dev/null
           out=$(bash "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" show "$KIT") || true
           [ "$out" = "NO_PROFILE" ]   # kit has no profile: the deterministic answer, from any CWD
+          # The guards exist to be called from someone else's checkout, so they belong in this
+          # simulation too. --help exercises the header slice against $0 (a hardcoded line range
+          # there silently stops documenting the exit codes), and the refusal proves the guard
+          # reads -C rather than this foreign CWD.
+          for g in guarded-commit guarded-push; do
+            bash "$KIT/skills/implement-issue/scripts/$g.sh" --help | grep -q 'Exit codes:'
+          done
+          if bash "$KIT/skills/implement-issue/scripts/guarded-commit.sh" \
+               -C "$PWD" no-such-branch -- -m x 2>/dev/null; then
+            echo "guarded-commit.sh accepted a path that is not a git repository"; exit 1
+          fi
 
       - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists, requirements cross-check)
         run: python3 tests/skills/check-frontmatter.py
@@ -105,6 +116,9 @@ jobs:
 
       - name: Tick-plan golden test (a bad body never reaches GitHub)
         run: ./tests/tick-plan/test.sh
+
+      - name: Guarded git golden test (a commit cannot land on the wrong branch)
+        run: ./tests/guarded-git/test.sh
 
       - name: Contrast checker works (pass AND fail paths)
         run: |
