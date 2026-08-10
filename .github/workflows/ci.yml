@@ -3,7 +3,21 @@ name: ci
 on:
   push:
     branches: [main]
+  # `edited` is load-bearing: the release-title gate below reads the PR *title*, so retitling has
+  # to re-run it — otherwise a PR could go green as `fix(skills):` and be tidied to `chore(skills):`
+  # before the merge. Naming any type replaces the defaults, so opened/synchronize/reopened are
+  # listed explicitly rather than inherited.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+# Without a group, a retitle starts a second run against the *same* head sha while the first is
+# still going, and both publish a check named `kit` — which verdict the PR settles on then depends
+# on run ordering rather than on the title that is actually there. That would defeat the reason
+# `edited` was added at all. Cancel the superseded pull-request run so the latest title decides;
+# never cancel on main, where every commit deserves its own verdict.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   kit:
@@ -15,6 +29,38 @@ jobs:
           # that command still succeeds — it just answers with the shallow commit — so the fallback
           # never fires and the step reports a wrong date instead of failing. Keep the full history.
           fetch-depth: 0
+
+      # Consumers install a version-keyed cache of this plugin (#6), so a skills change reaches
+      # nobody until release-please cuts a release — and this repo squash-merges, so the PR title
+      # is the commit release-please will read on main. #7 enforced that with a per-PR version
+      # bump; #14 rightly retired it when release-please landed, leaving the guarantee resting on
+      # an unchecked precondition (#27). This step is that check. Fail-fast, before the builds.
+      - name: Skills changes carry a releasable PR title
+        if: github.event_name == 'pull_request'
+        env:
+          # Never interpolate ${{ … }} into a run: block — a PR title is attacker-controlled on
+          # fork PRs and would be pasted into the script the shell parses. Through the environment
+          # it stays data, and the step needs no secrets, so forks can run it.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # The path list comes from a script with its own golden test, not from inline yaml.
+          # Inline, `mapfile -t x < <(git diff …)` swallowed git's exit status, so a missing sha
+          # produced an empty array that the next line read as "nothing to gate" — the gate
+          # skipped itself and CI stayed green. Here the exit status is the only thing that
+          # separates "no files changed" from "could not tell", and it is checked.
+          if ! ./scripts/release-title-diff.sh "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed.z"; then
+            echo "could not determine the changed paths — failing rather than skipping the gate"
+            exit 1
+          fi
+          mapfile -d '' -t changed < "$RUNNER_TEMP/changed.z"
+          # Authoritative now: the script exited 0, so an empty list really is an empty diff —
+          # e.g. the scaffold-only commit of a freshly opened draft PR.
+          if [ ${#changed[@]} -eq 0 ]; then
+            echo "empty diff against the merge base — nothing to gate."; exit 0
+          fi
+          ./scripts/release-title-gate.sh "$PR_TITLE" "${changed[@]}"
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -119,6 +165,9 @@ jobs:
 
       - name: Guarded git golden test (a commit cannot land on the wrong branch)
         run: ./tests/guarded-git/test.sh
+
+      - name: Release-title gate golden test (pass AND fail paths)
+        run: ./tests/release-title-gate/test.sh
 
       - name: Contrast checker works (pass AND fail paths)
         run: |
