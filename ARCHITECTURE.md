@@ -142,3 +142,21 @@ target repo — generated once by `get-repo-profile`, committed, then consumed w
 | Repo-specific facts for the lifecycle trio | `.claude/skills/repo-profile.md` (per target repo) |
 | Migration state & follow-up queue | `migration/report.json` per migrated repo (never a parallel list) |
 | Triggering contracts | `tests/skills/<name>.triggers.md`, guarded by `tests/skills/check-frontmatter.py` in CI |
+| Version | `.claude-plugin/plugin.json`, bumped by release-please — **never** a `metadata.version` in a SKILL.md |
+
+## Versioning
+
+The plugin ships as one unit: there is no way to install `legacy-upgrade` at one version alongside
+`merge-pr` at another, so a per-skill version would communicate a granularity that does not exist —
+and nothing would bump it. Six of them had already drifted behind `plugin.json` before the field was
+removed (#16).
+
+`check-frontmatter.py` enforces this by **parsing** the frontmatter: a `version` key is rejected at
+top level and under `metadata`, in every YAML spelling (`version:`, `"version":`, `version :`, the
+flow form `metadata: {version: 1}`). Pattern-matching got this wrong in both directions — it missed
+the quoted spellings and fired on prose inside a `>-` block — so `tests/skills/test.sh` drives the
+checker over fixtures that must be rejected. Without it the rule is unfalsifiable: every real skill
+already satisfies an absence rule, so a guard that stopped matching would keep printing "OK".
+
+Skill metadata keeps `author` and `suite` — stable facts rather than claims about a release — and
+both are required by the same checker, so this paragraph is not itself an unmaintained claim.
