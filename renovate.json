@@ -1,23 +1,39 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "samples/ is ignored on purpose. samples/LegacyShop is a FROZEN fixture — net6.0, xunit 2.4.2, xunit.runner.visualstudio 2.4.5, Microsoft.NET.Test.Sdk 17.3.2 — the 'before' half of every demo and golden test. Bumping it destroys what the phase-5 transform is measured against. See issue #15.",
+    "samples/LegacyShop is a FROZEN fixture — net6.0, xunit 2.4.2, xunit.runner.visualstudio 2.4.5, Microsoft.NET.Test.Sdk 17.3.2 — the 'before' half of every demo and golden test. Bumping it destroys what the phase-5 transform is measured against. See issue #15.",
+    "It is BLOCKED, not HIDDEN: the rule below disables updates for that path but leaves the dependencies extracted, so they keep their Dependency Dashboard row and stay eligible for vulnerabilityAlerts. An ignorePaths entry would suppress extraction instead, and vulnerabilityAlerts cannot override that — freezing a fixture is a decision about upgrades, not a decision to stop looking. See issue #33.",
     "The same invariant is encoded in three other places with no shared identifier; change one and check the rest: samples/LegacyShop/README.md, tests/xunit-v3/test.sh (asserts these exact versions), and repo-audit/net10_blacklist.json portfolio-side.",
     "This deviates from the portfolio's canonical two-line renovate.json on purpose. Do not 'tidy' it back."
   ],
   "extends": [
     "local>phmatray/.github:renovate-ci"
   ],
-  "ignorePaths": [
-    "samples/**"
-  ],
+  "github-actions": {
+    "description": [
+      "templates/ holds the workflows this kit SHIPS to migrated repos — a deliverable, not documentation, asserted by tests/xunit-v3/test.sh. The github-actions manager's default patterns cover only .github/workflows, .github/actions, workflow-templates and action.yml, so templates/ had never been managed: Renovate kept this repo's own CI current (checkout v7, setup-dotnet v6) while the workflows we hand to customers sat three majors behind. See issue #35.",
+      "managerFilePatterns is MERGED with the manager's defaults, not substituted for them — the defaults cannot be removed — so this adds templates/ without putting .github/workflows at risk. That is the opposite of ignorePaths, which does replace what it inherits."
+    ],
+    "managerFilePatterns": [
+      "/^templates/.*\\.ya?ml$/"
+    ]
+  },
   "packageRules": [
+    {
+      "description": [
+        "The frozen fixture: never propose an upgrade under samples/LegacyShop. Scoped to the fixture rather than to all of samples/, so a future NON-frozen sample — a modern demo, whose whole point would be staying current — is managed normally instead of silently unmanaged."
+      ],
+      "matchFileNames": [
+        "samples/LegacyShop/**"
+      ],
+      "enabled": false
+    },
     {
       "description": [
         "The xunit test package and the Microsoft.Testing.Platform extension family move as ONE decision. Which MTP major applies is chosen by the xunit package id, not its version: xunit.v3 3.2.2 resolves to Microsoft.Testing.Platform 1.9.1 (CodeCoverage 17.x), while xunit.v3.mtp-v2 3.2.2 — same major, a stable release — resolves to MTP 2.0.2 (CodeCoverage 18.x).",
         "A split major bump restores clean and builds clean, then dies at run time with TypeLoadException on Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer.",
-        "Grouping alone would NOT stop this. A group only batches updates that are pending in the same run, and today only one leg has a major available (CodeCoverage 18.x, while xunit.v3 stable is still on the v1 line) — so a group would ship precisely the one-leg bump, under a title implying both moved. Majors are therefore disabled for the whole family: crossing the MTP v1/v2 boundary is a deliberate migration that moves every leg together, by hand, against MTP_COMPAT in tests/xunit-v3/apply-transform.py. Non-major updates stay on the shared preset's rules.",
-        "This rule is about packages a MIGRATED repo would carry; samples/ is already excluded wholesale by ignorePaths above."
+        "Grouping alone would NOT stop this. A group only batches updates that are pending in the same run, and today only one leg has a major available (CodeCoverage 18.x, while xunit.v3 stable is still on the v1 line) — so a group would ship precisely the one-leg bump, under a title implying both moved. Majors are therefore disabled for the whole family: crossing the MTP v1/v2 boundary is a deliberate migration that moves every leg together, by hand, against MTP_LINE / EXTENSION_MAJOR in tests/xunit-v3/apply-transform.py. Non-major updates stay on the shared preset's rules.",
+        "This rule is about packages a MIGRATED repo would carry; samples/LegacyShop is separately disabled by the fixture rule above."
       ],
       "matchDatasources": ["nuget"],
       "matchPackageNames": [
