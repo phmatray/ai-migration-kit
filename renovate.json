@@ -10,5 +10,23 @@
   ],
   "ignorePaths": [
     "samples/**"
+  ],
+  "packageRules": [
+    {
+      "description": [
+        "The xunit test package and the Microsoft.Testing.Platform extension family move as ONE decision. Which MTP major applies is chosen by the xunit package id, not its version: xunit.v3 3.2.2 resolves to Microsoft.Testing.Platform 1.9.1 (CodeCoverage 17.x), while xunit.v3.mtp-v2 3.2.2 — same major, a stable release — resolves to MTP 2.0.2 (CodeCoverage 18.x).",
+        "A split major bump restores clean and builds clean, then dies at run time with TypeLoadException on Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer.",
+        "Grouping alone would NOT stop this. A group only batches updates that are pending in the same run, and today only one leg has a major available (CodeCoverage 18.x, while xunit.v3 stable is still on the v1 line) — so a group would ship precisely the one-leg bump, under a title implying both moved. Majors are therefore disabled for the whole family: crossing the MTP v1/v2 boundary is a deliberate migration that moves every leg together, by hand, against MTP_COMPAT in tests/xunit-v3/apply-transform.py. Non-major updates stay on the shared preset's rules.",
+        "This rule is about packages a MIGRATED repo would carry; samples/ is already excluded wholesale by ignorePaths above."
+      ],
+      "matchDatasources": ["nuget"],
+      "matchPackageNames": [
+        "xunit.v3**",
+        "Microsoft.Testing.Platform**",
+        "Microsoft.Testing.Extensions.**"
+      ],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
   ]
 }

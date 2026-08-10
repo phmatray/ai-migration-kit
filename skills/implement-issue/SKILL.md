@@ -62,7 +62,7 @@ Create a task per item and work them in order. Step 6 is the loop — one pass p
 1. **Preconditions** — `gh` works, you're in the target repo, resolve the issue number.
 2. **Read the plan** — fetch the `🛠️ Implementation plan` from the issue body (or a comment, on older issues); save it and note where it lives.
 3. **Pick the execution mode** — assess complexity → *Inline (Extra)* or *Subagent-per-task (Ultracode)*.
-4. **Create the worktree** — via `superpowers:using-git-worktrees`; branch off `main`.
+4. **Create this issue's own worktree** — via `superpowers:using-git-worktrees`; branch off `main`. Never implement from the checkout you were launched in, even if it is already a worktree.
 5. **Open the draft PR** — empty scaffold commit, push, `gh pr create --draft` linking the issue; PR title carries a Conventional Commits prefix (`fix:`/`feat:`/…, CI-enforced) and ends with `(#<issue>)`.
 6. **Loop until every task is checked** — implement the next unchecked task → verify green → commit → tick that task on the issue plan *and* the PR description → push.
 7. **Code review** — run the `code-review` skill, apply + commit the fixes, push.
@@ -71,7 +71,8 @@ Create a task per item and work them in order. Step 6 is the loop — one pass p
 10. **Report** — PR URL, what shipped, anything assumed or deferred.
 
 Resume-safe: re-running mid-flight is fine. A task is "done" when **all** its step checkboxes read
-`- [x]`; start at the first that isn't. Reuse an existing worktree/branch/PR rather than making a second
+`- [x]`; start at the first that isn't. Reuse **this issue's** worktree/branch/PR rather than making a
+second — matched on the issue's own branch name, never on "whatever checkout I woke up in"
 (see `references/github-mechanics.md`).
 
 ---
@@ -81,8 +82,13 @@ Resume-safe: re-running mid-flight is fine. A task is "done" when **all** its st
 **Follow the shared preconditions reference** at [`../_shared/preconditions.md`](../_shared/preconditions.md)
 to load the repo profile, verify authentication, and prepare the commit identity shorthand.
 
-Throughout this skill, **`git <commit-identity>`** stands for the author line from the profile's
-*Commit identity* — substitute it in every commit/merge command.
+Throughout this skill, **`<commit-identity>`** stands for the author line from the profile's *Commit
+identity* — `-c user.email=<email> -c user.name="<name>"`. Substitute it in every commit/merge
+command. In the guarded calls of Steps 5, 6, 7 and 9 it goes **before** the branch name
+(`guarded-commit.sh -C "$WORKTREE" <commit-identity> "$BRANCH" -- …`), which is where the script
+forwards it to `git` itself; passed
+after `--` it would reach `git commit -c`, which means "reuse this commit's message" and which git
+refuses to combine with `-m`.
 
 Then, resolve the **issue number** from the user's request — a number (`21`), an issue URL, or a link
 to the plan comment (`…/issues/21#issuecomment-12345`). The locator snippets in
@@ -118,11 +124,49 @@ When it's a toss-up, prefer subagent-per-task — fresh context per task keeps q
 plans. Either way **this skill stays the parent**: it owns the worktree, draft PR, per-task ticking,
 review, and ready-flip; a subagent implements a task and reports back.
 
-## Step 4 — Create the worktree
+## Step 4 — Create **this issue's own** worktree
 
-Use `superpowers:using-git-worktrees` for an isolated workspace branched off `main`. Name the branch
-for the issue, e.g. `feat/<issue>-<short-slug>` (slug from the issue title). Do all work inside it. If a
-worktree/branch for this issue already exists (resume case), reuse it.
+**This issue gets a worktree of its own, always.** Not "a worktree" — *this* one. Use
+`superpowers:using-git-worktrees` for an isolated workspace branched off `main`, and name the branch
+for the issue, e.g. `feat/<issue>-<short-slug>` (slug from the issue title).
+
+⛔ **Never implement from the checkout you were launched in**, even when that checkout is already a
+worktree. That skill's Step 0 says "already in a linked worktree → skip creation", and a run launched
+inside someone else's worktree reads it as permission to work in place — which is precisely the
+configuration that produced the incident behind this rule: four agents sharing one checkout, a
+concurrent `git checkout` moving HEAD, and a commit landing in another agent's PR with every command
+exiting 0. The question is not *am I in a worktree*, it is **am I in the worktree this issue owns**.
+If the answer is no, make one and move into it.
+
+So the resume test matches **this issue's own branch**, never the ambient checkout. Derive `$BRANCH`
+with the `SLUG` recipe in `references/github-mechanics.md` §5 (don't hand-write it — a literal
+`<short-slug>` inside quotes stays literal, and every later guard call would then quote a branch that
+does not exist), then:
+
+```bash
+# Exact match on the branch column. A bare `grep -F "$BRANCH"` matches substrings and the path
+# column too, so `feat/26-guard` would "resume" into feat/26-guarded-git-writes' worktree —
+# the wrong-checkout failure this step exists to prevent.
+git worktree list --porcelain | grep -Fxq "branch refs/heads/$BRANCH"
+```
+
+Reuse what that finds; create otherwise. Then record the two names every later step needs:
+
+```bash
+WORKTREE=<absolute path of this issue's worktree>
+GUARDS=<this skill's own scripts/ directory>       # skills/implement-issue/scripts from the kit root
+```
+
+Carry `$BRANCH` forward — Steps 5, 6, 7 and 9 pass it to the guards **explicitly**, because a guard
+that read the branch from `HEAD` would be reading the very value it exists to check, and would agree
+with itself no matter which branch was checked out. Pass `-C "$WORKTREE"` just as explicitly: the
+guards default to the current directory, which is the ambient checkout this step just told you not
+to trust.
+
+Isolation makes the collision rare; it does not make it impossible — a worktree can still be
+re-pointed, and any sub-skill that mutates the working tree inherits the hazard (in the same session,
+`code-review` ran `git checkout <ref> -- .` in a shared checkout and destroyed an uncommitted delta).
+That residue is what the guards below are for.
 
 ## Step 5 — Open the draft PR
 
@@ -153,10 +197,25 @@ concise imperative **subject** that summarizes the fix rather than echoing the i
 wording — so the example issue becomes e.g.
 `fix(export): use invariant culture in CSV number formatting (#849)`.
 
+Every commit and push **in Steps 5, 6, 7 and 9** goes through the guards in `scripts/` — never a bare
+`git commit` or `git push`. They take `$BRANCH` explicitly, refuse (exit 2) when HEAD is anything else
+or detached, and prove afterwards that the commit landed on that branch (exit 3 if not) and that the
+remote really carries this HEAD (exit 4 if not). `-c user.email=… -c user.name="…"` is the profile's
+*Commit identity*; it goes **before** `$BRANCH`, because those are options to `git`, not to
+`git commit`.
+
+⚠️ **Step 8 is the exception, and knowingly so.** It delegates to
+[`../_shared/sync-with-main.md`](../_shared/sync-with-main.md), which `merge-pr` shares, and whose
+`git merge` / `git commit --no-edit` / `git push` are still unguarded — the merge commit is the
+largest single write in this flow and the one still exposed. Guarding it means changing a file two
+skills depend on, so it is tracked separately rather than done here. Until then, at Step 8:
+re-read `git -C "$WORKTREE" rev-parse --abbrev-ref HEAD` immediately before the merge **and**
+immediately before the push, and compare `HEAD` with `origin/$BRANCH` afterwards.
+
 ```bash
-git <commit-identity> \
-  commit --allow-empty -m "chore(#$ISSUE): scaffold draft PR for <title>"
-git push -u origin <branch>
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
+  -- --allow-empty -m "chore(#$ISSUE): scaffold draft PR for <title>"
+"$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH" -- -u origin "$BRANCH"
 gh pr create --draft --base main --head <branch> \
   --title "<type>(<scope>): <subject> (#$ISSUE)" \
   --body "Implements #$ISSUE.
@@ -196,11 +255,16 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
 2. **Verify green before you commit.** Run the task's test filter and confirm it passes — read the
    output, don't assume. A red bar means it isn't done; fix it or stop. Never commit over failing tests.
 
-3. **Commit** with the project identity and the **commit message from the task's final step**:
+3. **Commit** with the project identity and the **commit message from the task's final step** —
+   through `guarded-commit.sh`, which refuses rather than let the work land on a branch that was
+   checked out under you:
    ```bash
-   git <commit-identity> \
-     commit -am "<message from the task's last - [ ] step>"
+   "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
+     -- -am "<message from the task's last - [ ] step>"
    ```
+   A non-zero exit is never something to retry blindly: **2** means nothing was written and HEAD is
+   on the wrong branch (fix that first), **3** means the commit exists somewhere else and the message
+   names where.
 
 4. **Tick the task — on the issue plan AND the PR description.** Flip it in **both** so neither goes
    stale (issue canonical, PR list its mirror). In each file flip *only this task's* `- [ ]` lines
@@ -217,7 +281,13 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
    changed, so a missing, empty or truncated file can never reach GitHub. The PR mirror is a
    plain `gh pr edit --body-file`. Exact recipes for both paths: `references/github-mechanics.md` §4.
 
-5. **Push** so the PR reflects the new commit: `git push`.
+5. **Push** so the PR reflects the new commit — through `guarded-push.sh`, which reads the remote
+   back and requires it to equal this HEAD:
+   ```bash
+   "$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH"
+   ```
+   Exit **4** means git reported success but the remote does not carry your commit — the silent
+   mis-push. Treat the work as unpushed and find out where it went before doing anything else.
 
 Continue until no task has an unchecked box. The issue's plan now reads all-`- [x]`.
 
@@ -238,10 +308,14 @@ Triage with `superpowers:receiving-code-review` rigor — implement the real fin
 report) on wrong ones rather than performatively complying. Then commit and push:
 
 ```bash
-git <commit-identity> \
-  commit -am "fix: address code-review findings"
-git push
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
+  -- -am "fix: address code-review findings"
+"$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH"
 ```
+
+The guards matter here more than anywhere: `code-review` is a sub-skill that **mutates the working
+tree** (it has run `git checkout <ref> -- .` in a shared checkout and destroyed an uncommitted delta),
+so this is the commit most likely to be made from a tree that moved under you.
 
 If the review is clean, say so and skip the fix commit.
 
@@ -279,8 +353,9 @@ command (scoped to the files/projects you touched), then its whole-repo **verify
 the CI check). Heed the profile's caveats — some analyzer diagnostics can't be auto-fixed. Commit:
 
 ```bash
-git <commit-identity> \
-  commit -am "style: satisfy the format/lint gate" && git push
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
+  -- -am "style: satisfy the format/lint gate" \
+  && "$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH"
 ```
 
 **3. Mark ready** — only once build, tests, and the format/lint verify gate are all green:
@@ -307,6 +382,7 @@ files follow-ups, tears down the branch/worktree).
 ## Notes on quality
 
 - **The checkbox is a promise.** Ticking `- [x]` on the live issue says that task is done and tested. Only ever tick after a real green test run + commit — a checked box over a red bar lies.
+- **A zero exit is not a receipt.** `git commit` does not check you are still on the branch you created, and `git push -u` prints "branch … set up to track …" whether or not your commit reached your branch. Both are claims about *what git attempted*, not about *where the work is*. That is why Steps 5, 6, 7 and 9 go through the guards and why the guards re-read state instead of trusting the return code — the same reason `tick-plan.sh` reads the issue back after PATCHing it. Step 8's merge is the one write still unguarded; Step 5 says what to check by hand there.
 - **One commit per task, message from the plan** (its final step) — verbatim, so git history mirrors the plan and the issue.
 - **Stay resumable.** Everything keys off the issue's checkbox state and the existing branch/PR, so a re-run picks up where it left off.
 - **Don't widen the blast radius.** Implement the plan, not your own ideas. Record adjacent work under a `## Follow-ups` heading in the **PR description** (and call it out in the report) — that's where `/merge-pr` harvests deferred work and files it as tracked issues; noting it only in the ephemeral report would lose it. Don't smuggle the work into this PR.

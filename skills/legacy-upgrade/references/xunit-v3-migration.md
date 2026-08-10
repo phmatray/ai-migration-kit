@@ -126,15 +126,41 @@ The fix has two halves, and **both** are required:
    lets MTP name each report itself, one per project. `report-dashboard.py` reads the whole
    directory and aggregates them.
 
-⚠ **Match the coverage extension's major line to the platform's.** xunit.v3 3.2.2 runs on
-Microsoft.Testing.Platform **v1**, so the extension stays on **17.x**. Referencing 18.x (which
-targets MTP 2.x) restores and builds fine, then dies at run time:
+⚠ **The two packages are one decision, and the xunit PACKAGE ID picks the line — not its version.**
+This is the trap: xunit ships two parallel lines *at the same major*, so reading the version tells
+you nothing. Measured on nuget.org (`*.nuspec` via `api.nuget.org/v3-flatcontainer`):
+
+| xunit test package | resolves through | Microsoft.Testing.Platform | Microsoft.Testing.Extensions.CodeCoverage |
+|---|---|---|---|
+| **`xunit.v3`** 3.2.2 | `xunit.v3.mtp-v1` | 1.9.1 | **17.x** |
+| **`xunit.v3.mtp-v2`** 3.2.2 | `xunit.v3.core.mtp-v2` | 2.0.2 | **18.x** |
+
+Both are **major 3**, and `xunit.v3.mtp-v2` 3.2.0/3.2.1/3.2.2 are **stable**, not prerelease — so
+"3.x means 17.x" is wrong, and a rule keyed on the major refuses the correct MTP v2 pair while
+waving through the broken one. The map constrains the **major line only**; resolve the exact
+version from the live feed as everywhere else in this guide. Move one leg alone and you get a
+clean restore, a clean build, and a run-time death:
 
 ```
 Unhandled exception. System.TypeLoadException: Could not load type
 'Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer' from assembly
 'Microsoft.Testing.Platform, Version=2.3.0.0'
 ```
+
+**Where this is machine-checked, and where it is not.** Be precise about the scope, because prose
+did not stop the mistake the first time and a false sense of coverage is no better:
+
+- `MTP_COMPAT` in `<kit>/tests/xunit-v3/apply-transform.py` holds the mapping, and
+  `validate_pairing` refuses a mismatched pair before the transform writes anything — naming both
+  packages instead of leaving you to decode that stack trace. An unmapped package id is refused
+  too, rather than paired with a guess.
+- `<kit>/renovate.json` **disables major updates** for `xunit.v3*` and the
+  `Microsoft.Testing.{Platform,Extensions}` family. Grouping them would not be enough: a group only
+  batches updates pending in the same run, and when only one leg has a major available it ships
+  exactly the split bump, wearing a title that says otherwise.
+- ⚠ **Neither covers a hand-edited csproj.** This guide tells you to resolve versions from the live
+  feed and phase 5 drives the edit through RoselineMCP — paths `validate_pairing` never sees. On
+  that path the table above is the check, and you are the one running it.
 
 `<kit>/templates/ci-dotnet.yml` already does all of this: it detects the platform from the
 csproj files, branches to the right collection command, and **fails the job when `coverage/`
