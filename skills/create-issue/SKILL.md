@@ -266,7 +266,9 @@ gh issue view "$NUM" --json labels --jq '.labels[].name'   # confirm every inten
 ```
 
 If `live` ≠ `filed` (or zero), the body didn't round-trip — repair and push with
-`gh issue edit "$NUM" --body-file …`. If a label is missing, re-add (`gh issue edit "$NUM"
+`gh issue edit "$NUM" --body-file …`, **guarded by `[ -s /tmp/issue-<slug>.md ]` first**: that flag
+overwrites the whole body, so handing it an empty or truncated file destroys the issue exactly the
+way `implement-issue`'s checkbox PATCH once did. If a label is missing, re-add (`gh issue edit "$NUM"
 --add-label …`) or flag it. Move on only once the readback is clean.
 
 ## Step 8 — Report
