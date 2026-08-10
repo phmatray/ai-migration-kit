@@ -157,6 +157,12 @@ jobs:
       - name: Templates are valid YAML
         run: python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/*.yml')]"
 
+      # The step above only proves the SHIPPED template parses. The opt-in bundle gate is
+      # commented out, so it is invisible to that check and would rot unnoticed — this one
+      # uncomments it and runs the guard for real, both ways.
+      - name: CI template golden test — the opt-in committed-bundle drift gate
+        run: ./tests/ci-template/test.sh
+
       - name: Report generator golden test (fixture → HTML assertions)
         run: ./tests/report-dashboard/test.sh
 
