@@ -14,7 +14,7 @@ compatibility: >-
   requirements.json at the kit root, verified by scripts/preflight.sh (phase 0).
 metadata:
   author: Philippe Matray
-  version: 1.10.0
+  version: 1.9.0
   suite: ai-migration-kit
 ---
 
