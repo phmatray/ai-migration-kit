@@ -21,6 +21,28 @@ FIXTURE="$KIT/samples/LegacyShop"
 # only place it may be set is the one invocation that means to set it.
 unset XUNIT_V3_COVERAGE_VERSION
 
+# Run a Python snippet with a kit script already loaded as `mod`:
+#
+#   py_module <script-path> [args…] <<'PY'
+#   …body; `mod` is the loaded module, sys.argv[1] is <script-path>, argv[2:] are the args…
+#   PY
+#
+# Every such snippet goes through here, and section 8 asserts it. The reason is the
+# PYTHONDONTWRITEBYTECODE=1 below: `exec_module` COMPILES the target, so without it Python drops a
+# __pycache__ next to the kit script, and cleanup() turns that into a suite-wide failure for a
+# reason unrelated to whatever was under test. That prefix is load-bearing and invisible at the
+# call site — precisely the shape a copy-paste loses. One loader means it can only be forgotten
+# once, here, where the tests would say so immediately.
+py_module() {
+  PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("kit_module", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+exec(compile(sys.stdin.read(), "<py_module body>", "exec"), globals())
+' "$@"
+}
+
 # Print the `run: |` body of a named step of templates/ci-dotnet.yml, so the assertions below
 # execute the template VERBATIM instead of a copy that drifts from it. A hand-copied command is
 # how the multi-project collision (issue #17) stayed green in this very file: the test proved
@@ -255,14 +277,8 @@ mtp_file=$(find coverage -name '*.cobertura.xml' -print -quit)
 [ -n "$mtp_file" ] || {
   echo "FAIL: the MTP coverage path produced no cobertura:"; tail -20 "$scratch/mtp-cov.log"; exit 1
 }
-PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT" "$PWD/$mtp_file" <<'PY'
-# Loading report-dashboard.py as a module would drop a scripts/__pycache__ next to it and leave
-# the kit's own tree dirty after every run — the test must not modify the repo it tests.
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("rd", sys.argv[1] + "/scripts/report-dashboard.py")
-rd = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(rd)
-cov = rd.parse_cobertura(sys.argv[2], [])
+py_module "$KIT/scripts/report-dashboard.py" "$PWD/$mtp_file" <<'PY'
+cov = mod.parse_cobertura(sys.argv[2], [])
 covered = sum(c["covered"] for c in cov["classes"])
 assert covered > 0, "parse_cobertura read zero covered lines — the dashboard would show nothing"
 assert cov["line_pct"] > 0, f"line_pct is {cov['line_pct']}"
@@ -349,16 +365,13 @@ if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/multi-cov.log" 2>&1; then
   echo "FAIL: the template's coverage step failed on a two-test-project solution:"
   tail -25 "$scratch/multi-cov.log"; exit 1
 fi
-PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT" "$PWD" <<'PY'
-import glob, importlib.util, sys
-spec = importlib.util.spec_from_file_location("rd", sys.argv[1] + "/scripts/report-dashboard.py")
-rd = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(rd)
+py_module "$KIT/scripts/report-dashboard.py" "$PWD" <<'PY'
+import glob
 
 files = sorted(glob.glob(sys.argv[2] + "/coverage/**/*.cobertura.xml", recursive=True))
 assert len(files) == 2, f"expected one cobertura per test project, got {len(files)}: {files}"
 
-covered = lambda paths: {c["name"]: c["covered"] for c in rd.parse_cobertura(paths, [])["classes"]}
+covered = lambda paths: {c["name"]: c["covered"] for c in mod.parse_cobertura(paths, [])["classes"]}
 each, union = [covered(f) for f in files], covered(files)
 
 # Each project contributes a class the other never exercises. The union must hold both...
@@ -370,8 +383,8 @@ assert union.get("PriceCatalogClient", 0) > 0, \
 assert not any(r.get("OrderService", 0) > 0 and r.get("PriceCatalogClient", 0) > 0 for r in each), \
     f"one report already covers both projects — this no longer tests the collision: {each}"
 
-solo = [rd.parse_cobertura(f, [])["line_pct"] for f in files]
-both = rd.parse_cobertura(files, [])["line_pct"]
+solo = [mod.parse_cobertura(f, [])["line_pct"] for f in files]
+both = mod.parse_cobertura(files, [])["line_pct"]
 assert both > max(solo), \
     f"the aggregate ({both}%) is no better than the best single report ({max(solo)}%)"
 print(f"  [4/4d] 2 test projects -> {len(files)} reports, aggregate {both}% > {max(solo)}% "
@@ -554,12 +567,8 @@ echo "  [6/6] templates/ci-dotnet.yml refuses a mixed MTP/VSTest repo"
 #    executes the tests — but only as a stack trace, which is an expensive way to rediscover a
 #    known rule. So the transform states the rule and refuses up front, naming both versions.
 # ---------------------------------------------------------------------------
-read_const() {  # import the transform and print one of its constants (no .pyc next to the kit)
-  PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT/tests/xunit-v3/apply-transform.py" "$1" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("apply_transform", sys.argv[1])
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
+read_const() {  # print one of the transform's constants
+  py_module "$KIT/tests/xunit-v3/apply-transform.py" "$1" <<'PY'
 print(getattr(mod, sys.argv[2]))
 PY
 }
@@ -609,12 +618,7 @@ cmp -s "$shapes/pairing/p/p.csproj" "$scratch/pairing-before.csproj" || {
 
 # 7b. The map is the contract: the pinned pair satisfies it, and an unmapped major says so
 #     instead of guessing a compatible extension.
-PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT/tests/xunit-v3/apply-transform.py" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("apply_transform", sys.argv[1])
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
+py_module "$KIT/tests/xunit-v3/apply-transform.py" <<'PY'
 # The package/version this kit actually pins agree with the map.
 mod.validate_pairing(mod.XUNIT_V3_PACKAGE, mod.COVERAGE_EXT_VERSION)
 
@@ -643,5 +647,26 @@ else:
     raise AssertionError("an unmapped xunit.v3 package id was accepted — the map would be bypassed")
 PY
 echo "  [7/7] the MTP/coverage pairing is enforced by the transform, not by memory"
+
+# ---------------------------------------------------------------------------
+# 8. The no-__pycache__ invariant lives in exactly one place.
+#
+#    Loading a kit script through importlib compiles it, and without
+#    PYTHONDONTWRITEBYTECODE that drops a __pycache__ next to it — which cleanup() turns into a
+#    suite-wide failure, for a reason unrelated to whatever was being tested. The prefix is
+#    therefore load-bearing and invisible at the call site, which is exactly the shape that gets
+#    lost in a copy-paste. One loader, asserted here, so a new call site cannot reintroduce it.
+# ---------------------------------------------------------------------------
+#    The `[l]` is not a typo: it keeps this grep from counting its own pattern, so the assertion
+#    measures the script's loaders rather than itself.
+loaders=$(grep -c 'spec_from_file_[l]ocation' "$0")
+if [ "$loaders" -ne 1 ]; then
+  echo "FAIL: $loaders copies of the importlib loader in $(basename "$0") — expected exactly 1."
+  echo "      Every Python snippet that loads a kit script must go through py_module(), which"
+  echo "      carries PYTHONDONTWRITEBYTECODE=1. A copy without it turns the whole suite red:"
+  grep -n 'spec_from_file_[l]ocation' "$0"
+  exit 1
+fi
+echo "  [8/8] one module loader carries the no-__pycache__ invariant"
 
 echo "xunit v3 golden test OK"
