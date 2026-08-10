@@ -119,15 +119,30 @@ The fix has two halves, and **both** are required:
      --coverage-output "$PWD/coverage/coverage.cobertura.xml"
    ```
 
-⚠ **Match the coverage extension's major line to the platform's.** xunit.v3 3.2.2 runs on
-Microsoft.Testing.Platform **v1**, so the extension stays on **17.x**. Referencing 18.x (which
-targets MTP 2.x) restores and builds fine, then dies at run time:
+⚠ **The two packages are one decision, not two pins.** xunit.v3 and the coverage extension both
+bind to Microsoft.Testing.Platform, so their major lines must agree:
+
+| xunit.v3 | Microsoft.Testing.Platform | Microsoft.Testing.Extensions.CodeCoverage |
+|---|---|---|
+| **3.x** — the current stable line | v1 | **17.x** |
+| **4.x** — `xunit.v3.mtp-v2`, still prerelease | v2 | **18.x** |
+
+The map constrains the **major line only**; resolve the exact version from the live feed as
+everywhere else in this guide. Move one leg alone and you get a clean restore, a clean build, and
+a run-time death:
 
 ```
 Unhandled exception. System.TypeLoadException: Could not load type
 'Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer' from assembly
 'Microsoft.Testing.Platform, Version=2.3.0.0'
 ```
+
+**This rule is enforced, not merely written here** — prose did not stop the mistake the first
+time. `MTP_COMPAT` in `<kit>/tests/xunit-v3/apply-transform.py` holds the mapping and
+`validate_pairing` refuses a mismatched pair at start-up, naming both versions instead of leaving
+the next reader to decode that stack trace; a xunit.v3 major the map does not know is refused too,
+rather than paired with a guess. `<kit>/renovate.json` groups the two packages so an update
+proposes **both legs in one PR**, which is where a split bump would realistically come from.
 
 `<kit>/templates/ci-dotnet.yml` already does all of this: it detects the platform from the
 csproj files, branches to the right collection command, and **fails the job when no

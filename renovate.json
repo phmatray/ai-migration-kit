@@ -2,5 +2,21 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "local>phmatray/.github:renovate-ci"
+  ],
+  "packageRules": [
+    {
+      "description": [
+        "xunit.v3 and Microsoft.Testing.Extensions.CodeCoverage both bind to Microsoft.Testing.Platform, so their major lines move together or not at all: xunit.v3 3.x pairs with CodeCoverage 17.x, 4.x with 18.x.",
+        "A split bump is the dangerous outcome, not a merge conflict: the odd pair restores clean and builds clean, then dies at run time with TypeLoadException on Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer. Grouping them puts both legs in one PR, where a human can judge the pair rather than one half of it.",
+        "The mapping itself is enforced in code by MTP_COMPAT / validate_pairing in tests/xunit-v3/apply-transform.py; this rule stops the most likely way it gets violated."
+      ],
+      "groupName": "xunit.v3 and its MTP coverage extension",
+      "matchDatasources": ["nuget"],
+      "matchPackageNames": [
+        "xunit.v3",
+        "xunit.v3**",
+        "Microsoft.Testing.Extensions.CodeCoverage"
+      ]
+    }
   ]
 }
