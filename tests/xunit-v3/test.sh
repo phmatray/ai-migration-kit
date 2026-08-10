@@ -5,8 +5,20 @@
 #   1. the inventory reports the test stack precisely enough to decide the v2/v3 question;
 #   2. the documented transform really produces a running v3 test project;
 #   3. the OutputType trap — a v3 project left as a library — is pinned as 0 tests, not 6;
-#   4. coverage still reaches the dashboard under the Microsoft Testing Platform;
-#   5. the committed fixture is never mutated (CI asserts it stays "green AND legacy").
+#   4. coverage still reaches the dashboard under the Microsoft Testing Platform — one report per
+#      test project, and the template's own step is executed rather than a copy of it;
+#   5. the decision is wired into phases 1, 5 and 6, not merely documented in a side file;
+#   6. project shapes the fixture does not have (element-form refs, flat indent, multi-TFM,
+#      packages.config, central package management) are all handled;
+#   7. the xunit.v3 / CodeCoverage version pairing is machine-checked, not remembered;
+#   8. the no-__pycache__ invariant lives in exactly one module loader.
+#
+# The committed fixture is never mutated: cleanup() asserts it on every exit path, and CI asserts it
+# stays "green AND legacy".
+#
+# There is exactly ONE completion marker — the final `xunit v3 golden test OK`. Section lines carry a
+# label, never a fraction: a denominator goes stale the moment a section is added, and a stale one
+# reads as a run that stopped early.
 #
 # Everything that builds runs on a COPY under $(mktemp -d). samples/LegacyShop is read-only here.
 set -euo pipefail
@@ -135,7 +147,7 @@ for pkg, version in want.items():
 # The whole point of the key: the major line must be readable without re-parsing versions.
 assert entry["xunitMajor"] == 2, entry["xunitMajor"]
 PY
-echo "  [1/4] inventory reports the fixture's test stack (xunit 2.4.2, net6.0)"
+echo "  [1] inventory reports the fixture's test stack (xunit 2.4.2, net6.0)"
 
 # ---------------------------------------------------------------------------
 # 2. The documented transform produces a test project that actually RUNS.
@@ -188,7 +200,7 @@ if [ "${count:-0}" -lt "$BASELINE_TESTS" ]; then
   echo "FAIL: v3 ran ${count:-0} tests, baseline is $BASELINE_TESTS — a build is not a test run:"
   tail -25 "$v3_out"; exit 1
 fi
-echo "  [2/4] transform -> xunit.v3 runs $count tests (baseline $BASELINE_TESTS), usings rewritten"
+echo "  [2] transform -> xunit.v3 runs $count tests (baseline $BASELINE_TESTS), usings rewritten"
 
 # ---------------------------------------------------------------------------
 # 3. The OutputType trap is pinned.
@@ -214,12 +226,12 @@ if dotnet test "$scratch/trap/tests/LegacyShop.Tests/LegacyShop.Tests.csproj" \
     echo "      only thing standing between a migration and a test suite that never runs."
     exit 1
   fi
-  echo "  [3/4] no-Exe variant ran ${trap_count:-0} tests (< baseline) — not a green suite"
+  echo "  [3] no-Exe variant ran ${trap_count:-0} tests (< baseline) — not a green suite"
 else
   grep -qi 'OutputType' "$trap_out" || {
     echo "FAIL: the no-Exe variant failed, but not for the OutputType reason:"; tail -20 "$trap_out"; exit 1
   }
-  echo "  [3/4] no-Exe variant is refused at build time by xunit.v3 (OutputType guard)"
+  echo "  [3] no-Exe variant is refused at build time by xunit.v3 (OutputType guard)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -261,7 +273,7 @@ if find coverage -name '*.cobertura.xml' 2>/dev/null | grep -q .; then
 fi
 grep -q 'MTP0001' "$scratch/vstest-cov.log" \
   || echo "  (warning: MTP0001 no longer emitted — the ignore is now fully silent)"
-echo "  [4/4a] VSTest collector yields no cobertura under MTP — the silent hole, pinned"
+echo "  [4a] VSTest collector yields no cobertura under MTP — the silent hole, pinned"
 
 # 4b. The template's own step puts it back, in coverage/, where the artifact glob already looks.
 #     Running the extracted step rather than a copy of it is what makes 4d below a real gate.
@@ -287,7 +299,7 @@ assert cov["line_pct"] > 0, f"line_pct is {cov['line_pct']}"
 # silent 0 % branches would ship looking like a measurement rather than an absence of data.
 assert cov["branch_pct"] > 0, \
     f"branch_pct is {cov['branch_pct']} on a real MTP report — condition-coverage went missing?"
-print(f"  [4/4b] MTP coverage -> cobertura -> parse_cobertura: "
+print(f"  [4b] MTP coverage -> cobertura -> parse_cobertura: "
       f"{covered} covered lines, {cov['line_pct']}% line rate")
 PY
 cd "$KIT"
@@ -297,7 +309,7 @@ grep -q 'coverage-output-format cobertura' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml has no MTP coverage path"; exit 1; }
 grep -q 'Aucun rapport de couverture' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml has no guard against an empty coverage report"; exit 1; }
-echo "  [4/4c] templates/ci-dotnet.yml carries the MTP path and the empty-coverage guard"
+echo "  [4c] templates/ci-dotnet.yml carries the MTP path and the empty-coverage guard"
 
 # ---------------------------------------------------------------------------
 # 4d. SEVERAL test projects: one report each, nothing overwritten (issue #17).
@@ -387,7 +399,7 @@ solo = [mod.parse_cobertura(f, [])["line_pct"] for f in files]
 both = mod.parse_cobertura(files, [])["line_pct"]
 assert both > max(solo), \
     f"the aggregate ({both}%) is no better than the best single report ({max(solo)}%)"
-print(f"  [4/4d] 2 test projects -> {len(files)} reports, aggregate {both}% > {max(solo)}% "
+print(f"  [4d] 2 test projects -> {len(files)} reports, aggregate {both}% > {max(solo)}% "
       f"(best single) — nothing overwritten")
 PY
 
@@ -401,7 +413,7 @@ if bash -c "$GUARD_STEP" > /dev/null 2>&1; then
   echo "FAIL: the guard accepted an empty coverage/ — a silent collection failure would ship"
   exit 1
 fi
-echo "  [4/4e] the empty-coverage guard accepts per-project reports and still refuses nothing"
+echo "  [4e] the empty-coverage guard accepts per-project reports and still refuses nothing"
 cd "$KIT"
 
 # ---------------------------------------------------------------------------
@@ -420,7 +432,7 @@ grep -qi 'test platform\|plateforme de test' skills/legacy-upgrade/references/ph
   || { echo "FAIL: phase-6-verify.md does not record the test platform"; exit 1; }
 grep -qi 'plateforme de test' skills/legacy-upgrade/references/report-template.md \
   || { echo "FAIL: report-template.md has no slot for the test platform"; exit 1; }
-echo "  [5/5] phases 1, 5 and 6 carry the decision, the route and the recorded outcome"
+echo "  [5] phases 1, 5 and 6 carry the decision, the route and the recorded outcome"
 
 # ---------------------------------------------------------------------------
 # 6. Project shapes the fixture does not have.
@@ -551,12 +563,12 @@ assert len(stack) == 1, stack
 assert stack[0]["xunitMajor"] == 2, \
     f"CPM version unresolved -> xunitMajor {stack[0]['xunitMajor']}; phase 5 would read 'not applicable'"
 PY
-echo "  [6/6] element-form refs, flat indent, multi-TFM, packages.config and CPM all handled"
+echo "  [6] element-form refs, flat indent, multi-TFM, packages.config and CPM all handled"
 
 # 6f. The template refuses a half-migrated repo instead of silently losing half its coverage.
 grep -q 'Dépôt MIXTE' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml does not detect a mixed MTP/VSTest repo"; exit 1; }
-echo "  [6/6] templates/ci-dotnet.yml refuses a mixed MTP/VSTest repo"
+echo "  [6f] templates/ci-dotnet.yml refuses a mixed MTP/VSTest repo"
 
 # ---------------------------------------------------------------------------
 # 7. The xunit.v3 / CodeCoverage pairing is machine-checked, not remembered.
@@ -646,7 +658,7 @@ except ValueError as exc:
 else:
     raise AssertionError("an unmapped xunit.v3 package id was accepted — the map would be bypassed")
 PY
-echo "  [7/7] the MTP/coverage pairing is enforced by the transform, not by memory"
+echo "  [7] the MTP/coverage pairing is enforced by the transform, not by memory"
 
 # ---------------------------------------------------------------------------
 # 8. The no-__pycache__ invariant lives in exactly one place.
@@ -667,6 +679,6 @@ if [ "$loaders" -ne 1 ]; then
   grep -n 'spec_from_file_[l]ocation' "$0"
   exit 1
 fi
-echo "  [8/8] one module loader carries the no-__pycache__ invariant"
+echo "  [8] one module loader carries the no-__pycache__ invariant"
 
 echo "xunit v3 golden test OK"
