@@ -97,8 +97,10 @@ jobs:
       #   Compter juste supposerait de ne retenir que les vraies applications de test, ce qui
       #   demande MSBuild (`IsTestProject`) — la découverte de projets en shell que #17 avait
       #   écartée. Resserrer ceci en compte est donc une RÉGRESSION tant que ces deux points
-      #   tiennent ; tests/xunit-v3/test.sh les épingle (cas 4f et 4g), et c'est là que la
-      #   modification se verra si l'un d'eux cesse d'être vrai.
+      #   tiennent, et les DEUX sont épinglés dans tests/xunit-v3/test.sh — le point 1 par les cas
+      #   4f et 4g, le point 2 par le cas 4h, qui relit la ligne `mtp=$(grep …)` ci-dessus dans ce
+      #   fichier plutôt que de la recopier. Resserrer ce grep fait donc échouer 4h : c'est là que
+      #   la modification se verra si l'un des deux points cesse d'être vrai.
       - name: Garde — la couverture a bien été produite
         run: |
           if ! find coverage -name '*.cobertura.xml' | grep -q . ; then

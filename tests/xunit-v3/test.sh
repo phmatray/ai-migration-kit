@@ -563,6 +563,82 @@ echo "  [4g] a zero-test project FAILS the run and still writes its report — n
 cd "$KIT"
 
 # ---------------------------------------------------------------------------
+# 4h. `$mtp` OVER-COUNTS: it matches csproj files that are not test applications.
+#
+#     This is the second half of the reasoning recorded on the guard in templates/ci-dotnet.yml,
+#     and the one that decides its SHAPE. 4f and 4g show there is no silent shortfall left to
+#     catch; this case shows that catching one by counting would refuse a healthy repo.
+#
+#     A shared test-helper library — a custom FactAttribute, common fixtures, assertion helpers —
+#     references xunit.v3, so the discovery grep matches it. It is not a test application, so
+#     `dotnet test` correctly never runs it and it never writes a report. Expected 2, actual 1,
+#     run perfectly green. `>=` does not rescue that: the defect is in the SOURCE of the expected
+#     number, not in the comparison.
+#
+#     The discovery line is taken FROM THE TEMPLATE rather than retyped. That is the whole point:
+#     narrowing that grep is exactly the change that would make a count viable, and this case has
+#     to be what notices. A hand-copied grep would keep asserting yesterday's behaviour while the
+#     justification on the guard went stale in silence — the trap 4b/4d already document for the
+#     step itself.
+# ---------------------------------------------------------------------------
+cp -R "$FIXTURE" "$scratch/helperlib"
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/helperlib" > /dev/null
+mkdir -p "$scratch/helperlib/tests/LegacyShop.Testing.Common"
+cat > "$scratch/helperlib/tests/LegacyShop.Testing.Common/LegacyShop.Testing.Common.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+  </ItemGroup>
+</Project>
+XML
+cat > "$scratch/helperlib/tests/LegacyShop.Testing.Common/Attributes.cs" <<'CS'
+using Xunit;
+
+namespace LegacyShop.Testing.Common
+{
+    // Shared helper: cites xunit.v3, is deliberately NOT a test application (no OutputType=Exe,
+    // no TestingPlatformDotnetTestSupport). The discovery grep cannot tell the difference.
+    public sealed class IntegrationFactAttribute : FactAttribute
+    {
+    }
+}
+CS
+dotnet sln "$scratch/helperlib/LegacyShop.sln" add \
+  "$scratch/helperlib/tests/LegacyShop.Testing.Common/LegacyShop.Testing.Common.csproj" > /dev/null
+
+# The template's own project-discovery line, sliced out instead of retyped.
+mtp_line=$(grep -E '^[[:space:]]*mtp=\$\(grep ' "$KIT/templates/ci-dotnet.yml" | sed 's/^[[:space:]]*//')
+[ -n "$mtp_line" ] || {
+  echo "FAIL: no 'mtp=\$(grep …)' discovery line in templates/ci-dotnet.yml — 4h cannot compare"
+  echo "      against the template's real grep, so it would prove nothing."; exit 1; }
+
+cd "$scratch/helperlib"
+rm -rf coverage
+if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/helperlib.log" 2>&1; then
+  echo "FAIL: the coverage step failed on a solution that is merely carrying a test-helper library."
+  echo "      That library is not a test app; nothing here should refuse it:"
+  tail -25 "$scratch/helperlib.log"; exit 1
+fi
+eval "$mtp_line"                       # sets $mtp, exactly as the template's step does
+helper_expected=$(printf '%s\n' "$mtp" | grep -c . || true)
+helper_actual=$(find coverage -name '*.cobertura.xml' | grep -c . || true)
+if [ "$helper_expected" -eq "$helper_actual" ]; then
+  echo "FAIL: the discovery grep no longer over-counts — it reports $helper_expected project(s) for"
+  echo "      $helper_actual report(s) on a solution holding a non-test xunit.v3 library."
+  echo "      Point 2 of the guard's rationale in templates/ci-dotnet.yml has stopped being true:"
+  echo "      a count-based guard may now be viable, so re-measure before trusting that comment."
+  printf '%s\n' "$mtp" | sed 's/^/        /'
+  exit 1
+fi
+echo "  [4h] a shared xunit.v3 helper library makes \$mtp claim $helper_expected project(s) for"
+echo "       $helper_actual report(s) on a GREEN run — counting would refuse a healthy repo"
+cd "$KIT"
+
+# ---------------------------------------------------------------------------
 # 5. The decision is wired into the pipeline, not just documented in a side file.
 #
 #    A reference nobody is routed to is a reference nobody reads: phase 1 must surface the line,
