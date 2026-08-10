@@ -15,6 +15,12 @@ cd "$(dirname "$0")/../.."
 KIT="$PWD"
 FIXTURE="$KIT/samples/LegacyShop"
 
+# Section 7 injects a bad coverage version through this variable. Inherited from the caller's
+# environment it would instead redirect EVERY transform below onto a version nobody chose — the
+# suite would still be green, having tested something other than the pin it claims to test. The
+# only place it may be set is the one invocation that means to set it.
+unset XUNIT_V3_COVERAGE_VERSION
+
 # Print the `run: |` body of a named step of templates/ci-dotnet.yml, so the assertions below
 # execute the template VERBATIM instead of a copy that drifts from it. A hand-copied command is
 # how the multi-project collision (issue #17) stayed green in this very file: the test proved
@@ -538,5 +544,104 @@ echo "  [6/6] element-form refs, flat indent, multi-TFM, packages.config and CPM
 grep -q 'Dépôt MIXTE' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml does not detect a mixed MTP/VSTest repo"; exit 1; }
 echo "  [6/6] templates/ci-dotnet.yml refuses a mixed MTP/VSTest repo"
+
+# ---------------------------------------------------------------------------
+# 7. The xunit.v3 / CodeCoverage pairing is machine-checked, not remembered.
+#
+#    The two pinned versions must sit on the same Microsoft.Testing.Platform line, and a mismatch
+#    is invisible to every static check: it restores, it compiles, and it dies at RUN time with
+#    `TypeLoadException: Could not load type '…IDataConsumer'`. Section 2 would catch it — it
+#    executes the tests — but only as a stack trace, which is an expensive way to rediscover a
+#    known rule. So the transform states the rule and refuses up front, naming both versions.
+# ---------------------------------------------------------------------------
+read_const() {  # import the transform and print one of its constants (no .pyc next to the kit)
+  PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT/tests/xunit-v3/apply-transform.py" "$1" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("apply_transform", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(getattr(mod, sys.argv[2]))
+PY
+}
+xunit_version=$(read_const XUNIT_V3_VERSION)
+
+# The bad version is DERIVED, never hardcoded: one major above whatever the kit currently pins is
+# a mismatch by construction, on today's 3.x/17.x pairing and on every future one. A literal
+# "18.0.0" here would quietly become the *correct* partner the day xunit.v3 moves to 4.x, and this
+# assertion would then fail for a reason that has nothing to do with what it is testing.
+bad_coverage="$(( $(read_const COVERAGE_EXT_VERSION | cut -d. -f1) + 1 )).0.0"
+
+mkdir -p "$shapes/pairing/p"
+cat > "$shapes/pairing/p/p.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.3" />
+  </ItemGroup>
+</Project>
+XML
+cp "$shapes/pairing/p/p.csproj" "$scratch/pairing-before.csproj"
+
+# 7a. A deliberately mismatched pair must be refused, non-zero, before anything is written.
+pair_log="$scratch/pairing.log"
+if XUNIT_V3_COVERAGE_VERSION="$bad_coverage" \
+   python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/pairing" > "$pair_log" 2>&1; then
+  echo "FAIL: the transform accepted CodeCoverage $bad_coverage alongside xunit.v3 $xunit_version."
+  echo "      That pair builds clean and dies at run time — the mismatch must be refused here."
+  exit 1
+fi
+# Establish WHICH refusal fired before asserting what it says: an unknown-package-id refusal names
+# only the id, so without this the next reader is sent after a message-formatting bug when the real
+# defect is a missing MTP_COMPAT entry.
+grep -qF 'incompatible test platform pair' "$pair_log" || {
+  echo "FAIL: the transform refused, but not for the pairing reason — the mismatch branch never"
+  echo "      ran, so nothing here proves the pairing is checked:"; cat "$pair_log"; exit 1; }
+for needle in "$xunit_version" "$bad_coverage"; do
+  grep -qF "$needle" "$pair_log" || {
+    echo "FAIL: the refusal does not name '$needle' — it must state BOTH versions, or the next"
+    echo "      reader is back to diagnosing a TypeLoadException:"; cat "$pair_log"; exit 1; }
+done
+cmp -s "$shapes/pairing/p/p.csproj" "$scratch/pairing-before.csproj" || {
+  echo "FAIL: the bad pair was refused, but only after rewriting the csproj — the check must"
+  echo "      run before the transform touches anything."; exit 1; }
+
+# 7b. The map is the contract: the pinned pair satisfies it, and an unmapped major says so
+#     instead of guessing a compatible extension.
+PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT/tests/xunit-v3/apply-transform.py" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("apply_transform", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+# The package/version this kit actually pins agree with the map.
+mod.validate_pairing(mod.XUNIT_V3_PACKAGE, mod.COVERAGE_EXT_VERSION)
+
+# The rule is keyed on the PACKAGE ID, not the major. `xunit.v3` and `xunit.v3.mtp-v2` are both on
+# major 3 today and sit on opposite MTP lines (measured: xunit.v3 3.2.2 -> MTP 1.9.1,
+# xunit.v3.mtp-v2 3.2.2 -> MTP 2.0.2), so a version-keyed map would invert this pair. Pin both
+# directions: each id accepts its own partner and refuses the other's.
+for pkg, good, bad in (("xunit.v3", "17.14.2", "18.9.0"),
+                       ("xunit.v3.mtp-v2", "18.9.0", "17.14.2")):
+    mod.validate_pairing(pkg, good)
+    try:
+        mod.validate_pairing(pkg, bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"{pkg} accepted CodeCoverage {bad} — the guard is inverted")
+
+# A package id nobody has mapped must be named as such, not silently assumed compatible. Assert on
+# a substring unique to THAT branch: both refusals mention MTP_COMPAT, so matching on the map name
+# alone would keep passing if this case started taking the mismatch branch instead.
+try:
+    mod.validate_pairing("xunit.v3.mtp-v99", mod.COVERAGE_EXT_VERSION)
+except ValueError as exc:
+    assert "unknown xunit.v3 package id" in str(exc), f"wrong refusal branch: {exc}"
+else:
+    raise AssertionError("an unmapped xunit.v3 package id was accepted — the map would be bypassed")
+PY
+echo "  [7/7] the MTP/coverage pairing is enforced by the transform, not by memory"
 
 echo "xunit v3 golden test OK"
