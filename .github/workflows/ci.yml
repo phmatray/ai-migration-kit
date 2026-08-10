@@ -62,36 +62,6 @@ jobs:
           fi
           ./scripts/release-title-gate.sh "$PR_TITLE" "${changed[@]}"
 
-      # A suite nobody runs looks exactly like a suite that passes, which is the worse half of the
-      # failure this closes (#45). The other half was the README, which enumerated the suites and
-      # had gone stale four times; that line now describes the directory by its contract and this
-      # step carries the guarantee it used to pretend to. Structural, needs no toolchain — so it
-      # runs before the builds.
-      #
-      # Commented-out lines deliberately do not count. Disabling a step is exactly the change this
-      # must catch, and it leaves the path behind as comment text that a plain grep would accept.
-      - name: Every tests/*/test.sh is wired into this workflow
-        run: |
-          workflow=.github/workflows/ci.yml
-          unwired=
-          found=0
-          for t in tests/*/test.sh; do
-            # Unmatched glob: bash leaves the pattern itself in $t. Bail so `found` stays 0.
-            [ -e "$t" ] || break
-            found=$((found + 1))
-            grep -v '^[[:space:]]*#' "$workflow" | grep -qF -- "$t" || unwired="$unwired $t"
-          done
-          # Without this, a glob that matched nothing reports "0 suites, all wired" and passes.
-          if [ "$found" -eq 0 ]; then
-            echo "no tests/*/test.sh found — this step is not running from the repo root"; exit 1
-          fi
-          if [ -n "$unwired" ]; then
-            echo "golden test suites not invoked by $workflow:$unwired"
-            echo "wire each one in as a 'run:' step — or, to exclude one deliberately, say why in the diff."
-            exit 1
-          fi
-          echo "$found golden test suites, all wired into $workflow"
-
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
@@ -103,6 +73,21 @@ jobs:
       # before the template check that used to own this install.
       - name: Install Python test dependencies
         run: python3 -m pip install --quiet PyYAML
+
+      # The README used to enumerate the golden suites and went stale four times, which is the
+      # visible half of the problem (#45). The costly half is that a suite nobody runs looks
+      # exactly like a suite that passes — no red check, just an absent one. So the inventory is
+      # mechanical now, and it asserts enforcement rather than mere mention: a step that is
+      # commented out, `continue-on-error`, `if: false` or `|| true`-ed does not count.
+      # Cheap and structural — kept ahead of the builds so it fails fast.
+      - name: Every golden test suite is enforced by CI
+        run: python3 scripts/ci-wiring-check.py
+
+      # …and the guard gets the same treatment it exists to enforce: a golden test over its
+      # refusal path. An inline `run:` block could not have one, which is exactly how the first
+      # version of scripts/release-title-gate.sh managed to fail open.
+      - name: CI-wiring guard golden test (refusal paths, not just the happy one)
+        run: ./tests/ci-wiring/test.sh
 
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo
