@@ -37,6 +37,12 @@ from pathlib import Path
 # Both are major 3, and `xunit.v3.mtp-v2` 3.2.0/3.2.1/3.2.2 are STABLE releases — so a map keyed on
 # the major is not merely incomplete, it is inverted: it would refuse the correct mtp-v2 + 18.x
 # pair and wave through the broken mtp-v2 + 17.x one.
+#
+# ⚠ These two lines are READ BY A REGEX. `renovate.json` declares a customManagers entry that
+# captures the id from the first line and the version from the second, so Renovate keeps them fresh
+# even though no stock manager parses `.py` — and the family rule below keeps the majors moving
+# together. Renaming either constant, or putting anything between them, blinds that regex.
+# tests/xunit-v3/test.sh section 9 executes it against this file and fails if it stops matching.
 XUNIT_V3_PACKAGE = "xunit.v3"
 XUNIT_V3_VERSION = "3.2.2"
 
@@ -96,6 +102,11 @@ def expected_major(package: str, line: int) -> int:
 # a bad pair; an env var would have granted that to every OTHER caller too, including a hand-run
 # migration whose shell happened to carry the variable — and when the stray value shares the expected
 # major, validate_pairing waves it through and the substitution is completely silent.
+#
+# ⚠ Also Renovate-tracked, by a second customManagers entry keyed on this constant's NAME (it sits
+# too far from COVERAGE_PACKAGE to capture the id alongside it, so that one is templated). A bump
+# proposed here still has to satisfy validate_pairing, and the golden test runs the transform for
+# real — so a bump that crosses the MTP line fails the suite rather than reaching a migration.
 COVERAGE_EXT_VERSION = "17.14.2"
 
 
