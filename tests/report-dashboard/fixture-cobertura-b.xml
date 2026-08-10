@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Deuxième rapport cobertura : ce qu'un SECOND projet de test produit sous MTP.
+     Il recouvre Engine (déjà vu par fixture-cobertura.xml, mais d'autres lignes et d'autres
+     branches) et Repository (que le premier ne voit pas du tout). L'agrégat doit donc compter
+     Engine UNE fois, hits sommés ligne à ligne, et faire apparaître Repository. -->
+<coverage line-rate="0.5" branch-rate="0.3" version="1.9" timestamp="0" lines-covered="5" lines-valid="10" branches-covered="3" branches-valid="10">
+  <packages>
+    <package name="Fixture.Core" line-rate="0.5" branch-rate="0.3">
+      <classes>
+        <class name="Fixture.Core.Engine" filename="Engine.cs" line-rate="0.25" branch-rate="0.25">
+          <methods />
+          <lines>
+            <line number="1" hits="0" branch="True" condition-coverage="0% (0/2)" />
+            <line number="2" hits="0" branch="True" condition-coverage="0% (0/2)" />
+            <line number="3" hits="0" branch="True" condition-coverage="0% (0/2)" />
+            <!-- La ligne 4 n'est couverte QUE par ce rapport, et elle est la seule à déclarer
+                 ses branches : l'union doit la compter, sinon la fusion perd un projet. -->
+            <line number="4" hits="5" branch="True" condition-coverage="100% (2/2)" />
+          </lines>
+        </class>
+        <class name="Fixture.Core.Repository" filename="Repository.cs" line-rate="0.66" branch-rate="0.5">
+          <methods />
+          <lines>
+            <line number="1" hits="2" branch="True" condition-coverage="100% (2/2)" />
+            <line number="2" hits="1" />
+            <line number="3" hits="0" />
+            <line number="4" hits="3" branch="True" condition-coverage="100% (2/2)" />
+            <line number="5" hits="0" />
+            <line number="6" hits="1" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

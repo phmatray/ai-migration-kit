@@ -19,6 +19,24 @@ Toute migration (in place ou réécriture) livre **deux fichiers** committés da
 2. **`migration/report.md` — le résumé diffable** (grep/diff-friendly) : mêmes chiffres condensés,
    lien vers le dashboard.
 
+⚠ **`coverage.cobertura` doit désigner le RÉPERTOIRE `coverage/`, pas un fichier.** Sous
+Microsoft Testing Platform, chaque projet de test écrit son propre rapport et c'est le
+collecteur qui le nomme, avec un identifiant neuf à chaque run :
+
+```json
+"coverage": { "cobertura": "coverage", "exclude": ["MonApp.Web"] }
+```
+
+Le champ accepte aussi un fichier, une liste de fichiers ou un motif glob, mais un chemin
+littéral écrit dans un `report.json` versionné sera périmé au run suivant. Et en choisir **un**
+parmi plusieurs republierait la couverture d'un seul projet comme celle de l'app — exactement
+le défaut que la collecte par projet corrige. `report-dashboard.py` agrège les rapports qu'il
+trouve (union des lignes, jamais une somme de pourcentages).
+
+⚠ **La tuile KPI de couverture recopie le chiffre que le graphe calcule.** Le dashboard affiche
+`Global : N % lignes` sous le graphe ; si la tuile KPI dit autre chose, la page se contredit.
+Relire le HTML généré et aligner le KPI, ou le laisser à un autre indicateur.
+
 Les « Prochaines étapes » sont une **checklist actionnable** avec effort estimé — c'est la
 passation : la personne qui reprend le repo sait quoi faire sans lire l'historique.
 Structure du résumé markdown :

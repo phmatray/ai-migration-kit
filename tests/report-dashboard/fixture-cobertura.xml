@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Les taux affichés sont RECALCULÉS sur les lignes, pas lus dans line-rate/branch-rate :
+     ces attributs racine sont laissés ici parce qu'un vrai cobertura les porte, mais rien ne
+     les lit (voir parse_cobertura). Les lignes portent leur condition-coverage, comme celles
+     que produisent coverlet et Microsoft.Testing.Extensions.CodeCoverage. -->
 <coverage line-rate="0.85" branch-rate="0.7" version="1.9" timestamp="0" lines-covered="4" lines-valid="6" branches-covered="7" branches-valid="10">
   <packages>
     <package name="Fixture.Core" line-rate="0.85" branch-rate="0.7">
@@ -6,23 +10,42 @@
         <class name="Fixture.Core.Engine" filename="Engine.cs" line-rate="0.75" branch-rate="0.8">
           <methods />
           <lines>
-            <line number="1" hits="1" />
-            <line number="2" hits="1" />
-            <line number="3" hits="1" />
+            <line number="1" hits="1" branch="True" condition-coverage="100% (2/2)" />
+            <line number="2" hits="1" branch="True" condition-coverage="100% (2/2)" />
+            <line number="3" hits="1" branch="True" condition-coverage="50% (1/2)" />
             <line number="4" hits="0" />
           </lines>
         </class>
         <class name="Fixture.Core.Wrapper" filename="Wrapper.cs" line-rate="0.5" branch-rate="0.5">
           <methods />
           <lines>
-            <line number="1" hits="1" />
-            <line number="2" hits="0" />
+            <line number="1" hits="1" branch="True" condition-coverage="100% (2/2)" />
+            <line number="2" hits="0" branch="True" condition-coverage="0% (0/2)" />
           </lines>
         </class>
         <class name="Fixture.Web.ExcludedWeb" filename="ExcludedWeb.cs" line-rate="0" branch-rate="0">
           <methods />
           <lines>
             <line number="1" hits="0" />
+          </lines>
+        </class>
+        <!-- Classe PARTIELLE : cobertura l'émet une fois par fichier source, et les deux
+             repartent de la ligne 1. Le tableau doit montrer UNE ligne « Partial » de 4 lignes
+             (3 couvertes) ; une fusion qui n'identifierait les lignes que par leur numéro
+             additionnerait la ligne 1 de Partial.cs avec la ligne 1 de Partial.Designer.cs et
+             n'en compterait que 2. C'est le cas courant du legacy WinForms/WebForms. -->
+        <class name="Fixture.Core.Partial" filename="Partial.cs" line-rate="0.5" branch-rate="0.5">
+          <methods />
+          <lines>
+            <line number="1" hits="1" branch="True" condition-coverage="50% (1/2)" />
+            <line number="2" hits="0" />
+          </lines>
+        </class>
+        <class name="Fixture.Core.Partial" filename="Partial.Designer.cs" line-rate="1" branch-rate="1">
+          <methods />
+          <lines>
+            <line number="1" hits="1" />
+            <line number="2" hits="1" />
           </lines>
         </class>
       </classes>
