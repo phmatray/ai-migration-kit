@@ -43,10 +43,12 @@ cleanup() {
     echo "$dirty"
     exit 1
   fi
-  if find "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d 2>/dev/null | grep -q . ; then
-    echo "FAIL: the test left a __pycache__ inside the kit — it must not modify the repo it tests."
-    exit 1
-  fi
+  # Deliberately NO __pycache__ assertion here, though sibling suites carry one. This file only
+  # ever runs `python3 - <<PY` (script on stdin) and audit-inventory.sh (likewise), and neither
+  # path can write bytecode — so the guard would be dead with respect to its own work. The only
+  # way it could fire is on a __pycache__ left by an EARLIER ci.yml step, and it would then blame
+  # this test for another's leftovers. tests/xunit-v3/test.sh §8 owns that kit-wide invariant,
+  # where the importlib loader it guards actually lives.
   exit "$rc"
 }
 trap cleanup EXIT
@@ -188,6 +190,129 @@ assert paths == ["src/App/wwwroot/lib/bootstrap"], \
 assert va[0]["files"] == 6, va[0]
 PY
 echo "  [5b] a nested checkout (agent worktree, submodule) is not counted twice"
+
+# ---------------------------------------------------------------------------
+# 5c. …but a nested checkout that IS the vendored copy must still be reported.
+#
+#     A git submodule under `wwwroot/lib/` is the LEAST watched shape of all: Renovate's
+#     `git-submodules` manager is off by default and Dependabot's `gitsubmodule` ecosystem must be
+#     opted into. The "own .git ⇒ own project" rule of 5b would drop precisely the case this key
+#     exists for, so the rule has to stop at the vendor directory.
+# ---------------------------------------------------------------------------
+E="$scratch/vendored-submodule"
+mk_app "$E"
+mk_files "$E/wwwroot/lib/bootstrap" 3
+echo "gitdir: /elsewhere/.git/modules/bootstrap" > "$E/wwwroot/lib/bootstrap/.git"
+out=$("$INV" "$E")
+python3 - "$out" <<'PY'
+import json, sys
+paths = [e["path"] for e in json.loads(sys.argv[1])["vendoredAssets"]]
+assert paths == ["wwwroot/lib/bootstrap"], \
+    f"a submodule-vendored library was dropped as if it were a foreign project: {paths}"
+PY
+echo "  [5c] a submodule UNDER wwwroot/lib is still reported — the least-watched shape of all"
+
+# ---------------------------------------------------------------------------
+# 5d. Coverage is resolved by PATH and by SCOPE, not by a global pool of bare names.
+#
+#     Three false verdicts the "one set of names for the whole repo" version produced, all
+#     reproduced here:
+#       (a) a libman `destination` pointing DEEPER than the library directory
+#           (`wwwroot/lib/bootstrap/dist`) contributed only `dist` and the package id, never
+#           `bootstrap` — so a declared library was reported as an unwatched blind spot;
+#       (b) in a multi-app solution — the NORMAL shape for this kit's targets — appB's
+#           package.json silenced appA's genuinely undeclared copy;
+#       (c) a destination ending in `/dist` injected the bare name `dist` and masked an unrelated
+#           `wwwroot/lib/dist`.
+# ---------------------------------------------------------------------------
+F="$scratch/scoped"
+mk_app "$F/appA"
+mk_app "$F/appB"
+mk_files "$F/appA/wwwroot/lib/jquery" 2          # (b) undeclared HERE -> must be reported
+mk_files "$F/appB/wwwroot/lib/bootstrap" 2       # (a) declared by a deep libman destination
+mk_files "$F/appB/wwwroot/lib/dist" 2            # (c) unrelated, must not be masked
+cat > "$F/appB/package.json" <<'JSON'
+{ "name": "b", "dependencies": { "jquery": "3.7.1" } }
+JSON
+cat > "$F/appB/libman.json" <<'JSON'
+{
+  "version": "1.0",
+  "defaultProvider": "cdnjs",
+  "libraries": [ { "library": "twitter-bootstrap@5.3.3",
+                   "destination": "wwwroot/lib/bootstrap/dist" } ]
+}
+JSON
+out=$("$INV" "$F")
+python3 - "$out" <<'PY'
+import json, sys
+paths = sorted(e["path"] for e in json.loads(sys.argv[1])["vendoredAssets"])
+assert "appA/wwwroot/lib/jquery" in paths, \
+    f"(b) another app's package.json silenced a real finding: {paths}"
+assert "appB/wwwroot/lib/bootstrap" not in paths, \
+    f"(a) a library declared by a deep libman destination was reported anyway: {paths}"
+assert "appB/wwwroot/lib/dist" in paths, \
+    f"(c) an unrelated directory was masked by a bare name harvested from a destination: {paths}"
+PY
+echo "  [5d] coverage is per-path and per-scope (deep libman dest, multi-app, no bare-name leak)"
+
+# ---------------------------------------------------------------------------
+# 5e. A manifest inside a NESTED CHECKOUT must not silence the host repo.
+#
+#     The mirror of 5b, and the same root cause: the old code pruned nested checkouts from the
+#     vendored walk but still read their manifests, so a submodule declaring `bootstrap` erased a
+#     real finding in the parent. A missing number instead of a wrong one — on the key whose
+#     entire point is saying "nothing watches this".
+# ---------------------------------------------------------------------------
+G="$scratch/foreign-manifest"
+mk_app "$G"
+mk_files "$G/wwwroot/lib/bootstrap" 3
+mkdir -p "$G/sub"
+echo "gitdir: /elsewhere/.git/modules/sub" > "$G/sub/.git"
+cat > "$G/sub/package.json" <<'JSON'
+{ "name": "sub", "dependencies": { "bootstrap": "5.3.3" } }
+JSON
+out=$("$INV" "$G")
+python3 - "$out" <<'PY'
+import json, sys
+paths = [e["path"] for e in json.loads(sys.argv[1])["vendoredAssets"]]
+assert paths == ["wwwroot/lib/bootstrap"], \
+    f"a nested checkout's package.json silenced the host repo's finding: {paths}"
+PY
+echo "  [5e] a nested checkout's manifest cannot silence the host repo"
+
+# ---------------------------------------------------------------------------
+# 5f. Loose files dropped straight into wwwroot/lib/ are vendoring too.
+#
+#     `wwwroot/lib/htmx.min.js` with no subdirectory is the archetypal copy-paste, and it carries
+#     CVEs exactly like a directory does. Measured locally: 3 repos, 8 files (htmx, chart.min.js,
+#     pico.css) against 17 repos using subdirectories — rare, not absent. Without this, `[]` would
+#     sometimes mean "measured, and missed it" while phase 1 reads it as "measured, none".
+#
+#     A declared name still covers its file, but only on a name boundary: `jquery` covers
+#     `jquery-3.4.1.min.js`, and must NOT cover `jqueryui.js`.
+# ---------------------------------------------------------------------------
+H="$scratch/loose"
+mk_app "$H"
+mkdir -p "$H/wwwroot/lib"
+echo 'x' > "$H/wwwroot/lib/htmx.min.js"            # undeclared      -> reported
+echo 'x' > "$H/wwwroot/lib/jquery-3.4.1.min.js"    # declared jquery -> not reported
+echo 'x' > "$H/wwwroot/lib/jqueryui.js"            # NOT jquery      -> reported
+cat > "$H/package.json" <<'JSON'
+{ "name": "h", "dependencies": { "jquery": "3.4.1" } }
+JSON
+out=$("$INV" "$H")
+python3 - "$out" <<'PY'
+import json, sys
+va = json.loads(sys.argv[1])["vendoredAssets"]
+paths = sorted(e["path"] for e in va)
+assert "wwwroot/lib/htmx.min.js" in paths, f"a loose vendored file was missed: {paths}"
+assert "wwwroot/lib/jquery-3.4.1.min.js" not in paths, \
+    f"a loose file covered by a declared name was reported: {paths}"
+assert "wwwroot/lib/jqueryui.js" in paths, \
+    f"the name-boundary rule leaked: 'jquery' must not cover 'jqueryui.js': {paths}"
+assert all(e["files"] == 1 for e in va if e["path"].endswith(".js")), va
+PY
+echo "  [5f] loose files count, and a declared name covers only on a name boundary"
 
 # ---------------------------------------------------------------------------
 # 6. Still valid JSON, including from a foreign working directory — CI runs this

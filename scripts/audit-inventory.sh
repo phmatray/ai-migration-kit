@@ -247,45 +247,35 @@ VENDOR_PARENTS = (('wwwroot', 'lib'), ('wwwroot', 'vendor'))
 PRUNE = {'obj', 'bin', 'packages', 'node_modules', '.git', '.vs'}
 
 
-def manifest_names():
-    """Tout ce qu'un manifeste du dépôt DÉCLARE — la couverture se lit sur le nom de la lib.
+def sous_vendor(parts):
+    """`parts` est À OU SOUS un répertoire `wwwroot/{lib,vendor}`."""
+    return any((parts[i], parts[i + 1]) in VENDOR_PARENTS for i in range(len(parts) - 1))
 
-    Deux manifestes comptent, pas un. `libman.json` est la façon NATIVE d'ASP.NET de déclarer
-    exactement `wwwroot/lib` : ne lire que `package.json` signalerait comme non surveillé un dépôt
-    qui, lui, déclare bien ses bibliothèques — le faux positif que la spec interdit explicitement.
 
-    `bower.json` en est volontairement ABSENT, et ce n'est pas un oubli : Bower est abandonné
-    depuis 2017, et ni Renovate ni Dependabot ne le lisent. Le compter comme une couverture
-    inverserait le sens de la clé, qui dit « rien ne surveille ceci » et non « rien ne le
-    déclare ». On en croise dans le public visé — les `.bower.json` que Bower dépose DANS le
-    répertoire installé sont d'ailleurs un marqueur de vendorisation, pas un manifeste.
+def prune(dirpath, dirnames):
+    """Écarte le bruit connu, et les CHECKOUTS IMBRIQUÉS — sauf s'ils SONT la copie cherchée.
+
+    Un répertoire qui porte son propre `.git` est normalement un autre projet : worktree d'agent
+    sous `.claude/worktrees/`, sous-module, clone vendorisé. Mesuré sur NetImpex avant d'ajouter
+    ce filtre : 8 répertoires vendorisés rapportés pour 4 réels, 120 fichiers au lieu de 60 —
+    chacun compté une seconde fois dans un worktree d'agent. Un chiffre faux, pas un manquant.
+
+    L'exception est essentielle : SOUS `wwwroot/{lib,vendor}`, un sous-module EST la copie
+    vendorisée qu'on cherche, et c'est même la forme la moins surveillée de toutes — le manager
+    `git-submodules` de Renovate est désactivé par défaut, et l'écosystème `gitsubmodule` de
+    Dependabot doit être activé à la main. L'écarter reviendrait à rendre aveugle précisément le
+    cas pour lequel cette clé existe.
     """
-    names = set()
-    for p in files('package.json'):
-        try:
-            data = json.loads(p.read_text(encoding='utf-8', errors='ignore'))
-        except ValueError:
+    base = Path(dirpath).parts
+    kept = []
+    for d in dirnames:
+        if d in PRUNE:
             continue
-        for key in ('dependencies', 'devDependencies',
-                    'peerDependencies', 'optionalDependencies'):
-            for n in (data.get(key) or {}):
-                names.add(n)
-                names.add(n.split('/')[-1])   # @scope/pkg -> pkg, le nom que porte le répertoire
-    for p in files('libman.json'):
-        try:
-            data = json.loads(p.read_text(encoding='utf-8', errors='ignore'))
-        except ValueError:
+        if (os.path.exists(os.path.join(dirpath, d, '.git'))
+                and not sous_vendor(base + (d,))):
             continue
-        for lib in (data.get('libraries') or []):
-            # "prism@1.29.0" -> "prism" ; "@scope/pkg@1.0" -> "@scope/pkg" -> "pkg"
-            lib_id = (lib.get('library') or '').rsplit('@', 1)[0]
-            if lib_id:
-                names.add(lib_id)
-                names.add(lib_id.split('/')[-1])
-            dest = (lib.get('destination') or '').rstrip('/')
-            if dest:
-                names.add(dest.split('/')[-1])
-    return names
+        kept.append(d)
+    return kept
 
 
 def count_files(root):
@@ -296,38 +286,107 @@ def count_files(root):
     return total
 
 
-def prune(dirpath, dirnames):
-    """Écarte le bruit connu, et tout CHECKOUT IMBRIQUÉ.
+# La couverture se résout PAR CHEMIN et PAR PORTÉE, jamais sur un vivier global de noms courts.
+# Trois défauts réels que la version « un set de noms pour tout le dépôt » produisait :
+#   - `destination: "wwwroot/lib/bootstrap/dist"` n'apportait que `dist` et l'id du paquet, jamais
+#     `bootstrap` : le répertoire déclaré était signalé comme angle mort (faux positif) ;
+#   - dans une solution multi-app, le `package.json` de appB couvrait le `wwwroot/lib/jquery` de
+#     appA (faux négatif) — or le multi-app est la forme NORMALE du public visé ;
+#   - un `destination` finissant par `/dist` injectait le nom `dist` et masquait n'importe quel
+#     `wwwroot/lib/dist` sans rapport.
+# Un manifeste ne couvre donc que ce qui vit SOUS lui, et libman se compare en chemins.
+PKG_KEYS = ('dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies')
+pkg_manifests = []    # (parts du répertoire du manifeste, {noms déclarés})
+libman_dests = []     # parts du chemin de destination, depuis la racine du dépôt
 
-    Un répertoire qui porte son propre `.git` est une copie ou un autre projet : worktree d'agent
-    sous `.claude/worktrees/`, sous-module, clone vendorisé. Ses constats appartiennent à lui, pas
-    au dépôt mesuré. Mesuré sur NetImpex avant d'ajouter ce filtre : 8 répertoires vendorisés
-    rapportés pour 4 réels — chacun compté une seconde fois dans un worktree d'agent, soit 120
-    fichiers annoncés au lieu de 60. Un chiffre faux, pas un chiffre manquant.
-    """
-    return [d for d in dirnames
-            if d not in PRUNE
-            and not os.path.exists(os.path.join(dirpath, d, '.git'))]
+
+def lire_manifestes(dirpath, filenames):
+    parts = Path(dirpath).parts
+    # Un manifeste SOUS un répertoire vendorisé appartient à la copie, pas au dépôt hôte :
+    # `wwwroot/lib/bootstrap/package.json` décrit bootstrap, il ne le déclare pas.
+    if sous_vendor(parts):
+        return
+    for name in filenames:
+        if name not in ('package.json', 'libman.json'):
+            continue
+        try:
+            data = json.loads((Path(dirpath) / name).read_text(encoding='utf-8', errors='ignore'))
+        except (ValueError, OSError):
+            continue
+        if name == 'package.json':
+            noms = set()
+            for key in PKG_KEYS:
+                for n in (data.get(key) or {}):
+                    noms.add(n)
+                    noms.add(n.split('/')[-1])   # @scope/pkg -> pkg, le nom que porte le dossier
+            if noms:
+                pkg_manifests.append((parts, noms))
+        else:
+            # `bower.json` reste volontairement absent : Bower est abandonné depuis 2017 et ni
+            # Renovate ni Dependabot ne le lisent. Le compter comme une couverture inverserait le
+            # sens de la clé, qui dit « rien ne surveille ceci », pas « rien ne le déclare ».
+            for lib in (data.get('libraries') or []):
+                dest = (lib.get('destination') or '').strip('/')
+                if dest:
+                    libman_dests.append(parts + tuple(dest.split('/')))
 
 
-declared = manifest_names()
+def couvert(cible, est_fichier):
+    """`cible` (tuple de parts) est-il déclaré par un manifeste qui a autorité sur lui ?"""
+    for dir_parts, noms in pkg_manifests:
+        if cible[:len(dir_parts)] != dir_parts:
+            continue                                  # ce manifeste ne régit pas ce chemin
+        feuille = cible[-1]
+        if feuille in noms:
+            return True
+        if est_fichier:
+            # `jquery-3.4.1.min.js` / `jquery.min.js` sont couverts par un `jquery` déclaré, mais
+            # le nom doit s'arrêter net : sans la frontière, `jquery` couvrirait `jqueryui.js`.
+            bas = feuille.lower()
+            for n in noms:
+                n = n.lower()
+                if bas.startswith(n) and bas[len(n):len(n) + 1] in ('.', '-', '_'):
+                    return True
+    for dest in libman_dests:
+        # L'un est préfixe de l'autre : `destination` peut viser le répertoire de la lib, ou un
+        # sous-répertoire de celui-ci (`…/bootstrap/dist`), ou un fichier précis.
+        n = min(len(dest), len(cible))
+        if dest[:n] == cible[:n]:
+            return True
+    return False
+
+
 vendored_assets = []
-for dirpath, dirnames, _ in os.walk('.'):
+candidats = []
+for dirpath, dirnames, filenames in os.walk('.'):
     dirnames[:] = prune(dirpath, dirnames)
+    lire_manifestes(dirpath, filenames)
     # Path() normalise déjà le './' de tête qu'os.walk ajoute : Path('./wwwroot/lib').parts vaut
     # ('wwwroot', 'lib'), pas ('.', 'wwwroot', 'lib'). Un [1:] « pour retirer le point » mangerait
     # donc un vrai segment — et le motif ne matcherait plus jamais.
     parts = Path(dirpath).parts
     if parts[-2:] not in VENDOR_PARENTS:
         continue
-    for lib in sorted(dirnames):
-        if lib in declared:
-            continue                                 # déclaré : ce n'est pas un angle mort
-        vendored_assets.append({
-            'path': '/'.join(parts + (lib,)),
-            'files': count_files(os.path.join(dirpath, lib)),
-            'coveredByManifest': False,
-        })
+    for lib in dirnames:
+        candidats.append((parts + (lib,), os.path.join(dirpath, lib), False))
+    # Un fichier POSÉ À PLAT dans `wwwroot/lib/` est une vendorisation à part entière — c'est même
+    # la forme archétypale du copier-coller (`jquery-3.4.1.min.js`, `htmx.min.js`). Mesuré sur le
+    # parc local : 3 dépôts, 8 fichiers, contre 17 dépôts en sous-répertoires. Rare, pas nul — et
+    # sans lui `[]` voudrait parfois dire « mesuré, et raté » alors que la phase 1 le lit comme
+    # « mesuré, aucun ».
+    for f in filenames:
+        candidats.append((parts + (f,), None, True))
+
+# Les manifestes ne sont tous connus qu'à la fin du parcours : un `package.json` peut apparaître
+# après le répertoire qu'il déclare.
+for cible, disque, est_fichier in candidats:
+    if couvert(cible, est_fichier):
+        continue
+    vendored_assets.append({
+        'path': '/'.join(cible),
+        'files': 1 if est_fichier else count_files(disque),
+        'coveredByManifest': False,
+    })
 vendored_assets.sort(key=lambda x: x['path'])
 
 proj_details = []

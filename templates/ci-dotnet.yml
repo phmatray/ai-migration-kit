@@ -179,7 +179,14 @@ jobs:
       #       echo "resterait verte sans rien mesurer."
       #       exit 1
       #     fi
-      #     changes=$(git status --porcelain -- "$BUNDLE_DIST")
+      #     # `--ignored` est OBLIGATOIRE, pas un extra. La façon normale de committer une sortie
+      #     # de build est de mettre `dist/` dans .gitignore puis de forcer l'ajout (`git add -f`).
+      #     # Dans ce dépôt-là, un nouveau chunk n'est pas seulement non suivi : il est IGNORÉ, et
+      #     # `--porcelain` seul omet les fichiers ignorés — il n'affiche rien, et la garde annonce
+      #     # « à jour » sur un bundle périmé. Mesuré. Contrepartie assumée : si le bundler écrit
+      #     # un cache ignoré DANS ce répertoire, il sera signalé — faites pointer BUNDLE_DIST sur
+      #     # la sortie livrée, pas sur un dossier qui contient aussi du cache.
+      #     changes=$(git status --porcelain --ignored -- "$BUNDLE_DIST")
       #     if [ -n "$changes" ]; then
       #       echo "::error::$BUNDLE_DIST est périmé : il ne correspond plus à ses sources."
       #       echo "Le binaire livré embarque encore l'ancien bundle — un bump de dépendance JS"

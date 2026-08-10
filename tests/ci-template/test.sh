@@ -126,7 +126,12 @@ mk_repo() {
   printf 'console.log(1)\n' > "$root/web/dist/assets/$asset"
   printf '<script src="/assets/%s"></script>\n' "$asset" > "$root/web/dist/index.html"
   git -C "$root" add -A
-  git -C "$root" -c user.email=t@t -c user.name=t commit -qm "commit the bundle"
+  # `commit.gpgsign=false` is not decoration: with signing on globally and no usable key in this
+  # shell, the commit fails, `set -e` aborts, and every section below reports as broken with a gpg
+  # error rather than a template defect. CI never sees it, which is what makes it a local-only
+  # trap. tests/guarded-git/test.sh already solved this the same way.
+  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+      commit -qm "commit the bundle"
 }
 
 # ---------------------------------------------------------------------------
@@ -188,6 +193,46 @@ fi
 echo "  [3] fails on a pure untracked addition — the drift git diff reports as clean"
 
 # ---------------------------------------------------------------------------
+# 3b. The same drift, in the shape real repos actually have: `dist/` listed in
+#     .gitignore and force-added. That is the NORMAL way a built bundle gets
+#     committed — you ignore the output directory, then `git add -f` the artefact.
+#
+#     A new chunk is then not merely untracked but IGNORED, and plain
+#     `--porcelain` omits ignored files: it prints nothing, both preconditions
+#     pass, and the guard reports "à jour" on a stale bundle. Measured before this
+#     case was written — `git check-ignore` confirms the file is ignored, and only
+#     `--porcelain --ignored` surfaces it.
+#
+#     This is the one that would have shipped a green gate over a false remediation.
+# ---------------------------------------------------------------------------
+I="$scratch/gitignored"
+mkdir -p "$I/web/dist/assets"
+git init -q "$I"
+printf 'dist/\n' > "$I/.gitignore"
+printf 'console.log(1)\n' > "$I/web/dist/assets/index-FFFFFFFF.js"
+git -C "$I" add -f web/dist .gitignore
+git -C "$I" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+    commit -qm "commit an ignored-but-force-added bundle"
+printf 'console.log(9)\n' > "$I/web/dist/assets/chunk-GGGGGGGG.js"
+
+git -C "$I" check-ignore -q web/dist/assets/chunk-GGGGGGGG.js || {
+  echo "FAIL: the premise no longer holds — the new chunk is not ignored here."; exit 1; }
+set +e
+( cd "$I" && BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-ignored.txt" 2>&1
+rc=$?
+set -e
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: the guard passed on a stale bundle whose new chunk is GITIGNORED."
+  echo "      Plain --porcelain omits ignored files, so this is a green gate over a"
+  echo "      false remediation — the exact outcome the step exists to prevent:"
+  cat "$scratch/out-ignored.txt"
+  exit 1
+fi
+grep -q 'chunk-GGGGGGGG' "$scratch/out-ignored.txt" || {
+  echo "FAIL: failed, but never named the ignored file:"; cat "$scratch/out-ignored.txt"; exit 1; }
+echo "  [3b] fails when the bundle dir is gitignored and force-added — the real-world shape"
+
+# ---------------------------------------------------------------------------
 # 4. A matching bundle passes. Without this, "always red" would score as a pass.
 # ---------------------------------------------------------------------------
 M="$scratch/matching"
@@ -230,6 +275,33 @@ for bad in "" "does/not/exist"; do
   fi
 done
 echo "  [5b] refuses a misconfigured path instead of passing quietly on nothing"
+
+# ---------------------------------------------------------------------------
+# 5c. The third misconfiguration: the directory EXISTS but git tracks nothing in it.
+#
+#     Both cases above short-circuit on the `-z` / `-d` clauses, so the guard's
+#     `git ls-files --error-unmatch` precondition was never actually executed by the
+#     suite whose whole purpose is that this block cannot rot untested. This drives it.
+#
+#     The shape is real: a bundle directory present on the runner (built, or left by a
+#     cache restore) that nobody ever committed. The guard must refuse rather than
+#     compare a committed bundle that does not exist.
+# ---------------------------------------------------------------------------
+U="$scratch/untracked-dist"
+mk_repo "$U" "index-HHHHHHHH.js"
+mkdir -p "$U/other/dist"
+printf 'x\n' > "$U/other/dist/nothing-committed.js"
+set +e
+( cd "$U" && BUNDLE_DIST=other/dist bash "$scratch/guard.sh" ) > "$scratch/out-untracked.txt" 2>&1
+rc=$?
+set -e
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: the guard accepted a directory git tracks nothing in — it would compare a"
+  echo "      committed bundle that does not exist, and stay green forever:"
+  cat "$scratch/out-untracked.txt"
+  exit 1
+fi
+echo "  [5c] refuses a directory that exists but holds no tracked file"
 
 # ---------------------------------------------------------------------------
 # 5. As shipped, the block is inert: the template is valid YAML and carries
