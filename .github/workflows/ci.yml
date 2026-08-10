@@ -16,7 +16,7 @@ jobs:
           # never fires and the step reports a wrong date instead of failing. Keep the full history.
           fetch-depth: 0
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             6.0.x
