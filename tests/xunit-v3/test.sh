@@ -56,4 +56,90 @@ assert entry["xunitMajor"] == 2, entry["xunitMajor"]
 PY
 echo "  [1/4] inventory reports the fixture's test stack (xunit 2.4.2, net6.0)"
 
+# ---------------------------------------------------------------------------
+# 2. The documented transform produces a test project that actually RUNS.
+#
+#    "It builds" is explicitly not the gate — the gate is the number of tests that execute,
+#    compared to the phase-2 baseline. The fixture's baseline is 6.
+# ---------------------------------------------------------------------------
+BASELINE_TESTS=6
+
+# A scratch copy, never the fixture itself. `git status` is checked on exit (trap above).
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"; check_fixture_pristine' EXIT
+cp -R "$FIXTURE" "$scratch/v3"
+
+# The fixture has no ITestOutputHelper, so the namespace half of the transform would go
+# unexercised. Inject the v2 idiom into the COPY so the rewrite is genuinely proven: under v3
+# this file only compiles if `Xunit.Abstractions` became `Xunit`.
+python3 - "$scratch/v3" <<'PY'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1]) / "tests/LegacyShop.Tests/OrderServiceTests.cs"
+t = p.read_text(encoding="utf-8")
+t = t.replace("using Xunit;", "using Xunit;\nusing Xunit.Abstractions;")
+t = t.replace(
+    "        private readonly OrderService _service = new OrderService();",
+    "        private readonly OrderService _service = new OrderService();\n"
+    "        private readonly ITestOutputHelper _output;\n\n"
+    "        public OrderServiceTests(ITestOutputHelper output)\n"
+    "        {\n"
+    "            _output = output;\n"
+    "        }",
+)
+p.write_text(t, encoding="utf-8")
+PY
+grep -q 'using Xunit.Abstractions;' "$scratch/v3/tests/LegacyShop.Tests/OrderServiceTests.cs"
+
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/v3" > /dev/null
+
+# The namespace rewrite really happened (v3 has no Xunit.Abstractions to resolve).
+if grep -q 'using Xunit.Abstractions;' "$scratch/v3/tests/LegacyShop.Tests/OrderServiceTests.cs"; then
+  echo "FAIL: the transform left 'using Xunit.Abstractions;' in place"; exit 1
+fi
+
+v3_out="$scratch/v3-test.log"
+if ! dotnet test "$scratch/v3/tests/LegacyShop.Tests/LegacyShop.Tests.csproj" \
+     --nologo > "$v3_out" 2>&1; then
+  echo "FAIL: the transformed v3 project did not run green:"; tail -25 "$v3_out"; exit 1
+fi
+count=$(sed -n 's/.*Total: \([0-9][0-9]*\).*/\1/p' "$v3_out" | head -1)
+if [ "${count:-0}" -lt "$BASELINE_TESTS" ]; then
+  echo "FAIL: v3 ran ${count:-0} tests, baseline is $BASELINE_TESTS — a build is not a test run:"
+  tail -25 "$v3_out"; exit 1
+fi
+echo "  [2/4] transform -> xunit.v3 runs $count tests (baseline $BASELINE_TESTS), usings rewritten"
+
+# ---------------------------------------------------------------------------
+# 3. The OutputType trap is pinned.
+#
+#    A v3 test project left as a library must never yield a green 6-test run. On xunit.v3
+#    3.2.2 the package guards this itself, failing the BUILD with an explicit message — so
+#    what is asserted here is the guard, not a silent 0-test pass. If a future version drops
+#    that guard, this assertion still holds: the run must not come back green with the full
+#    test count. That is why the counted-tests gate, not this guard, is the contract.
+# ---------------------------------------------------------------------------
+cp -R "$FIXTURE" "$scratch/trap"
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/trap" --skip-output-type > /dev/null
+grep -q '<OutputType>Exe</OutputType>' "$scratch/trap/tests/LegacyShop.Tests/LegacyShop.Tests.csproj" \
+  && { echo "FAIL: --skip-output-type still emitted OutputType"; exit 1; }
+
+trap_out="$scratch/trap-test.log"
+if dotnet test "$scratch/trap/tests/LegacyShop.Tests/LegacyShop.Tests.csproj" \
+   --nologo > "$trap_out" 2>&1; then
+  trap_count=$(sed -n 's/.*Total: \([0-9][0-9]*\).*/\1/p' "$trap_out" | head -1)
+  if [ "${trap_count:-0}" -ge "$BASELINE_TESTS" ]; then
+    echo "FAIL: a v3 project without OutputType=Exe reported $trap_count tests green."
+    echo "      That means the trap is live and undetectable — the counted-tests gate is the"
+    echo "      only thing standing between a migration and a test suite that never runs."
+    exit 1
+  fi
+  echo "  [3/4] no-Exe variant ran ${trap_count:-0} tests (< baseline) — not a green suite"
+else
+  grep -qi 'OutputType' "$trap_out" || {
+    echo "FAIL: the no-Exe variant failed, but not for the OutputType reason:"; tail -20 "$trap_out"; exit 1
+  }
+  echo "  [3/4] no-Exe variant is refused at build time by xunit.v3 (OutputType guard)"
+fi
+
 echo "xunit v3 golden test OK"
