@@ -2,8 +2,6 @@
 # La migration ne livre pas que du code : elle livre le garde-fou.
 # ⚠ Renseignez SOLUTION si le repo contient plusieurs .sln (l'ancienne solution legacy reste
 #   souvent à la racine) : `dotnet test` nu échoue alors avec MSB1011.
-# ⚠ La branche MTP écrit la couverture dans UN fichier : avec plusieurs projets de test, elles
-#   s'écrasent. Un seul projet de test = cas nominal ; au-delà, sortir un fichier par projet.
 name: ci
 
 on:
@@ -51,10 +49,17 @@ jobs:
             echo "Terminez la migration, ou collectez projet par projet."
             exit 1
           elif [ -n "$mtp" ]; then
+            # `--coverage-output` nomme UN fichier, et chaque projet de test de la solution
+            # est un exécutable MTP autonome qui obéit à ce nom : avec N projets, N-1
+            # rapports sont écrasés et il reste celui qui a fini en dernier. Mesuré sur une
+            # solution à 2 projets : 5 % de couverture affichés là où l'union en couvre 73 %.
+            # Un chiffre faux, pas un chiffre manquant — rien ne signale qu'il est partiel.
+            # `--results-directory` sans `--coverage-output` laisse MTP nommer lui-même, un
+            # fichier par projet, et aligne cette branche sur celle de VSTest juste en dessous.
             echo "Plateforme de test détectée : Microsoft Testing Platform."
             dotnet test $SOLUTION --nologo -- \
               --coverage --coverage-output-format cobertura \
-              --coverage-output "$PWD/coverage/coverage.cobertura.xml"
+              --results-directory "$PWD/coverage"
           else
             echo "Plateforme de test détectée : VSTest."
             dotnet test $SOLUTION --nologo --collect:"XPlat Code Coverage" --results-directory coverage
@@ -64,7 +69,7 @@ jobs:
       # vide et le tableau de bord affiche « pas de couverture » sur une app qui EST testée.
       - name: Garde — la couverture a bien été produite
         run: |
-          if ! find coverage -name 'coverage.cobertura.xml' | grep -q . ; then
+          if ! find coverage -name '*.cobertura.xml' | grep -q . ; then
             echo "Aucun rapport de couverture produit — la collecte a été ignorée en silence."
             echo "Projet MTP sans Microsoft.Testing.Extensions.CodeCoverage ? Voir"
             echo "legacy-upgrade/references/xunit-v3-migration.md."
@@ -75,8 +80,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage
-          # VSTest niche le fichier sous un GUID, MTP l'écrit à plat : les deux motifs, sinon
-          # l'artefact d'une des deux plateformes part vide sans que rien ne le dise.
+          # VSTest niche un fichier par projet sous un dossier GUID, MTP les écrit à plat sous
+          # un nom GUID : les deux motifs, sinon l'artefact d'une des deux plateformes part
+          # vide sans que rien ne le dise. Le nom du fichier n'est plus fixe — c'est ce qui
+          # empêche deux projets de test de s'écraser — donc le glob prend *.cobertura.xml.
           path: |
-            coverage/**/coverage.cobertura.xml
-            coverage/coverage.cobertura.xml
+            coverage/**/*.cobertura.xml
+            coverage/*.cobertura.xml

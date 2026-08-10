@@ -15,6 +15,34 @@ cd "$(dirname "$0")/../.."
 KIT="$PWD"
 FIXTURE="$KIT/samples/LegacyShop"
 
+# Print the `run: |` body of a named step of templates/ci-dotnet.yml, so the assertions below
+# execute the template VERBATIM instead of a copy that drifts from it. A hand-copied command is
+# how the multi-project collision (issue #17) stayed green in this very file: the test proved
+# something about its own string, not about the template the kit ships.
+#
+# Sliced as text rather than parsed as YAML on purpose — this script runs before the CI step
+# that installs PyYAML, and a missing import here would look like a test failure.
+template_step() {
+  python3 - "$KIT/templates/ci-dotnet.yml" "$1" <<'PY'
+import sys
+path, want = sys.argv[1], sys.argv[2]
+lines = open(path, encoding="utf-8").read().splitlines()
+start = next((i for i, l in enumerate(lines) if l.strip() == f"- name: {want}"), None)
+if start is None:
+    sys.exit(f"templates/ci-dotnet.yml has no step named {want!r}")
+run = next((i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |"), None)
+if run is None:
+    sys.exit(f"step {want!r} has no `run: |` block")
+indent = len(lines[run]) - len(lines[run].lstrip()) + 2
+body = []
+for line in lines[run + 1:]:
+    if line.strip() and len(line) - len(line.lstrip()) < indent:
+        break
+    body.append(line[indent:])
+print("\n".join(body).strip("\n"))
+PY
+}
+
 # The fixture is the "before" state and must survive this script untouched, on every exit path
 # (including a failure mid-run) — otherwise a red test would also silently rewrite the fixture.
 #
@@ -190,14 +218,16 @@ grep -q 'MTP0001' "$scratch/vstest-cov.log" \
   || echo "  (warning: MTP0001 no longer emitted — the ignore is now fully silent)"
 echo "  [4/4a] VSTest collector yields no cobertura under MTP — the silent hole, pinned"
 
-# 4b. The documented MTP path puts it back, in coverage/, where the artifact glob already looks.
-rm -rf coverage && mkdir -p coverage
-dotnet test --nologo -- --coverage --coverage-output-format cobertura \
-  --coverage-output "$PWD/coverage/coverage.cobertura.xml" > "$scratch/mtp-cov.log" 2>&1
-[ -f coverage/coverage.cobertura.xml ] || {
+# 4b. The template's own step puts it back, in coverage/, where the artifact glob already looks.
+#     Running the extracted step rather than a copy of it is what makes 4d below a real gate.
+MTP_STEP=$(template_step "Tests + couverture")
+rm -rf coverage
+SOLUTION='' bash -c "$MTP_STEP" > "$scratch/mtp-cov.log" 2>&1
+mtp_file=$(find coverage -name '*.cobertura.xml' | head -1)
+[ -n "$mtp_file" ] || {
   echo "FAIL: the MTP coverage path produced no cobertura:"; tail -20 "$scratch/mtp-cov.log"; exit 1
 }
-PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT" "$PWD/coverage/coverage.cobertura.xml" <<'PY'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT" "$PWD/$mtp_file" <<'PY'
 # Loading report-dashboard.py as a module would drop a scripts/__pycache__ next to it and leave
 # the kit's own tree dirty after every run — the test must not modify the repo it tests.
 import importlib.util, sys
@@ -219,6 +249,114 @@ grep -q 'coverage-output-format cobertura' templates/ci-dotnet.yml \
 grep -q 'Aucun rapport de couverture' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml has no guard against an empty coverage report"; exit 1; }
 echo "  [4/4c] templates/ci-dotnet.yml carries the MTP path and the empty-coverage guard"
+
+# ---------------------------------------------------------------------------
+# 4d. SEVERAL test projects: one report each, nothing overwritten (issue #17).
+#
+#     `--coverage-output` names ONE file, and every MTP test app in the solution obeys it —
+#     so with N test projects, N-1 reports are overwritten and the survivor is whichever
+#     finished last. Measured on this fixture before the fix: the surviving report showed
+#     PriceCatalogClient 4/8 and Order/OrderItem/OrderService at 0, i.e. 5 % coverage for a
+#     solution whose tests actually cover 73 %. Not a missing number — a WRONG one, plausible
+#     enough to publish. That is why this case is pinned with two projects, not one.
+# ---------------------------------------------------------------------------
+cd "$KIT"
+cp -R "$FIXTURE" "$scratch/multi"
+
+# A second test project, exercising the one domain class the first project never touches.
+# Written in v2 form and put through the same transform: hard-coding the v3 package versions
+# here would drift from apply-transform.py the day either moves.
+mkdir -p "$scratch/multi/tests/LegacyShop.Catalog.Tests"
+cat > "$scratch/multi/tests/LegacyShop.Catalog.Tests/LegacyShop.Catalog.Tests.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.3.2" />
+    <PackageReference Include="xunit" Version="2.4.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LegacyShop.Domain\LegacyShop.Domain.csproj" />
+  </ItemGroup>
+
+</Project>
+XML
+cat > "$scratch/multi/tests/LegacyShop.Catalog.Tests/PriceCatalogClientTests.cs" <<'CS'
+using System;
+using LegacyShop.Domain;
+using Xunit;
+
+namespace LegacyShop.Catalog.Tests
+{
+    public class PriceCatalogClientTests
+    {
+        [Fact]
+        public void DownloadCatalog_RejectsNull()
+        {
+            var client = new PriceCatalogClient();
+
+            Assert.Throws<ArgumentNullException>(() => client.DownloadCatalog(null));
+        }
+    }
+}
+CS
+dotnet sln "$scratch/multi/LegacyShop.sln" add \
+  "$scratch/multi/tests/LegacyShop.Catalog.Tests/LegacyShop.Catalog.Tests.csproj" > /dev/null
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/multi" > /dev/null
+
+cd "$scratch/multi"
+rm -rf coverage
+if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/multi-cov.log" 2>&1; then
+  echo "FAIL: the template's coverage step failed on a two-test-project solution:"
+  tail -25 "$scratch/multi-cov.log"; exit 1
+fi
+PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT" "$PWD" <<'PY'
+import glob, importlib.util, sys
+spec = importlib.util.spec_from_file_location("rd", sys.argv[1] + "/scripts/report-dashboard.py")
+rd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rd)
+
+files = sorted(glob.glob(sys.argv[2] + "/coverage/**/*.cobertura.xml", recursive=True))
+assert len(files) == 2, f"expected one cobertura per test project, got {len(files)}: {files}"
+
+covered = lambda paths: {c["name"]: c["covered"] for c in rd.parse_cobertura(paths, [])["classes"]}
+each, union = [covered(f) for f in files], covered(files)
+
+# Each project contributes a class the other never exercises. The union must hold both...
+assert union.get("OrderService", 0) > 0, f"the union lost LegacyShop.Tests' coverage: {union}"
+assert union.get("PriceCatalogClient", 0) > 0, \
+    f"the union lost LegacyShop.Catalog.Tests' coverage: {union}"
+# ...and no SINGLE report may hold both, or the two projects were never really separated and
+# the assertion above would pass even with the old overwrite-into-one-file behaviour.
+assert not any(r.get("OrderService", 0) > 0 and r.get("PriceCatalogClient", 0) > 0 for r in each), \
+    f"one report already covers both projects — this no longer tests the collision: {each}"
+
+solo = [rd.parse_cobertura(f, [])["line_pct"] for f in files]
+both = rd.parse_cobertura(files, [])["line_pct"]
+assert both > max(solo), \
+    f"the aggregate ({both}%) is no better than the best single report ({max(solo)}%)"
+print(f"  [4/4d] 2 test projects -> {len(files)} reports, aggregate {both}% > {max(solo)}% "
+      f"(best single) — nothing overwritten")
+PY
+
+# 4e. The empty-coverage guard still fires — the fix widened the pattern it searches for, and a
+#     guard that silently stopped matching would be worse than the bug it protects against.
+GUARD_STEP=$(template_step "Garde — la couverture a bien été produite")
+bash -c "$GUARD_STEP" > /dev/null 2>&1 \
+  || { echo "FAIL: the guard rejects a coverage/ that DOES hold per-project reports"; exit 1; }
+rm -rf coverage && mkdir -p coverage
+if bash -c "$GUARD_STEP" > /dev/null 2>&1; then
+  echo "FAIL: the guard accepted an empty coverage/ — a silent collection failure would ship"
+  exit 1
+fi
+echo "  [4/4e] the empty-coverage guard accepts per-project reports and still refuses nothing"
+cd "$KIT"
 
 # ---------------------------------------------------------------------------
 # 5. The decision is wired into the pipeline, not just documented in a side file.
