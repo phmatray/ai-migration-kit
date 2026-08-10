@@ -13,22 +13,69 @@ what happens when the single most likely mistake is made. Never pass it in real 
 
 The pinned xunit.v3 version below is this test's witness, not a recommendation: a real
 migration resolves the current version from the live feed (context7), as the reference says.
+What is NOT free to drift is the *pairing* — xunit.v3 and the MTP coverage extension must sit
+on the same Microsoft.Testing.Platform line. `MTP_COMPAT` states that rule and `validate_pairing`
+enforces it at start-up, because the mismatch is invisible until a test run dies.
 """
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
 XUNIT_V3_VERSION = "3.2.2"
 
+# xunit.v3 major -> the Microsoft.Testing.Extensions.CodeCoverage major built against the same
+# Microsoft.Testing.Platform line. This is ONE decision expressed as two pins, and it is the whole
+# reason the map exists rather than a comment:
+#
+#   3.x  runs on MTP v1                                   -> CodeCoverage 17.x
+#   4.x  (the xunit.v3.mtp-v2 line, still prerelease)      -> CodeCoverage 18.x
+#
+# When xunit.v3 moves to MTP v2, both legs move in the SAME change. Whoever bumps one alone gets a
+# clean restore, a clean build, and a run-time death — see validate_pairing.
+MTP_COMPAT = {3: "17", 4: "18"}
+
 # Coverage does NOT survive the platform change on its own: under MTP the VSTest collector
 # (`--collect:"XPlat Code Coverage"`) is ignored and produces no file at all, silently. The MTP
 # coverage extension is what puts cobertura back, so the transform installs it.
 #
-# ⚠ The major line must match the Microsoft.Testing.Platform version the test framework brings.
-# xunit.v3 3.2.2 is on MTP v1, so CodeCoverage stays on the 17.x line; 18.x targets MTP 2.x and
-# fails at run time with `TypeLoadException: Could not load type '…IDataConsumer'`.
-COVERAGE_EXT_VERSION = "17.14.2"
+# The env override exists so the golden test can inject a bad pair without editing this file.
+# Nothing in the pipeline sets it; a real migration resolves live versions via context7.
+COVERAGE_EXT_VERSION = os.environ.get("XUNIT_V3_COVERAGE_VERSION", "17.14.2")
+
+
+def _major_of(version: str) -> str:
+    return version.split(".", 1)[0]
+
+
+def validate_pairing(xunit_version: str, coverage_version: str) -> None:
+    """Refuse a pair that straddles two Microsoft.Testing.Platform lines.
+
+    The failure this prevents is the nastiest kind available here: `dotnet restore` succeeds,
+    the build succeeds, and the test host dies at run time with a `TypeLoadException` naming an
+    interface nobody recognises. Neither version appears in that stack trace, so the refusal
+    names BOTH — that is the only part a future reader actually needs.
+    """
+    xunit_major = _major_of(xunit_version)
+    try:
+        expected = MTP_COMPAT[int(xunit_major)]
+    except (ValueError, KeyError):
+        raise SystemExit(
+            f"unknown xunit.v3 major {xunit_major!r} (xunit.v3 {xunit_version}): extend "
+            f"MTP_COMPAT with the Microsoft.Testing.Platform line it targets. Guessing a "
+            f"coverage-extension major would reintroduce the run-time failure the map prevents."
+        ) from None
+    got = _major_of(coverage_version)
+    if got != expected:
+        raise SystemExit(
+            f"incompatible test platform pair: xunit.v3 {xunit_version} runs on the MTP line "
+            f"served by Microsoft.Testing.Extensions.CodeCoverage {expected}.x, but "
+            f"{coverage_version} is on the {got}.x line. Both packages bind to "
+            f"Microsoft.Testing.Platform, so this restores and builds clean, then dies at run "
+            f"time with \"TypeLoadException: Could not load type '…IDataConsumer'\". "
+            f"Move both legs in the same change (see MTP_COMPAT)."
+        )
 
 # The v2 packages the transform removes. `xunit` and `xunit.runner.visualstudio` are replaced by
 # `xunit.v3` (which brings its own Microsoft Testing Platform runner); Microsoft.NET.Test.Sdk is the
@@ -181,6 +228,10 @@ def rewrite_usings(root: Path) -> int:
 
 
 def main() -> int:
+    # Before anything is read or written: the two pins this script is about to bake into a csproj
+    # must agree. A mismatch is cheap to catch here and expensive to catch at run time.
+    validate_pairing(XUNIT_V3_VERSION, COVERAGE_EXT_VERSION)
+
     ap = argparse.ArgumentParser()
     ap.add_argument("app_dir", type=Path)
     ap.add_argument("--skip-output-type", action="store_true")
