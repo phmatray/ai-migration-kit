@@ -131,7 +131,7 @@ jobs:
           # simulation too. --help exercises the header slice against $0 (a hardcoded line range
           # there silently stops documenting the exit codes), and the refusal proves the guard
           # reads -C rather than this foreign CWD.
-          for g in guarded-commit guarded-push; do
+          for g in guarded-commit guarded-push guarded-merge; do
             bash "$KIT/skills/implement-issue/scripts/$g.sh" --help | grep -q 'Exit codes:'
           done
           if bash "$KIT/skills/implement-issue/scripts/guarded-commit.sh" \

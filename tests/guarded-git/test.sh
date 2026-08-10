@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Golden test for guarded-commit.sh / guarded-push.sh — the guarded writes that replace
-#   git commit -am "..."   /   git push
-# in implement-issue.
+# Golden test for guarded-commit.sh / guarded-push.sh / guarded-merge.sh — the guarded writes
+# that replace
+#   git commit -am "..."   /   git push   /   git merge origin/main
+# in implement-issue and in the main-sync both lifecycle skills share.
 #
 # Those two commands landed a commit on someone else's branch and pushed it into someone
 # else's PR (#26, incident of 2026-08-10). Measured cause: four agents shared one checkout,
@@ -18,9 +19,11 @@ cd "$(dirname "$0")/../.."
 KIT="$PWD"
 COMMIT="$KIT/skills/implement-issue/scripts/guarded-commit.sh"
 PUSH="$KIT/skills/implement-issue/scripts/guarded-push.sh"
+MERGE="$KIT/skills/implement-issue/scripts/guarded-merge.sh"
 
 [ -x "$COMMIT" ] || { echo "FAIL: $COMMIT missing or not executable"; exit 1; }
 [ -x "$PUSH" ]   || { echo "FAIL: $PUSH missing or not executable"; exit 1; }
+[ -x "$MERGE" ]  || { echo "FAIL: $MERGE missing or not executable"; exit 1; }
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -61,7 +64,36 @@ new_repo_with_origin() {
   printf '%s' "$d"
 }
 
+# The scratch repo shaped like a real sync: `a` (the task's branch) and `m` (standing in for
+# origin/main) both advanced after forking from the seed, so `git merge m` while on `a` is a
+# REAL merge — it writes a merge commit instead of fast-forwarding, and that commit is the
+# largest single write the lifecycle makes. `b` comes along from new_repo() and plays the
+# concurrent agent's branch. Pass "conflict" to make both sides rewrite the same line.
+new_merge_repo() {
+  local d; d=$(new_repo "$1")
+  local mode="${2:-clean}"
+  # Clean mode: each side edits a file of its own, so the merge has nothing to reconcile.
+  # Conflict mode: both rewrite the SAME file, which is what a real sync hits.
+  local a_file=a-only.txt m_file=m-only.txt
+  if [ "$mode" = conflict ]; then a_file=shared.txt; m_file=shared.txt; fi
+
+  git -C "$d" checkout -q -b m a          # `m` forks from the seed, where `a` still sits
+  echo "m-side" > "$d/$m_file"
+  git -C "$d" add -A
+  git -C "$d" commit -q -m "m advances (stands in for origin/main)"
+
+  git -C "$d" checkout -q a
+  echo "a-side" > "$d/$a_file"
+  git -C "$d" add -A
+  git -C "$d" commit -q -m "a advances"
+  printf '%s' "$d"
+}
+
 tip() { git -C "$1" rev-parse "refs/heads/$2"; }
+
+# Non-empty when the index carries conflict entries — the witness for exit 5, read from git's
+# index rather than inferred from an exit code that also means half a dozen other things.
+unmerged() { git -C "$1" ls-files --unmerged; }
 
 # What the REMOTE actually holds — read from the bare repo itself, so the assertion never
 # depends on the local remote-tracking ref the push under test is what updates.
@@ -260,7 +292,7 @@ echo "  ok: arguments — a malformed invocation never reaches git commit"
 # stops before the exit-code table as soon as a line is added above it — and --help is exactly
 # what someone reads when they hit a code they do not recognise.
 
-for s in "$COMMIT" "$PUSH"; do
+for s in "$COMMIT" "$PUSH" "$MERGE"; do
   run "help-$(basename "$s")" "$s" --help
   [ "$RC" -eq 0 ] || fail "help-$(basename "$s")" "--help exited $RC"
   grep -q 'Usage:' "$OUT" || fail "help-$(basename "$s")" "--help printed no Usage: section"
@@ -269,7 +301,11 @@ for s in "$COMMIT" "$PUSH"; do
   done
   grep -q 'Exit codes:' "$OUT" || fail "help-$(basename "$s")" "--help omits the exit-code table"
 done
-echo "  ok: --help — both guards print their full header including the exit-code table"
+# The code a caller is likeliest to meet and least likely to recognise is the merge guard's 5,
+# because it is the only one that means "keep going" — --help has to spell it out.
+run help-merge-5 "$MERGE" --help
+grep -q '^  5 ' "$OUT" || fail help-merge-5 "--help omits exit code 5, the resolve-then-continue path"
+echo "  ok: --help — all three guards print their full header including the exit-code table"
 
 # ---------------------------------------------------------------- 8. foreign working directory
 #
@@ -482,5 +518,264 @@ set -e
 [ "$RC" -eq 0 ] || fail push-foreign "refused when run from another directory (exit $RC)"
 [ "$(remote_tip push-foreign a)" = "$head_sha" ] || fail push-foreign "the remote does not carry HEAD"
 echo "  ok: push foreign cwd — the guard follows -C, not the ambient directory"
+
+# ================================================================== guarded-merge.sh
+#
+# The last unguarded write in the lifecycle (#41). `_shared/sync-with-main.md` ran a bare
+# `git merge origin/main` with no branch assertion anywhere, and both lifecycle skills read it.
+# A merge commit is the biggest write in the flow, and the window is the widest: conflict
+# resolution can take minutes between `git merge` and the commit that completes it.
+
+# ---------------------------------------------------------------- 19. the incident, merged
+#
+# The #26 shape applied to the merge: the task owns `a`, a concurrent agent checks out `b`,
+# and the sync fires. Unguarded, `main` gets merged into somebody else's branch.
+
+R=$(new_merge_repo merge-incident)
+git -C "$R" checkout -q b                       # a concurrent agent switches HEAD
+before_a=$(tip "$R" a); before_b=$(tip "$R" b); before_m=$(tip "$R" m)
+
+run merge-incident "$MERGE" -C "$R" a -- m
+
+[ "$RC" -eq 2 ] || fail merge-incident "expected exit 2, got $RC"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-incident "branch a moved"
+[ "$(tip "$R" b)" = "$before_b" ] || fail merge-incident "branch b took the merge — this IS the bug"
+[ "$(tip "$R" m)" = "$before_m" ] || fail merge-incident "branch m moved"
+[ -z "$(unmerged "$R")" ] || fail merge-incident "a refused merge left conflict entries in the index"
+[ ! -e "$R/.git/MERGE_HEAD" ] || fail merge-incident "a refused merge left MERGE_HEAD behind"
+grep -q "'b'" "$OUT" && grep -q "'a'" "$OUT" \
+  || fail merge-incident "the refusal must name both the branch found and the branch expected"
+echo "  ok: merge-incident — HEAD switched to b behind the task; refused (2), nothing merged"
+
+# ---------------------------------------------------------------- 20. happy path
+#
+# A real (non-fast-forward) merge on the branch that asked for it.
+
+R=$(new_merge_repo merge-happy)
+before_a=$(tip "$R" a); before_b=$(tip "$R" b)
+
+run merge-happy "$MERGE" -C "$R" a -- m
+
+[ "$RC" -eq 0 ] || fail merge-happy "a legitimate merge was refused (exit $RC)"
+[ "$(tip "$R" a)" != "$before_a" ] || fail merge-happy "branch a did not advance"
+[ "$(tip "$R" b)" = "$before_b" ] || fail merge-happy "branch b moved — the merge went to the wrong place"
+[ "$(git -C "$R" rev-list --parents -1 a | wc -w | tr -d ' ')" = 3 ] \
+  || fail merge-happy "fixture broken: this fast-forwarded instead of writing a merge commit"
+grep -q "a@$(git -C "$R" rev-parse --short a)" "$OUT" \
+  || fail merge-happy "output must report <branch>@<short-sha>"
+echo "  ok: merge-happy — merged on a, reported a@<sha>, b untouched"
+
+# ---------------------------------------------------------------- 21. detached HEAD
+
+R=$(new_merge_repo merge-detached)
+git -C "$R" checkout -q --detach
+before_a=$(tip "$R" a)
+
+run merge-detached "$MERGE" -C "$R" a -- m
+
+[ "$RC" -eq 2 ] || fail merge-detached "expected exit 2, got $RC"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-detached "branch a moved"
+[ ! -e "$R/.git/MERGE_HEAD" ] || fail merge-detached "a refused merge left MERGE_HEAD behind"
+grep -qi detached "$OUT" || fail merge-detached "the refusal must say HEAD is detached"
+echo "  ok: merge-detached — refused (2), nothing merged"
+
+# ---------------------------------------------------------------- 22. conflicts are exit 5
+#
+# A conflicted merge is the EXPECTED outcome of a real sync, not a failure — sync-with-main.md
+# resolves the conflicts and then completes the merge. Folding it into exit 2 would make
+# "refused, nothing written" ambiguous, and folding it into git's propagated 1 would make it
+# indistinguishable from half a dozen unrelated refusals. It gets a code of its own, and the
+# witness is `git ls-files --unmerged`, not the exit code.
+
+R=$(new_merge_repo merge-conflict conflict)
+before_a=$(tip "$R" a)
+
+run merge-conflict "$MERGE" -C "$R" a -- m
+
+[ "$RC" -eq 5 ] || fail merge-conflict "expected exit 5 on conflicts, got $RC"
+[ "$(git -C "$R" symbolic-ref --short HEAD)" = a ] \
+  || fail merge-conflict "a conflicted merge must leave HEAD on the expected branch"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-conflict "branch a advanced despite conflicts"
+[ -n "$(unmerged "$R")" ] || fail merge-conflict "fixture broken: no conflict entries in the index"
+[ -e "$R/.git/MERGE_HEAD" ] || fail merge-conflict "the in-progress merge was not left in place"
+grep -q '<<<<<<<' "$R/shared.txt" || fail merge-conflict "no conflict markers in the working tree"
+grep -qi 'not a failure' "$OUT" \
+  || fail merge-conflict "exit 5 must read as a normal sync outcome, not as an error"
+grep -q 'guarded-commit.sh' "$OUT" \
+  || fail merge-conflict "the message must name how to COMPLETE the merge after resolving"
+echo "  ok: merge-conflict — exit 5, HEAD still on a, conflicts left to resolve"
+
+# 22b. …and the documented resolve-then-complete path actually works end to end. This is the
+# exact sequence sync-with-main.md prescribes, so it is worth proving rather than assuming.
+
+echo resolved > "$R/shared.txt"
+git -C "$R" add shared.txt
+
+run merge-resolved "$COMMIT" -C "$R" a -- --no-edit
+
+[ "$RC" -eq 0 ] || fail merge-resolved "completing a resolved merge was refused (exit $RC)"
+[ "$(tip "$R" a)" != "$before_a" ] || fail merge-resolved "branch a did not advance"
+[ "$(git -C "$R" rev-list --parents -1 a | wc -w | tr -d ' ')" = 3 ] \
+  || fail merge-resolved "the completed merge is not a merge commit"
+[ -z "$(unmerged "$R")" ] || fail merge-resolved "conflict entries survived the completion"
+echo "  ok: merge-resolved — resolve, then guarded-commit --no-edit completes the merge"
+
+# ---------------------------------------------------------------- 23. --abort is not a failure
+#
+# `--abort` walks away from a conflicted merge and exits 0 having moved nothing. A guard that
+# insisted the branch advance would call that a failure; this one must not.
+
+R=$(new_merge_repo merge-abort conflict)
+before_a=$(tip "$R" a)
+run merge-abort-setup "$MERGE" -C "$R" a -- m
+[ "$RC" -eq 5 ] || fail merge-abort-setup "fixture broken: expected a conflicted merge, got $RC"
+
+run merge-abort "$MERGE" -C "$R" a -- --abort
+
+[ "$RC" -eq 0 ] || fail merge-abort "--abort was treated as a failure (exit $RC)"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-abort "--abort moved branch a"
+[ ! -e "$R/.git/MERGE_HEAD" ] || fail merge-abort "the merge is still in progress after --abort"
+[ -z "$(unmerged "$R")" ] || fail merge-abort "conflict entries survived --abort"
+echo "  ok: merge-abort — passes through, exit 0, branch deliberately unmoved"
+
+# 23b. `--continue` passes through too, and needs the `-c` channel for an editor-free run —
+# which is the same channel the commit identity travels on.
+
+R=$(new_merge_repo merge-continue conflict)
+run merge-continue-setup "$MERGE" -C "$R" a -- m
+[ "$RC" -eq 5 ] || fail merge-continue-setup "fixture broken: expected a conflicted merge, got $RC"
+before_a=$(tip "$R" a)
+echo resolved > "$R/shared.txt"
+git -C "$R" add shared.txt
+
+run merge-continue "$MERGE" -C "$R" -c core.editor=true a -- --continue
+
+[ "$RC" -eq 0 ] || fail merge-continue "--continue was rejected (exit $RC)"
+[ "$(tip "$R" a)" != "$before_a" ] || fail merge-continue "--continue did not complete the merge"
+echo "  ok: merge-continue — passes through and completes the merge on a"
+
+# ---------------------------------------------------------------- 24. no advance is not an error
+#
+# The two outcomes that separate this guard from guarded-commit.sh: "Already up to date" is the
+# single most common result of a real sync, and `--no-commit` stops before writing the commit.
+# Both leave the tip exactly where it was, and both are successes.
+
+R=$(new_merge_repo merge-uptodate)
+git -C "$R" checkout -q a
+before_a=$(tip "$R" a)
+
+run merge-uptodate "$MERGE" -C "$R" a -- a
+
+[ "$RC" -eq 0 ] || fail merge-uptodate "an already-up-to-date merge was reported as a failure ($RC)"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-uptodate "fixture broken: the branch moved"
+grep -q "a@$(git -C "$R" rev-parse --short a)" "$OUT" || fail merge-uptodate "no receipt printed"
+
+R=$(new_merge_repo merge-no-commit)
+before_a=$(tip "$R" a)
+
+run merge-no-commit "$MERGE" -C "$R" a -- --no-commit m
+
+[ "$RC" -eq 0 ] || fail merge-no-commit "--no-commit was reported as a failure (exit $RC)"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-no-commit "--no-commit wrote a commit anyway"
+[ -e "$R/.git/MERGE_HEAD" ] || fail merge-no-commit "fixture broken: no merge left in progress"
+echo "  ok: no-advance — 'already up to date' and --no-commit are successes, not alarms"
+
+# ---------------------------------------------------------------- 25. HEAD moved mid-merge
+#
+# The residual race the pre-flight assert cannot close: HEAD moves AFTER the check and BEFORE
+# git writes the merge commit. Simulated deterministically with a prepare-commit-msg hook —
+# which git runs for a merge — that re-points HEAD, the same technique cases 4 and 18 use.
+#
+# The decoy branch `c` is cut from `a`'s own tip on purpose: re-pointing HEAD at a branch on a
+# DIFFERENT commit makes git's ref-lock abort the write, which would test git's safety net
+# instead of ours. At an equal tip git writes the merge commit onto whichever branch HEAD names
+# at that moment — precisely the silence under test.
+#
+# Prevention has already failed by this point; the contract is that detection does not.
+
+R=$(new_merge_repo merge-head-moved)
+git -C "$R" branch c a
+printf '#!/bin/sh\ngit symbolic-ref HEAD refs/heads/c\n' > "$R/.git/hooks/prepare-commit-msg"
+chmod +x "$R/.git/hooks/prepare-commit-msg"
+before_a=$(tip "$R" a); before_c=$(tip "$R" c)
+
+run merge-head-moved "$MERGE" -C "$R" a -- m
+
+[ "$RC" -eq 3 ] || fail merge-head-moved "expected exit 3, got $RC"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-head-moved "branch a moved, but the hook redirected the merge"
+[ "$(tip "$R" c)" != "$before_c" ] || fail merge-head-moved "fixture broken: c should carry the stolen merge"
+grep -q "branch 'c'" "$OUT" || fail merge-head-moved "the alert must name WHERE the merge went"
+grep -q "$(git -C "$R" rev-parse --short c)" "$OUT" \
+  || fail merge-head-moved "the alert must name the SHA the merge landed on"
+grep -qi 'did NOT advance' "$OUT" || fail merge-head-moved "the alert must say the expected branch is empty-handed"
+echo "  ok: merge-head-moved — merge landed on c; reported (3) and named it, silence broken"
+
+# ---------------------------------------------------------------- 26. git's own failure
+
+R=$(new_merge_repo merge-fails)
+before_a=$(tip "$R" a)
+
+run merge-fails "$MERGE" -C "$R" a -- no-such-ref
+
+[ "$RC" -ne 0 ] || fail merge-fails "merging a ref that does not exist reported success"
+[ "$RC" -ne 2 ] || fail merge-fails "git's failure was mislabelled as a refusal"
+[ "$RC" -ne 3 ] || fail merge-fails "git's failure was mislabelled as a moved HEAD"
+[ "$RC" -ne 5 ] || fail merge-fails "git's failure was mislabelled as a conflict"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-fails "branch a moved on a failed merge"
+echo "  ok: merge-fails — propagated git's own exit code ($RC), branch unchanged"
+
+# ---------------------------------------------------------------- 27. the commit identity
+#
+# git writes the merge commit itself, so the identity has to reach `git`, before the subcommand.
+
+R=$(new_merge_repo merge-identity)
+
+run merge-identity "$MERGE" -C "$R" \
+  -c user.email=someone@example.com -c user.name="Some One" \
+  a -- m
+
+[ "$RC" -eq 0 ] || fail merge-identity "the commit-identity form was rejected (exit $RC)"
+[ "$(git -C "$R" log -1 --format='%an <%ae>' a)" = "Some One <someone@example.com>" ] \
+  || fail merge-identity "the -c identity did not reach the merge commit"
+[ "$(git -C "$R" log -1 --format='%cn <%ce>' a)" = "Some One <someone@example.com>" ] \
+  || fail merge-identity "the -c identity set the author but not the committer"
+echo "  ok: merge-identity — -c reaches git, not git merge; the merge commit carries it"
+
+# ---------------------------------------------------------------- 28. argument hygiene
+
+R=$(new_merge_repo merge-args)
+run merge-no-branch "$MERGE" -C "$R" -- m
+[ "$RC" -eq 2 ] || fail merge-no-branch "a missing branch name must refuse (2), got $RC"
+
+run merge-no-args "$MERGE" -C "$R" a
+[ "$RC" -eq 2 ] || fail merge-no-args "missing git merge args must refuse (2), got $RC"
+
+run merge-extra-arg "$MERGE" -C "$R" a b -- m
+[ "$RC" -eq 2 ] || fail merge-extra-arg "a stray positional must refuse (2), got $RC"
+
+run merge-not-a-repo "$MERGE" -C "$WORK" a -- m
+[ "$RC" -eq 2 ] || fail merge-not-a-repo "a non-repo path must refuse (2), got $RC"
+
+run merge-dangling-C "$MERGE" -C
+[ "$RC" -eq 2 ] || fail merge-dangling-C "a valueless -C must refuse (2), got $RC"
+run merge-dangling-c "$MERGE" -C "$R" -c
+[ "$RC" -eq 2 ] || fail merge-dangling-c "a valueless -c must refuse (2), got $RC"
+echo "  ok: merge arguments — a malformed invocation never reaches git merge"
+
+# ---------------------------------------------------------------- 29. foreign working directory
+
+R=$(new_merge_repo merge-foreign)
+before_a=$(tip "$R" a)
+FOREIGN=$(mktemp -d "$WORK/merge-foreign-cwd.XXXX")
+
+set +e
+OUT="$WORK/out.merge-foreign"
+( cd "$FOREIGN" && bash "$MERGE" -C "$R" a -- m ) > "$OUT" 2>&1
+RC=$?
+set -e
+
+[ "$RC" -eq 0 ] || fail merge-foreign "refused when run from another directory (exit $RC)"
+[ "$(tip "$R" a)" != "$before_a" ] || fail merge-foreign "branch a did not advance"
+echo "  ok: merge foreign cwd — the guard follows -C, not the ambient directory"
 
 echo "guarded-git golden test OK"
