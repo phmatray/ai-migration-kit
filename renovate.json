@@ -21,11 +21,13 @@
       "matchStrings": [
         "XUNIT_V3_PACKAGE = \"(?<depName>[^\"]+)\"\\nXUNIT_V3_VERSION = \"(?<currentValue>[^\"]+)\""
       ],
-      "datasourceTemplate": "nuget"
+      "datasourceTemplate": "nuget",
+      "versioningTemplate": "nuget"
     },
     {
       "description": [
-        "COVERAGE_EXT_VERSION sits far from COVERAGE_PACKAGE in the file (the compatibility map is between them), so the name is templated rather than captured. It is pinned in one place — EXTENSION_MAJOR — and the golden test asserts the two agree."
+        "COVERAGE_EXT_VERSION sits far from COVERAGE_PACKAGE in the file (the compatibility map is between them), so the id is templated here rather than captured from the source. That means this depNameTemplate and the COVERAGE_PACKAGE constant must agree: tests/xunit-v3/test.sh section 9 compares them, and the transform writes COVERAGE_PACKAGE rather than a literal, so all three move together or the suite fails.",
+        "A bump proposed here must still satisfy validate_pairing, and the golden test runs the transform for real — so a version crossing the Microsoft.Testing.Platform line fails the suite rather than reaching a migration."
       ],
       "customType": "regex",
       "managerFilePatterns": ["/^tests/xunit-v3/apply-transform\\.py$/"],
@@ -33,7 +35,8 @@
         "COVERAGE_EXT_VERSION = \"(?<currentValue>[^\"]+)\""
       ],
       "depNameTemplate": "Microsoft.Testing.Extensions.CodeCoverage",
-      "datasourceTemplate": "nuget"
+      "datasourceTemplate": "nuget",
+      "versioningTemplate": "nuget"
     }
   ],
   "github-actions": {

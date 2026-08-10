@@ -134,9 +134,13 @@ def _major_of(version: str) -> int:
     return int(head)
 
 
-def validate_pairing(xunit_package: str, version: str,
+def validate_pairing(xunit_package: str, version: str, *,
                      package: str | None = None,
                      xunit_version: str | None = None) -> None:
+    # Keyword-only past the first two: `package` was inserted where `xunit_version` used to sit, so
+    # an older positional call would otherwise pass a VERSION as the package id and refuse a correct
+    # pair with a message naming "3.2.2" as the serving package. A silent meaning change in a
+    # positional slot is the kind of break that should be a TypeError, not a wrong answer.
     """Refuse a Microsoft.Testing.* package that straddles the MTP line the xunit package binds to.
 
     Keyed on the xunit PACKAGE ID, never its version: `xunit.v3` and `xunit.v3.mtp-v2` are both
@@ -278,7 +282,7 @@ def transform_test_csproj(text: str, with_output_type: bool,
 
     # 2. Add the v3 packages in their own ItemGroup, above the first remaining one.
     new_refs = [
-        f'<PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage"'
+        f'<PackageReference Include="{COVERAGE_PACKAGE}"'
         f' Version="{coverage_version}" />',
         f'<PackageReference Include="{XUNIT_V3_PACKAGE}" Version="{XUNIT_V3_VERSION}" />',
     ]
@@ -322,11 +326,11 @@ def verify_transformed(text: str, with_output_type: bool,
     # migration that lost this reference still builds, still runs its tests, and simply reports no
     # coverage. Nothing downstream would call that an error — which is why it is asserted here.
     if not re.search(
-        rf'PackageReference\s+Include="Microsoft\.Testing\.Extensions\.CodeCoverage"'
+        rf'PackageReference\s+Include="{re.escape(COVERAGE_PACKAGE)}"'
         rf'\s+Version="{re.escape(coverage_version)}"', text
     ):
         problems.append(
-            f"Microsoft.Testing.Extensions.CodeCoverage {coverage_version} reference missing — "
+            f"{COVERAGE_PACKAGE} {coverage_version} reference missing — "
             f"coverage would silently vanish under MTP"
         )
     if NEW_PROPS not in text:

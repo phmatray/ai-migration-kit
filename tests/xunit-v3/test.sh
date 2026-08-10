@@ -833,10 +833,18 @@ source = open(transform_path, encoding="utf-8").read()
 
 
 def to_python(pattern):
-    """Renovate evaluates these with JavaScript's engine, where a named group is `(?<name>…)`.
-    Python spells the same thing `(?P<name>…)`. Translate for the check, leaving lookbehinds
-    (`(?<=`, `(?<!`) alone — the config must stay in the dialect Renovate actually parses."""
-    return re.sub(r"\(\?<(?![=!])", "(?P<", pattern)
+    """Renovate evaluates these with RE2, where a named group is `(?<name>…)`; Python spells the
+    same thing `(?P<name>…)`. Translate for the check.
+
+    Lookbehind is REJECTED rather than translated: Python supports it, RE2 does not, so a pattern
+    using one would match happily here while Renovate's own compile throws CONFIG_VALIDATION and
+    stops managing the repo entirely — whose only symptom is that no PRs ever appear again. A guard
+    that is green on a config the real engine refuses is worse than no guard."""
+    assert not re.search(r"\(\?<[=!]", pattern), (
+        f"lookbehind in a matchString: RE2 cannot compile it and Renovate would reject the whole "
+        f"config — {pattern!r}"
+    )
+    return pattern.replace("(?<", "(?P<")
 
 
 found = {}
@@ -845,13 +853,23 @@ for m in managers:
     # The file patterns must actually select apply-transform.py, or the manager is decorative.
     pats = m.get("managerFilePatterns") or m.get("fileMatch") or []
     assert any("apply-transform" in p for p in pats), f"manager does not target the transform: {m}"
+    # Asserted per MANAGER, not per match: inside the match loop these never run for a manager
+    # whose regex has gone blind, which is exactly the manager worth complaining about.
+    assert m.get("datasourceTemplate") == "nuget", f"datasource must be nuget: {m}"
+    assert m.get("versioningTemplate") == "nuget", (
+        f"versioning must be nuget — the custom-manager default is semver-coerced, which mis-orders "
+        f"NuGet's four-segment versions: {m}"
+    )
+    matched = 0
     for raw in m["matchStrings"]:
         for hit in re.finditer(to_python(raw), source):
             g = hit.groupdict()
             dep = g.get("depName") or m.get("depNameTemplate")
             assert dep, f"no depName captured or templated for {raw!r}"
-            assert m.get("datasourceTemplate") == "nuget", f"{dep}: datasource must be nuget"
+            assert "currentValue" in g, f"{dep}: {raw!r} captures no currentValue"
             found[dep] = g["currentValue"]
+            matched += 1
+    assert matched, f"this manager matched nothing in the transform — it is dead: {m}"
 
 for dep, version in want.items():
     assert dep in found, (
@@ -861,7 +879,29 @@ for dep, version in want.items():
     assert found[dep] == version, (
         f"{dep}: the regex captured {found[dep]!r} but the module reports {version!r}"
     )
-print(f"  [9] Renovate's custom manager sees {len(found)} pin(s): "
+# Exposing these pins is only SAFE because majors are disabled for the family: a lone CodeCoverage
+# 18.x would restore clean, build clean and die at run time. So the rule that makes it safe must
+# actually cover the depNames these managers emit — edit a glob and the managers keep working while
+# the protection quietly stops applying.
+def covers(glob, dep):
+    """Renovate's matchPackageNames globbing, reduced to what these rules use: a trailing `*`/`**`
+    is a prefix match, anything else is an exact (case-insensitive) name."""
+    g, d = glob.lower(), dep.lower()
+    return d.startswith(g.rstrip("*")) if g.endswith("*") else g == d
+
+
+major_rules = [
+    r for r in cfg.get("packageRules", [])
+    if r.get("enabled") is False and "major" in (r.get("matchUpdateTypes") or [])
+]
+for dep in found:
+    assert any(any(covers(g, dep) for g in (r.get("matchPackageNames") or []))
+               for r in major_rules), (
+        f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
+        f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
+    )
+
+print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
 PY
 
