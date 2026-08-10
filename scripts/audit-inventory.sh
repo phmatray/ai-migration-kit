@@ -117,6 +117,68 @@ def tfm(text):
 
 LEGACY_TFM = re.compile(r'netcoreapp[12]\.|netstandard1\.|net-framework|uap|portable', re.I)
 
+# Le test stack se lit sur les IDENTIFIANTS de paquet, pas sur les versions — c'est tout le
+# problème que cette clé existe pour rendre visible : passer de xunit v2 à v3 change l'ID
+# (`xunit` -> `xunit.v3`), donc `dotnet list package --outdated` ne le proposera JAMAIS. Sans
+# cette clé, la phase 1 note « framework: xUnit » et la ligne majeure reste invisible.
+PKG_REF = re.compile(r'<PackageReference\b([^>]*?)(?:/>|>(.*?)</PackageReference>)', re.S)
+PKG_ATTR = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
+TEST_PKG = re.compile(r'^(xunit|nunit|mstest|microsoft\.net\.test\.sdk|microsoft\.testing\.)', re.I)
+
+
+def package_refs(text):
+    """{id: version} pour un csproj. Version en attribut OU en élément enfant."""
+    refs = {}
+    for m in PKG_REF.finditer(text):
+        attrs = dict(PKG_ATTR.findall(m.group(1)))
+        pid = attrs.get('Include') or attrs.get('Update')
+        if not pid:
+            continue
+        version = attrs.get('Version', '')
+        if not version and m.group(2):
+            child = re.search(r'<Version>([^<]+)</Version>', m.group(2))
+            version = child.group(1) if child else ''
+        refs[pid] = version
+    return refs
+
+
+def xunit_major(refs):
+    """2, 3, ou None. `xunit.v3*` porte la majeure dans son ID, pas dans sa version."""
+    if any(pid.lower().startswith('xunit.v3') for pid in refs):
+        return 3
+    for pid in ('xunit', 'xunit.core'):
+        version = next((v for k, v in refs.items() if k.lower() == pid), '')
+        m = re.match(r'\D*(\d+)\.', version)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def test_framework(refs):
+    ids = [pid.lower() for pid in refs]
+    if any(i == 'xunit' or i.startswith('xunit.') for i in ids):
+        return 'xunit'
+    if any(i == 'nunit' or i.startswith('nunit.') for i in ids):
+        return 'nunit'
+    if any(i.startswith('mstest') for i in ids):
+        return 'mstest'
+    return 'unknown'
+
+
+test_stack = []
+for p in csproj:
+    refs = package_refs(proj_texts[p])
+    if not any(TEST_PKG.match(pid) for pid in refs):
+        continue
+    test_stack.append({
+        'project': p.as_posix(),
+        'targetFrameworks': tfm(proj_texts[p]),
+        'framework': test_framework(refs),
+        'xunitMajor': xunit_major(refs),
+        'packages': dict(sorted(refs.items())),
+    })
+test_stack.sort(key=lambda x: x['project'])
+
 proj_details = []
 for p in csproj:
     own = [c for c in cs if p.parent in c.parents]
@@ -148,5 +210,6 @@ print(json.dumps({
     'locTotal': loc(cs), 'locCodeBehind': loc(code_behind), 'locLogic': loc(logic),
     'windowsApiClusters': dict(sorted(clusters.items(), key=lambda kv: -kv[1])),
     'packages': sorted(packages), 'hasTests': has_tests,
+    'testStack': test_stack,
 }, indent=2, ensure_ascii=False))
 PY
