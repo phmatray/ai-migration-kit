@@ -9,7 +9,7 @@ jobs:
   kit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # audit-inventory.sh reports FIRST_COMMIT from `git log --reverse`. On a depth-1 checkout
           # that command still succeeds — it just answers with the shallow commit — so the fallback
