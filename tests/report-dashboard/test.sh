@@ -32,10 +32,15 @@ assert 'Déployer avec fallback SPA'
 # La couverture vient du cobertura (calculée), jamais recopiée du JSON :
 assert 'Engine : 3/4 lignes couvertes'
 assert 'Wrapper : 1/2 lignes couvertes'
-# Le global est recalculé sur les lignes fusionnées (3/4 + 1/2 = 67 %) et sur les
-# condition-coverage (7/10 = 70 %) — jamais lu dans l'attribut line-rate de la racine, qui
-# compterait deux fois le produit dès qu'il y a plusieurs rapports (cf. parse_cobertura).
-assert 'Global : 67 % lignes · 70 % branches'
+# Une classe partielle (Partial.cs + Partial.Designer.cs, 2 lignes chacun) donne UNE entrée de
+# 4 lignes. Une fusion qui identifierait les lignes par leur seul numéro en compterait 2.
+assert 'Partial : 3/4 lignes couvertes'
+[ "$(count_in "$out" 'Partial : ')" = 1 ] || {
+  echo "ÉCHEC : la classe partielle apparaît en double au lieu d'être fusionnée"; exit 1; }
+# Le global est recalculé sur les lignes fusionnées (7/10) et sur les condition-coverage
+# (8/12) — jamais lu dans l'attribut line-rate de la racine, qui compterait deux fois le
+# produit dès qu'il y a plusieurs rapports (cf. parse_cobertura).
+assert 'Global : 70 % lignes · 67 % branches'
 # Le filtre d'exclusion fonctionne :
 refuse 'ExcludedWeb'
 # Chronologie du pipeline (phases[]) : minutes par phase + total calculé, jamais recopié :
@@ -87,10 +92,10 @@ assert_in "$multi" 'Engine : 4/4 lignes couvertes'
 # Une classe que seul l'un des deux rapports voit doit survivre à l'union, dans les deux sens.
 assert_in "$multi" 'Wrapper : 1/2 lignes couvertes'
 assert_in "$multi" 'Repository : 4/6 lignes couvertes'
-# Le global est recalculé sur l'union : lignes (3+1 de A, +1 Engine et +4 Repository de B)
-#   = 9/12 = 75 %, branches = 11/16 = 69 %. Chaque rapport pris seul vaut moins (67 % et 50 %) :
-#   un global qui ne monte pas au-dessus des deux est le symptôme d'un fichier écrasé.
-assert_in "$multi" 'Global : 75 % lignes · 69 % branches'
+# Le global est recalculé sur l'union : 12/16 lignes et 14/18 branches. Chaque rapport pris
+#   seul vaut moins (70 %/67 % et 50 %/50 %) : un global qui ne monte pas au-dessus des deux
+#   est le symptôme d'un fichier écrasé.
+assert_in "$multi" 'Global : 75 % lignes · 78 % branches'
 # L'exclusion s'applique à TOUS les rapports, pas seulement au premier.
 refuse_in "$multi" 'ExcludedWeb'
 rm -rf "$multi_dir"
@@ -106,7 +111,7 @@ a = "tests/report-dashboard/fixture-cobertura.xml"
 b = "tests/report-dashboard/fixture-cobertura-b.xml"
 seul, liste = rd.parse_cobertura(a, ["Fixture.Web"]), rd.parse_cobertura([a], ["Fixture.Web"])
 assert seul == liste, f"chaîne nue et liste d'un élément divergent :\n  {seul}\n  {liste}"
-assert seul["line_pct"] == 67 and seul["branch_pct"] == 70, seul
+assert seul["line_pct"] == 70 and seul["branch_pct"] == 67, seul
 # L'union ne dépend pas de l'ordre des rapports : sinon « le dernier gagne » serait encore là,
 # juste déplacé de la collecte vers la lecture.
 assert rd.parse_cobertura([a, b], ["Fixture.Web"]) == rd.parse_cobertura([b, a], ["Fixture.Web"])

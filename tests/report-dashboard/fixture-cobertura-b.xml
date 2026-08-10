@@ -24,7 +24,7 @@
             <line number="1" hits="2" branch="True" condition-coverage="100% (2/2)" />
             <line number="2" hits="1" />
             <line number="3" hits="0" />
-            <line number="4" hits="3" branch="True" condition-coverage="0% (0/2)" />
+            <line number="4" hits="3" branch="True" condition-coverage="100% (2/2)" />
             <line number="5" hits="0" />
             <line number="6" hits="1" />
           </lines>

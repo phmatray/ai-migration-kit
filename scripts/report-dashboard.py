@@ -71,8 +71,13 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
             if included_names and name.split(".")[-1] not in included_names:
                 continue
             by_line = merged.setdefault(name, {})
+            # Identité d'une ligne = (fichier, numéro), jamais le seul numéro : une classe
+            # PARTIELLE est émise une fois par fichier source (`Foo.cs` + `Foo.Designer.cs`,
+            # omniprésent dans le legacy WinForms/WebForms que ce kit migre), et les deux
+            # commencent à la ligne 1. Fusionner sur le numéro seul additionnerait les hits de
+            # deux lignes sans rapport et perdrait la moitié du dénominateur.
             for l in cls.findall(".//line"):
-                slot = by_line.setdefault(l.get("number"), [0, 0, 0])
+                slot = by_line.setdefault((cls.get("filename"), l.get("number")), [0, 0, 0])
                 covered, total = _conditions(l)
                 slot[0] += int(l.get("hits"))
                 # Le maximum, pas la somme : deux rapports qui couvrent LA MÊME branche
