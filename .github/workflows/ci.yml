@@ -22,6 +22,12 @@ jobs:
             6.0.x
             10.0.x
 
+      # Installed up front, not next to the step that first needed it: check-frontmatter.py
+      # parses the frontmatter as YAML rather than pattern-matching it, and it runs well
+      # before the template check that used to own this install.
+      - name: Install Python test dependencies
+        run: python3 -m pip install --quiet PyYAML
+
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo
 
@@ -76,13 +82,17 @@ jobs:
       - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists, requirements cross-check)
         run: python3 tests/skills/check-frontmatter.py
 
+      # The frontmatter checker asserts a key is ABSENT, which the six real skills already
+      # satisfy — so its pass path proves nothing and a guard that stopped matching would
+      # stay green. This drives it over fixtures that must be rejected.
+      - name: Frontmatter checker golden test (rejects every spelling of a version key)
+        run: ./tests/skills/test.sh
+
       - name: Inventory script runs and emits valid JSON
         run: ./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null
 
       - name: Templates are valid YAML
-        run: |
-          python3 -m pip install --quiet PyYAML
-          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/*.yml')]"
+        run: python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/*.yml')]"
 
       - name: Report generator golden test (fixture → HTML assertions)
         run: ./tests/report-dashboard/test.sh
