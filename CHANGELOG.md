@@ -3,6 +3,24 @@
 Toutes les évolutions notables du kit. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/),
 versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-ce qui change si je mets à jour ? »
 
+À partir de la version suivant [1.9.1], les entrées sous ce paragraphe sont générées par
+[release-please](https://github.com/googleapis/release-please) à partir des Conventional Commits :
+elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
+plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
+
+## [1.9.1] — 2026-08-10
+
+Correctif de **propagation**, entré sur `main` par la PR #7 sans tag ni entrée de changelog — les
+deux sont posés rétroactivement le 2026-08-10, en même temps que l'installation de release-please.
+
+### Corrigé
+- **Le garde-fou `tick-plan` de la PR #5 est effectivement livré.** Les skills sont consommées via
+  le marketplace, et la copie installée est un **cache d'installation clé par version**, pas une vue
+  vive du dépôt : mesuré sur l'issue #6, amener le clone du marketplace sur un commit contenant le
+  correctif laisse le cache chargé **inchangé**. Un correctif mergé sans bump de
+  `.claude-plugin/plugin.json` atteint donc **zéro consommateur**, tout en ayant l'apparence exacte
+  d'une release réussie — CI verte, commit sur `main`. C'est ce qui était arrivé à la PR #5.
+
 ## [1.9.0] — 2026-07-23
 
 Porte de **verdict de fin de phase 1** — les deux items du backlog dont le déclencheur a sauté le

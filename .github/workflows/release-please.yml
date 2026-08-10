@@ -1,0 +1,41 @@
+name: release-please
+
+# Derives the next semantic version from Conventional Commits on every push to main and keeps a
+# release PR up to date (bumping .claude-plugin/plugin.json + CHANGELOG.md). Merging that PR tags
+# vX.Y.Z and publishes the GitHub Release.
+#
+# Unlike the other repos in the portfolio, there is no publish job here and that is deliberate:
+# the plugin is consumed straight from this repository through .claude-plugin/marketplace.json
+# (`/plugin marketplace add phmatray/ai-migration-kit`), so the tag and the version stamped into
+# plugin.json ARE the artifact — there is nothing to pack, sign or upload.
+#
+# PRs land squash-merged, so the PR title becomes the commit message on main: it is the PR title,
+# not the branch commits, that decides the next version.
+
+on:
+  push:
+    branches: [main]
+  # Manual re-run, e.g. after a token or permission failure. Idempotent: it re-opens or refreshes
+  # the same release PR rather than creating a second one.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Serialize release-please runs so two overlapping pushes to main can't race on the release PR
+# or the tag. Never cancel an in-progress run — cancelling mid-tag could leave it half-applied.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: googleapis/release-please-action@v5
+        with:
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
