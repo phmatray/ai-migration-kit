@@ -95,8 +95,10 @@ to the plan comment (`…/issues/21#issuecomment-12345`). The locator snippets i
 it as a comment. **Run the locator recipe from `references/github-mechanics.md` §2** — it probes the
 body for the `🛠️ Implementation plan` marker, falls back to the latest plan comment (paginated,
 numeric REST id — a GraphQL node id will NOT work for the PATCH), and leaves the plan text in
-`/tmp/plan-$ISSUE.md`. Carry `PLAN_SRC` (`body` | `comment`) and `PLAN_COMMENT_ID` forward — Step 6
-PATCHes whichever source. Neither body nor any comment carries a plan → stop (nothing to execute).
+**two** files: the pristine `/tmp/plan-$ISSUE.orig.md` (never edited — it is both the restore copy
+and what Step 6 validates the write against) and the working `/tmp/plan-$ISSUE.md`. Carry `PLAN_SRC`
+(`body` | `comment`) and `PLAN_COMMENT_ID` forward — Step 6 PATCHes whichever source. Neither body
+nor any comment carries a plan → stop (nothing to execute).
 
 Parse `/tmp/plan-$ISSUE.md` into tasks: each `### Task N: <name>` heading owns the `- [ ]`/`- [x]`
 lines beneath it up to the next `### Task` (or end). When the plan came from the body, the file also
@@ -204,9 +206,17 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
 4. **Tick the task — on the issue plan AND the PR description.** Flip it in **both** so neither goes
    stale (issue canonical, PR list its mirror). In each file flip *only this task's* `- [ ]` lines
    with the **Edit tool per line** — never a blunt `sed s/\[ \]/[x]/g`, which ticks *other* tasks
-   too — then write each source back (`jq -Rs '{body: .}' | gh api … -X PATCH --input -` for the
-   issue plan, `gh pr edit --body-file` for the PR). Exact PATCH recipes for both paths:
-   `references/github-mechanics.md` §4.
+   too. Then write the issue plan back **through `scripts/tick-plan.sh`, never by piping `jq`
+   straight into `gh api`** — that pipeline wiped two live issue bodies, and it fails silently
+   with exit 0 (see `references/github-mechanics.md` §4):
+   ```bash
+   ./skills/implement-issue/scripts/tick-plan.sh \
+     --repo {owner}/{repo} --issue "$ISSUE" \
+     --before /tmp/plan-$ISSUE.orig.md --after /tmp/plan-$ISSUE.md
+   ```
+   It refuses unless the new body is the old one with checkbox characters — and nothing else —
+   changed, so a missing, empty or truncated file can never reach GitHub. The PR mirror is a
+   plain `gh pr edit --body-file`. Exact recipes for both paths: `references/github-mechanics.md` §4.
 
 5. **Push** so the PR reflects the new commit: `git push`.
 

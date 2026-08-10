@@ -44,14 +44,23 @@ in the body, you tick boxes by PATCHing the issue itself (§4), no comment id ne
 the comment trail for issues filed by older versions.
 
 ```bash
-# Preferred: the plan is in the description.
-gh api "repos/{owner}/{repo}/issues/$ISSUE" --jq .body > /tmp/plan-$ISSUE.md
+# Preferred: the plan is in the description. Fetch to a PRISTINE copy, check it, then work on a
+# duplicate — §4 needs the untouched original both to validate the write and to restore from.
+gh api "repos/{owner}/{repo}/issues/$ISSUE" --jq .body > /tmp/plan-$ISSUE.orig.md
+[ -s /tmp/plan-$ISSUE.orig.md ] || { echo "empty fetch for #$ISSUE — do NOT write anything back"; exit 1; }
+cp /tmp/plan-$ISSUE.orig.md /tmp/plan-$ISSUE.md
+
 if grep -q '🛠️ Implementation plan' /tmp/plan-$ISSUE.md; then
   PLAN_SRC=body
 else
   PLAN_SRC=comment
 fi
 ```
+
+⚠️ **The `[ -s ]` check is load-bearing, not decoration.** A failed or rate-limited fetch leaves an
+empty file, and every downstream step happily turns that into a valid empty body — which is exactly
+how two live issue bodies were destroyed. Never edit-and-write a plan file you have not proved was
+fetched.
 
 When `PLAN_SRC=comment`, you need the comment's **numeric REST id** (the database id) — that's what
 the PATCH endpoint in §4 edits. `gh issue view --json comments` returns GraphQL **node ids** (`IC_kw…`),
@@ -76,8 +85,10 @@ if [ "$PLAN_SRC" = comment ]; then
   # Nothing in the body AND nothing in comments? Stop — there is no plan to execute (Autonomy contract).
   [ -z "$PLAN_COMMENT_ID" ] && { echo "No implementation plan on #$ISSUE"; exit 1; }
 
-  # Pull the comment body to the same working file.
-  gh api "repos/{owner}/{repo}/issues/comments/$PLAN_COMMENT_ID" --jq .body > /tmp/plan-$ISSUE.md
+  # Pull the comment body to the same working files (pristine original + working copy).
+  gh api "repos/{owner}/{repo}/issues/comments/$PLAN_COMMENT_ID" --jq .body > /tmp/plan-$ISSUE.orig.md
+  [ -s /tmp/plan-$ISSUE.orig.md ] || { echo "empty fetch for comment $PLAN_COMMENT_ID — write nothing back"; exit 1; }
+  cp /tmp/plan-$ISSUE.orig.md /tmp/plan-$ISSUE.md
 fi
 ```
 
@@ -117,34 +128,67 @@ Preferred: edit `/tmp/plan-$ISSUE.md` line by line with the **Edit tool**, chang
 that task's `- [ ] **Step k:** …` lines to `- [x] **Step k:** …`. The step text is unique, so each
 Edit targets exactly one line and fails loudly if something drifted — which is the safety you want.
 
-Then PATCH the whole body back — the **issue** when the plan lives in its description, or the
-**comment** on a legacy issue. Use `jq -Rs` to wrap the file as a JSON string so backticks, quotes,
-and newlines survive intact:
+Then write the whole body back — the **issue** when the plan lives in its description, or the
+**comment** on a legacy issue — **through `tick-plan.sh`**:
 
 ```bash
 if [ "$PLAN_SRC" = body ]; then
-  jq -Rs '{body: .}' /tmp/plan-$ISSUE.md \
-    | gh api "repos/{owner}/{repo}/issues/$ISSUE" -X PATCH --input -
+  ./skills/implement-issue/scripts/tick-plan.sh \
+    --repo {owner}/{repo} --issue "$ISSUE" \
+    --before /tmp/plan-$ISSUE.orig.md --after /tmp/plan-$ISSUE.md
 else
-  jq -Rs '{body: .}' /tmp/plan-$ISSUE.md \
-    | gh api "repos/{owner}/{repo}/issues/comments/$PLAN_COMMENT_ID" -X PATCH --input -
+  ./skills/implement-issue/scripts/tick-plan.sh \
+    --repo {owner}/{repo} --issue "$ISSUE" --comment-id "$PLAN_COMMENT_ID" \
+    --before /tmp/plan-$ISSUE.orig.md --after /tmp/plan-$ISSUE.md
 fi
 ```
 
-`--input -` reads the JSON body from stdin; this is far more robust than `-f body=...` for large,
-Markdown-heavy bodies. The body-sourced file holds the *whole* description, so flipping only this
-task's checkbox lines and PATCHing it back leaves the template fields and brainstorm/spec untouched.
-After the PATCH, the issue re-renders with this task's boxes ticked — and because the plan is in the
-body, the progress meter advances too.
+It wraps the file with `jq -Rs` (a JSON string, so backticks, quotes and newlines survive intact)
+and PATCHes with `--input -`, which is far more robust than `-f body=...` for large, Markdown-heavy
+bodies. The body-sourced file holds the *whole* description, so flipping only this task's checkbox
+lines leaves the template fields and brainstorm/spec untouched. After the write, the issue re-renders
+with this task's boxes ticked — and because the plan is in the body, the progress meter advances too.
+The script then re-reads the issue and asserts the stored body matches what it sent.
+
+### ⛔ Never pipe `jq` straight into a mutating `gh api`
+
+The recipe this replaced —
+
+```bash
+jq -Rs '{body: .}' /tmp/plan-$ISSUE.md | gh api ".../issues/$ISSUE" -X PATCH --input -   # DESTROYED TWO ISSUES
+```
+
+— wiped the full body of two live issues in a single unattended run, silently, exiting `0`. The
+mechanism is worth knowing because the obvious fix does not work:
+
+| plan file | `jq` exit | what `jq` prints | pipeline exit |
+|---|---|---|---|
+| missing | 2 | `{"body": ""}` — **well-formed, not empty output** | **0** |
+| empty | **0** | `{"body": ""}` | **0** |
+
+`jq -Rs` slurps *nothing* into the empty string and faithfully builds a valid payload, so `gh` is
+never handed anything malformed to reject. And because `jq` exits **0** on the empty-file path,
+**`set -o pipefail` does not catch it** — the reflex fix closes only the top row of that table.
+
+There is no guard on the *transport* that helps; the **body** has to be checked. `tick-plan.sh`
+does it exactly rather than heuristically: ticking is a one-character substitution, so with every
+box normalised back to `[ ]` the new body must be **byte-identical** to the old one. Missing, empty,
+truncated, rewritten, un-ticked or no-op bodies all fail that test, and none of them reach GitHub.
+Covered by `tests/tick-plan/test.sh` in CI.
 
 **The PR description's mirror list** gets the same treatment — flip *this task's* `- [ ] Task N: …`
 line in the PR's `### Plan` list, then write it back:
 
 ```bash
 gh pr view $PR_NUMBER --json body --jq .body > /tmp/pr-$ISSUE.md
+[ -s /tmp/pr-$ISSUE.md ] || { echo "empty PR body fetch — do NOT write it back"; exit 1; }
 # Edit-tool per line: flip only this task's "- [ ] Task N:" line to "- [x] Task N:".
-gh pr edit $PR_NUMBER --body-file /tmp/pr-$ISSUE.md
+[ -s /tmp/pr-$ISSUE.md ] && gh pr edit $PR_NUMBER --body-file /tmp/pr-$ISSUE.md
 ```
+
+⚠️ **`gh pr edit --body-file` on an empty file blanks the PR description** — the same defect as §4's
+issue PATCH, one endpoint over. It is less costly (the PR list is a mirror; the issue is canonical)
+but it is the same mistake, so it gets the same `[ -s ]` guard on both the read and the write.
 
 Re-fetch isn't needed within a single run — you own the source and hold the canonical copy in the
 temp file. (If you ever suspect a concurrent edit, re-fetch, re-apply your flips, re-PATCH.)
@@ -222,8 +266,12 @@ continue to Step 9 (full build/tests + format gate) — never push a merge you h
 - **The emoji marker is the anchor.** `create-issue` writes `## 🛠️ Implementation plan` (older issues:
   a `**🛠️ Implementation plan**` comment). Match on the `🛠️ Implementation plan` substring; keep the
   §2 checkbox fallback for hand-written plans.
-- **`jq -Rs` for the body.** Hand-building the JSON (or `-f body=`) mangles plans full of backticks,
-  code fences, and `<` `>`. `jq -Rs '{body:.}'` is lossless.
+- **`jq -Rs` for the body — inside `tick-plan.sh`, never in a bare pipe.** Hand-building the JSON
+  (or `-f body=`) mangles plans full of backticks, code fences, and `<` `>`; `jq -Rs '{body:.}'` is
+  lossless. But it is lossless about *whatever it was given*, including nothing — piping it straight
+  into a mutating `gh api` is what destroyed two issue bodies (§4).
+- **Keep the pristine fetch.** `/tmp/plan-$ISSUE.orig.md` is never edited. Without an untouched copy
+  there is nothing to validate the new body against and nothing to restore from.
 - **Whole-file sed is forbidden.** Tick per task, not per repo — see §4.
 - **Reconcile the mirror on resume.** The issue PATCH and the PR-body edit aren't atomic; a crash
   between them leaves the PR's `### Plan` line unticked forever unless the next run re-syncs it
@@ -246,3 +294,7 @@ continue to Step 9 (full build/tests + format gate) — never push a merge you h
 | `Failed to connect to github.com port 443` on `git push`/`fetch` while `gh` works | Sandbox blocks raw git network traffic (not an outage — `gh` proves the host is reachable) | Re-run just that command with the sandbox disabled; local git (merge, commit, worktree) needs no network |
 | "No implementation plan on #N" | The issue carries no plan in its body or comments | Stop (Autonomy contract) — nothing to execute; seed a plan via `create-issue` if the user insists |
 | PATCH succeeded but the progress meter didn't move | The plan lives in a comment (meter counts body checkboxes only), or the wrong task's lines were flipped | Verify which source was PATCHed (§2's `PLAN_SRC`); re-flip with the Edit tool per line (§4) |
+| `tick-plan: REFUSED — body length changed` / `differs outside the checkboxes` | Something rewrote the working file beyond flipping boxes (a stray Edit, a re-fetch mid-task, an agent "tidying" the body) | **Nothing was sent — the issue is intact.** Re-copy `/tmp/plan-$ISSUE.orig.md` over the working file, re-apply only this task's flips, re-run |
+| `tick-plan: REFUSED — --after file is empty` / `does not exist` | The fetch failed, or the working file was clobbered. This is the wipe (Koine#1813) being caught | **Nothing was sent.** Re-fetch via §2 and restart the tick; never hand-PATCH around the script |
+| `tick-plan: REFUSED — no checkbox was ticked` | The per-line Edit didn't land (step text drifted from what the plan actually says) | Re-read the working file, match the real step text, re-flip. A no-op write would look like progress |
+| `tick-plan: ALERT — … now has an EMPTY body` | A body was written empty despite the guards (should be unreachable) | Restore immediately from `/tmp/plan-$ISSUE.orig.md`, then file a bug — the guard has a hole |

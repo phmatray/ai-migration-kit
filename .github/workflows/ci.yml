@@ -70,6 +70,9 @@ jobs:
       - name: Followups aggregator golden test (tri, backlog, erreurs, JSON)
         run: ./tests/followups/test.sh
 
+      - name: Tick-plan golden test (a bad body never reaches GitHub)
+        run: ./tests/tick-plan/test.sh
+
       - name: Contrast checker works (pass AND fail paths)
         run: |
           python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
