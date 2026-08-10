@@ -122,6 +122,31 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
+# 0. No knob in the transform reads the environment.
+#
+#    First, before ANY invocation below. This replaced a top-of-file `unset`, and it has to keep
+#    that position: every section from 2 onward runs the transform, so a reintroduced env read with
+#    a value in the caller's shell would steer those runs and fail there first — sending the reader
+#    after a package-resolution bug when the real defect is ambient state.
+#
+#    A pure source check with no dependencies, so it costs nothing to run first. Section 7c is the
+#    end-to-end witness that the rule holds for the script as actually invoked.
+# ---------------------------------------------------------------------------
+TRANSFORM="$KIT/tests/xunit-v3/apply-transform.py"
+[ -f "$TRANSFORM" ] || { echo "FAIL: $TRANSFORM does not exist — this guard would check nothing"; exit 1; }
+# `|| true` INSIDE the pipeline: grep exits 1 when it matches nothing — the passing case — and under
+# `set -o pipefail` that would abort the assignment, killing the suite with no output at all. The
+# zero count is a result, not a failure.
+knobs=$( { grep -oE 'os\.environ|getenv' "$TRANSFORM" || true; } | wc -l | tr -d ' ')
+if [ "$knobs" -ne 0 ]; then
+  echo "FAIL: apply-transform.py reads $knobs value(s) from the environment. Every override must be"
+  echo "      an explicit flag — ambient state must never steer a migration:"
+  grep -nE 'os\.environ|getenv' "$TRANSFORM"
+  exit 1
+fi
+echo "  [0] the transform takes no knob from the environment"
+
+# ---------------------------------------------------------------------------
 # 1. The inventory reports the test stack (phase 1 needs it to decide v2 vs v3).
 # ---------------------------------------------------------------------------
 inv=$(./scripts/audit-inventory.sh "$FIXTURE")
@@ -598,7 +623,11 @@ bad_coverage="$(( pinned_major + 1 )).0.0"
 # ignored, and the interesting case is the silent one — a stray value that validate_pairing would
 # happily accept. A cross-major literal would instead be REFUSED, aborting the run under `set -e`
 # before the assertion could speak, and proving something else entirely.
-ambient_coverage="$pinned_major.0.99"
+#
+# Derived from the pin by SUFFIX so it can never coincide with it: a bare "$pinned_major.0.99" would
+# equal the pin the day the pin becomes 17.0.99, and 7c would then blame environment leakage for a
+# value the script itself chose.
+ambient_coverage="$pinned_coverage-ambient"
 
 mkdir -p "$shapes/pairing/p"
 cat > "$shapes/pairing/p/p.csproj" <<'XML'
@@ -623,7 +652,7 @@ if python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/pairing" \
 fi
 # Establish WHICH refusal fired before asserting what it says: an unknown-package-id refusal names
 # only the id, so without this the next reader is sent after a message-formatting bug when the real
-# defect is a missing MTP_COMPAT entry.
+# defect is a missing MTP_LINE entry.
 grep -qF 'incompatible test platform pair' "$pair_log" || {
   echo "FAIL: the transform refused, but not for the pairing reason — the mismatch branch never"
   echo "      ran, so nothing here proves the pairing is checked:"; cat "$pair_log"; exit 1; }
@@ -642,22 +671,73 @@ py_module "$KIT/tests/xunit-v3/apply-transform.py" <<'PY'
 # The package/version this kit actually pins agree with the map.
 mod.validate_pairing(mod.XUNIT_V3_PACKAGE, mod.COVERAGE_EXT_VERSION)
 
-# The rule is keyed on the PACKAGE ID, not the major. `xunit.v3` and `xunit.v3.mtp-v2` are both on
+# The DEFAULT package is the coverage extension — the one the transform writes — so the call with no
+# `package=` must behave exactly as the explicit one does. (The version pairs themselves are owned by
+# the family table below; duplicating them here would mean keeping two tables in sync by hand.)
+mod.validate_pairing("xunit.v3", "17.14.2")
+try:
+    mod.validate_pairing("xunit.v3", "18.9.0")
+except ValueError:
+    pass
+else:
+    raise AssertionError("the default package argument does not check CodeCoverage")
+
+# The rule is keyed on the PACKAGE ID, not the major: `xunit.v3` and `xunit.v3.mtp-v2` are both on
 # major 3 today and sit on opposite MTP lines (measured: xunit.v3 3.2.2 -> MTP 1.9.1,
-# xunit.v3.mtp-v2 3.2.2 -> MTP 2.0.2), so a version-keyed map would invert this pair. Pin both
-# directions: each id accepts its own partner and refuses the other's.
-for pkg, good, bad in (("xunit.v3", "17.14.2", "18.9.0"),
-                       ("xunit.v3.mtp-v2", "18.9.0", "17.14.2")):
-    mod.validate_pairing(pkg, good)
+# xunit.v3.mtp-v2 3.2.2 -> MTP 2.0.2), so a version-keyed map would invert every pair below.
+#
+# The rest of the Microsoft.Testing family splits at the SAME v1/v2 boundary but versions AS the
+# platform line (1.x / 2.x). CodeCoverage is the outlier at 17.x / 18.x, inherited from its VSTest
+# ancestry — so a model that assumed one numbering would be wrong for whichever group it did not
+# describe. Pin both groups, both directions.
+for pkg, v1_ok, v2_ok in (
+    ("Microsoft.Testing.Extensions.CodeCoverage", "17.14.2", "18.9.0"),
+    ("Microsoft.Testing.Extensions.TrxReport.Abstractions", "1.9.1", "2.0.2"),
+    ("Microsoft.Testing.Platform", "1.9.1", "2.0.2"),
+):
+    mod.validate_pairing("xunit.v3", v1_ok, package=pkg)
+    mod.validate_pairing("xunit.v3.mtp-v2", v2_ok, package=pkg)
+    for xunit_pkg, wrong in (("xunit.v3", v2_ok), ("xunit.v3.mtp-v2", v1_ok)):
+        try:
+            mod.validate_pairing(xunit_pkg, wrong, package=pkg)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{xunit_pkg} accepted {pkg} {wrong} — it crosses the MTP boundary")
+
+# An extension nobody has enumerated follows the line rather than being refused: refusing here would
+# block packages that are perfectly fine, which is the opposite of helpful.
+mod.validate_pairing("xunit.v3", "1.0.0", package="Microsoft.Testing.Extensions.NotYetInvented")
+mod.validate_pairing("xunit.v3.mtp-v2", "2.0.0", package="Microsoft.Testing.Extensions.NotYetInvented")
+
+# NuGet package ids are case-INSENSITIVE, and these are read out of real csproj text. A lower-case
+# spelling of the coverage extension must hit the SAME override, not fall through to the permissive
+# branch — falling through would invert the guard for that spelling.
+mod.validate_pairing("xunit.v3", "17.14.2", package="microsoft.testing.extensions.codecoverage")
+try:
+    mod.validate_pairing("xunit.v3", "1.0.0", package="MICROSOFT.TESTING.EXTENSIONS.CODECOVERAGE")
+except ValueError:
+    pass
+else:
+    raise AssertionError("a case variant of the coverage extension bypassed EXTENSION_MAJOR")
+
+# Adding an MTP line to MTP_LINE alone must NOT silently give an enumerated exception the platform's
+# numbering — a package is listed in EXTENSION_MAJOR precisely because it does not follow it.
+saved = dict(mod.MTP_LINE)
+try:
+    mod.MTP_LINE["xunit.v3.mtp-v3"] = 3
     try:
-        mod.validate_pairing(pkg, bad)
-    except ValueError:
-        pass
+        mod.validate_pairing("xunit.v3.mtp-v3", "3.0.0")
+    except ValueError as exc:
+        assert "EXTENSION_MAJOR" in str(exc), f"wrong refusal for an unenumerated line: {exc}"
     else:
-        raise AssertionError(f"{pkg} accepted CodeCoverage {bad} — the guard is inverted")
+        raise AssertionError("a new MTP line silently gave CodeCoverage the platform numbering")
+finally:
+    mod.MTP_LINE.clear()
+    mod.MTP_LINE.update(saved)
 
 # A package id nobody has mapped must be named as such, not silently assumed compatible. Assert on
-# a substring unique to THAT branch: both refusals mention MTP_COMPAT, so matching on the map name
+# a substring unique to THAT branch: both refusals mention the map, so matching on the map name
 # alone would keep passing if this case started taking the mismatch branch instead.
 try:
     mod.validate_pairing("xunit.v3.mtp-v99", mod.COVERAGE_EXT_VERSION)
@@ -678,14 +758,6 @@ echo "  [7] the MTP/coverage pairing is enforced by the transform, not by memory
 #     transform, so a value left in a shell — or in a CI env block — would otherwise redirect a real
 #     migration onto a version nobody chose. Worst when it shares the expected major, because
 #     validate_pairing then accepts it and the substitution is completely silent.
-knobs=$(grep -cE 'os\.environ|getenv' "$KIT/tests/xunit-v3/apply-transform.py" || true)
-if [ "$knobs" -ne 0 ]; then
-  echo "FAIL: apply-transform.py reads $knobs value(s) from the environment. Every override must be"
-  echo "      an explicit flag — ambient state must never steer a migration:"
-  grep -nE 'os\.environ|getenv' "$KIT/tests/xunit-v3/apply-transform.py"
-  exit 1
-fi
-
 mkdir -p "$shapes/ambient/p"
 cp "$scratch/pairing-before.csproj" "$shapes/ambient/p/p.csproj"
 # One-shot prefix, not export/unset: the variable exists only for the child that is meant to see it,

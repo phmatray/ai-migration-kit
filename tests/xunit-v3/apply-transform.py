@@ -18,7 +18,7 @@ script.
 The pinned xunit.v3 version below is this test's witness, not a recommendation: a real
 migration resolves the current version from the live feed (context7), as the reference says.
 What is NOT free to drift is the *pairing* — the xunit package and the MTP coverage extension must
-sit on the same Microsoft.Testing.Platform line. `MTP_COMPAT` states that rule, keyed on the xunit
+sit on the same Microsoft.Testing.Platform line. `MTP_LINE` states that rule, keyed on the xunit
 PACKAGE ID (`xunit.v3` vs `xunit.v3.mtp-v2` — both major 3, opposite MTP lines), and
 `validate_pairing` enforces it, because the mismatch is invisible until a test run dies.
 """
@@ -40,12 +40,53 @@ from pathlib import Path
 XUNIT_V3_PACKAGE = "xunit.v3"
 XUNIT_V3_VERSION = "3.2.2"
 
-# xunit.v3 package id -> the Microsoft.Testing.Extensions.CodeCoverage major built against the same
-# Microsoft.Testing.Platform line. One decision, two pins; adding a line means adding an entry here.
-MTP_COMPAT = {
-    "xunit.v3": 17,         # -> xunit.v3.mtp-v1,      Microsoft.Testing.Platform 1.x
-    "xunit.v3.mtp-v2": 18,  # -> xunit.v3.core.mtp-v2, Microsoft.Testing.Platform 2.x
+# xunit package id -> the Microsoft.Testing.Platform MAJOR LINE it binds to. This is the actual
+# invariant; every expected version below is derived from it, so a new xunit line means one entry.
+MTP_LINE = {
+    "xunit.v3": 1,         # -> xunit.v3.mtp-v1,      Microsoft.Testing.Platform 1.x
+    "xunit.v3.mtp-v2": 2,  # -> xunit.v3.core.mtp-v2, Microsoft.Testing.Platform 2.x
 }
+
+# Most of the family versions AS the platform line: Microsoft.Testing.Platform itself,
+# …Platform.MSBuild, …Extensions.Telemetry and …Extensions.TrxReport.Abstractions are all 1.x
+# alongside MTP v1 and 2.x alongside MTP v2 (measured from xunit.v3.core.mtp-v{1,2} 3.2.2's nuspecs).
+#
+# CodeCoverage is the one exception, and it is not a typo: it kept the numbering of its VSTest
+# ancestor, so the same two lines are 17.x and 18.x. Modelling that as a per-package override keeps
+# the quirk in one place — a single flat "expected major" table would have to repeat the line
+# concept for every package, and would be wrong for whichever group it did not describe.
+COVERAGE_PACKAGE = "Microsoft.Testing.Extensions.CodeCoverage"
+# Keyed lower-case: NuGet package ids are case-INSENSITIVE, and these ids are read out of real
+# csproj text where `microsoft.testing.extensions.codecoverage` is just as legal. An exact-case key
+# would drop a case variant into the permissive branch below and invert the guard for it —
+# `drop_packages` already lowercases both sides for the same reason.
+EXTENSION_MAJOR = {
+    COVERAGE_PACKAGE.lower(): {1: 17, 2: 18},
+}
+
+
+def expected_major(package: str, line: int) -> int:
+    """The major `package` must be on to sit with Microsoft.Testing.Platform `line`.
+
+    Unlisted packages follow the line. That is deliberately permissive: refusing an extension
+    nobody has enumerated would block packages that are perfectly fine, and the failure this module
+    guards is a *mismatch*, not an unknown name.
+    """
+    overrides = EXTENSION_MAJOR.get(package.lower())
+    if overrides is None:
+        return line
+    try:
+        return overrides[line]
+    except KeyError:
+        # A package is listed in EXTENSION_MAJOR precisely BECAUSE its majors are not the
+        # platform's, so falling back to the line here would invent a version. Adding a line to
+        # MTP_LINE alone must fail loudly rather than quietly accept `3.0.0` for CodeCoverage.
+        raise ValueError(
+            f"{package} does not follow the platform numbering, and EXTENSION_MAJOR has no entry "
+            f"for Microsoft.Testing.Platform {line}.x. Add one — assuming {line}.x would be a "
+            f"guess about a package listed here for not following that rule."
+        ) from None
+
 
 # Coverage does NOT survive the platform change on its own: under MTP the VSTest collector
 # (`--collect:"XPlat Code Coverage"`) is ignored and produces no file at all, silently. The MTP
@@ -58,10 +99,19 @@ MTP_COMPAT = {
 COVERAGE_EXT_VERSION = "17.14.2"
 
 
-# A NuGet version as it may appear in a csproj attribute: numeric parts plus an optional
-# prerelease tail. Anchored at both ends on purpose — the value reaches an XML attribute through an
-# f-string, so a partial match would let `17.0.0" /><PackageReference Include="…` through.
-VERSION_RE = re.compile(r"\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.]+)?\Z")
+# A NuGet version as it may appear in a csproj attribute. Anchored at both ends on purpose — the
+# value reaches an XML attribute through an f-string, so a partial match would let
+# `17.0.0" /><PackageReference Include="…` through.
+#
+# `[0-9]`, not `\d`: `\d` matches Unicode decimal digits, so `1７.0.0` (fullwidth 7) would pass here
+# AND through int() — and then NuGet cannot parse the attribute the guard just approved.
+#
+# Floating (`17.14.*`) and build metadata (`17.14.2+build`) are accepted deliberately: the reference
+# tells migrators the rule constrains the major LINE, not the patch, so pinning `17.*` is following
+# its advice. A guard that refused it would fight the guide it enforces.
+VERSION_RE = re.compile(
+    r"[0-9]+(?:\.[0-9]+)*(?:\.\*)?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\Z"
+)
 
 
 def _major_of(version: str) -> int:
@@ -73,41 +123,51 @@ def _major_of(version: str) -> int:
     return int(head)
 
 
-def validate_pairing(xunit_package: str, coverage_version: str,
-                     xunit_version: str = XUNIT_V3_VERSION) -> None:
-    """Refuse a pair that straddles two Microsoft.Testing.Platform lines.
+def validate_pairing(xunit_package: str, version: str,
+                     package: str | None = None,
+                     xunit_version: str | None = None) -> None:
+    """Refuse a Microsoft.Testing.* package that straddles the MTP line the xunit package binds to.
 
     Keyed on the xunit PACKAGE ID, never its version: `xunit.v3` and `xunit.v3.mtp-v2` are both
     on major 3 today and sit on opposite MTP lines, so a version-keyed rule gets it exactly
     backwards.
+
+    `package` defaults to the coverage extension — the one this transform writes — but any member
+    of the family can be checked, because they all cross the same v1/v2 boundary.
 
     The failure this prevents is the nastiest kind available here: `dotnet restore` succeeds,
     the build succeeds, and the test host dies at run time with a `TypeLoadException` naming an
     interface nobody recognises. Nothing in that stack trace names either package, so the refusal
     names both — that is the part a future reader actually needs.
     """
-    if not VERSION_RE.match(coverage_version):
+    # Resolved at CALL time, like transform_test_csproj's: test.sh drives this module by patching
+    # module attributes in-process, and a def-time default would keep naming the old value.
+    package = COVERAGE_PACKAGE if package is None else package
+    xunit_version = XUNIT_V3_VERSION if xunit_version is None else xunit_version
+
+    if not VERSION_RE.match(version):
         raise ValueError(
-            f"not a version: {coverage_version!r}. This string is interpolated straight into a "
+            f"not a version: {version!r}. This string is interpolated straight into a "
             f"csproj attribute, so anything shaped otherwise either produces an unusable pin or "
             f"breaks out of the attribute entirely."
         )
-    expected = MTP_COMPAT.get(xunit_package)
-    if expected is None:
+    line = MTP_LINE.get(xunit_package)
+    if line is None:
         raise ValueError(
-            f"unknown xunit.v3 package id {xunit_package!r}: extend MTP_COMPAT with the "
-            f"Microsoft.Testing.Platform line it targets. Guessing a coverage-extension major "
+            f"unknown xunit.v3 package id {xunit_package!r}: extend MTP_LINE with the "
+            f"Microsoft.Testing.Platform line it targets. Guessing a compatible major "
             f"would reintroduce the run-time failure the map prevents."
         )
-    got = _major_of(coverage_version)
+    expected = expected_major(package, line)
+    got = _major_of(version)
     if got != expected:
         raise ValueError(
-            f"incompatible test platform pair: {xunit_package} {xunit_version} is served by "
-            f"Microsoft.Testing.Extensions.CodeCoverage {expected}.x, but {coverage_version} is "
-            f"on the {got}.x line. Both packages bind to Microsoft.Testing.Platform, so this "
-            f"restores and builds clean, then dies at run time with "
+            f"incompatible test platform pair: {xunit_package} {xunit_version} runs on "
+            f"Microsoft.Testing.Platform {line}.x, which is served by {package} {expected}.x — "
+            f"but {version} is on the {got}.x line. Both bind to Microsoft.Testing.Platform, so "
+            f"this restores and builds clean, then dies at run time with "
             f"\"TypeLoadException: Could not load type '…IDataConsumer'\". "
-            f"Move both legs in the same change (see MTP_COMPAT)."
+            f"Move every leg in the same change (see MTP_LINE / EXTENSION_MAJOR)."
         )
 
 
@@ -193,7 +253,7 @@ def transform_test_csproj(text: str, with_output_type: bool,
     # capture the module constant once, so a caller that patches `mod.COVERAGE_EXT_VERSION` — the
     # natural way to exercise the other MTP line in-process — would silently get the stale pin
     # written AND validated, and its assertion would pass for the wrong version.
-    coverage_version = coverage_version or COVERAGE_EXT_VERSION
+    coverage_version = COVERAGE_EXT_VERSION if coverage_version is None else coverage_version
 
     # The guard belongs at the point that actually emits the pair, not only in main(): this
     # function is importable, and a caller reaching it directly would otherwise write both
@@ -243,7 +303,7 @@ def verify_transformed(text: str, with_output_type: bool,
                        coverage_version: str | None = None) -> list:
     """Post-conditions. A transform that silently did nothing is the worst outcome here, so the
     script asserts its own work instead of trusting the substitutions to have matched."""
-    coverage_version = coverage_version or COVERAGE_EXT_VERSION
+    coverage_version = COVERAGE_EXT_VERSION if coverage_version is None else coverage_version
     problems = []
     if XUNIT_V3_PACKAGE not in text:
         problems.append(f"{XUNIT_V3_PACKAGE} reference missing")
