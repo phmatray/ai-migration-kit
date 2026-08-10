@@ -10,6 +10,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
 
+# Without a group, a retitle starts a second run against the *same* head sha while the first is
+# still going, and both publish a check named `kit` — which verdict the PR settles on then depends
+# on run ordering rather than on the title that is actually there. That would defeat the reason
+# `edited` was added at all. Cancel the superseded pull-request run so the latest title decides;
+# never cancel on main, where every commit deserves its own verdict.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   kit:
     runs-on: ubuntu-latest
@@ -36,17 +45,18 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
-            echo "the pull_request payload carried no base/head sha — refusing to guess"; exit 1
+          # The path list comes from a script with its own golden test, not from inline yaml.
+          # Inline, `mapfile -t x < <(git diff …)` swallowed git's exit status, so a missing sha
+          # produced an empty array that the next line read as "nothing to gate" — the gate
+          # skipped itself and CI stayed green. Here the exit status is the only thing that
+          # separates "no files changed" from "could not tell", and it is checked.
+          if ! ./scripts/release-title-diff.sh "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed.z"; then
+            echo "could not determine the changed paths — failing rather than skipping the gate"
+            exit 1
           fi
-          base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
-          # --no-renames so a rename *out of* skills/** still lists its old path; quotePath=false
-          # so a non-ASCII path arrives verbatim instead of octal-escaped.
-          mapfile -t changed < <(git -c core.quotePath=false diff --name-only --no-renames "$base" "$HEAD_SHA")
-          # An empty list here means the diff is genuinely empty (git succeeded, both shas were
-          # present) — e.g. the scaffold-only commit of a freshly opened draft PR. The gate itself
-          # treats "no paths" as a caller failure and exits 2, which is the right contract for a
-          # script that cannot see why the list is empty; CI can, so it decides here.
+          mapfile -d '' -t changed < "$RUNNER_TEMP/changed.z"
+          # Authoritative now: the script exited 0, so an empty list really is an empty diff —
+          # e.g. the scaffold-only commit of a freshly opened draft PR.
           if [ ${#changed[@]} -eq 0 ]; then
             echo "empty diff against the merge base — nothing to gate."; exit 0
           fi

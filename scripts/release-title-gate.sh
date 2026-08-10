@@ -29,13 +29,21 @@
 set -euo pipefail
 
 # --------------------------------------------------------------------- the releasable set
-# SINGLE SOURCE. Derived from the `simple` release type configured in release-please-config.json:
-#   feat -> minor, fix -> patch, and any `!` breaking marker -> major.
-# Deliberately narrow: these are the types this repo can *guarantee* produce a release. Anything
-# else is refused rather than guessed at — release-please's changelog sections decide what is
-# user-facing, and a false pass here would recreate the exact silent hole #27 is about. Widening
-# this list means proving the added type cuts a release, and saying so in the comment.
-RELEASABLE_TYPES="feat fix"
+# SINGLE SOURCE, and measured rather than assumed. release-please decides whether to cut a
+# release at all by filtering commits through DEFAULT_CHANGELOG_SECTIONS
+# (release-please, src/util/filter-commits.ts) and skipping the release when nothing user-facing
+# survives. Visible in that table — hence releasable:
+#     feat, fix, perf, revert
+# Hidden there — hence NOT releasable:
+#     chore, docs, style, refactor, test, build, ci
+# `feature` appears in neither list, so it is filtered out too and cuts no release.
+# A breaking change is releasable whatever its type: filter-commits.ts keeps a hidden-section
+# commit that carries a BREAKING CHANGE note, which is what the `!` marker produces — that is
+# the rule applied further down, and it comes from the same table, not from intuition.
+# This repo runs release-type `simple` with no changelog-sections override
+# (release-please-config.json), so those defaults are the ones in force. Override them there and
+# this list has to move with them.
+RELEASABLE_TYPES="feat fix perf revert"
 
 die() { printf 'release-title-gate: REFUSED — %s\n' "$*" >&2; exit 1; }
 
@@ -48,11 +56,16 @@ usage: release-title-gate.sh <pr-title> <changed-file…>
 EOF
 }
 
-case "${1:-}" in
-  -h|--help) usage; exit 0 ;;
-esac
-
 [ $# -ge 1 ] || { usage; exit 2; }
+
+# Only when it is the sole argument. $1 is the PR title in the CI call, so an unguarded
+# `-h|--help` case meant a pull request *titled* `--help` printed usage and exited 0 — a
+# fail-open in a script whose whole contract is to fail closed.
+if [ $# -eq 1 ]; then
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+  esac
+fi
 
 TITLE="$1"; shift
 

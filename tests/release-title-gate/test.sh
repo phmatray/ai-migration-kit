@@ -73,14 +73,25 @@ refuses uppercase-type 'lowercase' \
 
 # 7. Other hidden types are refused the same way, naming themselves. Asserted on the quoted type
 #    so a two-letter type like `ci` cannot pass by matching some unrelated substring.
-refuses docs-skills "'docs'" "docs(skills): clarify the trigger list" skills/followups/SKILL.md
-refuses ci-skills   "'ci'"   "ci(skills): reorder the steps"          skills/followups/SKILL.md
+#    The hidden set comes from release-please's DEFAULT_CHANGELOG_SECTIONS
+#    (src/util/filter-commits.ts): chore, docs, style, refactor, test, build, ci.
+refuses docs-skills     "'docs'"     "docs(skills): clarify the trigger list" skills/followups/SKILL.md
+refuses ci-skills       "'ci'"       "ci(skills): reorder the steps"          skills/followups/SKILL.md
+refuses refactor-skills "'refactor'" "refactor(skills): extract the helper"   skills/followups/SKILL.md
+
+# 8. `feature` is in NEITHER the visible nor the hidden list of that table, so filter-commits.ts
+#    drops it and it cuts no release — despite looking like a synonym for `feat`.
+refuses feature-skills "'feature'" "feature(skills): add a harvester" skills/merge-pr/SKILL.md
 
 # ---------------------------------------------------------------- passes
 
-# 8. The releasable types.
-passes fix-skills  "fix(skills): stop dropping the follow-up list" skills/merge-pr/SKILL.md
-passes feat-skills "feat(skills): add a follow-up harvester"       skills/merge-pr/SKILL.md
+# 9. The releasable types — the four VISIBLE sections of DEFAULT_CHANGELOG_SECTIONS. perf and
+#    revert really do cut a release, so refusing them would block a legitimate PR while telling
+#    the author something false about release-please.
+passes fix-skills    "fix(skills): stop dropping the follow-up list" skills/merge-pr/SKILL.md
+passes feat-skills   "feat(skills): add a follow-up harvester"       skills/merge-pr/SKILL.md
+passes perf-skills   "perf(skills): stop re-reading the profile"     skills/merge-pr/SKILL.md
+passes revert-skills "revert(skills): undo the trigger rewrite"      skills/merge-pr/SKILL.md
 
 # 9. A breaking marker releases whatever the type is (major bump), so it passes.
 passes breaking-feat     "feat(skills)!: drop the legacy plan comment path" skills/create-issue/SKILL.md
@@ -112,7 +123,15 @@ rc=0; "$GATE" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || { echo "FAIL [no-args]: expected exit 2, got $rc"; exit 1; }
 echo "  ok: no-args — exit 2"
 
-# 15. Runs from a foreign working directory (plugin-install simulation, cf. ci.yml). The gate
+# 15. `--help` must not be reachable through the PR-title argument. CI passes the title in $1,
+#     so an unguarded help case let a PR *titled* `--help` print usage and exit 0.
+for h in --help -h; do
+  rc=0; out=$("$GATE" "$h" skills/merge-pr/SKILL.md 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || { echo "FAIL [title-$h]: a PR titled '$h' passed the gate"; echo "$out"; exit 1; }
+done
+echo "  ok: title-as-flag — '--help'/'-h' as a PR title is refused, not treated as a flag"
+
+# 16. Runs from a foreign working directory (plugin-install simulation, cf. ci.yml). The gate
 #     reads no files, so this must hold for both the pass and the refuse path.
 KIT="$PWD"
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
@@ -122,5 +141,70 @@ if ( cd "$WORK" && bash "$KIT/$GATE" "chore(skills): x" skills/merge-pr/SKILL.md
   echo "FAIL [foreign-cwd]: a chore title passed from another directory"; exit 1
 fi
 echo "  ok: foreign cwd — same verdict either way"
+
+# ------------------------------------------------- the CI glue: release-title-diff.sh
+# This half exists because the first version of the glue lived inline in ci.yml, where nothing
+# could test it — and it failed OPEN: `mapfile -t x < <(git diff …)` discards git's exit status,
+# so a missing sha produced an empty list that read as "nothing to gate". Every case below is
+# one the yaml could not express a test for.
+
+DIFF="./scripts/release-title-diff.sh"
+[ -x "$DIFF" ] || { echo "FAIL: $DIFF missing or not executable"; exit 1; }
+KIT="$PWD"
+
+FIX="$WORK/repo"
+mkdir -p "$FIX"
+git -C "$FIX" init -q
+git -C "$FIX" config user.email t@example.com
+git -C "$FIX" config user.name  "Golden Test"
+mkdir -p "$FIX/skills/alpha"
+printf 'x\n' > "$FIX/skills/alpha/SKILL.md"
+printf 'y\n' > "$FIX/README.md"
+git -C "$FIX" add -A
+git -C "$FIX" commit -qm base
+FIX_BASE=$(git -C "$FIX" rev-parse HEAD)
+
+# A rename *out of* skills/** must still report the old path — moving a skill away is a change
+# to skills/**, and default rename detection would report only the destination.
+git -C "$FIX" mv skills/alpha/SKILL.md moved.md
+git -C "$FIX" commit -qm move
+FIX_MOVED=$(git -C "$FIX" rev-parse HEAD)
+paths=$( cd "$FIX" && bash "$KIT/$DIFF" "$FIX_BASE" "$FIX_MOVED" | tr '\0' '\n' )
+printf '%s\n' "$paths" | grep -qx 'skills/alpha/SKILL.md' \
+  || { echo "FAIL [diff-rename]: the old skills/ path is absent:"; printf '%s\n' "$paths"; exit 1; }
+echo "  ok: diff-rename — a rename out of skills/** still reports the old path"
+
+# A path holding a double quote is C-quoted by --name-only and would stop matching skills/*.
+# With -z it arrives verbatim, and the gate refuses as it should.
+printf 'z\n' > "$FIX/skills/alpha/we\"ird name.md"
+git -C "$FIX" add -A
+git -C "$FIX" commit -qm quoted
+FIX_QUOTED=$(git -C "$FIX" rev-parse HEAD)
+paths=$( cd "$FIX" && bash "$KIT/$DIFF" "$FIX_MOVED" "$FIX_QUOTED" | tr '\0' '\n' )
+printf '%s\n' "$paths" | grep -qx 'skills/alpha/we"ird name.md' \
+  || { echo "FAIL [diff-quoting]: the path came back escaped:"; printf '%s\n' "$paths"; exit 1; }
+echo "  ok: diff-quoting — a quote in the path survives verbatim, so the anchor still matches"
+
+# THE fail-open. An unreachable sha must exit non-zero — never an empty list, which the caller
+# would read as "nothing to gate" and pass.
+rc=0
+out=$( cd "$FIX" && bash "$KIT/$DIFF" 0000000000000000000000000000000000000000 "$FIX_QUOTED" 2>&1 ) || rc=$?
+[ "$rc" -ne 0 ] || { echo "FAIL [diff-unreachable]: exit 0 on a missing sha — the fail-open is back"; exit 1; }
+[ -z "$(printf '%s' "$out" | tr -d '\n' | tr -d ' ')" ] || printf '%s' "$out" | grep -q 'not present' \
+  || { echo "FAIL [diff-unreachable]: message does not name the missing commit:"; echo "$out"; exit 1; }
+echo "  ok: diff-unreachable — non-zero, never a silent empty list"
+
+# A genuinely empty diff: exit 0 with no output. This is the case CI is allowed to pass on, and
+# it must be distinguishable from the one above by exit status alone.
+rc=0
+out=$( cd "$FIX" && bash "$KIT/$DIFF" "$FIX_QUOTED" "$FIX_QUOTED" ) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [diff-empty]: expected exit 0, got $rc"; exit 1; }
+[ -z "$out" ] || { echo "FAIL [diff-empty]: expected no output, got:"; echo "$out"; exit 1; }
+echo "  ok: diff-empty — exit 0 and empty, distinguishable from a failure by status alone"
+
+# Wrong arity is a caller error, not an empty answer.
+rc=0; ( cd "$FIX" && bash "$KIT/$DIFF" "$FIX_QUOTED" >/dev/null 2>&1 ) || rc=$?
+[ "$rc" -ne 0 ] || { echo "FAIL [diff-arity]: one argument was accepted"; exit 1; }
+echo "  ok: diff-arity — refuses a missing argument"
 
 echo "release-title-gate golden test OK"
