@@ -5,11 +5,26 @@
 #   1. the inventory reports the test stack precisely enough to decide the v2/v3 question;
 #   2. the documented transform really produces a running v3 test project;
 #   3. the OutputType trap — a v3 project left as a library — is pinned as 0 tests, not 6;
-#   4. coverage still reaches the dashboard under the Microsoft Testing Platform;
-#   5. the committed fixture is never mutated (CI asserts it stays "green AND legacy").
+#   4. coverage still reaches the dashboard under the Microsoft Testing Platform — one report per
+#      test project, and the template's own step is executed rather than a copy of it;
+#   5. the decision is wired into phases 1, 5 and 6, not merely documented in a side file;
+#   6. project shapes the fixture does not have (element-form refs, flat indent, multi-TFM,
+#      packages.config, central package management) are all handled;
+#   7. the xunit.v3 / CodeCoverage version pairing is machine-checked, not remembered;
+#   8. THIS FILE loads kit scripts through exactly one module loader, so the no-__pycache__
+#      invariant that loader carries cannot be lost to a copy-paste.
+#
+# The committed fixture is never mutated: cleanup() asserts it on every exit path, and CI asserts it
+# stays "green AND legacy".
+#
+# There is exactly ONE completion marker — the final `xunit v3 golden test OK`. Section lines carry a
+# label, never a fraction: a denominator goes stale the moment a section is added, and a stale one
+# reads as a run that stopped early.
 #
 # Everything that builds runs on a COPY under $(mktemp -d). samples/LegacyShop is read-only here.
 set -euo pipefail
+# Resolved BEFORE the cd, because a relative $0 stops resolving once the working directory moves.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/../.."
 
 KIT="$PWD"
@@ -20,6 +35,28 @@ FIXTURE="$KIT/samples/LegacyShop"
 # suite would still be green, having tested something other than the pin it claims to test. The
 # only place it may be set is the one invocation that means to set it.
 unset XUNIT_V3_COVERAGE_VERSION
+
+# Run a Python snippet with a kit script already loaded as `mod`:
+#
+#   py_module <script-path> [args…] <<'PY'
+#   …body; `mod` is the loaded module, sys.argv[1] is <script-path>, argv[2:] are the args…
+#   PY
+#
+# Every such snippet goes through here, and section 8 asserts it. The reason is the
+# PYTHONDONTWRITEBYTECODE=1 below: `exec_module` COMPILES the target, so without it Python drops a
+# __pycache__ next to the kit script, and cleanup() turns that into a suite-wide failure for a
+# reason unrelated to whatever was under test. That prefix is load-bearing and invisible at the
+# call site — precisely the shape a copy-paste loses. One loader means it can only be forgotten
+# once, here, where the tests would say so immediately.
+py_module() {
+  PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("kit_module", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+exec(compile(sys.stdin.read(), "<py_module body>", "exec"), globals())
+' "$@"
+}
 
 # Print the `run: |` body of a named step of templates/ci-dotnet.yml, so the assertions below
 # execute the template VERBATIM instead of a copy that drifts from it. A hand-copied command is
@@ -113,7 +150,7 @@ for pkg, version in want.items():
 # The whole point of the key: the major line must be readable without re-parsing versions.
 assert entry["xunitMajor"] == 2, entry["xunitMajor"]
 PY
-echo "  [1/4] inventory reports the fixture's test stack (xunit 2.4.2, net6.0)"
+echo "  [1] inventory reports the fixture's test stack (xunit 2.4.2, net6.0)"
 
 # ---------------------------------------------------------------------------
 # 2. The documented transform produces a test project that actually RUNS.
@@ -166,7 +203,7 @@ if [ "${count:-0}" -lt "$BASELINE_TESTS" ]; then
   echo "FAIL: v3 ran ${count:-0} tests, baseline is $BASELINE_TESTS — a build is not a test run:"
   tail -25 "$v3_out"; exit 1
 fi
-echo "  [2/4] transform -> xunit.v3 runs $count tests (baseline $BASELINE_TESTS), usings rewritten"
+echo "  [2] transform -> xunit.v3 runs $count tests (baseline $BASELINE_TESTS), usings rewritten"
 
 # ---------------------------------------------------------------------------
 # 3. The OutputType trap is pinned.
@@ -192,12 +229,12 @@ if dotnet test "$scratch/trap/tests/LegacyShop.Tests/LegacyShop.Tests.csproj" \
     echo "      only thing standing between a migration and a test suite that never runs."
     exit 1
   fi
-  echo "  [3/4] no-Exe variant ran ${trap_count:-0} tests (< baseline) — not a green suite"
+  echo "  [3] no-Exe variant ran ${trap_count:-0} tests (< baseline) — not a green suite"
 else
   grep -qi 'OutputType' "$trap_out" || {
     echo "FAIL: the no-Exe variant failed, but not for the OutputType reason:"; tail -20 "$trap_out"; exit 1
   }
-  echo "  [3/4] no-Exe variant is refused at build time by xunit.v3 (OutputType guard)"
+  echo "  [3] no-Exe variant is refused at build time by xunit.v3 (OutputType guard)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -239,7 +276,7 @@ if find coverage -name '*.cobertura.xml' 2>/dev/null | grep -q .; then
 fi
 grep -q 'MTP0001' "$scratch/vstest-cov.log" \
   || echo "  (warning: MTP0001 no longer emitted — the ignore is now fully silent)"
-echo "  [4/4a] VSTest collector yields no cobertura under MTP — the silent hole, pinned"
+echo "  [4a] VSTest collector yields no cobertura under MTP — the silent hole, pinned"
 
 # 4b. The template's own step puts it back, in coverage/, where the artifact glob already looks.
 #     Running the extracted step rather than a copy of it is what makes 4d below a real gate.
@@ -255,14 +292,8 @@ mtp_file=$(find coverage -name '*.cobertura.xml' -print -quit)
 [ -n "$mtp_file" ] || {
   echo "FAIL: the MTP coverage path produced no cobertura:"; tail -20 "$scratch/mtp-cov.log"; exit 1
 }
-PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT" "$PWD/$mtp_file" <<'PY'
-# Loading report-dashboard.py as a module would drop a scripts/__pycache__ next to it and leave
-# the kit's own tree dirty after every run — the test must not modify the repo it tests.
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("rd", sys.argv[1] + "/scripts/report-dashboard.py")
-rd = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(rd)
-cov = rd.parse_cobertura(sys.argv[2], [])
+py_module "$KIT/scripts/report-dashboard.py" "$PWD/$mtp_file" <<'PY'
+cov = mod.parse_cobertura(sys.argv[2], [])
 covered = sum(c["covered"] for c in cov["classes"])
 assert covered > 0, "parse_cobertura read zero covered lines — the dashboard would show nothing"
 assert cov["line_pct"] > 0, f"line_pct is {cov['line_pct']}"
@@ -271,7 +302,7 @@ assert cov["line_pct"] > 0, f"line_pct is {cov['line_pct']}"
 # silent 0 % branches would ship looking like a measurement rather than an absence of data.
 assert cov["branch_pct"] > 0, \
     f"branch_pct is {cov['branch_pct']} on a real MTP report — condition-coverage went missing?"
-print(f"  [4/4b] MTP coverage -> cobertura -> parse_cobertura: "
+print(f"  [4b] MTP coverage -> cobertura -> parse_cobertura: "
       f"{covered} covered lines, {cov['line_pct']}% line rate")
 PY
 cd "$KIT"
@@ -281,7 +312,7 @@ grep -q 'coverage-output-format cobertura' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml has no MTP coverage path"; exit 1; }
 grep -q 'Aucun rapport de couverture' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml has no guard against an empty coverage report"; exit 1; }
-echo "  [4/4c] templates/ci-dotnet.yml carries the MTP path and the empty-coverage guard"
+echo "  [4c] templates/ci-dotnet.yml carries the MTP path and the empty-coverage guard"
 
 # ---------------------------------------------------------------------------
 # 4d. SEVERAL test projects: one report each, nothing overwritten (issue #17).
@@ -349,16 +380,13 @@ if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/multi-cov.log" 2>&1; then
   echo "FAIL: the template's coverage step failed on a two-test-project solution:"
   tail -25 "$scratch/multi-cov.log"; exit 1
 fi
-PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT" "$PWD" <<'PY'
-import glob, importlib.util, sys
-spec = importlib.util.spec_from_file_location("rd", sys.argv[1] + "/scripts/report-dashboard.py")
-rd = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(rd)
+py_module "$KIT/scripts/report-dashboard.py" "$PWD" <<'PY'
+import glob
 
 files = sorted(glob.glob(sys.argv[2] + "/coverage/**/*.cobertura.xml", recursive=True))
 assert len(files) == 2, f"expected one cobertura per test project, got {len(files)}: {files}"
 
-covered = lambda paths: {c["name"]: c["covered"] for c in rd.parse_cobertura(paths, [])["classes"]}
+covered = lambda paths: {c["name"]: c["covered"] for c in mod.parse_cobertura(paths, [])["classes"]}
 each, union = [covered(f) for f in files], covered(files)
 
 # Each project contributes a class the other never exercises. The union must hold both...
@@ -370,11 +398,11 @@ assert union.get("PriceCatalogClient", 0) > 0, \
 assert not any(r.get("OrderService", 0) > 0 and r.get("PriceCatalogClient", 0) > 0 for r in each), \
     f"one report already covers both projects — this no longer tests the collision: {each}"
 
-solo = [rd.parse_cobertura(f, [])["line_pct"] for f in files]
-both = rd.parse_cobertura(files, [])["line_pct"]
+solo = [mod.parse_cobertura(f, [])["line_pct"] for f in files]
+both = mod.parse_cobertura(files, [])["line_pct"]
 assert both > max(solo), \
     f"the aggregate ({both}%) is no better than the best single report ({max(solo)}%)"
-print(f"  [4/4d] 2 test projects -> {len(files)} reports, aggregate {both}% > {max(solo)}% "
+print(f"  [4d] 2 test projects -> {len(files)} reports, aggregate {both}% > {max(solo)}% "
       f"(best single) — nothing overwritten")
 PY
 
@@ -388,7 +416,7 @@ if bash -c "$GUARD_STEP" > /dev/null 2>&1; then
   echo "FAIL: the guard accepted an empty coverage/ — a silent collection failure would ship"
   exit 1
 fi
-echo "  [4/4e] the empty-coverage guard accepts per-project reports and still refuses nothing"
+echo "  [4e] the empty-coverage guard accepts per-project reports and still refuses nothing"
 cd "$KIT"
 
 # ---------------------------------------------------------------------------
@@ -407,7 +435,7 @@ grep -qi 'test platform\|plateforme de test' skills/legacy-upgrade/references/ph
   || { echo "FAIL: phase-6-verify.md does not record the test platform"; exit 1; }
 grep -qi 'plateforme de test' skills/legacy-upgrade/references/report-template.md \
   || { echo "FAIL: report-template.md has no slot for the test platform"; exit 1; }
-echo "  [5/5] phases 1, 5 and 6 carry the decision, the route and the recorded outcome"
+echo "  [5] phases 1, 5 and 6 carry the decision, the route and the recorded outcome"
 
 # ---------------------------------------------------------------------------
 # 6. Project shapes the fixture does not have.
@@ -538,12 +566,12 @@ assert len(stack) == 1, stack
 assert stack[0]["xunitMajor"] == 2, \
     f"CPM version unresolved -> xunitMajor {stack[0]['xunitMajor']}; phase 5 would read 'not applicable'"
 PY
-echo "  [6/6] element-form refs, flat indent, multi-TFM, packages.config and CPM all handled"
+echo "  [6] element-form refs, flat indent, multi-TFM, packages.config and CPM all handled"
 
 # 6f. The template refuses a half-migrated repo instead of silently losing half its coverage.
 grep -q 'Dépôt MIXTE' templates/ci-dotnet.yml \
   || { echo "FAIL: templates/ci-dotnet.yml does not detect a mixed MTP/VSTest repo"; exit 1; }
-echo "  [6/6] templates/ci-dotnet.yml refuses a mixed MTP/VSTest repo"
+echo "  [6f] templates/ci-dotnet.yml refuses a mixed MTP/VSTest repo"
 
 # ---------------------------------------------------------------------------
 # 7. The xunit.v3 / CodeCoverage pairing is machine-checked, not remembered.
@@ -554,12 +582,8 @@ echo "  [6/6] templates/ci-dotnet.yml refuses a mixed MTP/VSTest repo"
 #    executes the tests — but only as a stack trace, which is an expensive way to rediscover a
 #    known rule. So the transform states the rule and refuses up front, naming both versions.
 # ---------------------------------------------------------------------------
-read_const() {  # import the transform and print one of its constants (no .pyc next to the kit)
-  PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT/tests/xunit-v3/apply-transform.py" "$1" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("apply_transform", sys.argv[1])
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
+read_const() {  # print one of the transform's constants
+  py_module "$KIT/tests/xunit-v3/apply-transform.py" "$1" <<'PY'
 print(getattr(mod, sys.argv[2]))
 PY
 }
@@ -609,12 +633,7 @@ cmp -s "$shapes/pairing/p/p.csproj" "$scratch/pairing-before.csproj" || {
 
 # 7b. The map is the contract: the pinned pair satisfies it, and an unmapped major says so
 #     instead of guessing a compatible extension.
-PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT/tests/xunit-v3/apply-transform.py" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("apply_transform", sys.argv[1])
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
+py_module "$KIT/tests/xunit-v3/apply-transform.py" <<'PY'
 # The package/version this kit actually pins agree with the map.
 mod.validate_pairing(mod.XUNIT_V3_PACKAGE, mod.COVERAGE_EXT_VERSION)
 
@@ -642,6 +661,38 @@ except ValueError as exc:
 else:
     raise AssertionError("an unmapped xunit.v3 package id was accepted — the map would be bypassed")
 PY
-echo "  [7/7] the MTP/coverage pairing is enforced by the transform, not by memory"
+echo "  [7] the MTP/coverage pairing is enforced by the transform, not by memory"
+
+# ---------------------------------------------------------------------------
+# 8. The no-__pycache__ invariant lives in exactly one place IN THIS FILE.
+#
+#    Scope is deliberate and worth stating, because the assertion below reads only $SELF:
+#    tests/report-dashboard/test.sh carries its own loader for its own module. That one is
+#    correct today (it does prefix PYTHONDONTWRITEBYTECODE=1) but nothing asserts it, so the
+#    guard here must not be read as a repo-wide guarantee.
+#
+#    Loading a kit script through importlib compiles it, and without
+#    PYTHONDONTWRITEBYTECODE that drops a __pycache__ next to it — which cleanup() turns into a
+#    suite-wide failure, for a reason unrelated to whatever was being tested. The prefix is
+#    therefore load-bearing and invisible at the call site, which is exactly the shape that gets
+#    lost in a copy-paste. One loader, asserted here, so a new call site cannot reintroduce it.
+# ---------------------------------------------------------------------------
+#    The `[l]` is not a typo: it keeps this grep from counting its own pattern, so the assertion
+#    measures the script's loaders rather than itself. And it reads $SELF, not $0: this script cd's
+#    to the kit root on line 13, after which a relative $0 no longer resolves — the grep then fails
+#    with "No such file" and the check quietly does not run.
+#    `|| true` because `grep -c` exits 1 when the count is ZERO, and under `set -e` an assignment
+#    from a failing substitution kills the script — so the one case this block exists to describe
+#    (the loader removed or renamed) would abort with no output at all, right where the message is
+#    the entire point.
+loaders=$(grep -c 'spec_from_file_[l]ocation' "$SELF" || true)
+if [ "$loaders" -ne 1 ]; then
+  echo "FAIL: $loaders copies of the importlib loader in $(basename "$SELF") — expected exactly 1."
+  echo "      Every Python snippet that loads a kit script must go through py_module(), which"
+  echo "      carries PYTHONDONTWRITEBYTECODE=1. A copy without it turns the whole suite red:"
+  grep -n 'spec_from_file_[l]ocation' "$SELF"
+  exit 1
+fi
+echo "  [8] one module loader carries the no-__pycache__ invariant"
 
 echo "xunit v3 golden test OK"
