@@ -5,7 +5,12 @@ Checks for each skills/*/SKILL.md:
 - name present, kebab-case, equal to the folder name;
 - description present, <= 1024 characters, no XML tags;
 - compatibility <= 500 characters when present;
-- license and metadata.version present (kit requirement, not the guide's);
+- license present (kit requirement, not the guide's);
+- metadata.author and metadata.suite present (stable facts about the skill);
+- version ABSENT, at top level and under metadata: the plugin ships and is
+  versioned as one unit, so the only version anyone can act on is
+  .claude-plugin/plugin.json, which release-please bumps. A per-skill number is
+  a claim nothing maintains (#16);
 - a trigger list tests/skills/<name>.triggers.md exists, with both
   "Should trigger" and "Should NOT trigger" sections non-empty.
 
@@ -13,11 +18,25 @@ Cross-check against requirements.json (single source): every entry a skill
 hard-requires (`requiredBy`) must be declared in that skill's `compatibility`
 frontmatter via the entry's `token` — so the manifest and the distributed
 metadata can never drift apart silently.
+
+The frontmatter is PARSED as YAML rather than pattern-matched. Key presence is
+not a text question: `version:`, `"version":`, `'version':`, `version :` and the
+flow form `metadata: {version: 1}` are all the same key, and a substring test
+also fires on prose inside a `>-` block scalar. Both mistakes shipped here
+before (#16 review) — parsing removes the whole class.
+
+Self-test: tests/skills/test.sh drives this file over fixtures that must FAIL,
+so a guard that silently stops matching cannot pass CI.
 """
 import json
 import re
 import sys
 from pathlib import Path
+
+try:
+    import yaml
+except ModuleNotFoundError:
+    sys.exit("PyYAML is required by this check — install it before this step (pip install PyYAML)")
 
 ROOT = Path(__file__).resolve().parents[2]
 errors = []
@@ -26,9 +45,11 @@ skill_files = sorted(ROOT.glob("skills/*/SKILL.md"))
 if not skill_files:
     sys.exit("no skills/*/SKILL.md found — wrong directory?")
 
-def field(fm: str, name: str) -> str:
-    m = re.search(rf'^{name}:\s*(>-?\n)?(.*?)(?=^\w|\Z)', fm, re.S | re.M)
-    return re.sub(r'\s+', ' ', m.group(2)).strip() if m else ""
+
+def text_of(value) -> str:
+    """Frontmatter scalar as one normalized line, so limits count what a reader sees."""
+    return re.sub(r'\s+', ' ', str(value or "")).strip()
+
 
 compat_by_skill = {}
 
@@ -41,13 +62,23 @@ for f in skill_files:
         continue
     fm = m.group(1)
 
-    name = field(fm, "name")
+    try:
+        data = yaml.safe_load(fm)
+    except yaml.YAMLError as exc:
+        errors.append(f"{skill}: frontmatter is not valid YAML ({exc.__class__.__name__})")
+        continue
+    if not isinstance(data, dict):
+        errors.append(f"{skill}: frontmatter must be a YAML mapping, got {type(data).__name__}")
+        continue
+    metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+
+    name = text_of(data.get("name"))
     if name != skill:
         errors.append(f"{skill}: name '{name}' != folder name")
     if not re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', name or ""):
         errors.append(f"{skill}: name '{name}' is not kebab-case")
 
-    desc = field(fm, "description")
+    desc = text_of(data.get("description"))
     if not desc:
         errors.append(f"{skill}: description missing")
     elif len(desc) > 1024:
@@ -55,14 +86,24 @@ for f in skill_files:
     if re.search(r'<[^>]+>', fm):
         errors.append(f"{skill}: XML tag in the frontmatter (forbidden by the guide)")
 
-    comp = field(fm, "compatibility")
+    comp = text_of(data.get("compatibility"))
     compat_by_skill[skill] = comp
     if comp and len(comp) > 500:
         errors.append(f"{skill}: compatibility is {len(comp)} characters (guide limit: 500)")
-    if "license:" not in fm:
+
+    if not text_of(data.get("license")):
         errors.append(f"{skill}: license missing")
-    if "version:" not in fm:
-        errors.append(f"{skill}: metadata.version missing")
+    for key in ("author", "suite"):
+        if not text_of(metadata.get(key)):
+            errors.append(f"{skill}: metadata.{key} missing")
+
+    # A version claim is forbidden wherever it sits — top level or under metadata.
+    for where, holder in (("version", data), ("metadata.version", metadata)):
+        if "version" in holder:
+            errors.append(
+                f"{skill}: {where} is forbidden (#16) — the plugin is versioned as one unit "
+                f"in .claude-plugin/plugin.json, bumped by release-please; a per-skill number "
+                f"is a claim nothing maintains")
 
     triggers = ROOT / "tests" / "skills" / f"{skill}.triggers.md"
     if not triggers.exists():
