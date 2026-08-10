@@ -31,6 +31,12 @@ cleanup() {
     echo "$dirty"
     exit 1
   fi
+  # Nor may the run leave build droppings in the kit: a __pycache__ next to a kit script is how
+  # a stray .pyc got committed once.
+  if find "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d 2>/dev/null | grep -q .; then
+    echo "FAIL: the test left a __pycache__ inside the kit — it must not modify the repo it tests."
+    exit 1
+  fi
   exit "$rc"
 }
 trap cleanup EXIT
@@ -178,7 +184,9 @@ dotnet test --nologo -- --coverage --coverage-output-format cobertura \
 [ -f coverage/coverage.cobertura.xml ] || {
   echo "FAIL: the MTP coverage path produced no cobertura:"; tail -20 "$scratch/mtp-cov.log"; exit 1
 }
-python3 - "$KIT" "$PWD/coverage/coverage.cobertura.xml" <<'PY'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$KIT" "$PWD/coverage/coverage.cobertura.xml" <<'PY'
+# Loading report-dashboard.py as a module would drop a scripts/__pycache__ next to it and leave
+# the kit's own tree dirty after every run — the test must not modify the repo it tests.
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("rd", sys.argv[1] + "/scripts/report-dashboard.py")
 rd = importlib.util.module_from_spec(spec)

@@ -2,6 +2,8 @@ bin/
 obj/
 *.user
 .DS_Store
+__pycache__/
+*.pyc
 migration/
 # Les fixtures de tests sont versionnées même sous migration/ :
 !tests/**/migration/
