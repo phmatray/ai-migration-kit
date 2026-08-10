@@ -13,22 +13,86 @@ what happens when the single most likely mistake is made. Never pass it in real 
 
 The pinned xunit.v3 version below is this test's witness, not a recommendation: a real
 migration resolves the current version from the live feed (context7), as the reference says.
+What is NOT free to drift is the *pairing* — the xunit package and the MTP coverage extension must
+sit on the same Microsoft.Testing.Platform line. `MTP_COMPAT` states that rule, keyed on the xunit
+PACKAGE ID (`xunit.v3` vs `xunit.v3.mtp-v2` — both major 3, opposite MTP lines), and
+`validate_pairing` enforces it, because the mismatch is invisible until a test run dies.
 """
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
+# The package id the transform writes, and its version. The id is load-bearing: xunit ships TWO
+# parallel lines at the SAME major, and the id — not the version — selects the Microsoft.Testing
+# .Platform major. Measured against nuget.org (`*.nuspec` on api.nuget.org/v3-flatcontainer):
+#
+#   xunit.v3        3.2.2 -> xunit.v3.mtp-v1      -> Microsoft.Testing.Platform 1.9.1
+#   xunit.v3.mtp-v2 3.2.2 -> xunit.v3.core.mtp-v2 -> Microsoft.Testing.Platform 2.0.2
+#
+# Both are major 3, and `xunit.v3.mtp-v2` 3.2.0/3.2.1/3.2.2 are STABLE releases — so a map keyed on
+# the major is not merely incomplete, it is inverted: it would refuse the correct mtp-v2 + 18.x
+# pair and wave through the broken mtp-v2 + 17.x one.
+XUNIT_V3_PACKAGE = "xunit.v3"
 XUNIT_V3_VERSION = "3.2.2"
+
+# xunit.v3 package id -> the Microsoft.Testing.Extensions.CodeCoverage major built against the same
+# Microsoft.Testing.Platform line. One decision, two pins; adding a line means adding an entry here.
+MTP_COMPAT = {
+    "xunit.v3": 17,         # -> xunit.v3.mtp-v1,      Microsoft.Testing.Platform 1.x
+    "xunit.v3.mtp-v2": 18,  # -> xunit.v3.core.mtp-v2, Microsoft.Testing.Platform 2.x
+}
 
 # Coverage does NOT survive the platform change on its own: under MTP the VSTest collector
 # (`--collect:"XPlat Code Coverage"`) is ignored and produces no file at all, silently. The MTP
 # coverage extension is what puts cobertura back, so the transform installs it.
 #
-# ⚠ The major line must match the Microsoft.Testing.Platform version the test framework brings.
-# xunit.v3 3.2.2 is on MTP v1, so CodeCoverage stays on the 17.x line; 18.x targets MTP 2.x and
-# fails at run time with `TypeLoadException: Could not load type '…IDataConsumer'`.
-COVERAGE_EXT_VERSION = "17.14.2"
+# The env override exists so the golden test can inject a bad pair without editing this file.
+# Nothing in the pipeline sets it; a real migration resolves live versions via context7.
+COVERAGE_EXT_VERSION = os.environ.get("XUNIT_V3_COVERAGE_VERSION", "17.14.2")
+
+
+def _major_of(version: str) -> int:
+    """Major as an INT: '017.14.2' and '17.14.2' are the same line, and a refusal that claims
+    otherwise ('the 017.x line') is exactly the confusing diagnostic this module exists to kill."""
+    head = version.split(".", 1)[0].strip()
+    if not head.isdigit():
+        raise ValueError(f"cannot read a major version from {version!r}")
+    return int(head)
+
+
+def validate_pairing(xunit_package: str, coverage_version: str,
+                     xunit_version: str = XUNIT_V3_VERSION) -> None:
+    """Refuse a pair that straddles two Microsoft.Testing.Platform lines.
+
+    Keyed on the xunit PACKAGE ID, never its version: `xunit.v3` and `xunit.v3.mtp-v2` are both
+    on major 3 today and sit on opposite MTP lines, so a version-keyed rule gets it exactly
+    backwards.
+
+    The failure this prevents is the nastiest kind available here: `dotnet restore` succeeds,
+    the build succeeds, and the test host dies at run time with a `TypeLoadException` naming an
+    interface nobody recognises. Nothing in that stack trace names either package, so the refusal
+    names both — that is the part a future reader actually needs.
+    """
+    expected = MTP_COMPAT.get(xunit_package)
+    if expected is None:
+        raise ValueError(
+            f"unknown xunit.v3 package id {xunit_package!r}: extend MTP_COMPAT with the "
+            f"Microsoft.Testing.Platform line it targets. Guessing a coverage-extension major "
+            f"would reintroduce the run-time failure the map prevents."
+        )
+    got = _major_of(coverage_version)
+    if got != expected:
+        raise ValueError(
+            f"incompatible test platform pair: {xunit_package} {xunit_version} is served by "
+            f"Microsoft.Testing.Extensions.CodeCoverage {expected}.x, but {coverage_version} is "
+            f"on the {got}.x line. Both packages bind to Microsoft.Testing.Platform, so this "
+            f"restores and builds clean, then dies at run time with "
+            f"\"TypeLoadException: Could not load type '…IDataConsumer'\". "
+            f"Move both legs in the same change (see MTP_COMPAT)."
+        )
+
 
 # The v2 packages the transform removes. `xunit` and `xunit.runner.visualstudio` are replaced by
 # `xunit.v3` (which brings its own Microsoft Testing Platform runner); Microsoft.NET.Test.Sdk is the
@@ -107,6 +171,11 @@ def _insert_before(text: str, closing_tag: str, lines) -> str | None:
 
 
 def transform_test_csproj(text: str, with_output_type: bool) -> str:
+    # The guard belongs at the point that actually emits the pair, not only in main(): this
+    # function is importable, and a caller reaching it directly would otherwise write both
+    # PackageReferences with no pairing check at all.
+    validate_pairing(XUNIT_V3_PACKAGE, COVERAGE_EXT_VERSION)
+
     # 1. Drop the v2 package references, then any ItemGroup they left empty.
     text = drop_packages(text, DROP)
     text = re.sub(r"[ \t]*<ItemGroup>\s*</ItemGroup>\s*\n", "", text)
@@ -115,7 +184,7 @@ def transform_test_csproj(text: str, with_output_type: bool) -> str:
     new_refs = [
         f'<PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage"'
         f' Version="{COVERAGE_EXT_VERSION}" />',
-        f'<PackageReference Include="xunit.v3" Version="{XUNIT_V3_VERSION}" />',
+        f'<PackageReference Include="{XUNIT_V3_PACKAGE}" Version="{XUNIT_V3_VERSION}" />',
     ]
     m = re.search(r"^([ \t]*)<ItemGroup>", text, re.M)
     if m:
@@ -181,6 +250,14 @@ def rewrite_usings(root: Path) -> int:
 
 
 def main() -> int:
+    # Before anything is read or written: the two pins this script is about to bake into a csproj
+    # must agree. A mismatch is cheap to catch here and expensive to catch at run time.
+    try:
+        validate_pairing(XUNIT_V3_PACKAGE, COVERAGE_EXT_VERSION)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
     ap = argparse.ArgumentParser()
     ap.add_argument("app_dir", type=Path)
     ap.add_argument("--skip-output-type", action="store_true")
