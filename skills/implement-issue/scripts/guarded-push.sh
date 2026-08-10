@@ -32,7 +32,8 @@
 #
 # Exit codes:
 #   0  pushed, and <remote>/<expected-branch> is verified equal to HEAD
-#   2  REFUSED before pushing — HEAD is another branch, or detached, or not a repo. Nothing sent.
+#   2  REFUSED before pushing — HEAD is another branch, or detached, or not a repo, or this script
+#      could not load the branch assertion it shares with guarded-commit.sh. Nothing sent.
 #   4  the push reported success but the remote does NOT carry this HEAD. This is the silent
 #      mis-push: the work is not where the exit code implied it was.
 #   *  git push's own exit code, if the push itself failed. Nothing else was done.
@@ -49,11 +50,28 @@
 
 set -euo pipefail
 
-refuse() { printf 'guarded-push: REFUSED — %s\n' "$*" >&2; exit 2; }
+TOOL=guarded-push
 
-# Print the header block, whatever length it happens to be — see guarded-commit.sh for why a
-# hardcoded line range is a trap.
-usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
+# refuse(), usage() and the branch assertion itself live in _assert-branch.sh, shared with
+# guarded-commit.sh so the invariant has one home (#44) — see that file for the resolution rules
+# and for why a hardcoded --help line range is a trap.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+ASSERT="$SCRIPT_DIR/_assert-branch.sh"
+
+# Fail CLOSED, in this script's own voice — refuse() is in the file that is missing. Bash's own
+# "No such file or directory" from the `.` below exits 1, the code this script documents as
+# "git's own failure", which a caller may read as transient and retry.
+if [ ! -f "$ASSERT" ] || [ ! -r "$ASSERT" ]; then
+  {
+    printf '%s: REFUSED — cannot read the branch assertion, so it cannot guard anything:\n' "$TOOL"
+    printf '                %s\n' "$ASSERT"
+    printf '            Nothing sent. The guards are not standalone files: reinstall the kit, or\n'
+    printf '            put _assert-branch.sh back beside this script.\n'
+  } >&2
+  exit 2
+fi
+# shellcheck source=./_assert-branch.sh
+. "$ASSERT"
 
 REPO="."
 REMOTE="origin"
@@ -61,45 +79,35 @@ EXPECTED=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -C)        [ -n "${2:-}" ] || refuse "-C needs a <repo-path>"
+    -C)        [ -n "${2:-}" ] || refuse "$TOOL" "-C needs a <repo-path>"
                REPO="$2";   shift 2 ;;
-    --remote)  [ -n "${2:-}" ] || refuse "--remote needs a <name>"
+    --remote)  [ -n "${2:-}" ] || refuse "$TOOL" "--remote needs a <name>"
                REMOTE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --)        shift; break ;;
-    -*)        refuse "unknown option: $1" ;;
+    -*)        refuse "$TOOL" "unknown option: $1" ;;
     *)
-      [ -z "$EXPECTED" ] || refuse "unexpected extra argument: $1 (git push args go after --)"
+      [ -z "$EXPECTED" ] || refuse "$TOOL" "unexpected extra argument: $1 (git push args go after --)"
       EXPECTED="$1"; shift ;;
   esac
 done
 
-[ -n "$EXPECTED" ] || refuse "an expected branch name is required: guarded-push.sh [-C <path>] <branch> [-- <git push args…>]"
-[ -n "$REMOTE" ]   || refuse "--remote needs a name"
-[ -d "$REPO" ]     || refuse "-C path is not a directory: $REPO"
-
-git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 \
-  || refuse "not a git repository: $REPO"
+[ -n "$EXPECTED" ] || refuse "$TOOL" "an expected branch name is required: guarded-push.sh [-C <path>] <branch> [-- <git push args…>]"
+[ -n "$REMOTE" ]   || refuse "$TOOL" "--remote needs a name"
 
 # ---------------------------------------------------------------- assert, before anything
+#
+# The checks and their order are in _assert-branch.sh; the prose is here, because what an
+# unguarded push costs is not what an unguarded commit costs. `{found}` is the branch HEAD turned
+# out to be on. Sets $head_sha — the sha this push must be able to prove reached the remote.
 
-# `symbolic-ref` and not `rev-parse --abbrev-ref HEAD`: on a detached HEAD the latter prints
-# the literal string "HEAD", which compares as a plain branch name and would sail past a naive
-# string test. symbolic-ref simply fails, which is the answer we want.
-head_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-
-[ -n "$head_branch" ] || refuse \
+assert_branch "$TOOL" \
   "HEAD is detached in $REPO — it belongs to no branch, so there is nothing safe to push.
-            Expected '$EXPECTED'. Nothing sent."
-
-if [ "$head_branch" != "$EXPECTED" ]; then
-  refuse "HEAD is on '$head_branch' but this task owns '$EXPECTED'.
-            Pushing now would carry this work into '$head_branch' and into that branch's
+            Expected '$EXPECTED'. Nothing sent." \
+  "HEAD is on '{found}' but this task owns '$EXPECTED'.
+            Pushing now would carry this work into '{found}' and into that branch's
             pull request. Nothing sent. Re-check out '$EXPECTED' (in a worktree of its own)
             and retry."
-fi
-
-head_sha=$(git -C "$REPO" rev-parse HEAD)
 
 # ---------------------------------------------------------------- push
 

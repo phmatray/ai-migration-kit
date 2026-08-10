@@ -483,4 +483,55 @@ set -e
 [ "$(remote_tip push-foreign a)" = "$head_sha" ] || fail push-foreign "the remote does not carry HEAD"
 echo "  ok: push foreign cwd — the guard follows -C, not the ambient directory"
 
+# ================================================================== both guards: the shared helper
+#
+# ---------------------------------------------------------------- 19. the helper is missing
+#
+# The branch assertion has one home, `_assert-branch.sh`, sourced by both guards (#44). That buys a
+# single reviewed definition of the invariant and costs a new failure mode: the kit is installed as
+# a plugin and its guards are invoked by absolute path, so a partial install — or a guard copied out
+# of the kit on its own, which these single-file scripts invite — leaves a guard whose assertion
+# cannot load.
+#
+# A guard that cannot start is a guard that is not guarding, so it must fail CLOSED: refuse (2) and
+# name the file it wanted. Letting bash's own "No such file or directory" from the `.` line stand
+# would exit 1 — the documented "git's own failure" bucket, which a caller is entitled to read as
+# transient and retry.
+
+R=$(new_repo helper-missing)
+git -C "$R" checkout -q a
+before_a=$(tip "$R" a); before_b=$(tip "$R" b)
+echo "task work" >> "$R/seed.txt"
+
+# A lone guard: copied out with no `_assert-branch.sh` beside it.
+LONE=$(mktemp -d "$WORK/lone-guard.XXXX")
+cp "$COMMIT" "$PUSH" "$LONE/"
+
+run helper-missing-commit bash "$LONE/guarded-commit.sh" -C "$R" a -- -am "must never land"
+
+[ "$RC" -eq 2 ] || fail helper-missing-commit "a guard without its helper must refuse (2), got $RC"
+grep -q '_assert-branch.sh' "$OUT" \
+  || fail helper-missing-commit "the refusal must name the file it could not load"
+[ "$(tip "$R" a)" = "$before_a" ] \
+  || fail helper-missing-commit "branch a advanced — the commit ran with no assertion behind it"
+[ "$(tip "$R" b)" = "$before_b" ] || fail helper-missing-commit "branch b moved"
+
+run helper-missing-push bash "$LONE/guarded-push.sh" -C "$R" a
+
+[ "$RC" -eq 2 ] || fail helper-missing-push "a guard without its helper must refuse (2), got $RC"
+grep -q '_assert-branch.sh' "$OUT" \
+  || fail helper-missing-push "the refusal must name the file it could not load"
+
+# --help too. "Never proceeds" has no exception: the helper is loaded before the option loop is
+# parsed at all (that loop's own errors are reported through the helper's refuse()), so there is no
+# state in which a lone guard does something useful. A --help that worked would advertise a guard
+# that cannot guard.
+for g in guarded-commit guarded-push; do
+  run "helper-missing-help-$g" bash "$LONE/$g.sh" --help
+  [ "$RC" -eq 2 ] || fail "helper-missing-help-$g" "--help on a lone guard must refuse (2), got $RC"
+  grep -q '_assert-branch.sh' "$OUT" \
+    || fail "helper-missing-help-$g" "the refusal must name the file it could not load"
+done
+echo "  ok: helper-missing — a guard that cannot load its assertion refuses (2) and names the file"
+
 echo "guarded-git golden test OK"

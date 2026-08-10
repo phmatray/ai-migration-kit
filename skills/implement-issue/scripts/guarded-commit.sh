@@ -34,7 +34,8 @@
 #
 # Exit codes:
 #   0  committed on <expected-branch>; prints <branch>@<short-sha>
-#   2  REFUSED before committing — HEAD is another branch, or detached, or not a repo.
+#   2  REFUSED before committing — HEAD is another branch, or detached, or not a repo, or this
+#      script could not load the branch assertion it shares with guarded-push.sh.
 #      Nothing was written.
 #   3  the commit was made but HEAD was NOT <expected-branch> afterwards: something moved the
 #      branch under this process. The commit EXISTS; the message names where it went.
@@ -48,12 +49,33 @@
 
 set -euo pipefail
 
-refuse() { printf 'guarded-commit: REFUSED — %s\n' "$*" >&2; exit 2; }
+TOOL=guarded-commit
 
-# Print the header block, whatever length it happens to be. A hardcoded `sed -n '2,42p'` silently
-# stops documenting the exit codes the moment a line is added above them — and --help is exactly
-# what someone reads when they hit an exit code they do not recognise.
-usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
+# refuse(), usage() and the branch assertion itself live in _assert-branch.sh, so this guard and
+# guarded-push.sh share ONE definition of the invariant rather than a copy each (#44).
+#
+# Resolved relative to THIS FILE and never to the working directory: the kit is installed as a
+# plugin and its scripts are invoked by absolute path from wherever the agent happens to be.
+# `pwd -P` after the cd so a symlinked guard looks beside its real file rather than beside the
+# link, and a cleared CDPATH so an inherited one cannot send that cd somewhere else entirely.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+ASSERT="$SCRIPT_DIR/_assert-branch.sh"
+
+# Fail CLOSED, and say so in this script's own voice — refuse() is in the file that is missing.
+# A guard that cannot load its assertion is not a guard, and the alternative is bash's own
+# "No such file or directory" from the `.` below, which exits 1: the code this script documents
+# as "git's own failure", so the caller would be entitled to read it as transient and retry.
+if [ ! -f "$ASSERT" ] || [ ! -r "$ASSERT" ]; then
+  {
+    printf '%s: REFUSED — cannot read the branch assertion, so it cannot guard anything:\n' "$TOOL"
+    printf '                 %s\n' "$ASSERT"
+    printf '             Nothing committed. The guards are not standalone files: reinstall the kit,\n'
+    printf '             or put _assert-branch.sh back beside this script.\n'
+  } >&2
+  exit 2
+fi
+# shellcheck source=./_assert-branch.sh
+. "$ASSERT"
 
 REPO="."
 EXPECTED=""
@@ -61,45 +83,39 @@ GIT_OPTS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -C)        [ -n "${2:-}" ] || refuse "-C needs a <repo-path>"
+    -C)        [ -n "${2:-}" ] || refuse "$TOOL" "-C needs a <repo-path>"
                REPO="$2"; shift 2 ;;
-    -c)        [ -n "${2:-}" ] || refuse "-c needs a <key>=<value>"
+    -c)        [ -n "${2:-}" ] || refuse "$TOOL" "-c needs a <key>=<value>"
                GIT_OPTS+=(-c "$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --)        shift; break ;;
-    -*)        refuse "unknown option: $1" ;;
+    -*)        refuse "$TOOL" "unknown option: $1" ;;
     *)
-      [ -z "$EXPECTED" ] || refuse "unexpected extra argument: $1 (git commit args go after --)"
+      [ -z "$EXPECTED" ] || refuse "$TOOL" "unexpected extra argument: $1 (git commit args go after --)"
       EXPECTED="$1"; shift ;;
   esac
 done
 
-[ -n "$EXPECTED" ] || refuse "an expected branch name is required: guarded-commit.sh [-C <path>] <branch> -- <git commit args…>"
-[ $# -gt 0 ]       || refuse "no git commit arguments given (expected: -- -am 'message')"
-[ -d "$REPO" ]     || refuse "-C path is not a directory: $REPO"
-
-git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 \
-  || refuse "not a git repository: $REPO"
+[ -n "$EXPECTED" ] || refuse "$TOOL" "an expected branch name is required: guarded-commit.sh [-C <path>] <branch> -- <git commit args…>"
+[ $# -gt 0 ]       || refuse "$TOOL" "no git commit arguments given (expected: -- -am 'message')"
 
 # ---------------------------------------------------------------- assert, before anything
+#
+# The checks and their order are in _assert-branch.sh; the prose is here, because what an
+# unguarded commit costs is not what an unguarded push costs. `{found}` is the branch HEAD turned
+# out to be on. Sets $head_sha, the tip this commit is expected to move.
 
-# `symbolic-ref` and not `rev-parse --abbrev-ref HEAD`: on a detached HEAD the latter prints
-# the literal string "HEAD", which compares as a plain branch name and would sail past a naive
-# string test. symbolic-ref simply fails, which is the answer we want.
-head_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-
-[ -n "$head_branch" ] || refuse \
+assert_branch "$TOOL" \
   "HEAD is detached in $REPO — it belongs to no branch, so this commit has nowhere safe to
-             land. Expected '$EXPECTED'. Nothing committed."
-
-if [ "$head_branch" != "$EXPECTED" ]; then
-  refuse "HEAD is on '$head_branch' but this task owns '$EXPECTED'.
+             land. Expected '$EXPECTED'. Nothing committed." \
+  "HEAD is on '{found}' but this task owns '$EXPECTED'.
              Something checked out another branch in $REPO. Committing now would land this
-             work on '$head_branch' and a later push would carry it into that branch's PR.
+             work on '{found}' and a later push would carry it into that branch's PR.
              Nothing committed. Re-check out '$EXPECTED' (in a worktree of its own) and retry."
-fi
 
-before_sha=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
+# The helper names it $head_sha because that is what it is when it is read. Down here it is the
+# tip the branch had BEFORE this commit, and every message below is written in those terms.
+before_sha=$head_sha
 
 # ---------------------------------------------------------------- commit
 
