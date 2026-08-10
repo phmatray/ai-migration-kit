@@ -22,6 +22,8 @@
 #
 # Everything that builds runs on a COPY under $(mktemp -d). samples/LegacyShop is read-only here.
 set -euo pipefail
+# Resolved BEFORE the cd, because a relative $0 stops resolving once the working directory moves.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/../.."
 
 KIT="$PWD"
@@ -670,13 +672,15 @@ echo "  [7] the MTP/coverage pairing is enforced by the transform, not by memory
 #    lost in a copy-paste. One loader, asserted here, so a new call site cannot reintroduce it.
 # ---------------------------------------------------------------------------
 #    The `[l]` is not a typo: it keeps this grep from counting its own pattern, so the assertion
-#    measures the script's loaders rather than itself.
-loaders=$(grep -c 'spec_from_file_[l]ocation' "$0")
+#    measures the script's loaders rather than itself. And it reads $SELF, not $0: this script cd's
+#    to the kit root on line 13, after which a relative $0 no longer resolves — the grep then fails
+#    with "No such file" and the check quietly does not run.
+loaders=$(grep -c 'spec_from_file_[l]ocation' "$SELF")
 if [ "$loaders" -ne 1 ]; then
-  echo "FAIL: $loaders copies of the importlib loader in $(basename "$0") — expected exactly 1."
+  echo "FAIL: $loaders copies of the importlib loader in $(basename "$SELF") — expected exactly 1."
   echo "      Every Python snippet that loads a kit script must go through py_module(), which"
   echo "      carries PYTHONDONTWRITEBYTECODE=1. A copy without it turns the whole suite red:"
-  grep -n 'spec_from_file_[l]ocation' "$0"
+  grep -n 'spec_from_file_[l]ocation' "$SELF"
   exit 1
 fi
 echo "  [8] one module loader carries the no-__pycache__ invariant"
