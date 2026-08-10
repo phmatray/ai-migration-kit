@@ -18,7 +18,7 @@ script.
 The pinned xunit.v3 version below is this test's witness, not a recommendation: a real
 migration resolves the current version from the live feed (context7), as the reference says.
 What is NOT free to drift is the *pairing* — the xunit package and the MTP coverage extension must
-sit on the same Microsoft.Testing.Platform line. `MTP_COMPAT` states that rule, keyed on the xunit
+sit on the same Microsoft.Testing.Platform line. `MTP_LINE` states that rule, keyed on the xunit
 PACKAGE ID (`xunit.v3` vs `xunit.v3.mtp-v2` — both major 3, opposite MTP lines), and
 `validate_pairing` enforces it, because the mismatch is invisible until a test run dies.
 """
@@ -40,12 +40,35 @@ from pathlib import Path
 XUNIT_V3_PACKAGE = "xunit.v3"
 XUNIT_V3_VERSION = "3.2.2"
 
-# xunit.v3 package id -> the Microsoft.Testing.Extensions.CodeCoverage major built against the same
-# Microsoft.Testing.Platform line. One decision, two pins; adding a line means adding an entry here.
-MTP_COMPAT = {
-    "xunit.v3": 17,         # -> xunit.v3.mtp-v1,      Microsoft.Testing.Platform 1.x
-    "xunit.v3.mtp-v2": 18,  # -> xunit.v3.core.mtp-v2, Microsoft.Testing.Platform 2.x
+# xunit package id -> the Microsoft.Testing.Platform MAJOR LINE it binds to. This is the actual
+# invariant; every expected version below is derived from it, so a new xunit line means one entry.
+MTP_LINE = {
+    "xunit.v3": 1,         # -> xunit.v3.mtp-v1,      Microsoft.Testing.Platform 1.x
+    "xunit.v3.mtp-v2": 2,  # -> xunit.v3.core.mtp-v2, Microsoft.Testing.Platform 2.x
 }
+
+# Most of the family versions AS the platform line: Microsoft.Testing.Platform itself,
+# …Platform.MSBuild, …Extensions.Telemetry and …Extensions.TrxReport.Abstractions are all 1.x
+# alongside MTP v1 and 2.x alongside MTP v2 (measured from xunit.v3.core.mtp-v{1,2} 3.2.2's nuspecs).
+#
+# CodeCoverage is the one exception, and it is not a typo: it kept the numbering of its VSTest
+# ancestor, so the same two lines are 17.x and 18.x. Modelling that as a per-package override keeps
+# the quirk in one place — a single flat "expected major" table would have to repeat the line
+# concept for every package, and would be wrong for whichever group it did not describe.
+COVERAGE_PACKAGE = "Microsoft.Testing.Extensions.CodeCoverage"
+EXTENSION_MAJOR = {
+    COVERAGE_PACKAGE: {1: 17, 2: 18},
+}
+
+
+def expected_major(package: str, line: int) -> int:
+    """The major `package` must be on to sit with Microsoft.Testing.Platform `line`.
+
+    Unlisted packages follow the line. That is deliberately permissive: refusing an extension
+    nobody has enumerated would block packages that are perfectly fine, and the failure this module
+    guards is a *mismatch*, not an unknown name.
+    """
+    return EXTENSION_MAJOR.get(package, {}).get(line, line)
 
 # Coverage does NOT survive the platform change on its own: under MTP the VSTest collector
 # (`--collect:"XPlat Code Coverage"`) is ignored and produces no file at all, silently. The MTP
@@ -73,41 +96,46 @@ def _major_of(version: str) -> int:
     return int(head)
 
 
-def validate_pairing(xunit_package: str, coverage_version: str,
+def validate_pairing(xunit_package: str, version: str,
+                     package: str = COVERAGE_PACKAGE,
                      xunit_version: str = XUNIT_V3_VERSION) -> None:
-    """Refuse a pair that straddles two Microsoft.Testing.Platform lines.
+    """Refuse a Microsoft.Testing.* package that straddles the MTP line the xunit package binds to.
 
     Keyed on the xunit PACKAGE ID, never its version: `xunit.v3` and `xunit.v3.mtp-v2` are both
     on major 3 today and sit on opposite MTP lines, so a version-keyed rule gets it exactly
     backwards.
+
+    `package` defaults to the coverage extension — the one this transform writes — but any member
+    of the family can be checked, because they all cross the same v1/v2 boundary.
 
     The failure this prevents is the nastiest kind available here: `dotnet restore` succeeds,
     the build succeeds, and the test host dies at run time with a `TypeLoadException` naming an
     interface nobody recognises. Nothing in that stack trace names either package, so the refusal
     names both — that is the part a future reader actually needs.
     """
-    if not VERSION_RE.match(coverage_version):
+    if not VERSION_RE.match(version):
         raise ValueError(
-            f"not a version: {coverage_version!r}. This string is interpolated straight into a "
+            f"not a version: {version!r}. This string is interpolated straight into a "
             f"csproj attribute, so anything shaped otherwise either produces an unusable pin or "
             f"breaks out of the attribute entirely."
         )
-    expected = MTP_COMPAT.get(xunit_package)
-    if expected is None:
+    line = MTP_LINE.get(xunit_package)
+    if line is None:
         raise ValueError(
-            f"unknown xunit.v3 package id {xunit_package!r}: extend MTP_COMPAT with the "
-            f"Microsoft.Testing.Platform line it targets. Guessing a coverage-extension major "
+            f"unknown xunit.v3 package id {xunit_package!r}: extend MTP_LINE with the "
+            f"Microsoft.Testing.Platform line it targets. Guessing a compatible major "
             f"would reintroduce the run-time failure the map prevents."
         )
-    got = _major_of(coverage_version)
+    expected = expected_major(package, line)
+    got = _major_of(version)
     if got != expected:
         raise ValueError(
-            f"incompatible test platform pair: {xunit_package} {xunit_version} is served by "
-            f"Microsoft.Testing.Extensions.CodeCoverage {expected}.x, but {coverage_version} is "
-            f"on the {got}.x line. Both packages bind to Microsoft.Testing.Platform, so this "
-            f"restores and builds clean, then dies at run time with "
+            f"incompatible test platform pair: {xunit_package} {xunit_version} runs on "
+            f"Microsoft.Testing.Platform {line}.x, which is served by {package} {expected}.x — "
+            f"but {version} is on the {got}.x line. Both bind to Microsoft.Testing.Platform, so "
+            f"this restores and builds clean, then dies at run time with "
             f"\"TypeLoadException: Could not load type '…IDataConsumer'\". "
-            f"Move both legs in the same change (see MTP_COMPAT)."
+            f"Move every leg in the same change (see MTP_LINE / EXTENSION_MAJOR)."
         )
 
 

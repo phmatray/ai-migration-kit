@@ -623,7 +623,7 @@ if python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/pairing" \
 fi
 # Establish WHICH refusal fired before asserting what it says: an unknown-package-id refusal names
 # only the id, so without this the next reader is sent after a message-formatting bug when the real
-# defect is a missing MTP_COMPAT entry.
+# defect is a missing MTP_LINE entry.
 grep -qF 'incompatible test platform pair' "$pair_log" || {
   echo "FAIL: the transform refused, but not for the pairing reason — the mismatch branch never"
   echo "      ran, so nothing here proves the pairing is checked:"; cat "$pair_log"; exit 1; }
@@ -656,8 +656,32 @@ for pkg, good, bad in (("xunit.v3", "17.14.2", "18.9.0"),
     else:
         raise AssertionError(f"{pkg} accepted CodeCoverage {bad} — the guard is inverted")
 
+# The rest of the Microsoft.Testing family splits at the SAME v1/v2 boundary but versions AS the
+# platform line (1.x / 2.x). CodeCoverage is the outlier at 17.x / 18.x, inherited from its VSTest
+# ancestry — so a model that assumed one numbering would be wrong for whichever group it did not
+# describe. Pin both groups, both directions.
+for pkg, v1_ok, v2_ok in (
+    ("Microsoft.Testing.Extensions.CodeCoverage", "17.14.2", "18.9.0"),
+    ("Microsoft.Testing.Extensions.TrxReport.Abstractions", "1.9.1", "2.0.2"),
+    ("Microsoft.Testing.Platform", "1.9.1", "2.0.2"),
+):
+    mod.validate_pairing("xunit.v3", v1_ok, package=pkg)
+    mod.validate_pairing("xunit.v3.mtp-v2", v2_ok, package=pkg)
+    for xunit_pkg, wrong in (("xunit.v3", v2_ok), ("xunit.v3.mtp-v2", v1_ok)):
+        try:
+            mod.validate_pairing(xunit_pkg, wrong, package=pkg)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{xunit_pkg} accepted {pkg} {wrong} — it crosses the MTP boundary")
+
+# An extension nobody has enumerated follows the line rather than being refused: refusing here would
+# block packages that are perfectly fine, which is the opposite of helpful.
+mod.validate_pairing("xunit.v3", "1.0.0", package="Microsoft.Testing.Extensions.NotYetInvented")
+mod.validate_pairing("xunit.v3.mtp-v2", "2.0.0", package="Microsoft.Testing.Extensions.NotYetInvented")
+
 # A package id nobody has mapped must be named as such, not silently assumed compatible. Assert on
-# a substring unique to THAT branch: both refusals mention MTP_COMPAT, so matching on the map name
+# a substring unique to THAT branch: both refusals mention the map, so matching on the map name
 # alone would keep passing if this case started taking the mismatch branch instead.
 try:
     mod.validate_pairing("xunit.v3.mtp-v99", mod.COVERAGE_EXT_VERSION)
