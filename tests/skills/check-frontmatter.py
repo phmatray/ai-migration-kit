@@ -5,7 +5,10 @@ Checks for each skills/*/SKILL.md:
 - name present, kebab-case, equal to the folder name;
 - description present, <= 1024 characters, no XML tags;
 - compatibility <= 500 characters when present;
-- license and metadata.version present (kit requirement, not the guide's);
+- license present (kit requirement, not the guide's);
+- metadata.version ABSENT: the plugin ships and is versioned as one unit, so the
+  only version anyone can act on is .claude-plugin/plugin.json, which
+  release-please bumps. A per-skill number is a claim nothing maintains (#16);
 - a trigger list tests/skills/<name>.triggers.md exists, with both
   "Should trigger" and "Should NOT trigger" sections non-empty.
 
@@ -61,8 +64,13 @@ for f in skill_files:
         errors.append(f"{skill}: compatibility is {len(comp)} characters (guide limit: 500)")
     if "license:" not in fm:
         errors.append(f"{skill}: license missing")
-    if "version:" not in fm:
-        errors.append(f"{skill}: metadata.version missing")
+    # Anchored to line start so a `version:` inside prose (description, compatibility)
+    # is not mistaken for the key — only a real YAML key is an error.
+    if re.search(r'^[ \t]*version:', fm, re.M):
+        errors.append(
+            f"{skill}: metadata.version is forbidden (#16) — the plugin is versioned as "
+            f"one unit in .claude-plugin/plugin.json, bumped by release-please; a per-skill "
+            f"number is a claim nothing maintains")
 
     triggers = ROOT / "tests" / "skills" / f"{skill}.triggers.md"
     if not triggers.exists():

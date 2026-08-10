@@ -14,7 +14,6 @@ compatibility: >-
   migration/report.json; git to commit updates at the source.
 metadata:
   author: Philippe Matray
-  version: 1.8.0
   suite: ai-migration-kit
 ---
 

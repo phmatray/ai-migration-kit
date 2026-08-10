@@ -142,3 +142,11 @@ target repo — generated once by `get-repo-profile`, committed, then consumed w
 | Repo-specific facts for the lifecycle trio | `.claude/skills/repo-profile.md` (per target repo) |
 | Migration state & follow-up queue | `migration/report.json` per migrated repo (never a parallel list) |
 | Triggering contracts | `tests/skills/<name>.triggers.md`, guarded by `tests/skills/check-frontmatter.py` in CI |
+| Version | `.claude-plugin/plugin.json`, bumped by release-please — **never** a `metadata.version` in a SKILL.md |
+
+The plugin ships as one unit: there is no way to install `legacy-upgrade` at one version alongside
+`merge-pr` at another, so a per-skill version would communicate a granularity that does not exist —
+and nothing would bump it. Six of them had already drifted behind `plugin.json` before the field was
+removed (#16). `check-frontmatter.py` now rejects `version:` in skill frontmatter, so it cannot come
+back unmaintained. Skill metadata keeps `author` and `suite`, which are stable facts rather than
+claims about a release.
