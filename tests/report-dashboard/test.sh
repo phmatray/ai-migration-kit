@@ -41,6 +41,10 @@ assert 'Partial : 3/4 lignes couvertes'
 # (8/12) — jamais lu dans l'attribut line-rate de la racine, qui compterait deux fois le
 # produit dès qu'il y a plusieurs rapports (cf. parse_cobertura).
 assert 'Global : 70 % lignes · 67 % branches'
+# Le KPI affiché doit être CELUI qui vient d'être calculé : une tuile recopiée à la main à côté
+# d'un graphe recalculé, c'est deux chiffres contradictoires sur la page que le kit donne en
+# exemple de « couverture mesurée, jamais estimée ».
+assert '<div class="v">70<small>%</small></div>'
 # Le filtre d'exclusion fonctionne :
 refuse 'ExcludedWeb'
 # Chronologie du pipeline (phases[]) : minutes par phase + total calculé, jamais recopié :
@@ -116,5 +120,47 @@ assert seul["line_pct"] == 70 and seul["branch_pct"] == 67, seul
 # juste déplacé de la collecte vers la lecture.
 assert rd.parse_cobertura([a, b], ["Fixture.Web"]) == rd.parse_cobertura([b, a], ["Fixture.Web"])
 PY
+
+# ---------------------------------------------------------------------------
+# `coverage.cobertura` : répertoire et motif glob (issue #17).
+#
+# Sous MTP c'est le collecteur qui NOMME les rapports, avec un GUID neuf à chaque run. Un
+# report.json versionné qui listerait ces chemins serait mort au run suivant : il doit pouvoir
+# désigner le répertoire. Le nom des fixtures ne finit pas par `.cobertura.xml`, donc on en
+# dépose des copies correctement nommées — c'est aussi ce que produit un vrai run.
+# ---------------------------------------------------------------------------
+dir_case="$(mktemp -d)"
+cp tests/report-dashboard/fixture-cobertura.xml "$dir_case/projet-un.cobertura.xml"
+cp tests/report-dashboard/fixture-cobertura-b.xml "$dir_case/projet-deux.cobertura.xml"
+
+for forme in "." "*.cobertura.xml"; do
+  python3 - "$dir_case" "$forme" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text())
+r["coverage"]["cobertura"] = sys.argv[2]
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+  python3 scripts/report-dashboard.py "$dir_case/report.json" -o "$dir_case/report.html" 2>/dev/null
+  # Mêmes chiffres que la liste explicite : le répertoire et le glob désignent les deux rapports.
+  assert_in "$dir_case/report.html" 'Global : 75 % lignes · 78 % branches'
+  assert_in "$dir_case/report.html" 'Engine : 4/4 lignes couvertes'
+done
+
+# Un chemin littéral manquant doit NOMMER le fichier absent, pas cracher un FileNotFoundError
+# d'ET.parse : sous MTP les noms changent à chaque run, donc « lequel ? » est toute la question.
+python3 - "$dir_case" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text())
+r["coverage"]["cobertura"] = ["projet-un.cobertura.xml", "disparu.cobertura.xml"]
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+if err=$(python3 scripts/report-dashboard.py "$dir_case/report.json" -o "$dir_case/x.html" 2>&1); then
+  echo "ÉCHEC : un rapport de couverture manquant doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *disparu.cobertura.xml*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le fichier manquant : $err"; exit 1 ;;
+esac
+rm -rf "$dir_case"
 
 echo "OK test golden report-dashboard ($out)"

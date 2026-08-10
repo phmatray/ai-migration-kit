@@ -4,13 +4,19 @@
 Usage : report-dashboard.py <report.json> [-o report.html]
 
 Entrées (report.json) : contenu du rapport (KPIs, valeur business, avant/après,
-portes, next steps…). La couverture est lue depuis un cobertura.xml (chemin dans
-le JSON) — jamais déclarée à la main. La capture est embarquée en data URI.
+portes, next steps…). La couverture est lue depuis un ou plusieurs cobertura.xml
+— jamais déclarée à la main. `coverage.cobertura` accepte un fichier, une liste de
+fichiers, un RÉPERTOIRE, ou un motif glob ; sous Microsoft Testing Platform chaque
+projet de test écrit son propre rapport sous un nom généré, donc **pointer sur le
+répertoire `coverage/`** est la forme durable — un chemin littéral serait périmé au
+run suivant. Les rapports sont agrégés (cf. parse_cobertura), jamais concaténés.
+La capture est embarquée en data URI.
 Sortie : document HTML autonome (double-cliquable, envoyable), thème clair/sombre,
 palette validée (cf. dashboard d'audit du kit).
 """
 import argparse
 import base64
+import glob
 import html
 import json
 import re
@@ -106,6 +112,52 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     }
 
 
+def resolve_cobertura(entry, base):
+    """Résout le champ `coverage.cobertura` en liste de fichiers, relatifs au report.json.
+
+    Quatre formes, toutes acceptées — la première pour les rapports déjà écrits, les trois
+    autres parce que sous MTP c'est le collecteur qui NOMME les fichiers, avec un GUID neuf à
+    chaque run : un chemin littéral écrit dans un report.json versionné serait mort au run
+    suivant. Le répertoire est donc la forme à privilégier.
+
+      "coverage/coverage.cobertura.xml"        un fichier
+      ["a.cobertura.xml", "b.cobertura.xml"]   plusieurs fichiers
+      "coverage"                               un répertoire → tous ses *.cobertura.xml
+      "coverage/*.cobertura.xml"               un motif glob
+    """
+    entries = [entry] if isinstance(entry, str) else list(entry)
+    files = []
+    for item in entries:
+        path = Path(item) if Path(item).is_absolute() else base / item
+        if path.is_dir():
+            found = sorted(path.rglob("*.cobertura.xml"))
+            if not found:
+                raise SystemExit(f"aucun *.cobertura.xml dans le répertoire {path}")
+            files.extend(found)
+        elif any(c in str(item) for c in "*?["):
+            found = sorted(Path(p) for p in glob.glob(str(path), recursive=True))
+            if not found:
+                raise SystemExit(f"le motif {path} ne correspond à aucun fichier")
+            files.extend(found)
+        else:
+            # Nommer le fichier manquant : un FileNotFoundError brut d'ET.parse ne dit pas
+            # lequel des N rapports a disparu, et sous MTP ils changent de nom à chaque run.
+            if not path.is_file():
+                raise SystemExit(f"rapport de couverture introuvable : {path}")
+            files.append(path)
+    if not files:
+        raise SystemExit("coverage.cobertura ne désigne aucun rapport")
+    # Dédoublonne : un répertoire et un fichier qu'il contient peuvent être listés tous les
+    # deux, et lire deux fois le même rapport gonflerait les hits sans changer le total.
+    seen, unique = set(), []
+    for f in files:
+        key = f.resolve()
+        if key not in seen:
+            seen.add(key)
+            unique.append(str(f))
+    return unique
+
+
 def data_uri(path):
     ext = Path(path).suffix.lstrip(".").lower()
     mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}[ext]
@@ -115,7 +167,14 @@ def data_uri(path):
 def hbar_chart(rows, aria, note, multi_hue=False):
     """rows: [{label, value(0..max), display, tip, hue?}] — barres horizontales SVG."""
     gutter, right_pad, width = 190, 70, 660
-    scale = (width - gutter - right_pad) / max(r["value"] for r in rows)
+    # Aucune barre, ou toutes à zéro : le dashboard doit le DIRE, pas planter sur un
+    # `max()` vide ou une division par zéro. C'est un état atteignable — un jeu de rapports
+    # entièrement exclu par `coverage.exclude`, ou une collecte qui n'a rien instrumenté.
+    if not rows:
+        return (f'<svg viewBox="0 0 {width} 40" role="img" aria-label="{esc(aria)}">'
+                f'<text x="0" y="24" fill="var(--muted)">{esc(note or "Aucune donnée")}</text></svg>')
+    largest = max(r["value"] for r in rows)
+    scale = (width - gutter - right_pad) / largest if largest else 0
     row_h, y = 34, 8
     parts = []
     for i, r in enumerate(rows):
@@ -326,13 +385,7 @@ def main():
     # Les chemins du JSON (cobertura, capture) sont relatifs au JSON lui-même, pas au cwd —
     # et la sortie aussi : le dashboard vit à côté de son rapport.
     base = Path(args.report_json).resolve().parent
-    # `cobertura` accepte un chemin ou une liste (un rapport par projet de test sous MTP).
-    # Les report.json déjà écrits portent une chaîne : elle reste valide, normalisée ici.
-    cobertura = r["coverage"]["cobertura"]
-    if isinstance(cobertura, str):
-        cobertura = [cobertura]
-    r["coverage"]["cobertura"] = [
-        p if Path(p).is_absolute() else str(base / p) for p in cobertura]
+    r["coverage"]["cobertura"] = resolve_cobertura(r["coverage"]["cobertura"], base)
     if r.get("screenshot") and not Path(r["screenshot"]["path"]).is_absolute():
         r["screenshot"]["path"] = str(base / r["screenshot"]["path"])
     output = Path(args.output) if args.output else base / "report.html"

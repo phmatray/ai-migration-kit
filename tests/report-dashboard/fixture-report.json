@@ -7,7 +7,7 @@
   "summary": "Fixture du test golden — aucune donnée réelle. Chaque valeur ci-dessous est vérifiée par tests/report-dashboard/test.sh.",
   "kpis": [
     { "v": "42", "label": "tests verts" },
-    { "v": "85", "unit": "%", "label": "couverture mesurée (lignes)" }
+    { "v": "70", "unit": "%", "label": "couverture mesurée (lignes)" }
   ],
   "business": [
     { "strong": "Actif réactivé.", "text": "Exemple de valeur business de la fixture." }

@@ -33,7 +33,13 @@ jobs:
       - name: Tests + couverture
         run: |
           set -euo pipefail
-          mkdir -p coverage
+          # Repartir d'un coverage/ VIDE, pas seulement l'assurer présent. Tant que le fichier
+          # portait un nom fixe, chaque run écrasait le précédent et le répertoire ne pouvait
+          # pas mentir ; maintenant que chaque projet nomme son rapport, les runs
+          # s'accumuleraient — et sur un runner self-hosted (workspace réutilisé) la garde
+          # ci-dessous passerait sur le rapport d'hier pendant qu'une collecte muette ne
+          # produit plus rien. L'agrégat compterait en prime des classes déjà supprimées.
+          rm -rf coverage && mkdir -p coverage
           mtp=$(grep -rlE 'xunit\.v3|TestingPlatformDotnetTestSupport' --include='*.csproj' . || true)
           vstest=$(grep -rlE 'PackageReference[^>]*Include="(xunit\.runner\.visualstudio|MSTest\.TestAdapter|NUnit3TestAdapter|coverlet\.collector)"' \
                      --include='*.csproj' . || true)
@@ -80,10 +86,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage
-          # VSTest niche un fichier par projet sous un dossier GUID, MTP les écrit à plat sous
-          # un nom GUID : les deux motifs, sinon l'artefact d'une des deux plateformes part
-          # vide sans que rien ne le dise. Le nom du fichier n'est plus fixe — c'est ce qui
-          # empêche deux projets de test de s'écraser — donc le glob prend *.cobertura.xml.
+          # Le nom du fichier n'est plus fixe — c'est ce qui empêche deux projets de test de
+          # s'écraser — donc le glob prend *.cobertura.xml. VSTest niche un fichier par projet
+          # sous un dossier GUID, MTP les écrit à plat : `**` couvre en principe les deux (il
+          # matche zéro segment ou plus), le second motif est une ceinture-bretelles assumée,
+          # pas une nécessité mesurée.
+          # Les .log sont ceux que MTP écrit à côté, un par projet : ils portent le détail des
+          # assertions, seule chose qui rende diagnosticable un test qui n'échoue que sur le
+          # runner. Ils n'arrivaient pas jusqu'ici tant que MTP les écrivait sous bin/.
           path: |
             coverage/**/*.cobertura.xml
             coverage/*.cobertura.xml
+            coverage/**/*.log

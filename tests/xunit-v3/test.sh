@@ -43,6 +43,20 @@ print("\n".join(body).strip("\n"))
 PY
 }
 
+# The slice above ends at the first line indented less than the block, so a heredoc terminator
+# (legal at column 0 inside a YAML literal block) would truncate the command silently — and a
+# truncated command that still parses could PASS, which is the one outcome worse than failing.
+# `bash -n` catches the truncation without knowing anything about the step's content.
+template_step_checked() {
+  local body
+  body=$(template_step "$1")
+  [ -n "$body" ] || { echo "FAIL: extracted an empty body for step '$1'"; exit 1; }
+  bash -n <<<"$body" 2>/dev/null || {
+    echo "FAIL: the extracted body of step '$1' is not valid bash — the slice truncated it:"
+    echo "$body"; exit 1; }
+  printf '%s' "$body"
+}
+
 # The fixture is the "before" state and must survive this script untouched, on every exit path
 # (including a failure mid-run) — otherwise a red test would also silently rewrite the fixture.
 #
@@ -209,7 +223,10 @@ if [ "${vcount:-0}" -lt "$BASELINE_TESTS" ]; then
   echo "      for 'no coverage file' to mean the collector was ignored."
   tail -20 "$scratch/vstest-cov.log"; exit 1
 fi
-if find coverage -name 'coverage.cobertura.xml' 2>/dev/null | grep -q .; then
+# Any cobertura, not the old fixed name: were the collector to start working through MTP's own
+# writer, the file would carry a generated name and a narrow `-name` would find nothing — this
+# canary would then print "pinned" forever while the hole it pins had closed.
+if find coverage -name '*.cobertura.xml' 2>/dev/null | grep -q .; then
   echo "NOTE: --collect:\"XPlat Code Coverage\" now yields cobertura under MTP."
   echo "      templates/ci-dotnet.yml can drop its MTP branch — re-check before simplifying."
   exit 1
@@ -220,10 +237,15 @@ echo "  [4/4a] VSTest collector yields no cobertura under MTP — the silent hol
 
 # 4b. The template's own step puts it back, in coverage/, where the artifact glob already looks.
 #     Running the extracted step rather than a copy of it is what makes 4d below a real gate.
-MTP_STEP=$(template_step "Tests + couverture")
+MTP_STEP=$(template_step_checked "Tests + couverture")
 rm -rf coverage
-SOLUTION='' bash -c "$MTP_STEP" > "$scratch/mtp-cov.log" 2>&1
-mtp_file=$(find coverage -name '*.cobertura.xml' | head -1)
+if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/mtp-cov.log" 2>&1; then
+  echo "FAIL: the template's coverage step failed outright:"
+  tail -25 "$scratch/mtp-cov.log"; exit 1
+fi
+# `-print -quit` rather than `| head -1`: under `pipefail` a SIGPIPE'd find returns 141 and
+# aborts the script before the diagnostic below can run.
+mtp_file=$(find coverage -name '*.cobertura.xml' -print -quit)
 [ -n "$mtp_file" ] || {
   echo "FAIL: the MTP coverage path produced no cobertura:"; tail -20 "$scratch/mtp-cov.log"; exit 1
 }
@@ -238,6 +260,11 @@ cov = rd.parse_cobertura(sys.argv[2], [])
 covered = sum(c["covered"] for c in cov["classes"])
 assert covered > 0, "parse_cobertura read zero covered lines — the dashboard would show nothing"
 assert cov["line_pct"] > 0, f"line_pct is {cov['line_pct']}"
+# Branch coverage is read from `condition-coverage`, an attribute this collector happens to
+# emit. Asserting it on a REAL report is what would catch the day it stops: without this, a
+# silent 0 % branches would ship looking like a measurement rather than an absence of data.
+assert cov["branch_pct"] > 0, \
+    f"branch_pct is {cov['branch_pct']} on a real MTP report — condition-coverage went missing?"
 print(f"  [4/4b] MTP coverage -> cobertura -> parse_cobertura: "
       f"{covered} covered lines, {cov['line_pct']}% line rate")
 PY
@@ -347,7 +374,7 @@ PY
 
 # 4e. The empty-coverage guard still fires — the fix widened the pattern it searches for, and a
 #     guard that silently stopped matching would be worse than the bug it protects against.
-GUARD_STEP=$(template_step "Garde — la couverture a bien été produite")
+GUARD_STEP=$(template_step_checked "Garde — la couverture a bien été produite")
 bash -c "$GUARD_STEP" > /dev/null 2>&1 \
   || { echo "FAIL: the guard rejects a coverage/ that DOES hold per-project reports"; exit 1; }
 rm -rf coverage && mkdir -p coverage
