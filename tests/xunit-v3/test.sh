@@ -165,9 +165,22 @@ cd "$scratch/v3"
 
 # 4a. The VSTest incantation produces nothing under MTP. If a future SDK makes it work again,
 #     this assertion flips and the template's dual path can be simplified — deliberately loud.
+#
+#     The run must SUCCEED and report its tests first. Swallowing the exit code and only asking
+#     "is there a cobertura file?" would let a restore failure or a build break satisfy the pin
+#     without the collector ever having run — a green assertion proving nothing.
 rm -rf coverage
-dotnet test --nologo --collect:"XPlat Code Coverage" --results-directory coverage \
-  > "$scratch/vstest-cov.log" 2>&1 || true
+if ! dotnet test --nologo --collect:"XPlat Code Coverage" --results-directory coverage \
+     > "$scratch/vstest-cov.log" 2>&1; then
+  echo "FAIL: the VSTest-collector run failed outright, so 4a would pass for the wrong reason:"
+  tail -20 "$scratch/vstest-cov.log"; exit 1
+fi
+vcount=$(sed -n 's/.*Total: \([0-9][0-9]*\).*/\1/p' "$scratch/vstest-cov.log" | head -1)
+if [ "${vcount:-0}" -lt "$BASELINE_TESTS" ]; then
+  echo "FAIL: 4a ran ${vcount:-0} tests (baseline $BASELINE_TESTS) — the tests must actually run"
+  echo "      for 'no coverage file' to mean the collector was ignored."
+  tail -20 "$scratch/vstest-cov.log"; exit 1
+fi
 if find coverage -name 'coverage.cobertura.xml' 2>/dev/null | grep -q .; then
   echo "NOTE: --collect:\"XPlat Code Coverage\" now yields cobertura under MTP."
   echo "      templates/ci-dotnet.yml can drop its MTP branch — re-check before simplifying."
@@ -224,5 +237,141 @@ grep -qi 'test platform\|plateforme de test' skills/legacy-upgrade/references/ph
 grep -qi 'plateforme de test' skills/legacy-upgrade/references/report-template.md \
   || { echo "FAIL: report-template.md has no slot for the test platform"; exit 1; }
 echo "  [5/5] phases 1, 5 and 6 carry the decision, the route and the recorded outcome"
+
+# ---------------------------------------------------------------------------
+# 6. Project shapes the fixture does not have.
+#
+#    The fixture is one tidy SDK-style csproj with self-closing PackageReferences and two-space
+#    indentation. Every assertion above would still pass if the tools only worked on THAT shape.
+#    These cases came out of code review, each having silently produced a wrong result:
+#    a surviving VSTest adapter, a transform that did nothing, a dropped target framework, an
+#    invisible legacy test project, and a null major line under central package management.
+# ---------------------------------------------------------------------------
+shapes="$scratch/shapes"
+mkdir -p "$shapes"
+
+# 6a. `dotnet new xunit` writes the adapter in ELEMENT form with <PrivateAssets> children.
+mkdir -p "$shapes/element/p"
+cat > "$shapes/element/p/p.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
+XML
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/element" > /dev/null
+if grep -q 'xunit.runner.visualstudio\|coverlet.collector' "$shapes/element/p/p.csproj"; then
+  echo "FAIL: element-form VSTest packages survived — half-swapped test host:"
+  cat "$shapes/element/p/p.csproj"; exit 1
+fi
+grep -q '<OutputType>Exe</OutputType>' "$shapes/element/p/p.csproj" || {
+  echo "FAIL: element-form project got no OutputType"; exit 1; }
+
+# 6b. A csproj that is not indented two spaces must not silently skip the properties.
+mkdir -p "$shapes/flat/p"
+cat > "$shapes/flat/p/p.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup>
+<TargetFramework>net8.0</TargetFramework>
+</PropertyGroup>
+<ItemGroup>
+<PackageReference Include="xunit" Version="2.9.3" />
+</ItemGroup>
+</Project>
+XML
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/flat" > /dev/null
+for needle in '<OutputType>Exe</OutputType>' 'TestingPlatformDotnetTestSupport' 'xunit.v3'; do
+  grep -q "$needle" "$shapes/flat/p/p.csproj" || {
+    echo "FAIL: unindented csproj lost '$needle' — the transform no-opped and claimed success:"
+    cat "$shapes/flat/p/p.csproj"; exit 1; }
+done
+
+# 6c. Multi-targeting must survive: only the legs below the v3 floor move.
+mkdir -p "$shapes/multi/p"
+cat > "$shapes/multi/p/p.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.3" />
+  </ItemGroup>
+</Project>
+XML
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/multi" > /dev/null
+grep -q '<TargetFrameworks>net10.0;net8.0</TargetFrameworks>' "$shapes/multi/p/p.csproj" || {
+  echo "FAIL: multi-targeting was collapsed — a published library would lose a target:"
+  grep TargetFramework "$shapes/multi/p/p.csproj"; exit 1; }
+
+# 6d. A packages.config test project (legacy .NET Framework — the kit's core audience) must
+#     appear in testStack, not vanish behind an empty PackageReference list.
+mkdir -p "$shapes/legacy/tests"
+cat > "$shapes/legacy/tests/Legacy.Tests.csproj" <<'XML'
+<Project ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+  </PropertyGroup>
+</Project>
+XML
+cat > "$shapes/legacy/tests/packages.config" <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<packages>
+  <package id="xunit" version="2.4.1" targetFramework="net472" />
+  <package id="xunit.runner.visualstudio" version="2.4.3" targetFramework="net472" />
+</packages>
+XML
+legacy_inv=$("$KIT/scripts/audit-inventory.sh" "$shapes/legacy")
+python3 - "$legacy_inv" <<'PY'
+import json, sys
+stack = json.loads(sys.argv[1]).get("testStack", [])
+assert len(stack) == 1, f"packages.config test project invisible in testStack: {stack}"
+assert stack[0]["xunitMajor"] == 2, stack[0]
+assert stack[0]["packageSource"] == "packages.config", stack[0]
+PY
+
+# 6e. Central package management: the version lives in Directory.Packages.props, so a
+#     Version-less PackageReference must still yield a major line.
+mkdir -p "$shapes/cpm/tests"
+cat > "$shapes/cpm/Directory.Packages.props" <<'XML'
+<Project>
+  <ItemGroup>
+    <PackageVersion Include="xunit" Version="2.9.3" />
+  </ItemGroup>
+</Project>
+XML
+cat > "$shapes/cpm/tests/Cpm.Tests.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+  </ItemGroup>
+</Project>
+XML
+cpm_inv=$("$KIT/scripts/audit-inventory.sh" "$shapes/cpm")
+python3 - "$cpm_inv" <<'PY'
+import json, sys
+stack = json.loads(sys.argv[1]).get("testStack", [])
+assert len(stack) == 1, stack
+assert stack[0]["xunitMajor"] == 2, \
+    f"CPM version unresolved -> xunitMajor {stack[0]['xunitMajor']}; phase 5 would read 'not applicable'"
+PY
+echo "  [6/6] element-form refs, flat indent, multi-TFM, packages.config and CPM all handled"
+
+# 6f. The template refuses a half-migrated repo instead of silently losing half its coverage.
+grep -q 'Dépôt MIXTE' templates/ci-dotnet.yml \
+  || { echo "FAIL: templates/ci-dotnet.yml does not detect a mixed MTP/VSTest repo"; exit 1; }
+echo "  [6/6] templates/ci-dotnet.yml refuses a mixed MTP/VSTest repo"
 
 echo "xunit v3 golden test OK"

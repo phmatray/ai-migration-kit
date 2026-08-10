@@ -126,8 +126,36 @@ PKG_ATTR = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
 TEST_PKG = re.compile(r'^(xunit|nunit|mstest|microsoft\.net\.test\.sdk|microsoft\.testing\.)', re.I)
 
 
-def package_refs(text):
-    """{id: version} pour un csproj. Version en attribut OU en élément enfant."""
+# Gestion centralisée des versions (CPM) : la PackageReference ne porte PAS de Version, elle vit
+# dans un Directory.Packages.props en amont. Sans ça, `xunitMajor` sort à null et la phase 5 lit
+# « non applicable » — le non-choix silencieux que ce champ existe précisément pour supprimer.
+CPM_CACHE = {}
+
+
+def cpm_versions(start_dir):
+    """{id: version} depuis le Directory.Packages.props le plus proche, en remontant."""
+    key = str(start_dir)
+    if key in CPM_CACHE:
+        return CPM_CACHE[key]
+    versions = {}
+    here = Path(start_dir).resolve()
+    root = Path('.').resolve()
+    while True:
+        props = here / 'Directory.Packages.props'
+        if props.is_file():
+            t = props.read_text(encoding='utf-8', errors='ignore')
+            for pid, ver in re.findall(
+                    r'<PackageVersion\s+Include="([^"]+)"[^>]*?Version="([^"]*)"', t):
+                versions.setdefault(pid, ver)
+        if here == root or here == here.parent:
+            break
+        here = here.parent
+    CPM_CACHE[key] = versions
+    return versions
+
+
+def package_refs(text, project_dir=None):
+    """{id: version} pour un csproj. Version en attribut, en élément enfant, ou via CPM."""
     refs = {}
     for m in PKG_REF.finditer(text):
         attrs = dict(PKG_ATTR.findall(m.group(1)))
@@ -139,7 +167,26 @@ def package_refs(text):
             child = re.search(r'<Version>([^<]+)</Version>', m.group(2))
             version = child.group(1) if child else ''
         refs[pid] = version
+    if project_dir is not None and any(not v for v in refs.values()):
+        central = cpm_versions(project_dir)
+        for pid, ver in refs.items():
+            if not ver and pid in central:
+                refs[pid] = central[pid]
     return refs
+
+
+def packages_config_refs(project_dir):
+    """{id: version} depuis un packages.config voisin — le cas legacy .NET Framework.
+
+    C'est le public PRINCIPAL du kit : sans ça `testStack` sort vide sur exactement les dépôts
+    que l'item vise, pendant que `hasTests` dit true.
+    """
+    cfg = Path(project_dir) / 'packages.config'
+    if not cfg.is_file():
+        return {}
+    t = cfg.read_text(encoding='utf-8', errors='ignore')
+    return {pid: ver for pid, ver in
+            re.findall(r'<package\s+id="([^"]+)"\s+version="([^"]*)"', t)}
 
 
 def xunit_major(refs):
@@ -167,7 +214,10 @@ def test_framework(refs):
 
 test_stack = []
 for p in csproj:
-    refs = package_refs(proj_texts[p])
+    refs = package_refs(proj_texts[p], p.parent)
+    legacy = packages_config_refs(p.parent)
+    for pid, ver in legacy.items():
+        refs.setdefault(pid, ver)
     if not any(TEST_PKG.match(pid) for pid in refs):
         continue
     test_stack.append({
@@ -175,6 +225,7 @@ for p in csproj:
         'targetFrameworks': tfm(proj_texts[p]),
         'framework': test_framework(refs),
         'xunitMajor': xunit_major(refs),
+        'packageSource': 'packages.config' if legacy else 'PackageReference',
         'packages': dict(sorted(refs.items())),
     })
 test_stack.sort(key=lambda x: x['project'])
