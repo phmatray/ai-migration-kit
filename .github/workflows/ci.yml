@@ -151,6 +151,9 @@ jobs:
       - name: Inventory script runs and emits valid JSON
         run: ./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null
 
+      - name: Inventory golden test — vendoredAssets (reported, covered, empty, nested)
+        run: ./tests/audit-inventory/test.sh
+
       - name: Templates are valid YAML
         run: python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/*.yml')]"
 

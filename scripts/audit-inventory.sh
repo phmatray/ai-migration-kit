@@ -230,6 +230,106 @@ for p in csproj:
     })
 test_stack.sort(key=lambda x: x['project'])
 
+# Une copie vendorisée (`wwwroot/lib/bootstrap`, déposée fichier par fichier) ne produit AUCUNE
+# entrée de manifeste : Renovate ne proposera jamais de PR dessus, Dependabot n'émettra jamais
+# d'alerte. La CVE n'y est pas « non corrigée », elle est INVISIBLE — sur un dépôt qui a pourtant
+# l'air entretenu (CI verte, config Renovate, Dependency Dashboard silencieux).
+#
+# Mesuré sur 193 dépôts .NET locaux avant d'écrire ceci (issue #32) : 17 en portent, 38 répertoires,
+# 1201 fichiers, et AUCUN des 38 n'est couvert par un manifeste. Ce n'est donc pas une forme rare
+# dans le public du kit — c'est presque la forme par défaut. La phase 1 est le dernier endroit où
+# ce constat peut encore changer un plan, d'où cette clé plutôt qu'une étape de CI qui rapporterait
+# à jamais une condition que personne n'a planifié de corriger.
+#
+# La clé est TOUJOURS présente, vide s'il n'y a rien : un consommateur doit pouvoir distinguer
+# « mesuré, aucun » de « pas mesuré ».
+VENDOR_PARENTS = (('wwwroot', 'lib'), ('wwwroot', 'vendor'))
+PRUNE = {'obj', 'bin', 'packages', 'node_modules', '.git', '.vs'}
+
+
+def manifest_names():
+    """Tout ce qu'un manifeste du dépôt DÉCLARE — la couverture se lit sur le nom de la lib.
+
+    Deux manifestes comptent, pas un. `libman.json` est la façon NATIVE d'ASP.NET de déclarer
+    exactement `wwwroot/lib` : ne lire que `package.json` signalerait comme non surveillé un dépôt
+    qui, lui, déclare bien ses bibliothèques — le faux positif que la spec interdit explicitement.
+
+    `bower.json` en est volontairement ABSENT, et ce n'est pas un oubli : Bower est abandonné
+    depuis 2017, et ni Renovate ni Dependabot ne le lisent. Le compter comme une couverture
+    inverserait le sens de la clé, qui dit « rien ne surveille ceci » et non « rien ne le
+    déclare ». On en croise dans le public visé — les `.bower.json` que Bower dépose DANS le
+    répertoire installé sont d'ailleurs un marqueur de vendorisation, pas un manifeste.
+    """
+    names = set()
+    for p in files('package.json'):
+        try:
+            data = json.loads(p.read_text(encoding='utf-8', errors='ignore'))
+        except ValueError:
+            continue
+        for key in ('dependencies', 'devDependencies',
+                    'peerDependencies', 'optionalDependencies'):
+            for n in (data.get(key) or {}):
+                names.add(n)
+                names.add(n.split('/')[-1])   # @scope/pkg -> pkg, le nom que porte le répertoire
+    for p in files('libman.json'):
+        try:
+            data = json.loads(p.read_text(encoding='utf-8', errors='ignore'))
+        except ValueError:
+            continue
+        for lib in (data.get('libraries') or []):
+            # "prism@1.29.0" -> "prism" ; "@scope/pkg@1.0" -> "@scope/pkg" -> "pkg"
+            lib_id = (lib.get('library') or '').rsplit('@', 1)[0]
+            if lib_id:
+                names.add(lib_id)
+                names.add(lib_id.split('/')[-1])
+            dest = (lib.get('destination') or '').rstrip('/')
+            if dest:
+                names.add(dest.split('/')[-1])
+    return names
+
+
+def count_files(root):
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = prune(dirpath, dirnames)
+        total += len(filenames)
+    return total
+
+
+def prune(dirpath, dirnames):
+    """Écarte le bruit connu, et tout CHECKOUT IMBRIQUÉ.
+
+    Un répertoire qui porte son propre `.git` est une copie ou un autre projet : worktree d'agent
+    sous `.claude/worktrees/`, sous-module, clone vendorisé. Ses constats appartiennent à lui, pas
+    au dépôt mesuré. Mesuré sur NetImpex avant d'ajouter ce filtre : 8 répertoires vendorisés
+    rapportés pour 4 réels — chacun compté une seconde fois dans un worktree d'agent, soit 120
+    fichiers annoncés au lieu de 60. Un chiffre faux, pas un chiffre manquant.
+    """
+    return [d for d in dirnames
+            if d not in PRUNE
+            and not os.path.exists(os.path.join(dirpath, d, '.git'))]
+
+
+declared = manifest_names()
+vendored_assets = []
+for dirpath, dirnames, _ in os.walk('.'):
+    dirnames[:] = prune(dirpath, dirnames)
+    # Path() normalise déjà le './' de tête qu'os.walk ajoute : Path('./wwwroot/lib').parts vaut
+    # ('wwwroot', 'lib'), pas ('.', 'wwwroot', 'lib'). Un [1:] « pour retirer le point » mangerait
+    # donc un vrai segment — et le motif ne matcherait plus jamais.
+    parts = Path(dirpath).parts
+    if parts[-2:] not in VENDOR_PARENTS:
+        continue
+    for lib in sorted(dirnames):
+        if lib in declared:
+            continue                                 # déclaré : ce n'est pas un angle mort
+        vendored_assets.append({
+            'path': '/'.join(parts + (lib,)),
+            'files': count_files(os.path.join(dirpath, lib)),
+            'coveredByManifest': False,
+        })
+vendored_assets.sort(key=lambda x: x['path'])
+
 proj_details = []
 for p in csproj:
     own = [c for c in cs if p.parent in c.parents]
@@ -262,5 +362,6 @@ print(json.dumps({
     'windowsApiClusters': dict(sorted(clusters.items(), key=lambda kv: -kv[1])),
     'packages': sorted(packages), 'hasTests': has_tests,
     'testStack': test_stack,
+    'vendoredAssets': vendored_assets,
 }, indent=2, ensure_ascii=False))
 PY
