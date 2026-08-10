@@ -103,6 +103,9 @@ jobs:
       - name: Tick-plan golden test (a bad body never reaches GitHub)
         run: ./tests/tick-plan/test.sh
 
+      - name: Guarded git golden test (a commit cannot land on the wrong branch)
+        run: ./tests/guarded-git/test.sh
+
       - name: Contrast checker works (pass AND fail paths)
         run: |
           python3 scripts/contrast-check.py "#000000:#ffffff:sanité"

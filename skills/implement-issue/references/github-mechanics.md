@@ -6,9 +6,10 @@ older issues, a comment), ticking a single task's checkboxes without touching th
 onto an existing branch/PR.
 
 Throughout, `{owner}/{repo}` is a literal `gh` placeholder it resolves from the repo's `origin`
-(the repo the profile names) — you can paste it as-is. And `git <commit-identity>` is shorthand for the
+(the repo the profile names) — you can paste it as-is. And `<commit-identity>` is shorthand for the
 author line from the profile's *Commit identity* (SKILL.md Step 1) — substitute its `-c user.email=… -c
-user.name="…"` flags in the commit/merge commands below.
+user.name="…"` flags in the commit/merge commands below. In a `guarded-commit.sh` call it goes before
+the branch name, not after `--`, since those are options to `git` rather than to `git commit`.
 
 ---
 
@@ -205,26 +206,32 @@ SLUG=$(gh issue view "$ISSUE" --json title --jq .title \
 BRANCH="feat/$ISSUE-$SLUG"
 ```
 
-Before creating anything, check whether a prior run already set things up (resume):
+Before creating anything, check whether a prior run already set things up (resume). Match on
+**`$BRANCH`** — this issue's own name. "Am I already in a worktree?" is the wrong question and the
+one that produced the incident in Step 4: being in *someone else's* worktree passes it.
 
 ```bash
-git worktree list | grep "$BRANCH"                       # worktree already present?
+git worktree list | grep -F "$BRANCH"                    # THIS issue's worktree already present?
 gh pr list --head "$BRANCH" --json number,url,isDraft --jq '.[0]'   # PR already open?
 ```
 
-If they exist, `cd` into the worktree and reuse the PR — don't open a second one. Otherwise create
-the worktree via `superpowers:using-git-worktrees`, then the draft PR (empty scaffold commit so the
-branch is ahead of `main`):
+If they exist, work in that worktree (with `git -C`) and reuse the PR — don't open a second one.
+Otherwise create the worktree via `superpowers:using-git-worktrees`, then the draft PR (empty
+scaffold commit so the branch is ahead of `main`):
 
 ```bash
-git <commit-identity> \
-  commit --allow-empty -m "chore(#$ISSUE): scaffold draft PR"
-git push -u origin "$BRANCH"
+./skills/implement-issue/scripts/guarded-commit.sh <commit-identity> "$BRANCH" \
+  -- --allow-empty -m "chore(#$ISSUE): scaffold draft PR"
+./skills/implement-issue/scripts/guarded-push.sh "$BRANCH" -- -u origin "$BRANCH"
 gh pr create --draft --base main --head "$BRANCH" \
   --title "<type>(<scope>): <subject> (#$ISSUE)" --body "<body, Closes #$ISSUE>"
 # Title follows the profile's PR-title convention (commonly a Conventional Commits prefix plus a
 # (#issue) suffix). Never pass the issue title through verbatim.
 ```
+
+The guards take `$BRANCH` explicitly and refuse (exit 2) if HEAD is anything else; `guarded-push.sh`
+additionally reads the remote back and exits 4 if it does not carry this HEAD. Both are local-only
+apart from that one ref read, and both run from any working directory via `-C <repo>`.
 
 ---
 
@@ -297,4 +304,8 @@ continue to Step 9 (full build/tests + format gate) — never push a merge you h
 | `tick-plan: REFUSED — body length changed` / `differs outside the checkboxes` | Something rewrote the working file beyond flipping boxes (a stray Edit, a re-fetch mid-task, an agent "tidying" the body) | **Nothing was sent — the issue is intact.** Re-copy `/tmp/plan-$ISSUE.orig.md` over the working file, re-apply only this task's flips, re-run |
 | `tick-plan: REFUSED — --after file is empty` / `does not exist` | The fetch failed, or the working file was clobbered. This is the wipe (Koine#1813) being caught | **Nothing was sent.** Re-fetch via §2 and restart the tick; never hand-PATCH around the script |
 | `tick-plan: REFUSED — no checkbox was ticked` | The per-line Edit didn't land (step text drifted from what the plan actually says) | Re-read the working file, match the real step text, re-flip. A no-op write would look like progress |
+| A commit landed on **another branch** (and a push carried it into someone else's PR) | A concurrent checkout switched HEAD in a shared working tree between the branch creation and the commit. `git commit` never re-checks the branch, so it exits 0 | Cherry-pick the commit onto the branch it belongs to, then `git revert` it on the branch it wrongly landed on. **Never force-push a branch you do not own** — its author may already have built on it. Then move to this issue's own worktree (Step 4) and route every write through the guards |
+| `guarded-commit: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: something checked out `X` in this worktree | **Nothing was committed.** Check out `Y` — better, move to `Y`'s own worktree — and re-run. Do not "just commit anyway" |
+| `guarded-commit: ALERT — the commit was made, but HEAD is now …` (exit 3) | HEAD moved *during* the commit; the work is on the branch the message names | Recover exactly as in the first row. The commit is not lost, only misfiled |
+| `guarded-push: ALERT — … is NOT this HEAD` (exit 4) | `git push` exited 0 without delivering this HEAD (a `remote.<name>.push` refspec, a `--dry-run`, a rejected-then-retried push) | Treat the work as **unpushed**. Find what the remote branch actually holds before pushing again; the exit code claimed a delivery the remote does not confirm |
 | `tick-plan: ALERT — … now has an EMPTY body` | A body was written empty despite the guards (should be unreachable) | Restore immediately from `/tmp/plan-$ISSUE.orig.md`, then file a bug — the guard has a hole |
