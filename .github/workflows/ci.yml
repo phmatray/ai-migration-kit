@@ -131,13 +131,18 @@ jobs:
           # simulation too. --help exercises the header slice against $0 (a hardcoded line range
           # there silently stops documenting the exit codes), and the refusal proves the guard
           # reads -C rather than this foreign CWD.
+          # Both checks loop over ALL the guards. The refusal used to be asserted for
+          # guarded-commit alone while the comment claimed it for "the guard" generally — so a
+          # sibling that lost its `-d`/`rev-parse --git-dir` pre-flight, or gained a `cd`, would
+          # keep CI green while a plugin-installed kit wrote into whatever repo the session
+          # happened to be sitting in. That is the exact scenario this simulation exists to catch.
           for g in guarded-commit guarded-push guarded-merge; do
-            bash "$KIT/skills/implement-issue/scripts/$g.sh" --help | grep -q 'Exit codes:'
+            script="$KIT/skills/implement-issue/scripts/$g.sh"
+            bash "$script" --help | grep -q 'Exit codes:'
+            if bash "$script" -C "$PWD" no-such-branch -- -m x 2>/dev/null; then
+              echo "$g.sh accepted a path that is not a git repository"; exit 1
+            fi
           done
-          if bash "$KIT/skills/implement-issue/scripts/guarded-commit.sh" \
-               -C "$PWD" no-such-branch -- -m x 2>/dev/null; then
-            echo "guarded-commit.sh accepted a path that is not a git repository"; exit 1
-          fi
 
       - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists, requirements cross-check)
         run: python3 tests/skills/check-frontmatter.py

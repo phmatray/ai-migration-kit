@@ -603,6 +603,8 @@ grep -qi 'not a failure' "$OUT" \
   || fail merge-conflict "exit 5 must read as a normal sync outcome, not as an error"
 grep -q 'guarded-commit.sh' "$OUT" \
   || fail merge-conflict "the message must name how to COMPLETE the merge after resolving"
+grep -q 'shared.txt' "$OUT" \
+  || fail merge-conflict "the message must list WHICH files conflicted"
 echo "  ok: merge-conflict — exit 5, HEAD still on a, conflicts left to resolve"
 
 # 22b. …and the documented resolve-then-complete path actually works end to end. This is the
@@ -653,6 +655,47 @@ run merge-continue "$MERGE" -C "$R" -c core.editor=true a -- --continue
 [ "$RC" -eq 0 ] || fail merge-continue "--continue was rejected (exit $RC)"
 [ "$(tip "$R" a)" != "$before_a" ] || fail merge-continue "--continue did not complete the merge"
 echo "  ok: merge-continue — passes through and completes the merge on a"
+
+# ---------------------------------------------------------------- 23c. an unmerged index already
+#
+# `git ls-files --unmerged` is the witness for exit 5, but read only AFTER the merge it cannot tell
+# conflicts THIS call created from conflicts that were already sitting there. git itself refuses to
+# start a second merge on an unresolved index ("Merging is not possible because you have unmerged
+# files", exit 128) — and the guard used to relabel that refusal as "CONFLICTS … a normal sync
+# outcome". A caller following the table would then resolve and complete the OLD merge believing the
+# freshly fetched base was in the branch. It is not, and the build would be verified against the
+# wrong base. So the index is snapshotted BEFORE the merge, and a dirty one refuses.
+
+R=$(new_merge_repo merge-already-conflicted conflict)
+run merge-preexisting-setup "$MERGE" -C "$R" a -- m
+[ "$RC" -eq 5 ] || fail merge-preexisting-setup "fixture broken: expected a conflicted merge, got $RC"
+before_a=$(tip "$R" a)
+
+run merge-preexisting "$MERGE" -C "$R" a -- m
+
+[ "$RC" -eq 2 ] || fail merge-preexisting "a merge onto an already-unmerged index must refuse (2), got $RC"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-preexisting "branch a moved on a refused merge"
+grep -qi 'unresolved\|unmerged' "$OUT" \
+  || fail merge-preexisting "the refusal must say the index already carries an unfinished merge"
+grep -qi 'normal sync outcome' "$OUT" \
+  && fail merge-preexisting "git's 128 was relabelled as a conflict — this IS the bug"
+echo "  ok: merge-preexisting — a second merge on an unresolved index refuses (2), not 5"
+
+# 23d. …but the merge-state verbs are exactly what you run WHEN the index is unmerged, so the
+# refusal above must not swallow them. `--quit` is the sharp case: it exits 0 having deliberately
+# left the index unmerged, which the header lists as a success and the code used to call incomplete.
+
+R=$(new_merge_repo merge-quit conflict)
+run merge-quit-setup "$MERGE" -C "$R" a -- m
+[ "$RC" -eq 5 ] || fail merge-quit-setup "fixture broken: expected a conflicted merge, got $RC"
+before_a=$(tip "$R" a)
+
+run merge-quit "$MERGE" -C "$R" a -- --quit
+
+[ "$RC" -eq 0 ] || fail merge-quit "--quit did exactly what was asked but was reported as $RC"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-quit "--quit moved branch a"
+[ ! -e "$R/.git/MERGE_HEAD" ] || fail merge-quit "fixture broken: --quit should clear MERGE_HEAD"
+echo "  ok: merge-quit — a merge-state verb runs on an unmerged index and is a success"
 
 # ---------------------------------------------------------------- 24. no advance is not an error
 #
@@ -709,6 +752,31 @@ grep -q "$(git -C "$R" rev-parse --short c)" "$OUT" \
   || fail merge-head-moved "the alert must name the SHA the merge landed on"
 grep -qi 'did NOT advance' "$OUT" || fail merge-head-moved "the alert must say the expected branch is empty-handed"
 echo "  ok: merge-head-moved — merge landed on c; reported (3) and named it, silence broken"
+
+# 25b. HEAD moved, but git FAILED — so nothing was written, and the report must say so.
+#
+# The exit-3 branch is reached by comparing HEAD, which says nothing about whether git wrote
+# anything. Reporting "the merge ran … reset that branch to its pre-merge tip" when git had in
+# fact refused would send the caller to reset an innocent branch that took nothing — the guard's
+# own advice causing the damage it exists to prevent. `pre-merge-commit` runs after the merge is
+# carried out and before the commit; failing it aborts the write while the hook has already
+# re-pointed HEAD.
+
+R=$(new_merge_repo merge-moved-and-failed)
+git -C "$R" branch c a
+printf '#!/bin/sh\ngit symbolic-ref HEAD refs/heads/c\nexit 1\n' > "$R/.git/hooks/pre-merge-commit"
+chmod +x "$R/.git/hooks/pre-merge-commit"
+before_a=$(tip "$R" a); before_c=$(tip "$R" c)
+
+run merge-moved-and-failed "$MERGE" -C "$R" a -- m
+
+[ "$RC" -eq 3 ] || fail merge-moved-and-failed "expected exit 3 when HEAD moved, got $RC"
+[ "$(tip "$R" a)" = "$before_a" ] || fail merge-moved-and-failed "branch a moved on a failed merge"
+[ "$(tip "$R" c)" = "$before_c" ] || fail merge-moved-and-failed "branch c took a commit git never wrote"
+grep -qi 'FAILED' "$OUT" || fail merge-moved-and-failed "the alert must say git failed, not that the merge ran"
+grep -qi 'must not be reset\|wrote nothing' "$OUT" \
+  || fail merge-moved-and-failed "the alert must NOT prescribe resetting a branch that took nothing"
+echo "  ok: merge-moved-and-failed — HEAD moved but git wrote nothing; reported without false recovery advice"
 
 # ---------------------------------------------------------------- 26. git's own failure
 

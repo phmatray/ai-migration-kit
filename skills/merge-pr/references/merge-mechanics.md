@@ -114,6 +114,16 @@ profile's *Conflict hot-spots* table, and finish-and-verify — is shared with `
 lives in [`../../_shared/sync-with-main.md`](../../_shared/sync-with-main.md). Never push a merge you
 haven't at least built.
 
+Its writes are guarded, so pass `$BRANCH`, `$WORKTREE`, `$GUARDS` and `$BASE` (SKILL.md Step 2)
+through to it. Two things bite here specifically:
+
+- **`$BASE` is `baseRefName`, not `main`.** Step 1 captures it because a PR's base is only *normally*
+  `main`. Sync from the wrong one and the PR stays `BEHIND` no matter how many times this loop runs.
+- **Exit 5 from `guarded-merge.sh` means conflicts — keep going, don't re-run.** It is the expected
+  outcome of a `DIRTY` sync, not an error: resolve, then complete the merge with
+  `guarded-commit.sh … -- --no-edit`. Re-running the merge instead gets refused (exit 2), because the
+  index still carries the unfinished one.
+
 ---
 
 ## 5. Unresolved review threads (`CHANGES_REQUESTED` / open conversations)
@@ -248,3 +258,7 @@ else's in-progress work.
 | `git branch -d` refuses: "not fully merged" | After a squash-merge the branch isn't "merged" by git's reckoning | Use `-D` (force) — the squash commit on `main` carries the work |
 | `mergeable=UNKNOWN` right after `main` moved | GitHub is recomputing the merge state | Not a blocker — re-poll shortly; nudge a main-sync only if it persists |
 | Commands act on the wrong checkout | A `cd` in a compound command gets reset between tool calls | Use `git -C <path>` / absolute paths — especially the teardown, which must run against `$MAIN`, not the worktree being deleted |
+| `guarded-merge: CONFLICTS on <branch>` (exit 5) | **Not an error** — the expected outcome of a `DIRTY` sync. HEAD is still your branch and the conflicts are in the working tree | Resolve per the rule-of-thumb (§4), then **complete** the merge: `guarded-commit.sh … -- --no-edit`. To walk away instead, `guarded-merge.sh … -- --abort` |
+| `guarded-merge: REFUSED — the index … already carries an UNRESOLVED merge` (exit 2) | A previous sync stopped at exit 5 and was never finished; git refuses a second merge on an unmerged index (its own exit 128) | **Nothing merged.** Finish the one in flight (resolve + `guarded-commit … -- --no-edit`) or abandon it (`-- --abort`), then sync again |
+| `guarded-commit.sh: No such file or directory` in the corrections loop | `$GUARDS`/`$WORKTREE`/`$BRANCH` were never recorded — Step 2 deferred the worktree and Step 4 created one without setting them | Record all four names (Step 2's block) at the point the worktree appears, then re-run the correction |
+| `guarded-*: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: the corrections are being run from the wrong checkout | **Nothing was written.** Move to the PR branch's own worktree (§2) and retry — never "just commit anyway" |

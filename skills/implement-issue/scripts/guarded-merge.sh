@@ -35,14 +35,16 @@
 #                   after `--`: `git merge` has no `-c` of its own and would reject it.
 #   <expected-branch>  the branch this task owns, spelled out by the caller
 #   --              everything after it goes to `git merge` verbatim (e.g. `origin/main`,
-#                   `--abort`, `--continue`, `--no-commit`)
+#                   `--abort`, `--continue`, `--quit`, `--no-commit`). Those first three are
+#                   MERGE-STATE VERBS: they act on a merge already in flight, so they are the
+#                   one case allowed to run against an unmerged index — see exit 2 below.
 #
 # Exit codes:
 #   0  merged on <expected-branch>; prints <branch>@<short-sha>
-#   2  REFUSED before merging — HEAD is another branch, or detached, or not a repo.
-#      Nothing was written.
-#   3  the merge was written but HEAD was NOT <expected-branch> afterwards: something moved the
-#      branch under this process. The merge commit EXISTS; the message names where it went.
+#   2  REFUSED before merging — HEAD is another branch, or detached, or not a repo, or the index
+#      already carries an unresolved merge. Nothing was written.
+#   3  HEAD was NOT <expected-branch> afterwards: something moved the branch under this process.
+#      The message says whether git actually wrote anything, and names where it went if so.
 #   5  CONFLICTS — the expected outcome of a real sync, not a failure. HEAD is still on
 #      <expected-branch> and the conflicts are left in the working tree for the caller to
 #      resolve; complete the merge with `guarded-commit.sh <branch> -- --no-edit`. Never retry
@@ -53,7 +55,10 @@
 # Conflicts get a code of their own precisely BECAUSE `git merge` returns 1 for them and for
 # unrelated failures alike. Reusing 2 would make "refused, nothing written" ambiguous — the
 # defect the review of #30 flagged for git's propagated codes. The witness is not the exit
-# code but `git ls-files --unmerged`, read from the index itself.
+# code but `git ls-files --unmerged`, read from the index itself — snapshotted BEFORE the merge
+# as well as after, so a conflict that was already there cannot be reported as one this call
+# created (git refuses such a merge outright with exit 128, and relabelling that as "a normal
+# sync outcome" would send the caller to complete the WRONG merge).
 #
 # That is also why every path here prints a line starting `guarded-merge:` — propagating git's
 # status is what the contract asks for, but git (or a hook, or a wrapper on $PATH) can itself
@@ -122,6 +127,39 @@ fi
 
 before_sha=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
 
+# ---------------------------------------------------------------- assert the index, too
+#
+# `git ls-files --unmerged` is the witness for exit 5, and read only AFTER the merge it cannot tell
+# conflicts THIS call created from conflicts that were already sitting in the index. git refuses to
+# start a second merge on an unresolved one ("Merging is not possible because you have unmerged
+# files", exit 128) — and relabelling that refusal as "CONFLICTS, a normal sync outcome" is worse
+# than silence: the caller resolves and completes the OLD merge believing the freshly fetched base
+# is now in the branch. It is not, the PR stays behind, and the build gets verified against the
+# wrong base. So the index is snapshotted here, before anything runs.
+#
+# The merge-state verbs are the deliberate exception: `--abort`, `--continue` and `--quit` are
+# precisely what you run WHEN the index is unmerged, and `--quit` even leaves it that way on
+# purpose. They are recognised by exact match — a substring test would catch `--continue-on-error`
+# or a branch literally named `--quit`-something in a way the caller never intended.
+STATE_VERB=0
+for arg in "$@"; do
+  case "$arg" in
+    --abort|--continue|--quit) STATE_VERB=1 ;;
+  esac
+done
+
+before_conflicts=$(git -C "$REPO" ls-files --unmerged 2>/dev/null || true)
+
+if [ -n "$before_conflicts" ] && [ "$STATE_VERB" -eq 0 ]; then
+  refuse "the index in $REPO already carries an UNRESOLVED merge, so this one cannot start
+             (git would refuse it too, with its own exit 128). Nothing merged. Finish the merge
+             that is already in flight — resolve, then
+                 guarded-commit.sh -C '$REPO' <identity> '$EXPECTED' -- --no-edit
+             — or abandon it with
+                 guarded-merge.sh -C '$REPO' '$EXPECTED' -- --abort
+             and only then sync again."
+fi
+
 # ---------------------------------------------------------------- merge
 
 # `${GIT_OPTS[@]+…}` and not a bare `${GIT_OPTS[@]}`: under `set -u`, bash 3.2 (which is what
@@ -140,6 +178,15 @@ set -e
 now_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
 conflicts=$(git -C "$REPO" ls-files --unmerged 2>/dev/null || true)
 
+# Collected here, with `|| true`, rather than piped into the exit-5 report below. Under
+# `set -euo pipefail` a failing `git diff` (or `sed`) in that report is the LAST command of its
+# block, so `set -e` would abort the script with git's status — 1 — before `exit 5` ever ran,
+# and 1 is the documented "git's own failure" bucket. The caller would read the one outcome
+# that means "keep going" as the one that means "stop", which is the exact ambiguity exit 5
+# exists to remove. Same lesson as guarded-push.sh's `ls-remote`: verification that fails is
+# not verification that passes.
+conflicted_files=$(git -C "$REPO" diff --name-only --diff-filter=U 2>/dev/null || true)
+
 if [ "$now_branch" != "$EXPECTED" ]; then
   # The sha is printed unconditionally, and FIRST. A detached HEAD is the one case where the
   # merge commit is reachable from no ref at all and will eventually be garbage-collected, so
@@ -147,27 +194,41 @@ if [ "$now_branch" != "$EXPECTED" ]; then
   new_sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '<unreadable>')
   expected_now=$(git -C "$REPO" rev-parse --quiet --verify "refs/heads/$EXPECTED" 2>/dev/null || true)
   {
-    echo "guarded-merge: ALERT — the merge ran, but HEAD is now '${now_branch:-detached}',"
-    echo "               not '$EXPECTED'. HEAD moved while the merge was being written."
+    echo "guarded-merge: ALERT — HEAD is now '${now_branch:-detached}', not '$EXPECTED'."
+    echo "               HEAD moved while this call was running."
     echo "               HEAD is now at: $new_sha"
     if [ -n "$now_branch" ]; then
       echo "               It is on branch '$now_branch'."
     else
       echo "               HEAD is DETACHED, so no branch points at it — it is reachable from"
       echo "               nothing and will be garbage-collected. Save it NOW:"
-      echo "                   git -C $REPO branch <rescue-name> $new_sha"
+      echo "                   git -C '$REPO' branch <rescue-name> $new_sha"
     fi
-    if [ "$expected_now" = "$before_sha" ]; then
-      echo "               '$EXPECTED' did NOT advance — the merge landed elsewhere."
+    # Whether anything was WRITTEN is git's exit code to answer, not something to assume from
+    # the branch having moved. Claiming "the merge ran" after git refused would send the caller
+    # to reset an innocent branch that took nothing — the guard's own advice causing the damage
+    # it exists to prevent. guarded-commit.sh consults its rc before reporting for this reason.
+    if [ "$merge_rc" -eq 0 ]; then
+      if [ "$expected_now" = "$before_sha" ]; then
+        echo "               git merge SUCCEEDED, and '$EXPECTED' did NOT advance — the merge"
+        echo "               landed on '${now_branch:-a detached HEAD}' instead."
+      else
+        echo "               git merge SUCCEEDED. Check which of the two branches carries it."
+      fi
+      if [ -n "$conflicts" ]; then
+        echo "               The working tree also carries unresolved conflicts, and they are now"
+        echo "               sitting in '${now_branch:-a detached HEAD}'. Do not resolve them here."
+      fi
+      echo "               Recovery is a judgement call and belongs to whoever owns that branch:"
+      echo "                   git -C '$REPO' merge --abort   (if the merge is still in progress)"
+      echo "               or resetting it to its pre-merge tip. Do neither unless you own it,"
+      echo "               and never force-push a branch you do not own."
+    else
+      echo "               git merge FAILED (exit $merge_rc), so THIS call wrote nothing —"
+      echo "               '${now_branch:-the detached HEAD}' took no merge and must not be reset."
+      echo "               The alarming part is only that HEAD moved under a running command."
+      echo "               Get back onto '$EXPECTED' in a worktree of its own before retrying."
     fi
-    if [ -n "$conflicts" ]; then
-      echo "               The working tree also carries unresolved conflicts, and they are now"
-      echo "               sitting in '${now_branch:-a detached HEAD}'. Do not resolve them here."
-    fi
-    echo "               Recover on the branch that took it with"
-    echo "                   git -C $REPO merge --abort   (if the merge is still in progress)"
-    echo "               or by resetting it to its pre-merge tip — but only if you own that"
-    echo "               branch. Never force-push a branch you do not own."
   } >&2
   exit 3
 fi
@@ -175,15 +236,21 @@ fi
 if [ "$merge_rc" -ne 0 ]; then
   # Conflicts are the EXPECTED outcome of a real sync, so they are not folded into git's
   # failure bucket. The index is the witness, not the exit code: `git merge` answers 1 for a
-  # conflict and for half a dozen unrelated refusals alike.
-  if [ -n "$conflicts" ]; then
+  # conflict and for half a dozen unrelated refusals alike. The pre-flight above proved the
+  # index was clean before this call, so anything unmerged now was created by THIS merge.
+  if [ "$STATE_VERB" -eq 0 ] && [ -n "$conflicts" ]; then
     {
       echo "guarded-merge: CONFLICTS on $EXPECTED — this is a normal sync outcome, not a failure."
       echo "               HEAD is still '$EXPECTED' and the conflicted files are in the working"
       echo "               tree. Resolve them, then COMPLETE the merge (do not re-run it):"
-      echo "                   guarded-commit.sh -C $REPO <identity> $EXPECTED -- --no-edit"
-      echo "               To walk away instead: guarded-merge.sh -C $REPO $EXPECTED -- --abort"
-      git -C "$REPO" diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/                   /'
+      echo "                   guarded-commit.sh -C '$REPO' <identity> '$EXPECTED' -- --no-edit"
+      echo "               To walk away instead: guarded-merge.sh -C '$REPO' '$EXPECTED' -- --abort"
+      # An `if`, not `[ … ] && …`: a bare test that comes out false is a failing command, and
+      # as the last one in this block it would abort the script under `set -e` — reintroducing
+      # the very bug this rewrite removes, in the case where there is simply nothing to list.
+      if [ -n "$conflicted_files" ]; then
+        printf '%s\n' "$conflicted_files" | sed 's/^/                   /' || true
+      fi
     } >&2
     exit 5
   fi
@@ -192,13 +259,18 @@ if [ "$merge_rc" -ne 0 ]; then
   exit "$merge_rc"
 fi
 
-# A zero exit with conflict entries in the index should not be reachable, but "should not" is
-# how the incident started. Report it rather than certify it.
-if [ -n "$conflicts" ]; then
+# A zero exit with conflict entries in the index should not be reachable for a real merge, but
+# "should not" is how the incident started. Report it rather than certify it.
+#
+# `--quit` is excluded because leaving the index unmerged is exactly what it is for: it drops
+# MERGE_HEAD and keeps the conflicted files. Calling that "incomplete, resolve and complete it"
+# contradicted this script's own header, which lists --quit as tip-preserving and successful —
+# and would have had the caller commit a half-abandoned merge state.
+if [ "$STATE_VERB" -eq 0 ] && [ -n "$conflicts" ]; then
   {
     echo "guarded-merge: CONFLICTS on $EXPECTED, even though git merge exited 0."
     echo "               Treat the merge as incomplete: resolve, then complete it with"
-    echo "                   guarded-commit.sh -C $REPO <identity> $EXPECTED -- --no-edit"
+    echo "                   guarded-commit.sh -C '$REPO' <identity> '$EXPECTED' -- --no-edit"
   } >&2
   exit 5
 fi

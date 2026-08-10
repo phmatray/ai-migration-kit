@@ -19,13 +19,21 @@ the incident that motivated the guards (#26). The window is also the widest in t
 conflicts can put minutes between the merge and the commit that finishes it — so both ends of it are
 asserted rather than assumed.
 
-Three names have to be in scope, and each skill sets them before it gets here:
+Four names have to be in scope, and each skill sets them before it gets here:
 
 ```bash
 BRANCH=<the branch this task owns>                 # implement-issue Step 4 · merge-pr Step 2
 WORKTREE=<absolute path of that branch's worktree>
 GUARDS=<the kit's skills/implement-issue/scripts directory>
+BASE=<the branch to sync FROM>                     # implement-issue: main · merge-pr: baseRefName
 ```
+
+⚠️ **`$BASE` is not always `main`.** `implement-issue` branches off `main` and syncs from it, but
+`merge-pr` captures `baseRefName` in its Step 1 precisely because a PR's base is only *normally*
+`main` — plenty of repos default to `dev`, and release branches exist. Hardcoding `origin/main` here
+would merge foreign commits into a PR based on something else, and leave `mergeStateStatus` stuck at
+`BEHIND` because the actual base was never merged — a corrections loop that spins forever while every
+command exits 0.
 
 Pass `"$BRANCH"` **explicitly** every time: a guard that read the branch from `HEAD` would be reading
 the very value it exists to check, and would agree with itself no matter which branch was checked
@@ -48,8 +56,8 @@ rebase. The branch's history is collapsed to a single commit at landing anyway, 
   it if the repo actually rebases or merge-commits (follow the profile's *Integration style* then).
 
 ```bash
-git -C "$WORKTREE" fetch origin main
-"$GUARDS/guarded-merge.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- origin/main
+git -C "$WORKTREE" fetch origin "$BASE"
+"$GUARDS/guarded-merge.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- "origin/$BASE"
 ```
 
 Raw `git fetch`/`git push` can be sandbox-blocked while `gh` works — see the profile's *Environment

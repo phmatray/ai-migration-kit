@@ -118,14 +118,21 @@ command gets reset between calls). Raw `git fetch`/`git push` may be sandbox-blo
 works (a `port 443` timeout) — re-run just those with the sandbox disabled; local git needs no network.
 See `references/merge-mechanics.md` §8.
 
-Then record the three names Step 4's guarded writes need — the same convention `implement-issue`
-Step 4 defines, so the shared main-sync procedure reads the same variables from either skill:
+**The moment a worktree is in hand — here, or later in Step 4 if this step deferred creating one —**
+record the four names Step 4's guarded writes need. Same convention `implement-issue` Step 4 defines,
+so the shared main-sync procedure reads the same variables from either skill:
 
 ```bash
 BRANCH=<headRefName from Step 1>
-WORKTREE=<absolute path of that branch's worktree, from above>
+WORKTREE=<absolute path of that branch's worktree>
 GUARDS=<the kit's skills/implement-issue/scripts directory>
+BASE=<baseRefName from Step 1>     # NOT assumed to be main — plenty of repos default to dev
 ```
+
+Record them at whichever point the worktree appears: this step skips creation when the PR looks
+`CLEAN`, and Step 4 then creates one only if corrections turn out to be needed. Reaching a guarded
+command with these unset is not a soft failure — `"$GUARDS/guarded-commit.sh"` expands to
+`/guarded-commit.sh`, i.e. "No such file or directory".
 
 Every write in Step 4 passes `"$BRANCH"` and `-C "$WORKTREE"` **explicitly**. "Edited the wrong
 checkout" is exactly the failure this skill already warns about; a guard that derived the branch from
