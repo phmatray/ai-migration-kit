@@ -116,8 +116,15 @@ The fix has two halves, and **both** are required:
 2. CI collects the MTP way:
    ```bash
    dotnet test --nologo -- --coverage --coverage-output-format cobertura \
-     --coverage-output "$PWD/coverage/coverage.cobertura.xml"
+     --results-directory "$PWD/coverage"
    ```
+
+   ⚠ **Never add `--coverage-output`.** It names *one* file, and every test project in the
+   solution is a standalone MTP executable that obeys it — so with N test projects, N-1 reports
+   are overwritten and the survivor is whichever finished last. Measured on a two-project
+   solution: 5 % coverage published for a codebase covered at 73 %. `--results-directory` alone
+   lets MTP name each report itself, one per project. `report-dashboard.py` reads the whole
+   directory and aggregates them.
 
 ⚠ **Match the coverage extension's major line to the platform's.** xunit.v3 3.2.2 runs on
 Microsoft.Testing.Platform **v1**, so the extension stays on **17.x**. Referencing 18.x (which
@@ -130,9 +137,10 @@ Unhandled exception. System.TypeLoadException: Could not load type
 ```
 
 `<kit>/templates/ci-dotnet.yml` already does all of this: it detects the platform from the
-csproj files, branches to the right collection command, and **fails the job when no
-`coverage.cobertura.xml` was produced** — because a collection that silently yields nothing must
-not read as a pass.
+csproj files, branches to the right collection command, and **fails the job when `coverage/`
+holds no `*.cobertura.xml` at all** — because a collection that silently yields nothing must not
+read as a pass. (The guard matches any cobertura, not a fixed name: since each test project
+names its own report, there is no longer a single expected filename.)
 
 ## Exit gate — count the tests, do not trust the build
 
