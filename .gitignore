@@ -7,3 +7,13 @@ __pycache__/
 migration/
 # Les fixtures de tests sont versionnées même sous migration/ :
 !tests/**/migration/
+
+# Les worktrees d'agents (#43). Chacun est une copie complète du dépôt : non ignorés, un
+# `git add -A` — celui que skills/_shared/sync-with-main.md exécute pour clore un merge — les
+# committerait, soit le dépôt à l'intérieur de lui-même, une fois par worktree.
+# On vise ce chemin précis, et surtout PAS tout `.claude/` : get-repo-profile écrit
+# `.claude/skills/repo-profile.md` et attend qu'il soit VERSIONNÉ chez les dépôts consommateurs
+# du kit. Ce dépôt-ci n'en a pas (la CI vérifie qu'il répond NO_PROFILE), mais il est la
+# référence qu'on recopie — élargir la règle ici contredirait le contrat qu'on documente.
+# La CI le vérifie par `git check-ignore` sur le chemin, jamais par un grep de ce fichier.
+.claude/worktrees/
