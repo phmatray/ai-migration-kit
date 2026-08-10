@@ -18,8 +18,11 @@ python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json 2
 [ ! -f report.html ] || { echo "ÉCHEC : sans -o, rien ne doit être écrit dans le cwd"; exit 1; }
 rm -f "$defaut"
 
-assert() { grep -qF "$1" "$out" || { echo "ÉCHEC : « $1 » absent du HTML généré ($out)"; exit 1; }; }
-refuse() { ! grep -qF "$1" "$out" || { echo "ÉCHEC : « $1 » présent alors qu'il devrait être exclu ($out)"; exit 1; }; }
+assert_in() { grep -qF "$2" "$1" || { echo "ÉCHEC : « $2 » absent du HTML généré ($1)"; exit 1; }; }
+refuse_in() { ! grep -qF "$2" "$1" || { echo "ÉCHEC : « $2 » présent alors qu'il devrait être exclu ($1)"; exit 1; }; }
+count_in() { grep -oF "$2" "$1" | wc -l | tr -d ' '; }
+assert() { assert_in "$out" "$1"; }
+refuse() { refuse_in "$out" "$1"; }
 
 assert '<title>Migration FixtureApp — rapport exécutif</title>'
 assert 'Migration de démonstration'
@@ -45,5 +48,59 @@ assert 'kit@0000000'
 refuse 'http://'
 refuse 'https://'
 assert 'data-theme="dark"'
+
+# ---------------------------------------------------------------------------
+# Plusieurs rapports cobertura (issue #17).
+#
+# Sous Microsoft Testing Platform, chaque projet de test écrit SON fichier : le dashboard doit
+# donc savoir en lire plusieurs. Ce que ce bloc prouve, et que le cas mono-fichier ci-dessus ne
+# peut pas prouver :
+#   - l'union des classes (une classe vue par un seul rapport survit) ;
+#   - une classe vue par les DEUX est comptée UNE fois, hits sommés ligne à ligne — pas deux
+#     lignes dans le tableau, pas des pourcentages additionnés ;
+#   - le global est pondéré par la taille de chaque rapport, pas moyenné naïvement.
+# ---------------------------------------------------------------------------
+multi_dir="$(mktemp -d)"
+python3 - "$multi_dir" <<'PY'
+import json, pathlib, sys
+src = pathlib.Path("tests/report-dashboard/fixture-report.json")
+r = json.loads(src.read_text())
+base = src.resolve().parent
+# Chemins absolus : prouve au passage que la liste accepte des chemins déjà résolus.
+r["coverage"]["cobertura"] = [str(base / "fixture-cobertura.xml"), str(base / "fixture-cobertura-b.xml")]
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+multi="$multi_dir/report.html"
+python3 scripts/report-dashboard.py "$multi_dir/report.json" -o "$multi" 2>/dev/null
+
+# Engine est dans les deux rapports : A couvre les lignes 1-3, B couvre la 4. Sommées, 4/4.
+# Si les rapports étaient concaténés au lieu d'être fusionnés, on lirait 3/4 ET 1/4.
+assert_in "$multi" 'Engine : 4/4 lignes couvertes'
+[ "$(count_in "$multi" 'Engine : ')" = 1 ] || {
+  echo "ÉCHEC : Engine apparaît $(count_in "$multi" 'Engine : ') fois — une classe vue par deux rapports doit être fusionnée"
+  exit 1; }
+# Une classe que seul l'un des deux rapports voit doit survivre à l'union, dans les deux sens.
+assert_in "$multi" 'Wrapper : 1/2 lignes couvertes'
+assert_in "$multi" 'Repository : 4/6 lignes couvertes'
+# Le global est pondéré par lines-valid / branches-valid (6 et 10 lignes ; 10 et 30 branches) :
+#   lignes   (0.85*6 + 0.5*10) / 16 = 63 %   — une moyenne naïve donnerait 68 %
+#   branches (0.7*10 + 0.3*30) / 40 = 40 %   — une moyenne naïve donnerait 50 %
+assert_in "$multi" 'Global : 63 % lignes · 40 % branches'
+# L'exclusion s'applique à TOUS les rapports, pas seulement au premier.
+refuse_in "$multi" 'ExcludedWeb'
+rm -rf "$multi_dir"
+
+# La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
+# exactement le même objet. C'est la garantie de compatibilité des report.json déjà écrits.
+PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+import importlib.util
+spec = importlib.util.spec_from_file_location("rd", "scripts/report-dashboard.py")
+rd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rd)
+p = "tests/report-dashboard/fixture-cobertura.xml"
+seul, liste = rd.parse_cobertura(p, ["Fixture.Web"]), rd.parse_cobertura([p], ["Fixture.Web"])
+assert seul == liste, f"chaîne nue et liste d'un élément divergent :\n  {seul}\n  {liste}"
+assert seul["line_pct"] == 85 and seul["branch_pct"] == 70, seul
+PY
 
 echo "OK test golden report-dashboard ($out)"

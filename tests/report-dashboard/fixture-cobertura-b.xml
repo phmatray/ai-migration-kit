@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Deuxième rapport cobertura : ce qu'un SECOND projet de test produit sous MTP.
+     Il recouvre Engine (déjà couvert par fixture-cobertura.xml, mais d'autres lignes) et
+     Repository (que le premier ne voit pas du tout). L'agrégat doit donc : compter Engine UNE
+     fois en sommant les hits ligne à ligne, et faire apparaître Repository.
+     Les compteurs racine sont volontairement d'une taille différente du premier rapport
+     (10 lignes contre 6) : le global doit être pondéré par la taille, pas moyenné naïvement. -->
+<coverage line-rate="0.5" branch-rate="0.3" version="1.9" timestamp="0" lines-covered="5" lines-valid="10" branches-covered="9" branches-valid="30">
+  <packages>
+    <package name="Fixture.Core" line-rate="0.5" branch-rate="0.3">
+      <classes>
+        <class name="Fixture.Core.Engine" filename="Engine.cs" line-rate="0.25" branch-rate="0.25">
+          <methods />
+          <lines>
+            <line number="1" hits="0" />
+            <line number="2" hits="0" />
+            <line number="3" hits="0" />
+            <line number="4" hits="5" />
+          </lines>
+        </class>
+        <class name="Fixture.Core.Repository" filename="Repository.cs" line-rate="0.66" branch-rate="0.5">
+          <methods />
+          <lines>
+            <line number="1" hits="2" />
+            <line number="2" hits="1" />
+            <line number="3" hits="0" />
+            <line number="4" hits="3" />
+            <line number="5" hits="0" />
+            <line number="6" hits="1" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

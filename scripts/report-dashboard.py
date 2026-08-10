@@ -25,30 +25,69 @@ def esc(s):
     return html.escape(str(s), quote=True)
 
 
-def parse_cobertura(path, excluded_prefixes, included_names=None):
-    root = ET.parse(path).getroot()
+def _weighted_pct(rated):
+    """rated : [(taux 0..1, poids)] — moyenne pondérée par la taille de chaque rapport.
+
+    Un rapport deux fois plus gros pèse deux fois plus : additionner les pourcentages, ou en
+    faire une moyenne simple, donnerait un global faux dès que les projets de test n'ont pas
+    la même taille. Poids tous nuls (aucune branche nulle part) : on retombe sur la moyenne
+    simple, ce qui laisse le cas mono-rapport rendre exactement son propre taux.
+    """
+    if not rated:
+        return 0
+    total = sum(w for _, w in rated)
+    if total == 0:
+        rated, total = [(r, 1) for r, _ in rated], len(rated)
+    return round(100 * sum(r * w for r, w in rated) / total)
+
+
+def parse_cobertura(paths, excluded_prefixes, included_names=None):
+    """Lit UN cobertura (chemin nu) ou PLUSIEURS (itérable de chemins) et les agrège.
+
+    Sous Microsoft Testing Platform chaque projet de test écrit son propre rapport : le
+    dashboard doit donc décrire l'union, pas le dernier fichier arrivé. Une classe vue par
+    plusieurs rapports est comptée UNE fois, hits sommés ligne à ligne — deux projets qui
+    exercent la même bibliothèque ne doivent ni la dupliquer dans le tableau, ni gonfler son
+    dénominateur.
+    """
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    # Clé = nom COMPLET de la classe : deux namespaces peuvent porter le même nom court, et
+    # les fusionner mélangerait deux classes distinctes. L'ordre d'insertion est l'ordre du
+    # document, donc les ex æquo gardent l'ordre d'origine après le tri (stable).
+    merged = {}
+    rates = []
+    for path in paths:
+        root = ET.parse(path).getroot()
+        rates.append((float(root.get("line-rate")), float(root.get("lines-valid") or 0),
+                      float(root.get("branch-rate")), float(root.get("branches-valid") or 0)))
+        for cls in root.iter("class"):
+            name = cls.get("name")
+            if "<" in name or "/" in name:
+                continue
+            if any(name.startswith(p) for p in excluded_prefixes):
+                continue
+            if included_names and name.split(".")[-1] not in included_names:
+                continue
+            hits_by_line = merged.setdefault(name, {})
+            for l in cls.findall(".//line"):
+                number = l.get("number")
+                hits_by_line[number] = hits_by_line.get(number, 0) + int(l.get("hits"))
     classes = []
-    for cls in root.iter("class"):
-        name = cls.get("name")
-        if "<" in name or "/" in name:
-            continue
-        if any(name.startswith(p) for p in excluded_prefixes):
-            continue
-        if included_names and name.split(".")[-1] not in included_names:
-            continue
-        lines = cls.findall(".//line")
-        covered = sum(1 for l in lines if int(l.get("hits")) > 0)
+    for name, hits_by_line in merged.items():
+        covered = sum(1 for hits in hits_by_line.values() if hits > 0)
+        total = len(hits_by_line)
         classes.append({
             "name": name.split(".")[-1],
             "covered": covered,
-            "total": len(lines),
-            "pct": round(100 * covered / len(lines)) if lines else 0,
+            "total": total,
+            "pct": round(100 * covered / total) if total else 0,
         })
     classes.sort(key=lambda c: -c["pct"])
     return {
         "classes": classes,
-        "line_pct": round(float(root.get("line-rate")) * 100),
-        "branch_pct": round(float(root.get("branch-rate")) * 100),
+        "line_pct": _weighted_pct([(lr, lv) for lr, lv, _, _ in rates]),
+        "branch_pct": _weighted_pct([(br, bv) for _, _, br, bv in rates]),
     }
 
 
@@ -272,8 +311,13 @@ def main():
     # Les chemins du JSON (cobertura, capture) sont relatifs au JSON lui-même, pas au cwd —
     # et la sortie aussi : le dashboard vit à côté de son rapport.
     base = Path(args.report_json).resolve().parent
-    if not Path(r["coverage"]["cobertura"]).is_absolute():
-        r["coverage"]["cobertura"] = str(base / r["coverage"]["cobertura"])
+    # `cobertura` accepte un chemin ou une liste (un rapport par projet de test sous MTP).
+    # Les report.json déjà écrits portent une chaîne : elle reste valide, normalisée ici.
+    cobertura = r["coverage"]["cobertura"]
+    if isinstance(cobertura, str):
+        cobertura = [cobertura]
+    r["coverage"]["cobertura"] = [
+        p if Path(p).is_absolute() else str(base / p) for p in cobertura]
     if r.get("screenshot") and not Path(r["screenshot"]["path"]).is_absolute():
         r["screenshot"]["path"] = str(base / r["screenshot"]["path"])
     output = Path(args.output) if args.output else base / "report.html"
