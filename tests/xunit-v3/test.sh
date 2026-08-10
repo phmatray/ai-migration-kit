@@ -516,6 +516,53 @@ echo "       quietly dropped from the report set"
 cd "$KIT"
 
 # ---------------------------------------------------------------------------
+# 4g. The other candidate cause of a partial report set — a project that runs ZERO tests — also
+#     fails the run, and does not even produce a shortfall.
+#
+#     #31 named this as the cause that would survive if the missing-extension one turned out to
+#     be covered. Measured, it is covered twice over: MTP treats "ran 0 tests" as a failure of
+#     that test app (`Failed! - Failed: 0, Passed: 0, Skipped: 0, Total: 0`), AND the app still
+#     writes its coverage report — so the report count never falls short in the first place.
+#
+#     Both halves are asserted. The report count matters as much as the exit status: it is the
+#     evidence that a count-based guard would have had nothing to catch here, which is the
+#     measurement the template's guard comment cites.
+# ---------------------------------------------------------------------------
+cp -R "$scratch/pristine" "$scratch/zerotests"
+python3 - "$scratch/zerotests/tests/LegacyShop.Catalog.Tests/PriceCatalogClientTests.cs" <<'PY'
+import sys
+path = sys.argv[1]
+before = open(path, encoding="utf-8").read()
+# Drop the attribute, keep the method: the project still compiles and still references xunit.v3,
+# so it is a test app that discovers nothing — not a project that failed to build.
+after = before.replace("        [Fact]\n", "")
+if after == before:
+    sys.exit("no [Fact] attribute to remove — this case would silently test a healthy project")
+open(path, "w", encoding="utf-8").write(after)
+PY
+
+cd "$scratch/zerotests"
+rm -rf coverage
+if SOLUTION='' bash -c "$MTP_STEP" > "$scratch/zerotests.log" 2>&1; then
+  echo "FAIL: the coverage step SUCCEEDED with a test project that discovers zero tests."
+  echo "      A suite that silently stopped running would then ship green."
+  tail -20 "$scratch/zerotests.log"; exit 1
+fi
+grep -q 'Total: 0' "$scratch/zerotests.log" || {
+  echo "FAIL: the step failed, but no project reported 'Total: 0' — so it failed for some other"
+  echo "      reason and this case pins nothing:"; tail -20 "$scratch/zerotests.log"; exit 1; }
+# The half that decides the template's guard shape: no shortfall to count.
+zero_reports=$(find coverage -name '*.cobertura.xml' | grep -c . || true)
+if [ "$zero_reports" -ne 2 ]; then
+  echo "FAIL: a zero-test project now yields $zero_reports report(s) for 2 test projects, where it"
+  echo "      used to yield 2. This cause has BECOME a shortfall, so the reasoning recorded on the"
+  echo "      guard in templates/ci-dotnet.yml (presence, not count) needs re-measuring — see #31."
+  exit 1
+fi
+echo "  [4g] a zero-test project FAILS the run and still writes its report — never a shortfall"
+cd "$KIT"
+
+# ---------------------------------------------------------------------------
 # 5. The decision is wired into the pipeline, not just documented in a side file.
 #
 #    A reference nobody is routed to is a reference nobody reads: phase 1 must surface the line,

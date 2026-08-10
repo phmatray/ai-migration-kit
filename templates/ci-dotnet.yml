@@ -73,6 +73,32 @@ jobs:
 
       # Sans cette garde, une collecte qui ne produit rien passe pour un succès : l'artefact part
       # vide et le tableau de bord affiche « pas de couverture » sur une app qui EST testée.
+      #
+      # ⚠ Cette garde teste une PRÉSENCE, pas un COMPTE, et c'est délibéré (#31). Comparer le
+      #   nombre de rapports au nombre de projets de test découverts dans `$mtp` paraît plus
+      #   strict — « 1 rapport pour 3 projets » virerait au rouge. Deux mesures s'y opposent
+      #   (SDK 10.0.302, xunit.v3 3.2.2, CodeCoverage 17.14.2) :
+      #
+      #   1. Il n'existe plus de cause connue de collecte PARTIELLE silencieuse. `--coverage` est
+      #      une option APPORTÉE par Microsoft.Testing.Extensions.CodeCoverage : un projet qui n'a
+      #      pas ce paquet ne se contente pas de ne rien produire, il fait refuser l'option
+      #      (« Unknown option '--coverage' ») et sortir MTP en non-zéro. Un projet qui n'exécute
+      #      aucun test échoue également, ET écrit quand même son rapport. Dans les deux cas le
+      #      `set -euo pipefail` de l'étape précédente arrête le job AVANT cette garde — il n'y a
+      #      pas d'union partielle à rattraper ici.
+      #
+      #   2. `$mtp` SUR-COMPTE. Son grep matche tout csproj citant xunit.v3, y compris une
+      #      bibliothèque d'aide partagée (FactAttribute maison, fixtures communes) qui n'est pas
+      #      une application de test et que `dotnet test` n'exécute donc jamais. Mesuré : 1 projet
+      #      de test + 1 bibliothèque d'aide = run vert, 1 rapport écrit, `$mtp` en annonce 2. Le
+      #      compte refuserait un dépôt parfaitement sain. `>=` n'y change rien : le défaut est
+      #      dans la SOURCE du nombre attendu, pas dans la comparaison.
+      #
+      #   Compter juste supposerait de ne retenir que les vraies applications de test, ce qui
+      #   demande MSBuild (`IsTestProject`) — la découverte de projets en shell que #17 avait
+      #   écartée. Resserrer ceci en compte est donc une RÉGRESSION tant que ces deux points
+      #   tiennent ; tests/xunit-v3/test.sh les épingle (cas 4f et 4g), et c'est là que la
+      #   modification se verra si l'un d'eux cesse d'être vrai.
       - name: Garde — la couverture a bien été produite
         run: |
           if ! find coverage -name '*.cobertura.xml' | grep -q . ; then
