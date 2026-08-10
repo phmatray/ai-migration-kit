@@ -80,8 +80,12 @@ worktree/branch is already gone, skip Step 7.
 **Follow the shared preconditions reference** at [`../_shared/preconditions.md`](../_shared/preconditions.md)
 to load the repo profile, verify authentication, and prepare the commit identity shorthand.
 
-Throughout this skill, **`git <commit-identity>`** stands for the author line from the profile's
-*Commit identity* — substitute it in every commit/merge command.
+Throughout this skill, **`<commit-identity>`** stands for the author line from the profile's
+*Commit identity* — `-c user.email=<email> -c user.name="<name>"`. Substitute it in every
+commit/merge command. In the guarded calls of Step 4 it goes **before** the branch name
+(`guarded-commit.sh -C "$WORKTREE" <commit-identity> "$BRANCH" -- …`), which is where the script
+forwards it to `git` itself; after `--` it would reach the subcommand, whose own `-c` means something
+else entirely.
 
 Normalize the PR identifier to a number (bare number, issue/PR URL, and `gh` link all reduce to the
 first run of digits — see `references/merge-mechanics.md` §1), then confirm it's real and open and
@@ -113,6 +117,19 @@ wrong checkout (a known footgun here). Use `git -C <path>` rather than `cd` (a `
 command gets reset between calls). Raw `git fetch`/`git push` may be sandbox-blocked even though `gh`
 works (a `port 443` timeout) — re-run just those with the sandbox disabled; local git needs no network.
 See `references/merge-mechanics.md` §8.
+
+Then record the three names Step 4's guarded writes need — the same convention `implement-issue`
+Step 4 defines, so the shared main-sync procedure reads the same variables from either skill:
+
+```bash
+BRANCH=<headRefName from Step 1>
+WORKTREE=<absolute path of that branch's worktree, from above>
+GUARDS=<the kit's skills/implement-issue/scripts directory>
+```
+
+Every write in Step 4 passes `"$BRANCH"` and `-C "$WORKTREE"` **explicitly**. "Edited the wrong
+checkout" is exactly the failure this skill already warns about; a guard that derived the branch from
+`HEAD` would read the very value under suspicion and agree with itself either way.
 
 ## Step 3 — Wait for CI
 
@@ -179,9 +196,15 @@ the profile flags), then the format/lint **apply** then **verify** (verify must 
 on any diff). Commit with the project identity, push, loop back to Step 3:
 
 ```bash
-git <commit-identity> commit -am "fix: <what you fixed for CI>"
-git push
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
+  -- -am "fix: <what you fixed for CI>" \
+  && "$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH"
 ```
+
+The guards refuse (exit 2) when `HEAD` is anything but `$BRANCH`, prove afterwards that the commit
+landed there (exit 3 if not), and read the remote back to confirm it carries this `HEAD` (exit 4 if
+not). This loop can run several times against a moving branch, which is precisely when a bare
+`git commit -am` is worth least: a zero exit says what git attempted, not where the work went.
 
 **Sync with `main` (for `BEHIND`/`DIRTY`).** Merge the latest base in and resolve conflicts so the PR
 is mergeable again. Follow the shared procedure in
