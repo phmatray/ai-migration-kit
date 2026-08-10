@@ -119,17 +119,20 @@ The fix has two halves, and **both** are required:
      --coverage-output "$PWD/coverage/coverage.cobertura.xml"
    ```
 
-⚠ **The two packages are one decision, not two pins.** xunit.v3 and the coverage extension both
-bind to Microsoft.Testing.Platform, so their major lines must agree:
+⚠ **The two packages are one decision, and the xunit PACKAGE ID picks the line — not its version.**
+This is the trap: xunit ships two parallel lines *at the same major*, so reading the version tells
+you nothing. Measured on nuget.org (`*.nuspec` via `api.nuget.org/v3-flatcontainer`):
 
-| xunit.v3 | Microsoft.Testing.Platform | Microsoft.Testing.Extensions.CodeCoverage |
-|---|---|---|
-| **3.x** — the current stable line | v1 | **17.x** |
-| **4.x** — `xunit.v3.mtp-v2`, still prerelease | v2 | **18.x** |
+| xunit test package | resolves through | Microsoft.Testing.Platform | Microsoft.Testing.Extensions.CodeCoverage |
+|---|---|---|---|
+| **`xunit.v3`** 3.2.2 | `xunit.v3.mtp-v1` | 1.9.1 | **17.x** |
+| **`xunit.v3.mtp-v2`** 3.2.2 | `xunit.v3.core.mtp-v2` | 2.0.2 | **18.x** |
 
-The map constrains the **major line only**; resolve the exact version from the live feed as
-everywhere else in this guide. Move one leg alone and you get a clean restore, a clean build, and
-a run-time death:
+Both are **major 3**, and `xunit.v3.mtp-v2` 3.2.0/3.2.1/3.2.2 are **stable**, not prerelease — so
+"3.x means 17.x" is wrong, and a rule keyed on the major refuses the correct MTP v2 pair while
+waving through the broken one. The map constrains the **major line only**; resolve the exact
+version from the live feed as everywhere else in this guide. Move one leg alone and you get a
+clean restore, a clean build, and a run-time death:
 
 ```
 Unhandled exception. System.TypeLoadException: Could not load type
@@ -137,12 +140,20 @@ Unhandled exception. System.TypeLoadException: Could not load type
 'Microsoft.Testing.Platform, Version=2.3.0.0'
 ```
 
-**This rule is enforced, not merely written here** — prose did not stop the mistake the first
-time. `MTP_COMPAT` in `<kit>/tests/xunit-v3/apply-transform.py` holds the mapping and
-`validate_pairing` refuses a mismatched pair at start-up, naming both versions instead of leaving
-the next reader to decode that stack trace; a xunit.v3 major the map does not know is refused too,
-rather than paired with a guess. `<kit>/renovate.json` groups the two packages so an update
-proposes **both legs in one PR**, which is where a split bump would realistically come from.
+**Where this is machine-checked, and where it is not.** Be precise about the scope, because prose
+did not stop the mistake the first time and a false sense of coverage is no better:
+
+- `MTP_COMPAT` in `<kit>/tests/xunit-v3/apply-transform.py` holds the mapping, and
+  `validate_pairing` refuses a mismatched pair before the transform writes anything — naming both
+  packages instead of leaving you to decode that stack trace. An unmapped package id is refused
+  too, rather than paired with a guess.
+- `<kit>/renovate.json` **disables major updates** for `xunit.v3*` and the
+  `Microsoft.Testing.{Platform,Extensions}` family. Grouping them would not be enough: a group only
+  batches updates pending in the same run, and when only one leg has a major available it ships
+  exactly the split bump, wearing a title that says otherwise.
+- ⚠ **Neither covers a hand-edited csproj.** This guide tells you to resolve versions from the live
+  feed and phase 5 drives the edit through RoselineMCP — paths `validate_pairing` never sees. On
+  that path the table above is the check, and you are the one running it.
 
 `<kit>/templates/ci-dotnet.yml` already does all of this: it detects the platform from the
 csproj files, branches to the right collection command, and **fails the job when no

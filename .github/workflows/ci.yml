@@ -35,6 +35,9 @@ jobs:
           python3 -m json.tool requirements.json > /dev/null
           python3 -m json.tool release-please-config.json > /dev/null
           python3 -m json.tool .release-please-manifest.json > /dev/null
+          # A malformed renovate.json does not fail anything visibly: Renovate simply stops
+          # proposing updates for the repo, and the only symptom is an absence of PRs.
+          python3 -m json.tool renovate.json > /dev/null
 
       # release-please stamps both files in the same release PR, so a mismatch means someone
       # hand-edited one of them — which would make the next computed version wrong.

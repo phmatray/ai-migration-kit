@@ -6,17 +6,18 @@
   "packageRules": [
     {
       "description": [
-        "xunit.v3 and Microsoft.Testing.Extensions.CodeCoverage both bind to Microsoft.Testing.Platform, so their major lines move together or not at all: xunit.v3 3.x pairs with CodeCoverage 17.x, 4.x with 18.x.",
-        "A split bump is the dangerous outcome, not a merge conflict: the odd pair restores clean and builds clean, then dies at run time with TypeLoadException on Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer. Grouping them puts both legs in one PR, where a human can judge the pair rather than one half of it.",
-        "The mapping itself is enforced in code by MTP_COMPAT / validate_pairing in tests/xunit-v3/apply-transform.py; this rule stops the most likely way it gets violated."
+        "The xunit test package and the Microsoft.Testing.Platform extension family move as ONE decision. Which MTP major applies is chosen by the xunit package id, not its version: xunit.v3 3.2.2 resolves to Microsoft.Testing.Platform 1.9.1 (CodeCoverage 17.x), while xunit.v3.mtp-v2 3.2.2 — same major, a stable release — resolves to MTP 2.0.2 (CodeCoverage 18.x).",
+        "A split major bump restores clean and builds clean, then dies at run time with TypeLoadException on Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer.",
+        "Grouping alone would NOT stop this. A group only batches updates that are pending in the same run, and today only one leg has a major available (CodeCoverage 18.x, while xunit.v3 stable is still on the v1 line) — so a group would ship precisely the one-leg bump, under a title implying both moved. Majors are therefore disabled for the whole family: crossing the MTP v1/v2 boundary is a deliberate migration that moves every leg together, by hand, against MTP_COMPAT in tests/xunit-v3/apply-transform.py. Non-major updates stay on the shared preset's rules."
       ],
-      "groupName": "xunit.v3 and its MTP coverage extension",
       "matchDatasources": ["nuget"],
       "matchPackageNames": [
-        "xunit.v3",
         "xunit.v3**",
-        "Microsoft.Testing.Extensions.CodeCoverage"
-      ]
+        "Microsoft.Testing.Platform**",
+        "Microsoft.Testing.Extensions.**"
+      ],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ]
 }

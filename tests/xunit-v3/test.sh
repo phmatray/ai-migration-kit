@@ -427,6 +427,12 @@ if XUNIT_V3_COVERAGE_VERSION="$bad_coverage" \
   echo "      That pair builds clean and dies at run time — the mismatch must be refused here."
   exit 1
 fi
+# Establish WHICH refusal fired before asserting what it says: an unknown-package-id refusal names
+# only the id, so without this the next reader is sent after a message-formatting bug when the real
+# defect is a missing MTP_COMPAT entry.
+grep -qF 'incompatible test platform pair' "$pair_log" || {
+  echo "FAIL: the transform refused, but not for the pairing reason — the mismatch branch never"
+  echo "      ran, so nothing here proves the pairing is checked:"; cat "$pair_log"; exit 1; }
 for needle in "$xunit_version" "$bad_coverage"; do
   grep -qF "$needle" "$pair_log" || {
     echo "FAIL: the refusal does not name '$needle' — it must state BOTH versions, or the next"
@@ -444,16 +450,32 @@ spec = importlib.util.spec_from_file_location("apply_transform", sys.argv[1])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-# The versions this kit actually pins agree with the map.
-mod.validate_pairing(mod.XUNIT_V3_VERSION, mod.COVERAGE_EXT_VERSION)
+# The package/version this kit actually pins agree with the map.
+mod.validate_pairing(mod.XUNIT_V3_PACKAGE, mod.COVERAGE_EXT_VERSION)
 
-# A major nobody has mapped yet must be named as such, not silently assumed compatible.
+# The rule is keyed on the PACKAGE ID, not the major. `xunit.v3` and `xunit.v3.mtp-v2` are both on
+# major 3 today and sit on opposite MTP lines (measured: xunit.v3 3.2.2 -> MTP 1.9.1,
+# xunit.v3.mtp-v2 3.2.2 -> MTP 2.0.2), so a version-keyed map would invert this pair. Pin both
+# directions: each id accepts its own partner and refuses the other's.
+for pkg, good, bad in (("xunit.v3", "17.14.2", "18.9.0"),
+                       ("xunit.v3.mtp-v2", "18.9.0", "17.14.2")):
+    mod.validate_pairing(pkg, good)
+    try:
+        mod.validate_pairing(pkg, bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"{pkg} accepted CodeCoverage {bad} — the guard is inverted")
+
+# A package id nobody has mapped must be named as such, not silently assumed compatible. Assert on
+# a substring unique to THAT branch: both refusals mention MTP_COMPAT, so matching on the map name
+# alone would keep passing if this case started taking the mismatch branch instead.
 try:
-    mod.validate_pairing("99.0.0", mod.COVERAGE_EXT_VERSION)
-except SystemExit as exc:
-    assert "MTP_COMPAT" in str(exc), f"unmapped major refused without naming MTP_COMPAT: {exc}"
+    mod.validate_pairing("xunit.v3.mtp-v99", mod.COVERAGE_EXT_VERSION)
+except ValueError as exc:
+    assert "unknown xunit.v3 package id" in str(exc), f"wrong refusal branch: {exc}"
 else:
-    raise AssertionError("an unmapped xunit.v3 major was accepted — the map would be bypassed")
+    raise AssertionError("an unmapped xunit.v3 package id was accepted — the map would be bypassed")
 PY
 echo "  [7/7] the MTP/coverage pairing is enforced by the transform, not by memory"
 
