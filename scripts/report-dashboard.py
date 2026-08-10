@@ -4,15 +4,22 @@
 Usage : report-dashboard.py <report.json> [-o report.html]
 
 Entrées (report.json) : contenu du rapport (KPIs, valeur business, avant/après,
-portes, next steps…). La couverture est lue depuis un cobertura.xml (chemin dans
-le JSON) — jamais déclarée à la main. La capture est embarquée en data URI.
+portes, next steps…). La couverture est lue depuis un ou plusieurs cobertura.xml
+— jamais déclarée à la main. `coverage.cobertura` accepte un fichier, une liste de
+fichiers, un RÉPERTOIRE, ou un motif glob ; sous Microsoft Testing Platform chaque
+projet de test écrit son propre rapport sous un nom généré, donc **pointer sur le
+répertoire `coverage/`** est la forme durable — un chemin littéral serait périmé au
+run suivant. Les rapports sont agrégés (cf. parse_cobertura), jamais concaténés.
+La capture est embarquée en data URI.
 Sortie : document HTML autonome (double-cliquable, envoyable), thème clair/sombre,
 palette validée (cf. dashboard d'audit du kit).
 """
 import argparse
 import base64
+import glob
 import html
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -25,31 +32,130 @@ def esc(s):
     return html.escape(str(s), quote=True)
 
 
-def parse_cobertura(path, excluded_prefixes, included_names=None):
-    root = ET.parse(path).getroot()
-    classes = []
-    for cls in root.iter("class"):
-        name = cls.get("name")
-        if "<" in name or "/" in name:
-            continue
-        if any(name.startswith(p) for p in excluded_prefixes):
-            continue
-        if included_names and name.split(".")[-1] not in included_names:
-            continue
-        lines = cls.findall(".//line")
-        covered = sum(1 for l in lines if int(l.get("hits")) > 0)
+CONDITIONS = re.compile(r"\((\d+)/(\d+)\)")
+
+
+def _conditions(line):
+    """(branches couvertes, branches totales) d'une ligne — `condition-coverage="50% (1/2)"`.
+
+    Une ligne sans branche n'en déclare pas : elle pèse 0/0 et ne participe donc pas au taux.
+    """
+    m = CONDITIONS.search(line.get("condition-coverage") or "")
+    return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+
+def parse_cobertura(paths, excluded_prefixes, included_names=None):
+    """Lit UN cobertura (chemin nu) ou PLUSIEURS (itérable de chemins) et les agrège.
+
+    Sous Microsoft Testing Platform chaque projet de test écrit son propre rapport : le
+    dashboard doit donc décrire l'union, pas le dernier fichier arrivé. Une classe vue par
+    plusieurs rapports est comptée UNE fois, hits sommés ligne à ligne — deux projets qui
+    exercent la même bibliothèque ne doivent ni la dupliquer dans le tableau, ni gonfler son
+    dénominateur.
+
+    ⚠ Les taux globaux sont RECALCULÉS sur les lignes fusionnées, jamais lus dans l'attribut
+    `line-rate` de la racine. Mesuré : deux projets de test d'une même solution instrumentent
+    la MÊME bibliothèque, donc chaque rapport déclare le total de lignes du produit entier.
+    Combiner les taux racine — même pondérés par `lines-valid` — compte ce total deux fois et
+    rend 35 % là où l'union en couvre 73 %. Le recalcul est aussi cohérent avec le tableau
+    qu'il légende : même périmètre, mêmes exclusions.
+    """
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    # Clé = nom COMPLET de la classe : deux namespaces peuvent porter le même nom court, et
+    # les fusionner mélangerait deux classes distinctes. L'ordre d'insertion est l'ordre du
+    # document, donc les ex æquo gardent l'ordre d'origine après le tri (stable).
+    merged = {}
+    for path in paths:
+        root = ET.parse(path).getroot()
+        for cls in root.iter("class"):
+            name = cls.get("name")
+            if "<" in name or "/" in name:
+                continue
+            if any(name.startswith(p) for p in excluded_prefixes):
+                continue
+            if included_names and name.split(".")[-1] not in included_names:
+                continue
+            by_line = merged.setdefault(name, {})
+            # Identité d'une ligne = (fichier, numéro), jamais le seul numéro : une classe
+            # PARTIELLE est émise une fois par fichier source (`Foo.cs` + `Foo.Designer.cs`,
+            # omniprésent dans le legacy WinForms/WebForms que ce kit migre), et les deux
+            # commencent à la ligne 1. Fusionner sur le numéro seul additionnerait les hits de
+            # deux lignes sans rapport et perdrait la moitié du dénominateur.
+            for l in cls.findall(".//line"):
+                slot = by_line.setdefault((cls.get("filename"), l.get("number")), [0, 0, 0])
+                covered, total = _conditions(l)
+                slot[0] += int(l.get("hits"))
+                # Le maximum, pas la somme : deux rapports qui couvrent LA MÊME branche
+                # rendraient 2/2 sur une ligne qui n'en a qu'une de couverte. Le maximum
+                # sous-estime quand ils en couvrent deux différentes — on préfère l'erreur
+                # qui ne surestime jamais une couverture.
+                slot[1], slot[2] = max(slot[1], covered), max(slot[2], total)
+    classes, lines_covered, lines_total, br_covered, br_total = [], 0, 0, 0, 0
+    for name, by_line in merged.items():
+        covered = sum(1 for hits, _, _ in by_line.values() if hits > 0)
+        total = len(by_line)
+        lines_covered, lines_total = lines_covered + covered, lines_total + total
+        br_covered += sum(c for _, c, _ in by_line.values())
+        br_total += sum(t for _, _, t in by_line.values())
         classes.append({
             "name": name.split(".")[-1],
             "covered": covered,
-            "total": len(lines),
-            "pct": round(100 * covered / len(lines)) if lines else 0,
+            "total": total,
+            "pct": round(100 * covered / total) if total else 0,
         })
     classes.sort(key=lambda c: -c["pct"])
     return {
         "classes": classes,
-        "line_pct": round(float(root.get("line-rate")) * 100),
-        "branch_pct": round(float(root.get("branch-rate")) * 100),
+        "line_pct": round(100 * lines_covered / lines_total) if lines_total else 0,
+        "branch_pct": round(100 * br_covered / br_total) if br_total else 0,
     }
+
+
+def resolve_cobertura(entry, base):
+    """Résout le champ `coverage.cobertura` en liste de fichiers, relatifs au report.json.
+
+    Quatre formes, toutes acceptées — la première pour les rapports déjà écrits, les trois
+    autres parce que sous MTP c'est le collecteur qui NOMME les fichiers, avec un GUID neuf à
+    chaque run : un chemin littéral écrit dans un report.json versionné serait mort au run
+    suivant. Le répertoire est donc la forme à privilégier.
+
+      "coverage/coverage.cobertura.xml"        un fichier
+      ["a.cobertura.xml", "b.cobertura.xml"]   plusieurs fichiers
+      "coverage"                               un répertoire → tous ses *.cobertura.xml
+      "coverage/*.cobertura.xml"               un motif glob
+    """
+    entries = [entry] if isinstance(entry, str) else list(entry)
+    files = []
+    for item in entries:
+        path = Path(item) if Path(item).is_absolute() else base / item
+        if path.is_dir():
+            found = sorted(path.rglob("*.cobertura.xml"))
+            if not found:
+                raise SystemExit(f"aucun *.cobertura.xml dans le répertoire {path}")
+            files.extend(found)
+        elif any(c in str(item) for c in "*?["):
+            found = sorted(Path(p) for p in glob.glob(str(path), recursive=True))
+            if not found:
+                raise SystemExit(f"le motif {path} ne correspond à aucun fichier")
+            files.extend(found)
+        else:
+            # Nommer le fichier manquant : un FileNotFoundError brut d'ET.parse ne dit pas
+            # lequel des N rapports a disparu, et sous MTP ils changent de nom à chaque run.
+            if not path.is_file():
+                raise SystemExit(f"rapport de couverture introuvable : {path}")
+            files.append(path)
+    if not files:
+        raise SystemExit("coverage.cobertura ne désigne aucun rapport")
+    # Dédoublonne : un répertoire et un fichier qu'il contient peuvent être listés tous les
+    # deux, et lire deux fois le même rapport gonflerait les hits sans changer le total.
+    seen, unique = set(), []
+    for f in files:
+        key = f.resolve()
+        if key not in seen:
+            seen.add(key)
+            unique.append(str(f))
+    return unique
 
 
 def data_uri(path):
@@ -61,7 +167,14 @@ def data_uri(path):
 def hbar_chart(rows, aria, note, multi_hue=False):
     """rows: [{label, value(0..max), display, tip, hue?}] — barres horizontales SVG."""
     gutter, right_pad, width = 190, 70, 660
-    scale = (width - gutter - right_pad) / max(r["value"] for r in rows)
+    # Aucune barre, ou toutes à zéro : le dashboard doit le DIRE, pas planter sur un
+    # `max()` vide ou une division par zéro. C'est un état atteignable — un jeu de rapports
+    # entièrement exclu par `coverage.exclude`, ou une collecte qui n'a rien instrumenté.
+    if not rows:
+        return (f'<svg viewBox="0 0 {width} 40" role="img" aria-label="{esc(aria)}">'
+                f'<text x="0" y="24" fill="var(--muted)">{esc(note or "Aucune donnée")}</text></svg>')
+    largest = max(r["value"] for r in rows)
+    scale = (width - gutter - right_pad) / largest if largest else 0
     row_h, y = 34, 8
     parts = []
     for i, r in enumerate(rows):
@@ -272,8 +385,7 @@ def main():
     # Les chemins du JSON (cobertura, capture) sont relatifs au JSON lui-même, pas au cwd —
     # et la sortie aussi : le dashboard vit à côté de son rapport.
     base = Path(args.report_json).resolve().parent
-    if not Path(r["coverage"]["cobertura"]).is_absolute():
-        r["coverage"]["cobertura"] = str(base / r["coverage"]["cobertura"])
+    r["coverage"]["cobertura"] = resolve_cobertura(r["coverage"]["cobertura"], base)
     if r.get("screenshot") and not Path(r["screenshot"]["path"]).is_absolute():
         r["screenshot"]["path"] = str(base / r["screenshot"]["path"])
     output = Path(args.output) if args.output else base / "report.html"

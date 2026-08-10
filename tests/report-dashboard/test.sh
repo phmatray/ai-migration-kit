@@ -18,8 +18,11 @@ python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json 2
 [ ! -f report.html ] || { echo "ÉCHEC : sans -o, rien ne doit être écrit dans le cwd"; exit 1; }
 rm -f "$defaut"
 
-assert() { grep -qF "$1" "$out" || { echo "ÉCHEC : « $1 » absent du HTML généré ($out)"; exit 1; }; }
-refuse() { ! grep -qF "$1" "$out" || { echo "ÉCHEC : « $1 » présent alors qu'il devrait être exclu ($out)"; exit 1; }; }
+assert_in() { grep -qF "$2" "$1" || { echo "ÉCHEC : « $2 » absent du HTML généré ($1)"; exit 1; }; }
+refuse_in() { ! grep -qF "$2" "$1" || { echo "ÉCHEC : « $2 » présent alors qu'il devrait être exclu ($1)"; exit 1; }; }
+count_in() { grep -oF "$2" "$1" | wc -l | tr -d ' '; }
+assert() { assert_in "$out" "$1"; }
+refuse() { refuse_in "$out" "$1"; }
 
 assert '<title>Migration FixtureApp — rapport exécutif</title>'
 assert 'Migration de démonstration'
@@ -29,7 +32,19 @@ assert 'Déployer avec fallback SPA'
 # La couverture vient du cobertura (calculée), jamais recopiée du JSON :
 assert 'Engine : 3/4 lignes couvertes'
 assert 'Wrapper : 1/2 lignes couvertes'
-assert 'Global : 85 % lignes · 70 % branches'
+# Une classe partielle (Partial.cs + Partial.Designer.cs, 2 lignes chacun) donne UNE entrée de
+# 4 lignes. Une fusion qui identifierait les lignes par leur seul numéro en compterait 2.
+assert 'Partial : 3/4 lignes couvertes'
+[ "$(count_in "$out" 'Partial : ')" = 1 ] || {
+  echo "ÉCHEC : la classe partielle apparaît en double au lieu d'être fusionnée"; exit 1; }
+# Le global est recalculé sur les lignes fusionnées (7/10) et sur les condition-coverage
+# (8/12) — jamais lu dans l'attribut line-rate de la racine, qui compterait deux fois le
+# produit dès qu'il y a plusieurs rapports (cf. parse_cobertura).
+assert 'Global : 70 % lignes · 67 % branches'
+# Le KPI affiché doit être CELUI qui vient d'être calculé : une tuile recopiée à la main à côté
+# d'un graphe recalculé, c'est deux chiffres contradictoires sur la page que le kit donne en
+# exemple de « couverture mesurée, jamais estimée ».
+assert '<div class="v">70<small>%</small></div>'
 # Le filtre d'exclusion fonctionne :
 refuse 'ExcludedWeb'
 # Chronologie du pipeline (phases[]) : minutes par phase + total calculé, jamais recopié :
@@ -45,5 +60,107 @@ assert 'kit@0000000'
 refuse 'http://'
 refuse 'https://'
 assert 'data-theme="dark"'
+
+# ---------------------------------------------------------------------------
+# Plusieurs rapports cobertura (issue #17).
+#
+# Sous Microsoft Testing Platform, chaque projet de test écrit SON fichier : le dashboard doit
+# donc savoir en lire plusieurs. Ce que ce bloc prouve, et que le cas mono-fichier ci-dessus ne
+# peut pas prouver :
+#   - l'union des classes (une classe vue par un seul rapport survit) ;
+#   - une classe vue par les DEUX est comptée UNE fois, hits sommés ligne à ligne — pas deux
+#     lignes dans le tableau, pas des pourcentages additionnés ;
+#   - le global est recalculé sur l'union des lignes, donc STRICTEMENT meilleur que chacun des
+#     deux rapports pris seul — c'est la propriété qu'un retour à « le dernier fichier gagne »
+#     casserait immédiatement.
+# ---------------------------------------------------------------------------
+multi_dir="$(mktemp -d)"
+python3 - "$multi_dir" <<'PY'
+import json, pathlib, sys
+src = pathlib.Path("tests/report-dashboard/fixture-report.json")
+r = json.loads(src.read_text())
+base = src.resolve().parent
+# Chemins absolus : prouve au passage que la liste accepte des chemins déjà résolus.
+r["coverage"]["cobertura"] = [str(base / "fixture-cobertura.xml"), str(base / "fixture-cobertura-b.xml")]
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+multi="$multi_dir/report.html"
+python3 scripts/report-dashboard.py "$multi_dir/report.json" -o "$multi" 2>/dev/null
+
+# Engine est dans les deux rapports : A couvre les lignes 1-3, B couvre la 4. Sommées, 4/4.
+# Si les rapports étaient concaténés au lieu d'être fusionnés, on lirait 3/4 ET 1/4.
+assert_in "$multi" 'Engine : 4/4 lignes couvertes'
+[ "$(count_in "$multi" 'Engine : ')" = 1 ] || {
+  echo "ÉCHEC : Engine apparaît $(count_in "$multi" 'Engine : ') fois — une classe vue par deux rapports doit être fusionnée"
+  exit 1; }
+# Une classe que seul l'un des deux rapports voit doit survivre à l'union, dans les deux sens.
+assert_in "$multi" 'Wrapper : 1/2 lignes couvertes'
+assert_in "$multi" 'Repository : 4/6 lignes couvertes'
+# Le global est recalculé sur l'union : 12/16 lignes et 14/18 branches. Chaque rapport pris
+#   seul vaut moins (70 %/67 % et 50 %/50 %) : un global qui ne monte pas au-dessus des deux
+#   est le symptôme d'un fichier écrasé.
+assert_in "$multi" 'Global : 75 % lignes · 78 % branches'
+# L'exclusion s'applique à TOUS les rapports, pas seulement au premier.
+refuse_in "$multi" 'ExcludedWeb'
+rm -rf "$multi_dir"
+
+# La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
+# exactement le même objet. C'est la garantie de compatibilité des report.json déjà écrits.
+PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+import importlib.util
+spec = importlib.util.spec_from_file_location("rd", "scripts/report-dashboard.py")
+rd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rd)
+a = "tests/report-dashboard/fixture-cobertura.xml"
+b = "tests/report-dashboard/fixture-cobertura-b.xml"
+seul, liste = rd.parse_cobertura(a, ["Fixture.Web"]), rd.parse_cobertura([a], ["Fixture.Web"])
+assert seul == liste, f"chaîne nue et liste d'un élément divergent :\n  {seul}\n  {liste}"
+assert seul["line_pct"] == 70 and seul["branch_pct"] == 67, seul
+# L'union ne dépend pas de l'ordre des rapports : sinon « le dernier gagne » serait encore là,
+# juste déplacé de la collecte vers la lecture.
+assert rd.parse_cobertura([a, b], ["Fixture.Web"]) == rd.parse_cobertura([b, a], ["Fixture.Web"])
+PY
+
+# ---------------------------------------------------------------------------
+# `coverage.cobertura` : répertoire et motif glob (issue #17).
+#
+# Sous MTP c'est le collecteur qui NOMME les rapports, avec un GUID neuf à chaque run. Un
+# report.json versionné qui listerait ces chemins serait mort au run suivant : il doit pouvoir
+# désigner le répertoire. Le nom des fixtures ne finit pas par `.cobertura.xml`, donc on en
+# dépose des copies correctement nommées — c'est aussi ce que produit un vrai run.
+# ---------------------------------------------------------------------------
+dir_case="$(mktemp -d)"
+cp tests/report-dashboard/fixture-cobertura.xml "$dir_case/projet-un.cobertura.xml"
+cp tests/report-dashboard/fixture-cobertura-b.xml "$dir_case/projet-deux.cobertura.xml"
+
+for forme in "." "*.cobertura.xml"; do
+  python3 - "$dir_case" "$forme" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text())
+r["coverage"]["cobertura"] = sys.argv[2]
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+  python3 scripts/report-dashboard.py "$dir_case/report.json" -o "$dir_case/report.html" 2>/dev/null
+  # Mêmes chiffres que la liste explicite : le répertoire et le glob désignent les deux rapports.
+  assert_in "$dir_case/report.html" 'Global : 75 % lignes · 78 % branches'
+  assert_in "$dir_case/report.html" 'Engine : 4/4 lignes couvertes'
+done
+
+# Un chemin littéral manquant doit NOMMER le fichier absent, pas cracher un FileNotFoundError
+# d'ET.parse : sous MTP les noms changent à chaque run, donc « lequel ? » est toute la question.
+python3 - "$dir_case" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text())
+r["coverage"]["cobertura"] = ["projet-un.cobertura.xml", "disparu.cobertura.xml"]
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+if err=$(python3 scripts/report-dashboard.py "$dir_case/report.json" -o "$dir_case/x.html" 2>&1); then
+  echo "ÉCHEC : un rapport de couverture manquant doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *disparu.cobertura.xml*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le fichier manquant : $err"; exit 1 ;;
+esac
+rm -rf "$dir_case"
 
 echo "OK test golden report-dashboard ($out)"
