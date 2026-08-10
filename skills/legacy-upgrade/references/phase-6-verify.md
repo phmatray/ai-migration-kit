@@ -5,13 +5,13 @@
 ## Steps
 
 1. Clean rebuild: `dotnet clean && dotnet build` — must be green with zero errors.
-2. Full test run: `dotnet test` — all green; count ≥ the phase-2 baseline count (tests were added, never removed).
+2. Full test run: `dotnet test` — all green; count ≥ the phase-2 baseline count (tests were added, never removed). **Record the counted number and the test platform** (VSTest, or Microsoft Testing Platform when the phase-5 xunit.v3 item ran) — a test count is only meaningful next to the host that produced it, and this is the number that proves the suite still executes rather than merely compiles.
 3. Final health: `analyze_solution` (`severity: "Warning"`) — compare against `migration/baseline.md`: **errors = 0, warnings ≤ baseline**.
 4. Runtime smoke test: run the app's entry point(s) the same way the baseline did; confirm equivalent observable behavior.
 5. Write `migration/report.md` following `report-template.md` (sections obligatoires, dont **Prochaines étapes** en checklist actionnable) :
    - Before/after table: TFM, SDK style, package versions (use `create_patch` on the old vs new csproj text for an exact diff appendix),
    - Diagnostics: baseline counts vs final counts,
-   - Tests: baseline vs final (count, all green),
+   - Tests: baseline vs final (count, all green), **plateforme de test** (VSTest / MTP) and, when the xunit.v3 item ran or was deferred, its outcome with the blocker named,
    - Changes: chronological commit list of the migration branch (`git log --oneline`),
    - **Next steps**: ordered, actionable checklist to production (merge, deploy, CI, owner decisions) with effort hints,
    - Follow-ups: behavior quirks found (from characterization tests), deferred modernizations, packages held back and why.
