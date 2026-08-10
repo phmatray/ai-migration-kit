@@ -11,7 +11,8 @@
 #   6. project shapes the fixture does not have (element-form refs, flat indent, multi-TFM,
 #      packages.config, central package management) are all handled;
 #   7. the xunit.v3 / CodeCoverage version pairing is machine-checked, not remembered;
-#   8. the no-__pycache__ invariant lives in exactly one module loader.
+#   8. THIS FILE loads kit scripts through exactly one module loader, so the no-__pycache__
+#      invariant that loader carries cannot be lost to a copy-paste.
 #
 # The committed fixture is never mutated: cleanup() asserts it on every exit path, and CI asserts it
 # stays "green AND legacy".
@@ -663,7 +664,12 @@ PY
 echo "  [7] the MTP/coverage pairing is enforced by the transform, not by memory"
 
 # ---------------------------------------------------------------------------
-# 8. The no-__pycache__ invariant lives in exactly one place.
+# 8. The no-__pycache__ invariant lives in exactly one place IN THIS FILE.
+#
+#    Scope is deliberate and worth stating, because the assertion below reads only $SELF:
+#    tests/report-dashboard/test.sh carries its own loader for its own module. That one is
+#    correct today (it does prefix PYTHONDONTWRITEBYTECODE=1) but nothing asserts it, so the
+#    guard here must not be read as a repo-wide guarantee.
 #
 #    Loading a kit script through importlib compiles it, and without
 #    PYTHONDONTWRITEBYTECODE that drops a __pycache__ next to it — which cleanup() turns into a
@@ -675,7 +681,11 @@ echo "  [7] the MTP/coverage pairing is enforced by the transform, not by memory
 #    measures the script's loaders rather than itself. And it reads $SELF, not $0: this script cd's
 #    to the kit root on line 13, after which a relative $0 no longer resolves — the grep then fails
 #    with "No such file" and the check quietly does not run.
-loaders=$(grep -c 'spec_from_file_[l]ocation' "$SELF")
+#    `|| true` because `grep -c` exits 1 when the count is ZERO, and under `set -e` an assignment
+#    from a failing substitution kills the script — so the one case this block exists to describe
+#    (the loader removed or renamed) would abort with no output at all, right where the message is
+#    the entire point.
+loaders=$(grep -c 'spec_from_file_[l]ocation' "$SELF" || true)
 if [ "$loaders" -ne 1 ]; then
   echo "FAIL: $loaders copies of the importlib loader in $(basename "$SELF") — expected exactly 1."
   echo "      Every Python snippet that loads a kit script must go through py_module(), which"
