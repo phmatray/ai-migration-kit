@@ -58,7 +58,13 @@ TOOL=guarded-commit
 # plugin and its scripts are invoked by absolute path from wherever the agent happens to be.
 # `pwd -P` after the cd so a symlinked guard looks beside its real file rather than beside the
 # link, and a cleared CDPATH so an inherited one cannot send that cd somewhere else entirely.
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+#
+# The `||` fallback is not decoration. This is a plain assignment from a command substitution, so
+# under `set -e` a failing cd would kill the script THERE, with exit 1 and not a word — and exit 1
+# is the code this script documents as "git's own failure", which a caller may read as transient
+# and retry. Falling back to the unresolved dirname sends every such case into the refusal below,
+# which is the path with a test behind it.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$0")
 ASSERT="$SCRIPT_DIR/_assert-branch.sh"
 
 # Fail CLOSED, and say so in this script's own voice — refuse() is in the file that is missing.

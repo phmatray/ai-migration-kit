@@ -54,8 +54,9 @@ TOOL=guarded-push
 
 # refuse(), usage() and the branch assertion itself live in _assert-branch.sh, shared with
 # guarded-commit.sh so the invariant has one home (#44) — see that file for the resolution rules
-# and for why a hardcoded --help line range is a trap.
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+# and for why a hardcoded --help line range is a trap. The `||` fallback keeps a failing cd out of
+# `set -e`'s hands — see guarded-commit.sh for why an unexplained exit 1 is the worst outcome here.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$0")
 ASSERT="$SCRIPT_DIR/_assert-branch.sh"
 
 # Fail CLOSED, in this script's own voice — refuse() is in the file that is missing. Bash's own
