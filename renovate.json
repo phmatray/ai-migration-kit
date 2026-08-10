@@ -9,6 +9,15 @@
   "extends": [
     "local>phmatray/.github:renovate-ci"
   ],
+  "github-actions": {
+    "description": [
+      "templates/ holds the workflows this kit SHIPS to migrated repos — a deliverable, not documentation, asserted by tests/xunit-v3/test.sh. The github-actions manager's default patterns cover only .github/workflows, .github/actions, workflow-templates and action.yml, so templates/ had never been managed: Renovate kept this repo's own CI current (checkout v7, setup-dotnet v6) while the workflows we hand to customers sat three majors behind. See issue #35.",
+      "managerFilePatterns is MERGED with the manager's defaults, not substituted for them — the defaults cannot be removed — so this adds templates/ without putting .github/workflows at risk. That is the opposite of ignorePaths, which does replace what it inherits."
+    ],
+    "managerFilePatterns": [
+      "/^templates/.*\\.ya?ml$/"
+    ]
+  },
   "packageRules": [
     {
       "description": [
