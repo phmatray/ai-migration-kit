@@ -137,6 +137,14 @@ jobs:
       #     un bundle parfaitement correct, et vous aurez construit le faux rouge que le point
       #     précédent cherche à éviter.
       #
+      #     Il vous faut donc une étape `actions/setup-node` avec un `node-version` EXACT (pas
+      #     `26.x`, qui flotte). Elle n'est délibérément PAS fournie décommentable ici : ce serait
+      #     une référence d'action figée dans un commentaire, et rien ne prouve que le manager
+      #     github-actions de Renovate — configuré dans ce dépôt pour couvrir `templates/` — la
+      #     voie. Le kit a déjà payé cette facture (issue #35 : les workflows LIVRÉS avaient trois
+      #     majeures de retard pendant que la CI du kit restait à jour). Reprenez donc la version
+      #     d'action de vos propres workflows, où votre Renovate la maintiendra.
+      #
       # Renseignez les deux chemins marqués ← ci-dessous, puis décommentez le bloc — c'est-à-dire
       # les lignes entre les deux marqueurs `--8<--`, et elles seules. Ces marqueurs ne sont pas
       # décoratifs : tests/ci-template/test.sh découpe exactement entre eux, décommente, et
