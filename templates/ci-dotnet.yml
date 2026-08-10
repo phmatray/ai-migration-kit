@@ -2,6 +2,8 @@
 # La migration ne livre pas que du code : elle livre le garde-fou.
 # ⚠ Renseignez SOLUTION si le repo contient plusieurs .sln (l'ancienne solution legacy reste
 #   souvent à la racine) : `dotnet test` nu échoue alors avec MSB1011.
+# ⚠ La branche MTP écrit la couverture dans UN fichier : avec plusieurs projets de test, elles
+#   s'écrasent. Un seul projet de test = cas nominal ; au-delà, sortir un fichier par projet.
 name: ci
 
 on:
@@ -22,11 +24,46 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Deux plateformes de test coexistent, et elles ne collectent PAS la couverture pareil :
+      #   - VSTest (xunit v2, NUnit, MSTest classique) → `--collect:"XPlat Code Coverage"` ;
+      #   - Microsoft Testing Platform (xunit.v3) → `--coverage`, via
+      #     Microsoft.Testing.Extensions.CodeCoverage référencé par le projet de test.
+      # Mesuré : sous MTP, `--collect:` est IGNORÉ — la commande sort en 0, tous les tests
+      # passent, et AUCUN fichier de couverture n'est écrit (simple avertissement MTP0001).
+      # D'où la détection, puis la garde ci-dessous. Détail : legacy-upgrade
+      # references/xunit-v3-migration.md.
       - name: Tests + couverture
-        run: dotnet test $SOLUTION --nologo --collect:"XPlat Code Coverage" --results-directory coverage
+        run: |
+          set -euo pipefail
+          mkdir -p coverage
+          if grep -rqlE 'xunit\.v3|TestingPlatformDotnetTestSupport|Microsoft\.Testing\.Platform' \
+               --include='*.csproj' . ; then
+            echo "Plateforme de test détectée : Microsoft Testing Platform."
+            dotnet test $SOLUTION --nologo -- \
+              --coverage --coverage-output-format cobertura \
+              --coverage-output "$PWD/coverage/coverage.cobertura.xml"
+          else
+            echo "Plateforme de test détectée : VSTest."
+            dotnet test $SOLUTION --nologo --collect:"XPlat Code Coverage" --results-directory coverage
+          fi
+
+      # Sans cette garde, une collecte qui ne produit rien passe pour un succès : l'artefact part
+      # vide et le tableau de bord affiche « pas de couverture » sur une app qui EST testée.
+      - name: Garde — la couverture a bien été produite
+        run: |
+          if ! find coverage -name 'coverage.cobertura.xml' | grep -q . ; then
+            echo "Aucun rapport de couverture produit — la collecte a été ignorée en silence."
+            echo "Projet MTP sans Microsoft.Testing.Extensions.CodeCoverage ? Voir"
+            echo "legacy-upgrade/references/xunit-v3-migration.md."
+            exit 1
+          fi
 
       - name: Publier la couverture en artefact de build
         uses: actions/upload-artifact@v4
         with:
           name: coverage
-          path: coverage/**/coverage.cobertura.xml
+          # VSTest niche le fichier sous un GUID, MTP l'écrit à plat : les deux motifs, sinon
+          # l'artefact d'une des deux plateformes part vide sans que rien ne le dise.
+          path: |
+            coverage/**/coverage.cobertura.xml
+            coverage/coverage.cobertura.xml

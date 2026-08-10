@@ -17,8 +17,13 @@ FIXTURE="$KIT/samples/LegacyShop"
 
 # The fixture is the "before" state and must survive this script untouched, on every exit path
 # (including a failure mid-run) — otherwise a red test would also silently rewrite the fixture.
-check_fixture_pristine() {
+#
+# `rc=$?` must be the FIRST thing this function does: anything before it (a cleanup `rm`, an
+# `echo`) overwrites the exit status being reported, which would turn every failure below into
+# a silent green — the exact class of bug this whole test exists to catch.
+cleanup() {
   local rc=$?
+  [ -n "${scratch:-}" ] && rm -rf "$scratch"
   local dirty
   dirty=$(git -C "$KIT" status --porcelain -- samples/ 2>/dev/null || true)
   if [ -n "$dirty" ]; then
@@ -26,9 +31,9 @@ check_fixture_pristine() {
     echo "$dirty"
     exit 1
   fi
-  exit $rc
+  exit "$rc"
 }
-trap check_fixture_pristine EXIT
+trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
 # 1. The inventory reports the test stack (phase 1 needs it to decide v2 vs v3).
@@ -64,9 +69,8 @@ echo "  [1/4] inventory reports the fixture's test stack (xunit 2.4.2, net6.0)"
 # ---------------------------------------------------------------------------
 BASELINE_TESTS=6
 
-# A scratch copy, never the fixture itself. `git status` is checked on exit (trap above).
+# A scratch copy, never the fixture itself. The EXIT trap removes it and checks `git status`.
 scratch=$(mktemp -d)
-trap 'rm -rf "$scratch"; check_fixture_pristine' EXIT
 cp -R "$FIXTURE" "$scratch/v3"
 
 # The fixture has no ITestOutputHelper, so the namespace half of the transform would go
@@ -141,5 +145,58 @@ else
   }
   echo "  [3/4] no-Exe variant is refused at build time by xunit.v3 (OutputType guard)"
 fi
+
+# ---------------------------------------------------------------------------
+# 4. Coverage still reaches the dashboard.
+#
+#    This is the half of the migration nothing else would catch. Under MTP the VSTest
+#    collector is IGNORED — `dotnet test --collect:"XPlat Code Coverage"` exits 0, passes every
+#    test, and writes no coverage file whatsoever (only a MTP0001 warning). The CI step would
+#    then upload an empty artifact and report-dashboard.py would render "no coverage" for a
+#    migration that is in fact tested. Both halves are pinned here: the hole, and the fix.
+# ---------------------------------------------------------------------------
+cd "$scratch/v3"
+
+# 4a. The VSTest incantation produces nothing under MTP. If a future SDK makes it work again,
+#     this assertion flips and the template's dual path can be simplified — deliberately loud.
+rm -rf coverage
+dotnet test --nologo --collect:"XPlat Code Coverage" --results-directory coverage \
+  > "$scratch/vstest-cov.log" 2>&1 || true
+if find coverage -name 'coverage.cobertura.xml' 2>/dev/null | grep -q .; then
+  echo "NOTE: --collect:\"XPlat Code Coverage\" now yields cobertura under MTP."
+  echo "      templates/ci-dotnet.yml can drop its MTP branch — re-check before simplifying."
+  exit 1
+fi
+grep -q 'MTP0001' "$scratch/vstest-cov.log" \
+  || echo "  (warning: MTP0001 no longer emitted — the ignore is now fully silent)"
+echo "  [4/4a] VSTest collector yields no cobertura under MTP — the silent hole, pinned"
+
+# 4b. The documented MTP path puts it back, in coverage/, where the artifact glob already looks.
+rm -rf coverage && mkdir -p coverage
+dotnet test --nologo -- --coverage --coverage-output-format cobertura \
+  --coverage-output "$PWD/coverage/coverage.cobertura.xml" > "$scratch/mtp-cov.log" 2>&1
+[ -f coverage/coverage.cobertura.xml ] || {
+  echo "FAIL: the MTP coverage path produced no cobertura:"; tail -20 "$scratch/mtp-cov.log"; exit 1
+}
+python3 - "$KIT" "$PWD/coverage/coverage.cobertura.xml" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("rd", sys.argv[1] + "/scripts/report-dashboard.py")
+rd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rd)
+cov = rd.parse_cobertura(sys.argv[2], [])
+covered = sum(c["covered"] for c in cov["classes"])
+assert covered > 0, "parse_cobertura read zero covered lines — the dashboard would show nothing"
+assert cov["line_pct"] > 0, f"line_pct is {cov['line_pct']}"
+print(f"  [4/4b] MTP coverage -> cobertura -> parse_cobertura: "
+      f"{covered} covered lines, {cov['line_pct']}% line rate")
+PY
+cd "$KIT"
+
+# 4c. The template carries both paths and refuses to pass silently on an empty coverage dir.
+grep -q 'coverage-output-format cobertura' templates/ci-dotnet.yml \
+  || { echo "FAIL: templates/ci-dotnet.yml has no MTP coverage path"; exit 1; }
+grep -q 'Aucun rapport de couverture' templates/ci-dotnet.yml \
+  || { echo "FAIL: templates/ci-dotnet.yml has no guard against an empty coverage report"; exit 1; }
+echo "  [4/4c] templates/ci-dotnet.yml carries the MTP path and the empty-coverage guard"
 
 echo "xunit v3 golden test OK"

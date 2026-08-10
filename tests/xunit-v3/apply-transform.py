@@ -21,6 +21,15 @@ from pathlib import Path
 
 XUNIT_V3_VERSION = "3.2.2"
 
+# Coverage does NOT survive the platform change on its own: under MTP the VSTest collector
+# (`--collect:"XPlat Code Coverage"`) is ignored and produces no file at all, silently. The MTP
+# coverage extension is what puts cobertura back, so the transform installs it.
+#
+# ⚠ The major line must match the Microsoft.Testing.Platform version the test framework brings.
+# xunit.v3 3.2.2 is on MTP v1, so CodeCoverage stays on the 17.x line; 18.x targets MTP 2.x and
+# fails at run time with `TypeLoadException: Could not load type '…IDataConsumer'`.
+COVERAGE_EXT_VERSION = "17.14.2"
+
 # The v2 packages the transform removes. `xunit` and `xunit.runner.visualstudio` are replaced
 # by `xunit.v3` (which brings its own Microsoft Testing Platform runner); Microsoft.NET.Test.Sdk
 # is the VSTest host and has no role left under MTP.
@@ -48,6 +57,8 @@ def transform_test_csproj(text: str, with_output_type: bool) -> str:
     # 2. Add xunit.v3 in its own ItemGroup, before the first remaining ItemGroup (or at the end).
     new_group = (
         f'  <ItemGroup>\n'
+        f'    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage"'
+        f' Version="{COVERAGE_EXT_VERSION}" />\n'
         f'    <PackageReference Include="xunit.v3" Version="{XUNIT_V3_VERSION}" />\n'
         f'  </ItemGroup>\n\n'
     )

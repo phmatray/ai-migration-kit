@@ -59,6 +59,7 @@ exists in prerelease. Pick the stable one unless the target has a reason not to.
 | remove `Microsoft.NET.Test.Sdk` | the VSTest host has no role left under MTP — unless another package still needs it |
 | **add `<OutputType>Exe</OutputType>`** | **load-bearing** — v3 test projects are standalone executables |
 | add `<TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>` | keeps `dotnet test` working against an MTP project |
+| **add `Microsoft.Testing.Extensions.CodeCoverage`** | **coverage does not survive the move without it** — see below |
 
 **On the `OutputType` trap.** The documented failure mode is a v3 project left as a library, which
 would compile and execute nothing. Measured on **xunit.v3 3.2.2**, the package guards this itself
@@ -91,6 +92,47 @@ before touching a shared type, then `edit_member` / `rename_symbol` in **preview
 Most test *bodies* need no change — `Assert`, `[Fact]`, `[Theory]`, `IClassFixture` and collection
 fixtures carry over. The churn is concentrated in the extensibility surface, so a project with no
 custom orderer, no `IAsyncLifetime` and no output helper is usually a csproj-only change.
+
+## Coverage — the half that fails silently
+
+**Measured, and it is the worst failure mode in this migration.** Under the Microsoft Testing
+Platform, the VSTest collector is *ignored*:
+
+```bash
+dotnet test --nologo --collect:"XPlat Code Coverage" --results-directory coverage
+#  -> exit 0
+#  -> Passed! Failed: 0, Passed: 6, Total: 6
+#  -> coverage/ : does not exist. No file. Anywhere.
+#  -> the only trace is: warning MTP0001: VSTest-specific properties … will be ignored
+```
+
+Green CI, green tests, zero coverage, and a warning nobody reads. `scripts/report-dashboard.py`
+then renders "no coverage" for an app that is in fact tested — the report lies, in the direction
+that looks fine.
+
+The fix has two halves, and **both** are required:
+
+1. The test project references `Microsoft.Testing.Extensions.CodeCoverage`.
+2. CI collects the MTP way:
+   ```bash
+   dotnet test --nologo -- --coverage --coverage-output-format cobertura \
+     --coverage-output "$PWD/coverage/coverage.cobertura.xml"
+   ```
+
+⚠ **Match the coverage extension's major line to the platform's.** xunit.v3 3.2.2 runs on
+Microsoft.Testing.Platform **v1**, so the extension stays on **17.x**. Referencing 18.x (which
+targets MTP 2.x) restores and builds fine, then dies at run time:
+
+```
+Unhandled exception. System.TypeLoadException: Could not load type
+'Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer' from assembly
+'Microsoft.Testing.Platform, Version=2.3.0.0'
+```
+
+`<kit>/templates/ci-dotnet.yml` already does all of this: it detects the platform from the
+csproj files, branches to the right collection command, and **fails the job when no
+`coverage.cobertura.xml` was produced** — because a collection that silently yields nothing must
+not read as a pass.
 
 ## Exit gate — count the tests, do not trust the build
 
