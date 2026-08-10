@@ -10,7 +10,8 @@
 #   5. the decision is wired into phases 1, 5 and 6, not merely documented in a side file;
 #   6. project shapes the fixture does not have (element-form refs, flat indent, multi-TFM,
 #      packages.config, central package management) are all handled;
-#   7. the xunit.v3 / CodeCoverage version pairing is machine-checked, not remembered;
+#   7. the xunit.v3 / CodeCoverage version pairing is machine-checked, not remembered — and no
+#      ambient environment value can steer the transform, so every override is an explicit flag;
 #   8. THIS FILE loads kit scripts through exactly one module loader, so the no-__pycache__
 #      invariant that loader carries cannot be lost to a copy-paste.
 #
@@ -583,11 +584,21 @@ PY
 }
 xunit_version=$(read_const XUNIT_V3_VERSION)
 
+# Read the pin ONCE; both probe versions below are derived from it, never typed.
+pinned_coverage=$(read_const COVERAGE_EXT_VERSION)
+pinned_major=${pinned_coverage%%.*}
+
 # The bad version is DERIVED, never hardcoded: one major above whatever the kit currently pins is
 # a mismatch by construction, on today's 3.x/17.x pairing and on every future one. A literal
 # "18.0.0" here would quietly become the *correct* partner the day xunit.v3 moves to 4.x, and this
 # assertion would then fail for a reason that has nothing to do with what it is testing.
-bad_coverage="$(( $(read_const COVERAGE_EXT_VERSION | cut -d. -f1) + 1 )).0.0"
+bad_coverage="$(( pinned_major + 1 )).0.0"
+
+# 7c's probe, by contrast, must stay on the SAME major as the pin: it tests that an ambient value is
+# ignored, and the interesting case is the silent one — a stray value that validate_pairing would
+# happily accept. A cross-major literal would instead be REFUSED, aborting the run under `set -e`
+# before the assertion could speak, and proving something else entirely.
+ambient_coverage="$pinned_major.0.99"
 
 mkdir -p "$shapes/pairing/p"
 cat > "$shapes/pairing/p/p.csproj" <<'XML'
@@ -625,25 +636,6 @@ cmp -s "$shapes/pairing/p/p.csproj" "$scratch/pairing-before.csproj" || {
   echo "FAIL: the bad pair was refused, but only after rewriting the csproj — the check must"
   echo "      run before the transform touches anything."; exit 1; }
 
-# 7c. The override is the FLAG and nothing else. An exported XUNIT_V3_COVERAGE_VERSION must not
-#     reach the emitted csproj: the reference points agents at this script, so a value left in a
-#     shell — or in a CI env block — would otherwise redirect a real migration onto a version
-#     nobody chose, silently whenever it shares the expected major. A test hook must not be
-#     reachable by accident from the production path.
-mkdir -p "$shapes/ambient/p"
-cp "$scratch/pairing-before.csproj" "$shapes/ambient/p/p.csproj"
-pinned_coverage=$(read_const COVERAGE_EXT_VERSION)
-export XUNIT_V3_COVERAGE_VERSION="17.0.99"
-python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/ambient" > /dev/null
-unset XUNIT_V3_COVERAGE_VERSION
-if grep -qF '17.0.99' "$shapes/ambient/p/p.csproj"; then
-  echo "FAIL: an exported XUNIT_V3_COVERAGE_VERSION reached the csproj — the environment must not"
-  echo "      steer a hand-run transform:"; grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1
-fi
-grep -qF "$pinned_coverage" "$shapes/ambient/p/p.csproj" || {
-  echo "FAIL: the transform did not write its pinned coverage version ($pinned_coverage):"
-  grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1; }
-
 # 7b. The map is the contract: the pinned pair satisfies it, and an unmapped major says so
 #     instead of guessing a compatible extension.
 py_module "$KIT/tests/xunit-v3/apply-transform.py" <<'PY'
@@ -675,6 +667,41 @@ else:
     raise AssertionError("an unmapped xunit.v3 package id was accepted — the map would be bypassed")
 PY
 echo "  [7] the MTP/coverage pairing is enforced by the transform, not by memory"
+
+# 7c. Nothing in the environment steers the transform — the override is the FLAG and only the flag.
+#
+#     Two checks, deliberately at different depths. The static one is the general rule and the one
+#     that survives: it holds for every knob anyone adds later, not just this variable. The
+#     end-to-end one is the witness that the rule is true of the shipped script as invoked.
+#
+#     Why it matters: the reference points agents at this script as the executable form of the
+#     transform, so a value left in a shell — or in a CI env block — would otherwise redirect a real
+#     migration onto a version nobody chose. Worst when it shares the expected major, because
+#     validate_pairing then accepts it and the substitution is completely silent.
+knobs=$(grep -cE 'os\.environ|getenv' "$KIT/tests/xunit-v3/apply-transform.py" || true)
+if [ "$knobs" -ne 0 ]; then
+  echo "FAIL: apply-transform.py reads $knobs value(s) from the environment. Every override must be"
+  echo "      an explicit flag — ambient state must never steer a migration:"
+  grep -nE 'os\.environ|getenv' "$KIT/tests/xunit-v3/apply-transform.py"
+  exit 1
+fi
+
+mkdir -p "$shapes/ambient/p"
+cp "$scratch/pairing-before.csproj" "$shapes/ambient/p/p.csproj"
+# One-shot prefix, not export/unset: the variable exists only for the child that is meant to see it,
+# there is no window in which `set -e` can skip an `unset`, and the caller's own environment is left
+# exactly as it was.
+XUNIT_V3_COVERAGE_VERSION="$ambient_coverage" \
+  python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/ambient" > /dev/null
+if grep -qF "$ambient_coverage" "$shapes/ambient/p/p.csproj"; then
+  echo "FAIL: an ambient XUNIT_V3_COVERAGE_VERSION ($ambient_coverage) reached the csproj — the"
+  echo "      environment must not steer a hand-run transform:"
+  grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1
+fi
+grep -qF "$pinned_coverage" "$shapes/ambient/p/p.csproj" || {
+  echo "FAIL: the transform did not write its pinned coverage version ($pinned_coverage):"
+  grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1; }
+echo "  [7c] no ambient value steers the transform — overrides are flags only"
 
 # ---------------------------------------------------------------------------
 # 8. The no-__pycache__ invariant lives in exactly one place IN THIS FILE.

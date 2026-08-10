@@ -58,6 +58,12 @@ MTP_COMPAT = {
 COVERAGE_EXT_VERSION = "17.14.2"
 
 
+# A NuGet version as it may appear in a csproj attribute: numeric parts plus an optional
+# prerelease tail. Anchored at both ends on purpose — the value reaches an XML attribute through an
+# f-string, so a partial match would let `17.0.0" /><PackageReference Include="…` through.
+VERSION_RE = re.compile(r"\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.]+)?\Z")
+
+
 def _major_of(version: str) -> int:
     """Major as an INT: '017.14.2' and '17.14.2' are the same line, and a refusal that claims
     otherwise ('the 017.x line') is exactly the confusing diagnostic this module exists to kill."""
@@ -80,6 +86,12 @@ def validate_pairing(xunit_package: str, coverage_version: str,
     interface nobody recognises. Nothing in that stack trace names either package, so the refusal
     names both — that is the part a future reader actually needs.
     """
+    if not VERSION_RE.match(coverage_version):
+        raise ValueError(
+            f"not a version: {coverage_version!r}. This string is interpolated straight into a "
+            f"csproj attribute, so anything shaped otherwise either produces an unusable pin or "
+            f"breaks out of the attribute entirely."
+        )
     expected = MTP_COMPAT.get(xunit_package)
     if expected is None:
         raise ValueError(
@@ -176,7 +188,13 @@ def _insert_before(text: str, closing_tag: str, lines) -> str | None:
 
 
 def transform_test_csproj(text: str, with_output_type: bool,
-                          coverage_version: str = COVERAGE_EXT_VERSION) -> str:
+                          coverage_version: str | None = None) -> str:
+    # Resolved at CALL time, not bound at def time: a default of `COVERAGE_EXT_VERSION` would
+    # capture the module constant once, so a caller that patches `mod.COVERAGE_EXT_VERSION` — the
+    # natural way to exercise the other MTP line in-process — would silently get the stale pin
+    # written AND validated, and its assertion would pass for the wrong version.
+    coverage_version = coverage_version or COVERAGE_EXT_VERSION
+
     # The guard belongs at the point that actually emits the pair, not only in main(): this
     # function is importable, and a caller reaching it directly would otherwise write both
     # PackageReferences with no pairing check at all. It validates the version about to be
@@ -221,12 +239,25 @@ def transform_test_csproj(text: str, with_output_type: bool,
     return inserted
 
 
-def verify_transformed(text: str, with_output_type: bool) -> list:
+def verify_transformed(text: str, with_output_type: bool,
+                       coverage_version: str | None = None) -> list:
     """Post-conditions. A transform that silently did nothing is the worst outcome here, so the
     script asserts its own work instead of trusting the substitutions to have matched."""
+    coverage_version = coverage_version or COVERAGE_EXT_VERSION
     problems = []
-    if "xunit.v3" not in text:
-        problems.append("xunit.v3 reference missing")
+    if XUNIT_V3_PACKAGE not in text:
+        problems.append(f"{XUNIT_V3_PACKAGE} reference missing")
+    # Coverage is the half that fails SILENTLY: under MTP the VSTest collector is ignored, so a
+    # migration that lost this reference still builds, still runs its tests, and simply reports no
+    # coverage. Nothing downstream would call that an error — which is why it is asserted here.
+    if not re.search(
+        rf'PackageReference\s+Include="Microsoft\.Testing\.Extensions\.CodeCoverage"'
+        rf'\s+Version="{re.escape(coverage_version)}"', text
+    ):
+        problems.append(
+            f"Microsoft.Testing.Extensions.CodeCoverage {coverage_version} reference missing — "
+            f"coverage would silently vanish under MTP"
+        )
     if NEW_PROPS not in text:
         problems.append("TestingPlatformDotnetTestSupport missing")
     if with_output_type and "<OutputType>Exe</OutputType>" not in text:
@@ -297,7 +328,8 @@ def main() -> int:
             except RuntimeError as exc:
                 print(f"{csproj}: {exc}", file=sys.stderr)
                 return 1
-            problems = verify_transformed(text, with_output_type=not args.skip_output_type)
+            problems = verify_transformed(text, with_output_type=not args.skip_output_type,
+                                          coverage_version=args.coverage_version)
             if problems:
                 print(f"{csproj}: transform did not apply cleanly:", file=sys.stderr)
                 for p in problems:
