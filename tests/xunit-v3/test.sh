@@ -807,4 +807,62 @@ if [ "$loaders" -ne 1 ]; then
 fi
 echo "  [8] one module loader carries the no-__pycache__ invariant"
 
+# ---------------------------------------------------------------------------
+# 9. Renovate can actually SEE the two pins the transform writes.
+#
+#    The packageRules that keep the MTP family on one line only fire on updates Renovate proposes,
+#    and it proposes nothing it cannot parse: these versions are Python string literals, and no
+#    stock manager reads `.py`. A customManagers regex is what puts them in view — but a regex in
+#    JSON is exactly the kind of thing that silently stops matching when a constant is renamed, and
+#    nothing would say so. So the regexes are not merely declared here, they are EXECUTED against
+#    the real file, and must find the versions the module actually reports.
+# ---------------------------------------------------------------------------
+python3 - "$KIT/renovate.json" "$TRANSFORM" "$(read_const XUNIT_V3_PACKAGE)" \
+         "$(read_const XUNIT_V3_VERSION)" "$(read_const COVERAGE_PACKAGE)" \
+         "$(read_const COVERAGE_EXT_VERSION)" <<'PY'
+import json, re, sys
+
+cfg_path, transform_path = sys.argv[1], sys.argv[2]
+want = {sys.argv[3]: sys.argv[4], sys.argv[5]: sys.argv[6]}   # depName -> version the module reports
+
+cfg = json.load(open(cfg_path, encoding="utf-8"))
+managers = cfg.get("customManagers", [])
+assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
+
+source = open(transform_path, encoding="utf-8").read()
+
+
+def to_python(pattern):
+    """Renovate evaluates these with JavaScript's engine, where a named group is `(?<name>…)`.
+    Python spells the same thing `(?P<name>…)`. Translate for the check, leaving lookbehinds
+    (`(?<=`, `(?<!`) alone — the config must stay in the dialect Renovate actually parses."""
+    return re.sub(r"\(\?<(?![=!])", "(?P<", pattern)
+
+
+found = {}
+for m in managers:
+    assert m.get("customType") == "regex", m
+    # The file patterns must actually select apply-transform.py, or the manager is decorative.
+    pats = m.get("managerFilePatterns") or m.get("fileMatch") or []
+    assert any("apply-transform" in p for p in pats), f"manager does not target the transform: {m}"
+    for raw in m["matchStrings"]:
+        for hit in re.finditer(to_python(raw), source):
+            g = hit.groupdict()
+            dep = g.get("depName") or m.get("depNameTemplate")
+            assert dep, f"no depName captured or templated for {raw!r}"
+            assert m.get("datasourceTemplate") == "nuget", f"{dep}: datasource must be nuget"
+            found[dep] = g["currentValue"]
+
+for dep, version in want.items():
+    assert dep in found, (
+        f"the custom manager never matched {dep} — a constant was renamed and the regex went "
+        f"quietly blind. Matched: {found}"
+    )
+    assert found[dep] == version, (
+        f"{dep}: the regex captured {found[dep]!r} but the module reports {version!r}"
+    )
+print(f"  [9] Renovate's custom manager sees {len(found)} pin(s): "
+      + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
+PY
+
 echo "xunit v3 golden test OK"

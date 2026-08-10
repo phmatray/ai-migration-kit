@@ -9,6 +9,33 @@
   "extends": [
     "local>phmatray/.github:renovate-ci"
   ],
+  "customManagers": [
+    {
+      "description": [
+        "The two versions the xunit v2 -> v3 transform bakes into EVERY migrated csproj live as Python string literals in tests/xunit-v3/apply-transform.py, and no stock manager reads .py — so until now nothing watched them. The packageRules below could never fire on these packages either: Renovate does not propose updates for dependencies it cannot parse. See issue #36.",
+        "The xunit entry captures depName from XUNIT_V3_PACKAGE on the line above the version, rather than templating it: the package id is load-bearing here (xunit.v3 and xunit.v3.mtp-v2 sit on opposite Microsoft.Testing.Platform lines at the same major), so a hardcoded name would keep proposing xunit.v3 updates after the kit moved lines.",
+        "tests/xunit-v3/test.sh executes these regexes against the real file and compares what they capture to what the module reports — a renamed constant fails the suite instead of silently going blind."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": ["/^tests/xunit-v3/apply-transform\\.py$/"],
+      "matchStrings": [
+        "XUNIT_V3_PACKAGE = \"(?<depName>[^\"]+)\"\\nXUNIT_V3_VERSION = \"(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "nuget"
+    },
+    {
+      "description": [
+        "COVERAGE_EXT_VERSION sits far from COVERAGE_PACKAGE in the file (the compatibility map is between them), so the name is templated rather than captured. It is pinned in one place — EXTENSION_MAJOR — and the golden test asserts the two agree."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": ["/^tests/xunit-v3/apply-transform\\.py$/"],
+      "matchStrings": [
+        "COVERAGE_EXT_VERSION = \"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "Microsoft.Testing.Extensions.CodeCoverage",
+      "datasourceTemplate": "nuget"
+    }
+  ],
   "github-actions": {
     "description": [
       "templates/ holds the workflows this kit SHIPS to migrated repos — a deliverable, not documentation, asserted by tests/xunit-v3/test.sh. The github-actions manager's default patterns cover only .github/workflows, .github/actions, workflow-templates and action.yml, so templates/ had never been managed: Renovate kept this repo's own CI current (checkout v7, setup-dotnet v6) while the workflows we hand to customers sat three majors behind. See issue #35.",
