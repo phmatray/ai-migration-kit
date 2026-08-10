@@ -394,6 +394,12 @@ PY
 }
 xunit_version=$(read_const XUNIT_V3_VERSION)
 
+# The bad version is DERIVED, never hardcoded: one major above whatever the kit currently pins is
+# a mismatch by construction, on today's 3.x/17.x pairing and on every future one. A literal
+# "18.0.0" here would quietly become the *correct* partner the day xunit.v3 moves to 4.x, and this
+# assertion would then fail for a reason that has nothing to do with what it is testing.
+bad_coverage="$(( $(read_const COVERAGE_EXT_VERSION | cut -d. -f1) + 1 )).0.0"
+
 mkdir -p "$shapes/pairing/p"
 cat > "$shapes/pairing/p/p.csproj" <<'XML'
 <Project Sdk="Microsoft.NET.Sdk">
@@ -409,13 +415,13 @@ cp "$shapes/pairing/p/p.csproj" "$scratch/pairing-before.csproj"
 
 # 7a. A deliberately mismatched pair must be refused, non-zero, before anything is written.
 pair_log="$scratch/pairing.log"
-if XUNIT_V3_COVERAGE_VERSION=18.0.0 \
+if XUNIT_V3_COVERAGE_VERSION="$bad_coverage" \
    python3 "$KIT/tests/xunit-v3/apply-transform.py" "$shapes/pairing" > "$pair_log" 2>&1; then
-  echo "FAIL: the transform accepted CodeCoverage 18.0.0 alongside xunit.v3 $xunit_version."
+  echo "FAIL: the transform accepted CodeCoverage $bad_coverage alongside xunit.v3 $xunit_version."
   echo "      That pair builds clean and dies at run time — the mismatch must be refused here."
   exit 1
 fi
-for needle in "$xunit_version" "18.0.0"; do
+for needle in "$xunit_version" "$bad_coverage"; do
   grep -qF "$needle" "$pair_log" || {
     echo "FAIL: the refusal does not name '$needle' — it must state BOTH versions, or the next"
     echo "      reader is back to diagnosing a TypeLoadException:"; cat "$pair_log"; exit 1; }
@@ -437,7 +443,7 @@ mod.validate_pairing(mod.XUNIT_V3_VERSION, mod.COVERAGE_EXT_VERSION)
 
 # A major nobody has mapped yet must be named as such, not silently assumed compatible.
 try:
-    mod.validate_pairing("99.0.0", "17.14.2")
+    mod.validate_pairing("99.0.0", mod.COVERAGE_EXT_VERSION)
 except SystemExit as exc:
     assert "MTP_COMPAT" in str(exc), f"unmapped major refused without naming MTP_COMPAT: {exc}"
 else:
