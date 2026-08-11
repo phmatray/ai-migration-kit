@@ -98,3 +98,102 @@ jobs:
             coverage/**/*.cobertura.xml
             coverage/*.cobertura.xml
             coverage/**/*.log
+
+      # À N'ACTIVER que si ce dépôt COMMITTE un bundle front — un `dist/` suivi par git — que le
+      # build .NET consomme (EmbeddedResource, Content, ou contenu statique servi tel quel).
+      # Laissé commenté par défaut sur une mesure, pas par prudence : sur 193 dépôts .NET, 3
+      # committent une sortie de build et UN SEUL la fait consommer par le build (issue #32). Une
+      # étape rouge par défaut sur les 192 autres finit supprimée ou en `continue-on-error`, ce
+      # qui apprend à l'équipe à ignorer une étape rouge — pire qu'une étape absente.
+      #
+      # Le motif, mesuré sur Ninjadog : `dist/` est committé et AUCUNE cible MSBuild n'appelle
+      # npm. Un bump de la dépendance JS vulnérable change donc le lockfile et pas un octet du
+      # binaire livré — pendant que la PR se ferme et que le Dependency Dashboard affiche la
+      # faille comme réglée. C'est une FAUSSE REMÉDIATION, strictement pire que ne rien faire.
+      #
+      # Deux préconditions avant d'activer, les deux mesurées :
+      #
+      #  1. `git status --porcelain`, JAMAIS `git diff` — parce que `--porcelain` couvre les
+      #     fichiers NON SUIVIS, et que c'est là qu'un bundle régénéré atterrit. Les bundlers
+      #     nomment leurs assets par hash de contenu, ce qui donne deux formes de dérive :
+      #       • le RENOMMAGE (l'ancien fichier disparaît, un autre apparaît non suivi) —
+      #         `git diff` en voit bien la moitié, la suppression, mais ne nomme jamais le
+      #         remplaçant : impossible de distinguer « le build a perdu un fichier » de
+      #         « le build a produit un autre bundle » ;
+      #       • l'AJOUT PUR (un nouveau chunk, un asset fraîchement importé, pendant que les
+      #         fichiers existants gardent nom et contenu) — là `git diff` rend l'arbre
+      #         PROPRE, et une garde fondée dessus passe au vert sur un bundle périmé.
+      #     C'est le second cas qui rend `--porcelain` obligatoire et non simplement préférable.
+      #     Les deux sont exécutés dans `tests/ci-template/test.sh` : ce commentaire décrit une
+      #     mesure, il n'en tient pas lieu.
+      #
+      #  2. Le build doit être reproductible DANS L'ENVIRONNEMENT DE LA CI. Deux reconstructions
+      #     propres du même commit donnent bien un résultat identique à l'octet — mais les
+      #     chaînes front modernes embarquent des binaires natifs PAR PLATEFORME
+      #     (`@tailwindcss/oxide`, `lightningcss`, `esbuild`…), et le CSS émis par le binaire
+      #     macOS diffère de celui du binaire Linux à sources et lockfile identiques. Mesuré, à
+      #     cause de cette étape même. Donc : épinglez `runs-on:` ET la version exacte de Node,
+      #     et régénérez le bundle committé depuis cette plateforme-là. Sinon la garde rougit sur
+      #     un bundle parfaitement correct, et vous aurez construit le faux rouge que le point
+      #     précédent cherche à éviter.
+      #
+      #     Il vous faut donc une étape `actions/setup-node` avec un `node-version` EXACT (pas
+      #     `26.x`, qui flotte). Elle n'est délibérément PAS fournie décommentable ici : ce serait
+      #     une référence d'action figée dans un commentaire, et rien ne prouve que le manager
+      #     github-actions de Renovate — configuré dans ce dépôt pour couvrir `templates/` — la
+      #     voie. Le kit a déjà payé cette facture (issue #35 : les workflows LIVRÉS avaient trois
+      #     majeures de retard pendant que la CI du kit restait à jour). Reprenez donc la version
+      #     d'action de vos propres workflows, où votre Renovate la maintiendra.
+      #
+      # Renseignez les deux chemins marqués ← ci-dessous, puis décommentez le bloc — c'est-à-dire
+      # les lignes entre les deux marqueurs `--8<--`, et elles seules. Ces marqueurs ne sont pas
+      # décoratifs : tests/ci-template/test.sh découpe exactement entre eux, décommente, et
+      # EXÉCUTE la garde dans les deux sens. Le bloc ne peut donc pas pourrir en silence, ce qui
+      # est le sort habituel d'une étape en commentaire.
+      #
+      # --8<-- opt-in: committed-bundle drift gate (uncomment to enable) --8<--
+      # - name: Reconstruire le bundle front committé
+      #   working-directory: web              # ← le répertoire qui porte package.json
+      #   run: |
+      #     npm ci
+      #     npm run build
+      #
+      # - name: Garde — le bundle front committé correspond toujours à ses sources
+      #   env:
+      #     BUNDLE_DIST: web/dist             # ← le répertoire committé, depuis la racine du dépôt
+      #   run: |
+      #     # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
+      #     # inexistant>` sort en 0 avec une sortie VIDE : un chemin resté au placeholder, ou un
+      #     # répertoire renommé six mois plus tard, donnerait donc une étape verte à chaque run
+      #     # qui ne vérifie plus rien — « ça a l'air entretenu, ça ne mesure rien », exactement
+      #     # le défaut que cette étape existe pour empêcher, reproduit dans l'étape elle-même.
+      #     # Le vert est ici la couleur attendue, donc rien ne le signalerait jamais.
+      #     if [ -z "${BUNDLE_DIST:-}" ] || [ ! -d "$BUNDLE_DIST" ]; then
+      #       echo "::error::BUNDLE_DIST ('${BUNDLE_DIST:-}') n'est pas un répertoire de ce dépôt."
+      #       echo "Renseignez le chemin du bundle committé, ou retirez cette étape."
+      #       exit 1
+      #     fi
+      #     if ! git ls-files --error-unmatch -- "$BUNDLE_DIST" > /dev/null 2>&1; then
+      #       echo "::error::$BUNDLE_DIST n'est suivi par git pour aucun fichier."
+      #       echo "Cette garde ne vaut que pour un bundle COMMITTÉ : sans fichier suivi, elle"
+      #       echo "resterait verte sans rien mesurer."
+      #       exit 1
+      #     fi
+      #     # `--ignored` est OBLIGATOIRE, pas un extra. La façon normale de committer une sortie
+      #     # de build est de mettre `dist/` dans .gitignore puis de forcer l'ajout (`git add -f`).
+      #     # Dans ce dépôt-là, un nouveau chunk n'est pas seulement non suivi : il est IGNORÉ, et
+      #     # `--porcelain` seul omet les fichiers ignorés — il n'affiche rien, et la garde annonce
+      #     # « à jour » sur un bundle périmé. Mesuré. Contrepartie assumée : si le bundler écrit
+      #     # un cache ignoré DANS ce répertoire, il sera signalé — faites pointer BUNDLE_DIST sur
+      #     # la sortie livrée, pas sur un dossier qui contient aussi du cache.
+      #     changes=$(git status --porcelain --ignored -- "$BUNDLE_DIST")
+      #     if [ -n "$changes" ]; then
+      #       echo "::error::$BUNDLE_DIST est périmé : il ne correspond plus à ses sources."
+      #       echo "Le binaire livré embarque encore l'ancien bundle — un bump de dépendance JS"
+      #       echo "ne l'a donc PAS corrigé, il a seulement fermé la PR."
+      #       echo "Correctif : reconstruire le bundle, puis committer le résultat."
+      #       echo "$changes"
+      #       exit 1
+      #     fi
+      #     echo "$BUNDLE_DIST est à jour."
+      # --8<-- end opt-in --8<--
