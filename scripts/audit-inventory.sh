@@ -29,38 +29,86 @@ from pathlib import Path
 PRUNE = {'obj', 'bin', 'node_modules', '.git', '.vs'}
 VENDOR_PARENTS = (('wwwroot', 'lib'), ('wwwroot', 'vendor'))
 
+# Un répertoire écarté par une décision — pas par la liste de bruit évidente — doit être NOMMÉ, pas
+# disparaître. C'est une leçon déjà payée ailleurs dans le portefeuille : une sonde qui faisait
+# `continue` en silence comptait 148 dépôts là où 210 étaient éligibles, et le chiffre manquant
+# n'existait dans aucun relevé. Ici le risque est le même dans les deux sens — un sous-module peut
+# porter du code de première main, un `packages/` peut porter les applications — donc la clé
+# `excludedFromWalk` rend le choix visible au lecteur de la phase 1 au lieu de le lui cacher
+# derrière un nombre plus petit.
+ECARTES = {}
+
 
 def sous_vendor(parts):
     """`parts` est À OU SOUS un répertoire `wwwroot/{lib,vendor}`."""
     return any((parts[i], parts[i + 1]) in VENDOR_PARENTS for i in range(len(parts) - 1))
 
 
-def est_restore_nuget(chemin):
-    """Un `packages/` de RESTAURATION NuGet — décidé par son contenu, pas par son nom.
+ID_VERSION = re.compile(r'\.\d+(\.\d+)*$')
+PROJET_EXT = ('.csproj', '.fsproj', '.vbproj')
 
-    `packages` était écarté inconditionnellement. C'est juste pour le public legacy, où c'est le
-    dossier de restauration NuGet, et catastrophique pour un monorepo qui y range ses applications.
-    La détection par DÉCLARATION (`workspaces` dans un package.json) était le plan de #65 et elle
-    est morte à la mesure : ZÉRO dépôt local déclare un workspace `packages/`, et openjam-monorepo
-    — le cas motivant — n'a aucun package.json racine. Le contenu, lui, sépare les deux sans
-    ambiguïté : 7 dossiers de restauration portent de 3 à 28 `.nupkg`, le seul dossier source n'en
-    porte aucun (8/8 sur le parc réel).
+
+def paquet_restaure(nom, chemin):
+    """Cet enfant de `packages/` est-il un paquet NuGet restauré plutôt qu'un projet du dépôt ?
+
+    `packages` était écarté inconditionnellement : juste pour le public legacy, où c'est le dossier
+    de restauration, et catastrophique pour un monorepo qui y range ses applications — mesuré,
+    openjam-monorepo annonçait csFiles = 0, INVISIBLE. La détection par DÉCLARATION (`workspaces`)
+    était le plan de #65, morte à la mesure : ZÉRO dépôt local n'en déclare, et openjam-monorepo
+    n'a aucun package.json racine.
+
+    Le correctif suivant testait le répertoire ENTIER sur `.nupkg` / `repositories.config`. La revue
+    l'a cassé à raison : le .gitignore standard de Visual Studio exclut `*.nupkg`,
+    `repositories.config` est un artefact NuGet 2.x que la restauration moderne n'écrit plus, et la
+    disposition « global packages » place le .nupkg trois niveaux plus bas. Un `packages/` committé
+    sans .nupkg était donc parcouru, et du code tiers comptait pour celui du dépôt (csFiles 1 → 11).
+
+    Le verdict se prend donc PAR ENFANT, et c'est un gain double. Plus juste : un monorepo qui
+    vendorise aussi quelques paquets garde ses applications et perd seulement les paquets. Et
+    testable : avec un verdict global, dès qu'aucun enfant n'est source la réponse est « écarter »
+    quelle que soit la raison — aucun test ne pouvait donc distinguer les signaux, et la
+    mutation-test le montrait (4 mutants sur 6 survivaient). Par enfant, chaque signal décide seul
+    du sort d'un répertoire observable.
+
+    Signaux mesurés sur les 8 `packages/` réels du parc (7 restauration, 1 source) :
+
+        signal                          restauration   source
+        enfants `<Id>.<Version>`             3 à 28        0
+        enfants portant lib/ ou content/     3 à 20        0
+        enfants portant un projet ou src/         0       11
+        `.nuspec`                                 0        0   <- inutile, absent partout
+        le dépôt a un packages.config        1 à 3         1   <- ne discrimine pas
+
+    Ces chiffres viennent d'une sonde jetable, ce qui les rendrait invérifiables si elle n'était
+    nulle part : elle est publiée en entier sur l'issue #65, avec la commande qui la rejoue. Ce
+    qui garde la règle honnête au quotidien n'est pas ce tableau mais `tests/audit-inventory` :
+    chaque branche ci-dessous a son propre cas, et chacune est mutation-testée — on la casse, la
+    suite tombe. Le tableau explique le choix ; la suite l'empêche de dériver.
     """
-    if os.path.isfile(os.path.join(chemin, 'repositories.config')):
-        return True
+    noms, dossiers = set(), set()
     try:
-        for entree in os.scandir(chemin):
-            if entree.name.endswith('.nupkg'):
-                return True
-            if entree.is_dir(follow_symlinks=False):
-                # Disposition canonique : packages/<Id>.<Version>/<Id>.<Version>.nupkg
-                try:
-                    if any(f.name.endswith('.nupkg') for f in os.scandir(entree.path)):
-                        return True
-                except OSError:
-                    continue
+        with os.scandir(chemin) as sous:
+            for e in sous:
+                noms.add(e.name)
+                if e.is_dir(follow_symlinks=False):
+                    dossiers.add(e.name)
     except OSError:
         return False
+    # Un projet qui s'est empaqueté lui-même (`dotnet pack -o .`) porte un `.nupkg` à côté de son
+    # csproj et reste du code du dépôt : la marque « source » l'emporte, toujours. Sans cette
+    # priorité, un artefact perdu rendait invisibles toutes les applications du monorepo.
+    if 'package.json' in noms or 'src' in noms or any(n.endswith(PROJET_EXT) for n in noms):
+        return False
+    if ID_VERSION.search(nom):
+        return True                       # packages/Newtonsoft.Json.13.0.1
+    if 'lib' in noms or 'content' in noms:
+        return True                       # la disposition extraite, même sans .nupkg committé
+    if any(n.endswith('.nupkg') for n in noms):
+        return True
+    # Disposition « global packages » v3 : packages/<id>/<version>/… — l'enfant porte le nom du
+    # paquet et la version est un cran plus bas. `dotnet restore --packages packages` produit ça.
+    if dossiers and all(ID_VERSION.search(d) or d.isdigit() for d in dossiers):
+        return True
     return False
 
 
@@ -77,15 +125,20 @@ def prune(dirpath, dirnames, garder_vendor=False):
     dépôt. Une règle, une exception nommée, plutôt que deux règles qui dérivent.
     """
     base = Path(dirpath).parts
+    dans_packages = bool(base) and base[-1] == 'packages'
     kept = []
     for d in dirnames:
         if d in PRUNE:
             continue
         chemin = os.path.join(dirpath, d)
-        if d == 'packages' and est_restore_nuget(chemin):
+        if dans_packages and paquet_restaure(d, chemin):
+            ECARTES.setdefault('/'.join(base + (d,)), 'paquet NuGet restauré')
             continue
-        if (os.path.exists(os.path.join(chemin, '.git'))
-                and not (garder_vendor and sous_vendor(base + (d,)))):
+        if os.path.exists(os.path.join(chemin, '.git')):
+            if garder_vendor and sous_vendor(base + (d,)):
+                kept.append(d)
+                continue
+            ECARTES.setdefault('/'.join(base + (d,)), 'checkout imbriqué')
             continue
         kept.append(d)
     return kept
@@ -334,7 +387,10 @@ def count_files(root):
     total = 0
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = prune(dirpath, dirnames, garder_vendor=True)
-        total += len(filenames)
+        # `.git` n'est dans PRUNE qu'en tant que RÉPERTOIRE. Le pointeur d'un sous-module ou d'un
+        # worktree est un FICHIER nommé `.git`, qui retombait donc dans `filenames` et ajoutait 1
+        # à chaque bibliothèque vendorisée par sous-module. Un chiffre lu comme un décompte.
+        total += sum(1 for f in filenames if f != '.git')
     return total
 
 
@@ -348,6 +404,8 @@ def count_files(root):
 #     `wwwroot/lib/dist` sans rapport.
 # Un manifeste ne couvre donc que ce qui vit SOUS lui, et libman se compare en chemins.
 PKG_KEYS = ('dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies')
+# Ce qu'un fichier posé à plat doit être pour compter comme une bibliothèque vendorisée.
+ASSET_EXT = {'.js', '.mjs', '.cjs', '.css', '.scss', '.map', '.woff', '.woff2', '.ttf', '.eot'}
 pkg_manifests = []    # (parts du répertoire du manifeste, {noms déclarés})
 libman_dests = []     # parts du chemin de destination, depuis la racine du dépôt
 
@@ -428,8 +486,13 @@ for dirpath, dirnames, filenames in os.walk('.'):
     # parc local : 3 dépôts, 8 fichiers, contre 17 dépôts en sous-répertoires. Rare, pas nul — et
     # sans lui `[]` voudrait parfois dire « mesuré, et raté » alors que la phase 1 le lit comme
     # « mesuré, aucun ».
+    # …mais seulement les fichiers qui SONT des assets. Un `wwwroot/lib/` par ailleurs vide ne
+    # contient souvent qu'un `.gitkeep`, et le signaler attacherait la promesse de cette clé
+    # (« rien ne surveille ceci, une CVE y serait invisible ») à un fichier témoin. Idem pour un
+    # README ou un `.git` de sous-module.
     for f in filenames:
-        candidats.append((parts + (f,), None, True))
+        if Path(f).suffix.lower() in ASSET_EXT:
+            candidats.append((parts + (f,), None, True))
 
 # Les manifestes ne sont tous connus qu'à la fin du parcours : un `package.json` peut apparaître
 # après le répertoire qu'il déclare.
@@ -476,5 +539,6 @@ print(json.dumps({
     'packages': sorted(packages), 'hasTests': has_tests,
     'testStack': test_stack,
     'vendoredAssets': vendored_assets,
+    'excludedFromWalk': [{'path': p, 'reason': r} for p, r in sorted(ECARTES.items())],
 }, indent=2, ensure_ascii=False))
 PY

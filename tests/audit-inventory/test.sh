@@ -20,7 +20,24 @@
 #   4. the key is present and EMPTY when there is nothing to report, never absent — a consumer has
 #      to be able to tell "measured, none" from "not measured";
 #   5. a nested app (`src/App/wwwroot/lib/…`) is found, and `node_modules` is never walked;
+#  5b. a nested CHECKOUT is not counted twice — and 5c, one under wwwroot/lib still IS reported,
+#      with its `.git` pointer not counted as an asset;
+#  5d. coverage is resolved per path and per scope, never from a global pool of bare names;
+#  5e. a nested checkout's manifest cannot silence a finding in the host repo;
+#  5f. loose files count as vendoring, and a declared name covers one only on a name boundary;
+#   7. ONE traversal rule — a nested checkout inflates no key, not just `vendoredAssets`;
+#   8. `packages/` is judged per child by shape (name, lib/, .nupkg, v3 layout), and every child
+#      dropped by that decision is NAMED in `excludedFromWalk`;
+#   9. a loose file is a finding only when it is an asset — `.gitkeep` and `README.md` are not;
 #   6. the output is still valid JSON, including from a foreign working directory.
+#
+# Sections 7-9 are new and sit before 6, which is the historical tail. The numbering is the order
+# they were added, not the order they run — the list above is in FILE order so it stays a map.
+#
+# Every branch of the `packages/` detector is mutation-tested: break one and this suite fails.
+# That is not decoration. The first version of section 8 piled every signal into one fixture, so
+# each masked the others, and 4 of 6 mutants survived — a heuristic deciding whether a whole repo
+# is visible, with no effective test.
 #
 # Everything runs on scratch trees under $(mktemp -d). samples/LegacyShop is read-only here, and
 # cleanup() asserts it on every exit path.
@@ -206,11 +223,17 @@ echo "gitdir: /elsewhere/.git/modules/bootstrap" > "$E/wwwroot/lib/bootstrap/.gi
 out=$("$INV" "$E")
 python3 - "$out" <<'PY'
 import json, sys
-paths = [e["path"] for e in json.loads(sys.argv[1])["vendoredAssets"]]
+va = json.loads(sys.argv[1])["vendoredAssets"]
+paths = [e["path"] for e in va]
 assert paths == ["wwwroot/lib/bootstrap"], \
     f"a submodule-vendored library was dropped as if it were a foreign project: {paths}"
+# The submodule's `.git` POINTER is a file, not a directory, so it falls through PRUNE (which
+# names `.git` as a directory) straight into the file count — inflating every submodule-vendored
+# entry by one. The fixture has 3 assets; 4 means the pointer was counted as an asset.
+assert va[0]["files"] == 3, \
+    f"the submodule's .git pointer was counted as one of the library's files: {va[0]}"
 PY
-echo "  [5c] a submodule UNDER wwwroot/lib is still reported — the least-watched shape of all"
+echo "  [5c] a submodule UNDER wwwroot/lib is reported, and its .git pointer is not an asset"
 
 # ---------------------------------------------------------------------------
 # 5d. Coverage is resolved by PATH and by SCOPE, not by a global pool of bare names.
@@ -369,20 +392,78 @@ echo "  [7] a nested checkout inflates no key — csFiles, testStack and project
 #    discriminator is content — a restore folder carries `.nupkg` files (and usually
 #    `repositories.config`); a source folder does not. 8/8 correct on the real population.
 # ---------------------------------------------------------------------------
-P="$scratch/packages-restore"
-mk_app "$P/src/App"
-mkdir -p "$P/packages/Newtonsoft.Json.13.0.1/lib/net45"
-: > "$P/packages/Newtonsoft.Json.13.0.1/Newtonsoft.Json.13.0.1.nupkg"
-: > "$P/packages/repositories.config"
-# A .cs inside the restore folder must never be counted as this repo's code.
-echo 'namespace Pkg { public class Junk { } }' > "$P/packages/Newtonsoft.Json.13.0.1/lib/net45/Junk.cs"
-out=$("$INV" "$P")
-python3 - "$out" <<'PY'
+# Each restore SHAPE gets its OWN fixture. The first version of this section piled every signal
+# into one tree, so each masked the others: mutation-testing the detector (drop the
+# repositories.config branch / the depth-2 scan / the flat .nupkg check, one at a time) left the
+# whole suite GREEN. A heuristic that decides whether an entire repo is visible had, in effect, no
+# test. Each fixture below carries exactly one shape, plus third-party source that must not leak.
+# A restore folder carries third-party source AND a foreign project — both must stay out, or the
+# assertions below are vacuous (nothing to leak means nothing can be caught leaking).
+seed_foreign() {
+  mkdir -p "$1/lib/net45"
+  echo 'namespace Third { public class Junk { } }' > "$1/lib/net45/Junk.cs"
+  cat > "$1/lib/net45/Third.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net45</TargetFramework></PropertyGroup>
+  <ItemGroup><PackageReference Include="xunit" Version="2.4.2" /></ItemGroup>
+</Project>
+XML
+}
+
+# One real .cs, one real project — every restore case must report exactly these and nothing else.
+mk_host() {
+  mk_app "$1/src/App"
+  echo 'namespace App { public class Real { } }' > "$1/src/App/Real.cs"
+}
+
+assert_restore_skipped() {
+  python3 - "$($INV "$1")" "$2" "$3" <<'PY'
 import json, sys
-inv = json.loads(sys.argv[1])
-assert inv["csFiles"] == 0, f"a NuGet restore folder was walked: csFiles={inv['csFiles']}"
-assert inv["projects"] == ["App"], inv["projects"]
+inv, name, child = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3]
+assert inv["csFiles"] == 1, f"[{name}] restore folder walked: csFiles={inv['csFiles']} (want 1)"
+assert inv["locTotal"] == 1, f"[{name}] third-party lines in locTotal: {inv['locTotal']}"
+assert inv["projects"] == ["App"], f"[{name}] a foreign project leaked in: {inv['projects']}"
+assert inv["testStack"] == [], f"[{name}] a foreign test project leaked in: {inv['testStack']}"
+# Skipped is not enough — a directory dropped by a DECISION must be named, or the reader of the
+# assessment sees a smaller number with nothing to explain it.
+got = {e["path"]: e["reason"] for e in inv["excludedFromWalk"]}
+assert f"packages/{child}" in got, \
+    f"[{name}] the restored package was skipped WITHOUT being named: {got}"
 PY
+}
+
+# Each case isolates ONE signal, because signals that co-occur mask each other: with the combined
+# fixture, mutation-testing the detector (drop each branch in turn) left 4 of 6 mutants alive.
+# Here every branch is the sole reason its fixture is skipped, so killing it shows up.
+
+# (a) the name alone: `<Id>.<Version>`, with no lib/, no content/, no .nupkg anywhere.
+P1="$scratch/pkg-by-name"; mk_host "$P1"
+mkdir -p "$P1/packages/Newtonsoft.Json.13.0.1"
+echo 'namespace Third { public class Junk { } }' > "$P1/packages/Newtonsoft.Json.13.0.1/Junk.cs"
+assert_restore_skipped "$P1" by-name Newtonsoft.Json.13.0.1
+
+# (b) the extracted layout alone: an unversioned name carrying lib/. This is the ORDINARY shape of
+#     a committed packages/ — the stock Visual Studio .gitignore excludes *.nupkg, so the archive
+#     is usually absent. The first detector walked exactly this (measured: csFiles 1 -> 11).
+P2="$scratch/pkg-by-lib"; mk_host "$P2"
+mkdir -p "$P2/packages/somelib"
+seed_foreign "$P2/packages/somelib"
+assert_restore_skipped "$P2" by-lib somelib
+
+# (c) the archive alone: an unversioned name, no lib/, just a .nupkg beside the code.
+P3="$scratch/pkg-by-nupkg"; mk_host "$P3"
+mkdir -p "$P3/packages/somelib"
+: > "$P3/packages/somelib/somelib.nupkg"
+echo 'namespace Third { public class Junk { } }' > "$P3/packages/somelib/Junk.cs"
+assert_restore_skipped "$P3" by-nupkg somelib
+
+# (d) the v3 "global packages" layout — packages/<id>/<version>/…, what
+#     `dotnet restore --packages packages` produces. Neither the child's name nor its immediate
+#     contents look like a package; only "every child of it is a version" does.
+P4="$scratch/pkg-v3"; mk_host "$P4"
+mkdir -p "$P4/packages/newtonsoft.json/13.0.1"
+echo 'namespace Third { public class Junk { } }' > "$P4/packages/newtonsoft.json/13.0.1/Junk.cs"
+assert_restore_skipped "$P4" v3-global newtonsoft.json
 
 Q="$scratch/packages-source"
 mkdir -p "$Q/packages/app-one"
@@ -390,6 +471,10 @@ mk_app "$Q/packages/app-one"
 echo 'namespace One { public class Svc { public int N() { return 2; } } }' \
   > "$Q/packages/app-one/Svc.cs"
 mk_files "$Q/packages/app-one/wwwroot/lib/bootstrap" 3
+# A STRAY artefact must not flip the verdict. `dotnet pack -o .`, a committed local feed, or one
+# vendored offline package would otherwise make every app in the monorepo invisible again — the
+# exact all-zeros failure this section exists to prevent, re-created by a single file.
+: > "$Q/packages/app-one/App.1.0.0.nupkg"
 out=$("$INV" "$Q")
 python3 - "$out" <<'PY'
 import json, sys
@@ -400,8 +485,32 @@ assert inv["projects"] == ["App"], inv["projects"]
 paths = [e["path"] for e in inv["vendoredAssets"]]
 assert paths == ["packages/app-one/wwwroot/lib/bootstrap"], \
     f"a vendored copy under a source packages/ was missed: {paths}"
+assert not any(e["path"] == "packages" for e in inv["excludedFromWalk"]), \
+    f"a source packages/ was reported as excluded: {inv['excludedFromWalk']}"
 PY
-echo "  [8] packages/ walked when it holds source, skipped when it holds .nupkg restore output"
+echo "  [8] packages/ decided by structure — 3 restore shapes skipped and named, source walked"
+
+# ---------------------------------------------------------------------------
+# 9. A loose file is only a finding when it IS an asset.
+#
+#    Reporting `.gitkeep` — the usual sole occupant of an otherwise-empty wwwroot/lib — would
+#    attach this key's whole claim ("nothing watches this, a CVE here would be unseen") to a
+#    placeholder. So would a README.
+# ---------------------------------------------------------------------------
+K="$scratch/loose-nonassets"
+mk_app "$K"
+mkdir -p "$K/wwwroot/lib"
+: > "$K/wwwroot/lib/.gitkeep"
+echo "# vendored libraries live here" > "$K/wwwroot/lib/README.md"
+echo 'x' > "$K/wwwroot/lib/htmx.min.js"
+out=$("$INV" "$K")
+python3 - "$out" <<'PY'
+import json, sys
+paths = sorted(e["path"] for e in json.loads(sys.argv[1])["vendoredAssets"])
+assert paths == ["wwwroot/lib/htmx.min.js"], \
+    f"a placeholder or doc file was reported as an unwatched vendored library: {paths}"
+PY
+echo "  [9] .gitkeep and README are not vendored libraries; the real asset still is"
 
 # ---------------------------------------------------------------------------
 # 6. Still valid JSON, including from a foreign working directory — CI runs this
