@@ -43,9 +43,18 @@ parmi plusieurs republierait la couverture d'un seul projet comme celle de l'app
 le défaut que la collecte par projet corrige. `report-dashboard.py` agrège les rapports qu'il
 trouve (union des lignes, jamais une somme de pourcentages).
 
-⚠ **La tuile KPI de couverture recopie le chiffre que le graphe calcule.** Le dashboard affiche
-`Global : N % lignes` sous le graphe ; si la tuile KPI dit autre chose, la page se contredit.
-Relire le HTML généré et aligner le KPI, ou le laisser à un autre indicateur.
+⚠ **La tuile KPI de couverture est CALCULÉE, pas recopiée.** Dès qu'un `coverage.cobertura` se
+résout, `report-dashboard.py` remplace la valeur écrite dans `kpis` par la mesure — la même que celle
+du `Global : N % lignes` sous le graphe. Écrire un chiffre à la main dans cette tuile est donc sans
+effet : la page ne peut plus publier deux couvertures contradictoires. Sans cobertura résolu, la
+valeur écrite est rendue telle quelle.
+
+La tuile visée est celle dont le libellé parle de *couverture* et dont l'unité est `%`.
+
+⚠ **Une couverture de branches absente s'affiche `n/d`, jamais `0 %`.** Le taux vient des
+`condition-coverage` par ligne ; à défaut, du `branch-rate` racine du rapport. Si le producteur
+n'écrit ni l'un ni l'autre, la légende dit `branches n/d` — un zéro serait un chiffre, et sur cette
+page un chiffre se lit comme une mesure.
 
 Les « Prochaines étapes » sont une **checklist actionnable** avec effort estimé — c'est la
 passation : la personne qui reprend le repo sait quoi faire sans lire l'historique.
