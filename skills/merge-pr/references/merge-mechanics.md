@@ -48,13 +48,34 @@ shows corrections are needed, create one tracking the remote branch (prefer
 
 ```bash
 git fetch origin "$HEAD_BRANCH"
-WT=".claude/worktrees/merge-$PR"               # any ignored path; this is what Step 7 removes
+
+# Establish the precondition BEFORE creating anything. `$KIT` is the kit root (the directory holding
+# skills/ and scripts/); the guard judges the repo at -C, so it works from an installed plugin.
+"$KIT/scripts/worktrees-ignored.sh" -C "$REPO"   # 0 ok · 1 a worktree home is not ignored · 2 rule broadened
+
+WT=".claude/worktrees/merge-$PR"               # ignored — asserted just above, not assumed
 git worktree add "$WT" "$HEAD_BRANCH"          # checks out the existing branch (tracks origin/$HEAD_BRANCH)
 cd "$WT"
 ```
 
-`.claude/worktrees/` is the repo's conventional (git-ignored) home for worktrees. Remember the exact
-path — Step 7 removes it.
+**Why the check comes first.** `.claude/worktrees/` is this kit's convention, and a convention is not
+a fact about *someone else's* repository. A worktree is a full checkout, so where the rule is absent
+the next `git add -A` stages it — measured shape (#43): one `160000 <sha> 0 .claude/worktrees/<branch>`
+gitlink pointing at a commit no clone can fetch, not a large diff anyone notices in review. This file
+used to state the guarantee as settled ("the repo's conventional (git-ignored) home") while nothing
+established it; the line above is what makes it true rather than hopeful.
+
+On a **non-zero** exit, do not create the worktree:
+
+- **`1`** — a worktree home is not ignored. Say so and propose the one-line `.gitignore` addition the
+  guard names. **Never edit a consumer's `.gitignore` silently**: it is their repository, the change
+  belongs in their history under their review, and an agent quietly rewriting ignore rules to unblock
+  itself is a worse failure than the one being prevented. With their go-ahead, add it and re-run.
+- **`2`** — the rule was broadened over `.claude/skills/repo-profile.md`, which `get-repo-profile`
+  expects them to commit. Surface it; do not "fix" it by narrowing their rule unasked.
+- **`3`** — plumbing (not a repo, bad arguments). A verdict was never reached, so it is not a pass.
+
+Remember the exact path — Step 7 removes it.
 
 ---
 

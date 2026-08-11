@@ -150,7 +150,23 @@ does not exist), then:
 git worktree list --porcelain | grep -Fxq "branch refs/heads/$BRANCH"
 ```
 
-Reuse what that finds; create otherwise. Then record the two names every later step needs:
+Reuse what that finds; and **before creating one, prove its home is ignored** (#71). The worktree
+directory is the kit's convention, not a fact about the repository you happen to be pointed at, and a
+worktree is a full checkout: where the rule is absent, the next `git add -A` stages it as a single
+`160000` gitlink pointing at a commit no clone can fetch (#43) — not a diff anyone notices.
+
+```bash
+"$KIT/scripts/worktrees-ignored.sh" -C "$REPO"   # $KIT = the kit root (holds skills/ and scripts/)
+```
+
+`0` proceed · `1` a worktree home is not ignored · `2` the rule was broadened over
+`.claude/skills/repo-profile.md`, which consumer repos commit · `3` plumbing, so no verdict was
+reached — which is not a pass. On anything but `0`, say so and stop short of creating the worktree.
+**Never edit the repository's `.gitignore` unasked**: propose the one-line addition the guard names
+and let the owner take it — an agent quietly rewriting ignore rules to unblock itself is worse than
+the failure it is dodging.
+
+Then record the two names every later step needs:
 
 ```bash
 WORKTREE=<absolute path of this issue's worktree>

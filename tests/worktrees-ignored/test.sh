@@ -168,4 +168,29 @@ dir=$(scratch '')
   && { echo "FAIL [foreign-cwd]: an unignored repo passed from another directory"; exit 1; }
 echo "  ok: foreign cwd — the verdict follows -C, not the ambient directory"
 
+# 18. THE shape the skills invoke (#71): a consumer installs the kit as a plugin, so the guard runs
+#     from a directory that is not this repository — and, in the plugin cache, need not be a git
+#     repository at all. Case 17 varies the working directory; this varies the SCRIPT'S OWN home,
+#     which is the part a consumer changes.
+#
+#     Asserted as a pair, and the pair is the point. A guard that consulted its surroundings instead
+#     of -C would answer from whatever repo it found and wave the consumer's repo through looking
+#     exactly like a pass — so "refuses the unignored repo" is only meaningful next to "passes the
+#     one that is configured". Neither half alone rules that out.
+away=$(mktemp -d)/plugin-cache/scripts          # outside any git repo, like an installed plugin
+mkdir -p "$away"
+cp "$KIT/$GUARD" "$away/worktrees-ignored.sh"
+git -C "$(dirname "$(dirname "$away")")" rev-parse --git-dir >/dev/null 2>&1 \
+  && { echo "FAIL [installed-elsewhere]: the fixture is inside a git repo — it proves nothing"; exit 1; }
+
+dir=$(scratch '')                                # a consumer repo with no rule at all
+rc=0; ( cd / && bash "$away/worktrees-ignored.sh" -C "$dir" >/dev/null 2>&1 ) || rc=$?
+[ "$rc" -eq 1 ] || {
+  echo "FAIL [installed-elsewhere]: expected exit 1 for an unignored consumer repo, got $rc"; exit 1; }
+
+rc=0; ( cd / && bash "$away/worktrees-ignored.sh" -C "$KIT" >/dev/null 2>&1 ) || rc=$?
+[ "$rc" -eq 0 ] || {
+  echo "FAIL [installed-elsewhere]: a correctly configured repo was refused (exit $rc) — control invalid"; exit 1; }
+echo "  ok: installed-elsewhere — judges the repo at -C, from a copy living outside any git repo"
+
 echo "worktrees-ignored golden test OK"

@@ -112,6 +112,20 @@ git worktree list --porcelain        # match the entry whose branch == headRefNa
 - **A worktree for the branch exists** (usual case — `implement-issue` left one): use it. Pull first: `git -C <path> pull --ff-only`.
 - **No local worktree/branch** (PR built elsewhere, or already cleaned): create one **only if** Step 4 needs corrections. If the PR is already `CLEAN` with green CI, merge without checking out locally. When needed, create an isolated worktree tracking the remote branch via `superpowers:using-git-worktrees` (or `git worktree add <path> <branch>` as fallback — reference §2). Remember the path; Step 7 removes it.
 
+**Before creating one, prove its home is ignored** (#71) — this repo is not the kit's, and
+`.claude/worktrees/` is the kit's convention, not a fact about someone else's checkout:
+
+```bash
+"$KIT/scripts/worktrees-ignored.sh" -C "$REPO"   # $KIT = the kit root (holds skills/ and scripts/)
+```
+
+`0` proceed · `1` a worktree home is not ignored · `2` the rule was broadened over
+`.claude/skills/repo-profile.md` · `3` plumbing, so no verdict was reached. On anything but `0`,
+**surface it and stop short of creating the worktree** — and never edit the consumer's `.gitignore`
+unasked; propose the line, let them take it. Rationale and the measured failure shape:
+`references/merge-mechanics.md` §2. Skipping this is how #43 reproduces in a customer repo, silently
+and as a single gitlink rather than a diff anyone spots.
+
 Don't run corrections from the current session's worktree if it isn't the PR's branch — you'd edit the
 wrong checkout (a known footgun here). Use `git -C <path>` rather than `cd` (a `cd` in a compound
 command gets reset between calls). Raw `git fetch`/`git push` may be sandbox-blocked even though `gh`
