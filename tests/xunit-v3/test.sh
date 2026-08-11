@@ -1003,6 +1003,46 @@ stale_ids=$(grep -oE 'Microsoft\.Testing\.[A-Za-z.]+' <<<"$help_text" | grep -vx
   echo "FAIL: --help names package id(s) other than $coverage_package: $stale_ids"; exit 1; }
 echo "  [7d] --help names the coverage package the transform writes, and no other"
 
+#     [7e] the migration reference's MEASURED table still agrees with the transform.
+#
+#     Renovate now bumps XUNIT_V3_VERSION in the module (#36), and the reference carries the same
+#     version in a table it presents as measured on nuget.org. Nothing compared them, so the first
+#     bump would silently invalidate the document agents read to perform real migrations — in a file
+#     whose entire subject is that a version mismatch is invisible until run time (#69).
+#
+#     This ASSERTS agreement rather than templating the number in. The table is a measurement, not a
+#     restatement of the constant: substituting whatever Renovate last bumped to would manufacture a
+#     measurement nobody took, which is worse than a stale one because it looks current.
+python3 - "$KIT/skills/legacy-upgrade/references/xunit-v3-migration.md" \
+         "$(read_const XUNIT_V3_PACKAGE)" "$(read_const XUNIT_V3_VERSION)" <<'PY'
+import re, sys
+
+ref_path, pkg, version = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(ref_path, encoding="utf-8").read()
+
+# Keyed on the exact package id, because `xunit.v3` and `xunit.v3.mtp-v2` have adjacent rows at the
+# same major and sit on OPPOSITE Microsoft.Testing.Platform lines — a prefix match would read the
+# wrong one and call it agreement.
+rows = dict(re.findall(r"^\|\s*\*\*`([^`]+)`\*\*\s+([^\s|]+)\s*\|", text, re.M))
+assert rows, (
+    f"{ref_path}: the measured version table no longer has the shape this check understands "
+    f"(`| **`<package>`** <version> | …`). It was reshaped or removed — re-point this assertion "
+    f"rather than dropping it; the drift it guards is invisible until run time."
+)
+assert pkg in rows, (
+    f"{ref_path}: the measured table covers {sorted(rows)}, but the transform pins {pkg} — the "
+    f"reference no longer describes the line the kit actually migrates onto."
+)
+assert rows[pkg] == version, (
+    f"{ref_path} says {pkg} {rows[pkg]}, the transform writes {version}.\n"
+    f"       Do NOT simply edit the number: that row is a MEASUREMENT (resolved through "
+    f"api.nuget.org/v3-flatcontainer), and the same row also states the Microsoft.Testing.Platform "
+    f"version and the CodeCoverage major that a migration actually depends on. Re-measure how "
+    f"{pkg} {version} resolves, then update the whole row."
+)
+print(f"  [7e] the reference's measured row agrees with the transform: {pkg} {version}")
+PY
+
 # ---------------------------------------------------------------------------
 # 8. The no-__pycache__ invariant lives in exactly one place IN THIS FILE.
 #
