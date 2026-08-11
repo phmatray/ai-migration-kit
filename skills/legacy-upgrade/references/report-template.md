@@ -24,8 +24,14 @@ Microsoft Testing Platform, chaque projet de test écrit son propre rapport et c
 collecteur qui le nomme, avec un identifiant neuf à chaque run :
 
 ```json
-"coverage": { "cobertura": "coverage", "exclude": ["MonApp.Web"] }
+"coverage": { "cobertura": "../coverage", "exclude": ["MonApp.Web"] }
 ```
+
+⚠ **Un chemin relatif se résout contre le répertoire du `report.json`, pas contre la racine du
+repo.** C'est ce qui rend le dossier `migration/` autonome et déplaçable — mais comme le rapport vit
+dans `migration/` et que `templates/ci-dotnet.yml` écrit ses rapports dans le `coverage/` de la
+**racine**, le chemin correct remonte d'un cran : `"../coverage"`. Écrire `"coverage"` désigne
+`migration/coverage`, où rien n'écrit jamais.
 
 Le champ accepte aussi un fichier, une liste de fichiers ou un motif glob, mais un chemin
 littéral écrit dans un `report.json` versionné sera périmé au run suivant. Et en choisir **un**

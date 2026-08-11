@@ -207,7 +207,21 @@ if err=$(python3 scripts/report-dashboard.py "$doc_case/migration/report.json" \
 fi
 # Résolu ne suffit pas : il faut que la couverture soit réellement LUE. Un 0 % passerait un simple
 # test d'existence tout en republiant un rapport vide.
-assert_in "$doc_case/migration/report.html" 'Global : 75 % lignes · 78 % branches'
+#
+# Le taux exact n'est PAS figé ici : le snippet documenté porte son propre `exclude`
+# (`MonApp.Web`), qui n'est pas celui de la fixture, donc un nombre en dur coupleraient ce cas à une
+# liste d'exclusion qui n'a rien à voir avec ce qu'il teste — la résolution du chemin. Le contrat
+# est « la couverture a été lue », et c'est ce qui est asserté. Les autres blocs de ce fichier
+# vérifient déjà les chiffres eux-mêmes.
+#
+# `sed`, jamais `grep -o … | head -1` : sous le `set -o pipefail` de la ligne 4, la sortie anticipée
+# de head tuerait grep par SIGPIPE et le statut du tube ferait échouer l'assignation (#48).
+pct=$(sed -n 's/.*Global : \([0-9]*\) % lignes.*/\1/p' "$doc_case/migration/report.html" | sed -n '1p')
+if [ -z "$pct" ] || [ "$pct" -le 0 ]; then
+  echo "ÉCHEC : le chemin documenté se résout mais la couverture lue vaut « ${pct:-<absente>} » %."
+  echo "        Un rapport vide passerait un simple test d'existence du répertoire."
+  exit 1
+fi
 rm -rf "$doc_case"
 
 echo "OK test golden report-dashboard ($out)"
