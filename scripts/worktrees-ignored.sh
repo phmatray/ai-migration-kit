@@ -1,10 +1,23 @@
 #!/usr/bin/env bash
 # worktrees-ignored.sh — assert that an agent worktree can never be committed to this repository.
 #
-# Why this exists (#43). The harness puts agent worktrees under `.claude/worktrees/`, and
-# `skills/_shared/sync-with-main.md` finishes a merge with `git add -A` — a step both
-# implement-issue and merge-pr reach on the common path. Unignored, that command stages the
-# worktree, so the guarantee has to be mechanical rather than remembered.
+# Why this exists (#43). The harness puts agent worktrees under `.claude/worktrees/`. Unignored,
+# any `git add -A` in this repository stages one, so the guarantee has to be mechanical rather
+# than remembered.
+#
+# ⚠️ The original trigger — `skills/_shared/sync-with-main.md` finishing a merge with `git add -A`,
+# on the common path of both lifecycle skills — is GONE as of #68: that procedure now stages only
+# the conflicted paths, and no skill in this kit runs `add -A` any more. This gate is therefore no
+# longer defending against the kit's own command, and the rest of this header should be read that
+# way. It still earns its place, for two reasons that outlive the command that prompted it:
+#
+#   * a human (or another agent) typing `git add -A` in the main checkout is not governed by
+#     anything the kit does, and this repo is where the agents run; and
+#   * the ignore rule is cheap and the failure is silent and irreversible-ish, which is exactly the
+#     trade this gate exists to take.
+#
+# Do not read the removal as a reason to delete the rule — read it as the reason this header no
+# longer names a caller.
 #
 # WHAT IT ACTUALLY STAGES, measured (git 2.50.1) rather than assumed, because the intuitive answer
 # is wrong and sends you looking for the wrong symptom: a linked worktree carries a `.git` FILE,
@@ -118,7 +131,7 @@ for home in $WORKTREE_HOMES; do
   else
     failed=1
     printf 'worktrees-ignored: REFUSED — %s is NOT ignored.\n' "$home" >&2
-    printf '  A worktree left there is staged by the `git add -A` in sync-with-main.md, as one\n' >&2
+    printf '  A worktree left there is staged by any `git add -A` run in this repo, as one\n' >&2
     printf '  gitlink (160000) pointing at a commit no clone can fetch — see #43.\n' >&2
     printf '  fix: add "%s" to .gitignore.\n' "$home" >&2
   fi

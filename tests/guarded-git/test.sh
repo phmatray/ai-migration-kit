@@ -624,11 +624,20 @@ grep -q 'shared.txt' "$OUT" \
   || fail merge-conflict "the message must list WHICH files conflicted"
 echo "  ok: merge-conflict — exit 5, HEAD still on a, conflicts left to resolve"
 
-# 22b. …and the documented resolve-then-complete path actually works end to end. This is the
-# exact sequence sync-with-main.md prescribes, so it is worth proving rather than assuming.
+# 22b. …and the documented resolve-then-complete path actually works end to end. This runs the
+# EXACT staging commands `_shared/sync-with-main.md` prescribes — not a hand-picked `git add
+# <file>`, which is what this case used to do while its comment claimed otherwise. A procedure
+# nobody executes looks exactly like a procedure that works, so the commands are copied verbatim
+# and the fixture below carries every hazard they exist to avoid (#68).
 
 echo resolved > "$R/shared.txt"
-git -C "$R" add shared.txt
+
+run merge-resolved-stage bash -c '
+  set -euo pipefail
+  git -C "$1" diff --name-only --diff-filter=U -z \
+    | git -C "$1" --literal-pathspecs add --pathspec-from-file=- --pathspec-file-nul
+' _ "$R"
+[ "$RC" -eq 0 ] || fail merge-resolved-stage "the prescribed staging command failed (exit $RC)"
 
 run merge-resolved "$COMMIT" -C "$R" a -- --no-edit
 
@@ -637,7 +646,63 @@ run merge-resolved "$COMMIT" -C "$R" a -- --no-edit
 [ "$(git -C "$R" rev-list --parents -1 a | wc -w | tr -d ' ')" = 3 ] \
   || fail merge-resolved "the completed merge is not a merge commit"
 [ -z "$(unmerged "$R")" ] || fail merge-resolved "conflict entries survived the completion"
-echo "  ok: merge-resolved — resolve, then guarded-commit --no-edit completes the merge"
+echo "  ok: merge-resolved — the prescribed staging + guarded-commit --no-edit completes the merge"
+
+# 22c. The staging must be NARROW. Three things live in a real worktree at this moment and none
+# of them belongs in the merge commit, which lands under an auto-generated "Merge branch …"
+# subject no reviewer opens:
+#
+#   * an unrelated uncommitted edit to a TRACKED file      — swept in by `git add -u`
+#   * a tracked file the prescribed build REGENERATED      — swept in by `git add -u`
+#   * an untracked build artifact (TestResults/, coverage) — swept in by `git add -A`
+#
+# …plus a filename that is a valid pathspec GLOB. `app/[id].tsx` is an ordinary dynamic route,
+# and passed to `git add` as an argument it wildmatches `app/i.tsx` and stages that instead —
+# measured, which is why the prescribed command carries `--literal-pathspecs`.
+
+R=$(new_repo merge-staging-narrow)
+git -C "$R" checkout -q a
+mkdir -p "$R/app"
+echo base > "$R/app/[id].tsx"; echo base > "$R/app/i.tsx"; echo base > "$R/lock.json"
+git -C "$R" add -A; git -C "$R" commit -q -m "seed the staging fixture"
+git -C "$R" checkout -q -b n a
+echo n-side > "$R/app/[id].tsx"; echo n-side > "$R/auto.txt"
+git -C "$R" add -A; git -C "$R" commit -q -m "n advances"
+git -C "$R" checkout -q a
+echo a-side > "$R/app/[id].tsx"
+git -C "$R" add -A; git -C "$R" commit -q -m "a advances"
+
+run staging-narrow-merge "$MERGE" -C "$R" a -- n
+[ "$RC" -eq 5 ] || fail staging-narrow-merge "fixture broken: expected a conflicted merge, got $RC"
+
+echo resolved     > "$R/app/[id].tsx"     # the resolution
+echo unrelated    > "$R/app/i.tsx"        # an unrelated tracked edit (and the glob's victim)
+echo regenerated  > "$R/lock.json"        # a tracked file the build rewrote
+mkdir -p "$R/TestResults"; echo log > "$R/TestResults/run.log"   # an untracked artifact
+
+run staging-narrow bash -c '
+  set -euo pipefail
+  git -C "$1" diff --name-only --diff-filter=U -z \
+    | git -C "$1" --literal-pathspecs add --pathspec-from-file=- --pathspec-file-nul
+' _ "$R"
+[ "$RC" -eq 0 ] || fail staging-narrow "the prescribed staging command failed (exit $RC)"
+
+staged=$(git -C "$R" diff --cached --name-only | sort | tr '\n' ' ')
+case " $staged " in
+  *" app/i.tsx "*)   fail staging-narrow "the glob staged app/i.tsx — --literal-pathspecs is not doing its job" ;;
+  *" lock.json "*)   fail staging-narrow "a regenerated tracked file was staged — that is git add -u's bug" ;;
+  *"TestResults"*)   fail staging-narrow "an untracked build artifact was staged — that is git add -A's bug" ;;
+esac
+case " $staged " in
+  *" app/[id].tsx "*) : ;;
+  *) fail staging-narrow "the resolved path is MISSING from the index: [$staged]" ;;
+esac
+# git stages what it merged cleanly all by itself, which is why the procedure needs no `add -u`.
+case " $staged " in
+  *" auto.txt "*) : ;;
+  *) fail staging-narrow "fixture broken: git should have staged the auto-merged auto.txt itself" ;;
+esac
+echo "  ok: staging-narrow — only the resolution + git's own auto-merge; no glob, no -u, no -A"
 
 # ---------------------------------------------------------------- 23. --abort is not a failure
 #
