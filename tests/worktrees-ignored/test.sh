@@ -101,8 +101,10 @@ bash "$KIT/$GUARD" -C "$dir" >/dev/null 2>&1
 [ ! -e "$dir/.worktrees" ] || { echo "FAIL [read-only]: the guard created $dir/.worktrees"; exit 1; }
 echo "  ok: read-only — audits the workspace without writing to it"
 
-# 11. The real article, end to end: a genuine `git worktree add` into an unignored home, then the
-#     `git add -A` from sync-with-main.md. Asserts BOTH that the guard refuses and what the damage
+# 11. The real article, end to end: a genuine `git worktree add` into an unignored home, then a
+#     `git add -A` in the MAIN checkout — note the location, because it is the only place the
+#     gitlink is reachable from: run from inside the linked worktree the home lives in the parent
+#     checkout and `add -A` sees nothing (measured, #68). Asserts BOTH that the guard refuses and what the damage
 #     actually looks like — a single 160000 gitlink, not a copy of the tree. The guard's header
 #     states that as measured fact; this is the measurement, so it cannot rot into folklore.
 real="$WORK/real"

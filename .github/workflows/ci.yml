@@ -62,9 +62,14 @@ jobs:
           fi
           ./scripts/release-title-gate.sh "$PR_TITLE" "${changed[@]}"
 
-      # The harness puts agent worktrees under .claude/worktrees/, and skills/_shared/sync-with-main.md
-      # finishes a merge with `git add -A`. Unignored, that stages the worktree (#43). Needs only
-      # the checkout, so it sits here and answers in milliseconds rather than after the toolchain.
+      # The harness puts agent worktrees under .claude/worktrees/. Unignored, any `git add -A` run
+      # in this repo stages one as a gitlink (#43). Needs only the checkout, so it sits here and
+      # answers in milliseconds rather than after the toolchain.
+      #
+      # The caller that originally motivated this — sync-with-main.md completing a merge with
+      # `git add -A` — no longer exists (#68 narrowed it to the conflicted paths, and no skill in
+      # the kit runs `add -A` now). The gate stays because a human typing it in the main checkout
+      # was never governed by the kit anyway; see the script header before deleting anything.
       #
       # The check is a script with a golden test rather than inline yaml, for the reason written 40
       # lines above: the last inline guard in this file failed open and nothing could test it. The
