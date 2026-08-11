@@ -37,6 +37,21 @@
       "depNameTemplate": "Microsoft.Testing.Extensions.CodeCoverage",
       "datasourceTemplate": "nuget",
       "versioningTemplate": "nuget"
+    },
+    {
+      "description": [
+        "ci.yml pins the Renovate build used to VALIDATE this very file, and no stock manager reads a version out of a workflow's env: block — the github-actions manager extracts `uses:` action refs, not npm packages named in a run: line. So without this entry the pin would be frozen forever, which is #35's failure applied to the gate that guards this config.",
+        "The pin cannot simply be dropped in favour of an unpinned npx: measured in #66, `npx --package renovate` with no version resolved 37.440.7 — a major predating managerFilePatterns — and reported 8 Configuration Errors against this config. Unpinned means red on correct input.",
+        "tests/renovate-config/test.sh executes these matchStrings against the real ci.yml and fails when they stop capturing the pin, so a renamed variable breaks the suite instead of silently going blind — the same contract the two managers above carry."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "RENOVATE_VALIDATOR_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "renovate",
+      "datasourceTemplate": "npm",
+      "versioningTemplate": "semver"
     }
   ],
   "github-actions": {

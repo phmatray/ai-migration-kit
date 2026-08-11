@@ -1047,11 +1047,22 @@ def to_python(pattern):
 
 
 found = {}
-for m in managers:
+# This section is about the pins the TRANSFORM bakes into every migration, so it judges the
+# managers that target the transform — not every customManager in the repo. The loop used to
+# assert ownership over all of them, which made adding an unrelated manager (the Renovate
+# validator pin in ci.yml, #66) fail a suite that has nothing to say about it. Scoped here rather
+# than asserted; #67 is the full accounting of this section's holes, and hole 3 is this one.
+transform_managers = [
+    m for m in managers
+    if any("apply-transform" in p
+           for p in (m.get("managerFilePatterns") or m.get("fileMatch") or []))
+]
+assert transform_managers, (
+    "no customManager targets apply-transform.py — the transform's pins are unmanaged, which is "
+    "the whole failure #36 filed this section to prevent"
+)
+for m in transform_managers:
     assert m.get("customType") == "regex", m
-    # The file patterns must actually select apply-transform.py, or the manager is decorative.
-    pats = m.get("managerFilePatterns") or m.get("fileMatch") or []
-    assert any("apply-transform" in p for p in pats), f"manager does not target the transform: {m}"
     # Asserted per MANAGER, not per match: inside the match loop these never run for a manager
     # whose regex has gone blind, which is exactly the manager worth complaining about.
     assert m.get("datasourceTemplate") == "nuget", f"datasource must be nuget: {m}"

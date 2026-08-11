@@ -118,6 +118,26 @@ jobs:
           # proposing updates for the repo, and the only symptom is an absence of PRs.
           python3 -m json.tool renovate.json > /dev/null
 
+      # Parsing is not acceptance. The step above proves renovate.json is JSON; this one asks the
+      # engine that consumes it. `customManagers` must compile under RE2, and any unknown key raises
+      # CONFIG_VALIDATION — at which point Renovate stops managing the WHOLE repository and the only
+      # symptom is an absence of PRs. #34 added the parse check and explicitly left this half.
+      - name: renovate.json is a config Renovate actually accepts
+        env:
+          # The pin is NOT optional, and not merely a guard against some future major. Measured in
+          # #66: `npx --package renovate` with no version resolved 37.440.7 — a major predating
+          # `managerFilePatterns` (successor to `fileMatch`) — and reported 8 Configuration Errors
+          # against a config the real Renovate accepts. An unpinned gate is red on correct input,
+          # and its obvious "fix" would silently downgrade the config. Floor is major 40.
+          # Bumped by the customManager in renovate.json; tests/renovate-config asserts both.
+          RENOVATE_VALIDATOR_VERSION: 44.23.3
+        run: |
+          npx --yes --package "renovate@$RENOVATE_VALIDATOR_VERSION" -- \
+            renovate-config-validator renovate.json
+
+      - name: Renovate config golden test (accepts the real config, rejects an unknown key)
+        run: ./tests/renovate-config/test.sh
+
       # release-please stamps both files in the same release PR, so a mismatch means someone
       # hand-edited one of them — which would make the next computed version wrong.
       - name: Plugin version matches the release-please manifest
