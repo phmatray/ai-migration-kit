@@ -112,19 +112,24 @@ git worktree list --porcelain        # match the entry whose branch == headRefNa
 - **A worktree for the branch exists** (usual case — `implement-issue` left one): use it. Pull first: `git -C <path> pull --ff-only`.
 - **No local worktree/branch** (PR built elsewhere, or already cleaned): create one **only if** Step 4 needs corrections. If the PR is already `CLEAN` with green CI, merge without checking out locally. When needed, create an isolated worktree tracking the remote branch via `superpowers:using-git-worktrees` (or `git worktree add <path> <branch>` as fallback — reference §2). Remember the path; Step 7 removes it.
 
-**Before creating one, prove its home is ignored** (#71) — this repo is not the kit's, and
-`.claude/worktrees/` is the kit's convention, not a fact about someone else's checkout:
+**Whenever you are about to create one — here, or in Step 4 if this step deferred it — prove its home
+is ignored first.** This repo is not the kit's, and `.claude/worktrees/` is the kit's convention, not
+a fact about someone else's checkout:
 
 ```bash
-"$KIT/scripts/worktrees-ignored.sh" -C "$REPO"   # $KIT = the kit root (holds skills/ and scripts/)
+REPO_ROOT=$(git -C <repo> rev-parse --show-toplevel)
+<kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT"
 ```
 
-`0` proceed · `1` a worktree home is not ignored · `2` the rule was broadened over
-`.claude/skills/repo-profile.md` · `3` plumbing, so no verdict was reached. On anything but `0`,
-**surface it and stop short of creating the worktree** — and never edit the consumer's `.gitignore`
-unasked; propose the line, let them take it. Rationale and the measured failure shape:
-`references/merge-mechanics.md` §2. Skipping this is how #43 reproduces in a customer repo, silently
-and as a single gitlink rather than a diff anyone spots.
+`0` create it · `1` a home is **not** ignored, so don't · `2` ignored but over-broad, so **do** create
+it and mention the profile cost · `3`/`127` no verdict, which is not a pass. Full verdict table, why
+`2` is not a stop, and the never-edit-their-`.gitignore` rule:
+[`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md). Skipping this is how #43
+reproduces in a customer repo — silently, as a single gitlink rather than a diff anyone spots.
+
+⚠️ **This step often defers creation** ("only if Step 4 needs corrections"), so the guard belongs
+wherever the worktree is actually made. A PR that looks `CLEAN` here and turns out red in Step 3 gets
+its worktree in Step 4 — run the check there too.
 
 Don't run corrections from the current session's worktree if it isn't the PR's branch — you'd edit the
 wrong checkout (a known footgun here). Use `git -C <path>` rather than `cd` (a `cd` in a compound
@@ -194,6 +199,12 @@ long-pipeline polling pattern are also in reference §3.
 
 The heart of the skill. Re-read the merge state, clear whatever it reports, push, re-wait — until
 GitHub reports `CLEAN`. `mergeStateStatus` is the driver:
+
+⚠️ **If Step 2 deferred creating the worktree** — the normal outcome when the PR looked `CLEAN` there —
+this is where it gets created, so this is where the ignore precondition has to run. Do it before
+`git worktree add`, exactly as Step 2 describes:
+[`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md). Reading the check in
+Step 2 and then creating the worktree here is how it ends up never running at all.
 
 ```bash
 gh pr view "$PR" --json mergeStateStatus,mergeable,reviewDecision \

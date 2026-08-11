@@ -147,19 +147,43 @@ case "$CMD" in
     # It runs the SAME guard implement-issue Step 4 and merge-pr Step 2 use as their precondition,
     # rather than re-deriving `check-ignore` here — the trailing-slash and `-q`-not-`-v` subtleties
     # have exactly one home — so the profile can never promise what those skills will then refuse.
+    # Which home this repo actually has is a separate fact from whether it is ignored, and the
+    # profile needs both: "record the one this repo uses" is unanswerable from ignore status alone,
+    # since a rule can be in place for a directory that does not exist.
+    found_home=0
+    for h in .claude/worktrees .worktrees; do
+      if [ -d "$h" ]; then echo "  present on disk: $h/"; found_home=1; fi
+    done
+    if [ "$found_home" -eq 0 ]; then
+      echo "  present on disk: neither — no worktree made here yet; use the skills' default"
+    fi
+
     if [ -x "$KIT_ROOT/scripts/worktrees-ignored.sh" ]; then
-      wt_out="$("$KIT_ROOT/scripts/worktrees-ignored.sh" -C . 2>&1)"; wt_rc=$?
+      # -C takes the worktree ROOT, not `.`: this script's cd honours an explicit [dir] argument,
+      # which may be a subdirectory, and `.claude/worktrees/` is an anchored pattern — asked about a
+      # subdirectory, a correctly configured repo answers "NOT ignored" and the profile would record
+      # that falsehood. Measured: `detect src/app` did exactly that.
+      wt_root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+      wt_out="$("$KIT_ROOT/scripts/worktrees-ignored.sh" -C "$wt_root" 2>&1)"; wt_rc=$?
       printf '%s\n' "$wt_out" | sed 's/^/  /'
       case "$wt_rc" in
-        0) echo "  -> both homes ignored; record the one this repo uses" ;;
+        0) echo "  -> ignore status verified; record it with the home above" ;;
         1) echo "  -> TODO: a worktree home is NOT ignored — say so in the profile, and do not" \
                 "write \"(git-ignored)\"; the lifecycle skills refuse to create a worktree here" ;;
-        2) echo "  -> TODO: the rule was broadened over $PROFILE_REL, which this repo must commit" ;;
+        2) echo "  -> both homes ARE ignored (no worktree hazard), but the rule also hides" \
+                "$PROFILE_REL — TODO: narrow it, or this repo cannot carry a committed profile" ;;
         *) echo "  -> TODO: the guard could not reach a verdict (exit $wt_rc) — not a pass" ;;
       esac
+      # A `note:` line above means the rule is machine-local or untracked: true here, false for
+      # everyone else. It must not be written down as a property of the repo.
+      case "$wt_out" in
+        *"note:"*) echo "  -> TODO: the rule is not committed (see note above) — record it as" \
+                        "\"ignored on this machine only\", not as a fact about the repo" ;;
+      esac
     else
-      echo "  TODO: guard not found at \$KIT_ROOT/scripts/worktrees-ignored.sh — verify by hand with"
-      echo "        git check-ignore -q .claude/worktrees/  (the trailing slash is load-bearing)"
+      echo "  TODO: guard not found at <kit>/scripts/worktrees-ignored.sh — verify BOTH homes by hand:"
+      echo "        git check-ignore -q .claude/worktrees/ && git check-ignore -q .worktrees/"
+      echo "        (the trailing slash is load-bearing; -q, never -v)"
     fi
 
     echo ""

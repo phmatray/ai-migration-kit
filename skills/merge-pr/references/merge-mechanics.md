@@ -49,9 +49,17 @@ shows corrections are needed, create one tracking the remote branch (prefer
 ```bash
 git fetch origin "$HEAD_BRANCH"
 
-# Establish the precondition BEFORE creating anything. `$KIT` is the kit root (the directory holding
-# skills/ and scripts/); the guard judges the repo at -C, so it works from an installed plugin.
-"$KIT/scripts/worktrees-ignored.sh" -C "$REPO"   # 0 ok · 1 a worktree home is not ignored · 2 rule broadened
+# Establish the precondition BEFORE creating anything, and BRANCH ON IT — the guard's refusal has to
+# stop the next line, or it is decoration. `<kit>` is the kit root (holds skills/ and scripts/),
+# resolved when the skill loads; the guard judges the repo at -C, so an installed plugin works.
+# -C takes the worktree ROOT: `.claude/worktrees/` is an anchored pattern, so a subdirectory would
+# make a correctly configured repo answer "NOT ignored".
+REPO_ROOT=$(git rev-parse --show-toplevel)
+rc=0; <kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT" || rc=$?
+case "$rc" in
+  0|2) : ;;                                    # 2 = ignored but over-broad: no worktree hazard, proceed
+  *)   echo "worktree home not verified (exit $rc) — not creating one"; exit 1 ;;
+esac
 
 WT=".claude/worktrees/merge-$PR"               # ignored — asserted just above, not assumed
 git worktree add "$WT" "$HEAD_BRANCH"          # checks out the existing branch (tracks origin/$HEAD_BRANCH)
@@ -63,17 +71,13 @@ a fact about *someone else's* repository. A worktree is a full checkout, so wher
 the next `git add -A` stages it — measured shape (#43): one `160000 <sha> 0 .claude/worktrees/<branch>`
 gitlink pointing at a commit no clone can fetch, not a large diff anyone notices in review. This file
 used to state the guarantee as settled ("the repo's conventional (git-ignored) home") while nothing
-established it; the line above is what makes it true rather than hopeful.
+established it; the lines above are what make it true rather than hopeful.
 
-On a **non-zero** exit, do not create the worktree:
-
-- **`1`** — a worktree home is not ignored. Say so and propose the one-line `.gitignore` addition the
-  guard names. **Never edit a consumer's `.gitignore` silently**: it is their repository, the change
-  belongs in their history under their review, and an agent quietly rewriting ignore rules to unblock
-  itself is a worse failure than the one being prevented. With their go-ahead, add it and re-run.
-- **`2`** — the rule was broadened over `.claude/skills/repo-profile.md`, which `get-repo-profile`
-  expects them to commit. Surface it; do not "fix" it by narrowing their rule unasked.
-- **`3`** — plumbing (not a repo, bad arguments). A verdict was never reached, so it is not a pass.
+The verdicts — including why `2` proceeds and `1` does not, and the rule against editing someone
+else's `.gitignore` unasked — are in
+[`../../_shared/worktree-ignore-check.md`](../../_shared/worktree-ignore-check.md). They are stated
+once, there, because the first version of this change spelled them out in four files and they had
+already drifted apart.
 
 Remember the exact path — Step 7 removes it.
 
