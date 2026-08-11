@@ -126,7 +126,7 @@ The kit also ships four generic GitHub workflow skills — usable on any repo, n
 |---|---|
 | `create-issue` | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
 | `implement-issue` | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
-| `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, file follow-ups, tear down. |
+| `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
 | `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the three skills above consume. Run once per repo, commit the profile. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,

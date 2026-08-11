@@ -387,7 +387,7 @@ Short and concrete:
 
 Then **close the loop**: the PR is ready but not landed — a human owns the merge decision. Point the
 user at **`/merge-pr #<pr>`** (waits for CI, applies corrections to keep it mergeable, squash-merges,
-files follow-ups, tears down the branch/worktree).
+triages follow-ups, tears down the branch/worktree).
 
 ---
 
