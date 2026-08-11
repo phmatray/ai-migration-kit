@@ -1037,7 +1037,7 @@ source = open(transform_path, encoding="utf-8").read()
 
 
 def to_python(pattern):
-    """Renovate evaluates these with RE2, where a named group is `(?<name>…)`; Python spells the
+    r"""Renovate evaluates these with RE2, where a named group is `(?<name>…)`; Python spells the
     same thing `(?P<name>…)`. Translate for the check.
 
     Constructs RE2 cannot compile are REJECTED rather than translated: Python supports them, RE2
@@ -1045,12 +1045,24 @@ def to_python(pattern):
     CONFIG_VALIDATION and stops managing the repo entirely — whose only symptom is that no PRs ever
     appear again. A guard that is green on a config the real engine refuses is worse than no guard.
 
-    RE2 omits all three of these by design (it guarantees linear-time matching, and each of them
-    requires backtracking), so the list is closed rather than a running tally of things we happened
-    to hit. Order matters: `(?<!` also matches the lookahead pattern, so lookbehind is tested first
-    and reported by its own name."""
+    Everything RE2 omits, it omits for one reason — it guarantees linear-time matching, and every
+    construct below needs backtracking. That is a principle, not a list, and the probes here are a
+    best effort at covering it rather than a proof: Python keeps ADDING such constructs (atomic
+    groups and possessive quantifiers arrived in 3.11 and were missed by the first version of this
+    check), so treat it as extendable, not closed.
+
+    The probes are independent of each other — `(?<!` does NOT match the lookahead probe, because
+    that one requires `=`/`!` immediately after `(?` where a lookbehind has `<`. Order here is for
+    reading, not correctness. (An earlier revision of this comment claimed the opposite and was
+    simply wrong; it is checked now rather than asserted, by `_lookbehind` below.)
+
+    The possessive-quantifier probe can in principle false-positive on an escaped `\+` followed by
+    `+`. That direction is deliberate: a false positive fails loudly and is fixed in a minute, while
+    a false negative ships a config Renovate refuses and shows up only as PRs that never appear."""
     for probe, name in ((r"\(\?<[=!]", "lookbehind"),
                         (r"\(\?[=!]", "lookahead"),
+                        (r"\(\?>", "atomic group"),
+                        (r"[*+?}]\+", "possessive quantifier"),
                         (r"\\[1-9]", "backreference")):
         assert not re.search(probe, pattern), (
             f"{name} in a matchString: RE2 cannot compile it and Renovate would reject the whole "
@@ -1070,35 +1082,73 @@ def covers(glob, dep):
     return d.startswith(g.rstrip("*")) if g.endswith("*") else g == d
 
 
+def path_glob(glob):
+    """Compile the minimatch subset used for FILE scopes (`matchFileNames`, `ignorePaths`).
+
+    Supported: `**` (any depth, including none, when written `**/`), `*` (one path segment), `?`
+    (one character), and literals. Brace expansion, character classes and `!`-negation return None
+    and are reported unevaluated by the callers.
+
+    The first version of this understood only an exact path and a `dir/**` prefix, which rejected
+    two of the most ordinary valid scopes — `["**"]` and `["tests/xunit-v3/*.py"]` both reach the
+    transform, and both failed the suite on a correct config. That direction of error matters: a
+    guard that refuses valid input gets deleted by whoever hits it, not narrowed."""
+    if any(ch in glob for ch in "{}[]!"):
+        return None
+    out, i = [], 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out.append("(?:.*/)?")        # `**/` may span zero directories
+            i += 3
+        elif glob.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif glob[i] == "*":
+            out.append("[^/]*")           # a single `*` never crosses a separator
+            i += 1
+        elif glob[i] == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(glob[i]))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
 def rule_applies(rule, path, datasource):
     """Does this packageRule actually reach `path` at `datasource`?  -> (bool, [unevaluated…])
 
-    A rule that disables majors only protects what it MATCHES. `matchFileNames` and
-    `matchDatasources` both narrow that reach, and both were previously ignored — so scoping the
-    family rule to `samples/**` left this guard green while the transform's pins lost their hold
-    completely, which is precisely the "edit a glob and the protection quietly stops applying"
-    failure the comment above warns about (#67).
+    A rule that disables majors only protects what it MATCHES. THREE keys narrow that reach and all
+    three were once ignored here — so scoping the family rule to `samples/**` (or to the stock
+    `nuget` manager, which never sees deps a custom regex manager extracted) left this guard green
+    while the transform's pins lost their hold completely. That is exactly the "edit a glob and the
+    protection quietly stops applying" failure the comment above warns about (#67).
 
     ABSENT means "applies everywhere". Getting that inversion backwards would make every rule look
     inapplicable and fail the suite on a perfectly good config, so it is the first thing each branch
-    decides. As elsewhere here, a glob shape this cannot evaluate faithfully is reported rather than
+    decides. As elsewhere here, a glob this cannot evaluate faithfully is reported rather than
     guessed, and counts as NOT applying — an unreadable scope must never be mistaken for protection."""
     unevaluated = []
     datasources = rule.get("matchDatasources")
     if datasources is not None and datasource not in datasources:
         return False, unevaluated
 
+    # These pins reach Renovate through a CUSTOM regex manager, so a rule scoped to the stock nuget
+    # manager does not touch them — even though the datasource is nuget. Renovate has spelled this
+    # manager both `custom.regex` (v37+) and `regex`; accept either.
+    managers = rule.get("matchManagers")
+    if managers is not None and not any(m in ("custom.regex", "regex") for m in managers):
+        return False, unevaluated
+
     globs = rule.get("matchFileNames")
     if globs is None:
         return True, unevaluated          # unscoped by path: reaches the whole repo
     for g in globs:
-        if g == path:
-            return True, unevaluated
-        if g.endswith("/**"):
-            if path.startswith(g[:-2]):
-                return True, unevaluated
-        else:
+        rx = path_glob(g)
+        if rx is None:
             unevaluated.append(g)
+        elif rx.match(path):
+            return True, unevaluated
     return False, unevaluated
 
 
@@ -1125,10 +1175,15 @@ def selects(manager, path):
     if pats:
         hit = False
         for p in pats:
-            if p.startswith("!") or not (len(p) > 1 and p.startswith("/") and p.endswith("/")):
+            # `/body/flags` — Renovate allows trailing flags, and `/…/i` is ordinary valid config
+            # that an earlier revision here rejected outright. Only `i` is understood; any other
+            # flag is reported rather than silently dropped, since dropping one changes what matches.
+            delimited = None if p.startswith("!") else re.fullmatch(r"/(.*)/([a-z]*)", p, re.DOTALL)
+            if not delimited or set(delimited.group(2)) - {"i"}:
                 unevaluated.append(p)
                 continue
-            if re.search(p[1:-1], path):
+            body, flags = delimited.group(1), delimited.group(2)
+            if re.search(body, path, re.IGNORECASE if "i" in flags else 0):
                 hit = True
         return hit, unevaluated
     # Legacy key: bare regex by definition, so no delimiters to strip.
@@ -1145,6 +1200,17 @@ def check(cfg):
     refuse, so it was impossible to tell a working guard from a decorative one."""
     managers = cfg.get("customManagers", [])
     assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
+
+    # ignorePaths is applied BEFORE extraction, so a manager can select the transform perfectly and
+    # still see nothing. This config's own description block explains that mechanism (it is why the
+    # frozen fixture is disabled rather than ignored), which makes it a plausible edit — and one
+    # that would leave every other assertion here green.
+    for g in cfg.get("ignorePaths") or []:
+        rx = path_glob(g)
+        assert rx is None or not rx.match(TRANSFORM_REL), (
+            f"ignorePaths entry {g!r} suppresses extraction from {TRANSFORM_REL} — Renovate never "
+            f"reads the file, so the custom managers below are dead no matter how they are written"
+        )
 
     # Only the managers that actually select the transform are this section's business. Asserting
     # over ALL of them meant an unrelated custom manager added elsewhere in the repo would fail the
@@ -1207,18 +1273,29 @@ def check(cfg):
 
     # Every manager in `mine` was asserted to emit nuget deps above, so that is the datasource the
     # holds have to cover.
-    major_rules, out_of_reach = [], []
-    for r in cfg.get("packageRules", []):
-        if r.get("enabled") is not False or "major" not in (r.get("matchUpdateTypes") or []):
-            continue
-        reaches, unknown = rule_applies(r, TRANSFORM_REL, "nuget")
-        out_of_reach.extend(unknown)
-        if reaches:
-            major_rules.append(r)
-
+    #
+    # Renovate resolves packageRules LAST-MATCH-WINS, not "any rule that disables it". Asking only
+    # whether some rule disables majors meant a later `{matchPackageNames: [...], enabled: true}`
+    # silently restored them while this guard still printed "majors held" (#67). So walk the rules
+    # in order and keep the last verdict, exactly as Renovate would.
     for dep in found:
-        assert any(any(covers(g, dep) for g in (r.get("matchPackageNames") or []))
-                   for r in major_rules), (
+        held, out_of_reach = False, []
+        for r in cfg.get("packageRules", []):
+            types = r.get("matchUpdateTypes")
+            if types is not None and "major" not in types:
+                continue                       # this rule has nothing to say about majors
+            names = r.get("matchPackageNames")
+            if names is not None and not any(covers(g, dep) for g in names):
+                continue                       # …nor about this package
+            reaches, unknown = rule_applies(r, TRANSFORM_REL, "nuget")
+            out_of_reach.extend(unknown)
+            if not reaches:
+                continue
+            if r.get("enabled") is False:
+                held = True
+            elif r.get("enabled") is True:
+                held = False                   # a later rule re-opened it
+        assert held, (
             f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
             f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
             + (f". Note: {out_of_reach} could not be evaluated as file scopes and were treated as "
@@ -1374,8 +1451,13 @@ rejects("a matchString that matches more than once", _matches_more_than_once,
 
 
 def _family_rule(c):
-    """The packageRule that holds the MTP family's majors — found by shape, not by index."""
-    return next(r for r in c["packageRules"] if "major" in (r.get("matchUpdateTypes") or []))
+    """The packageRule that holds the MTP family's majors.
+
+    Identified by the packages it names, not by being the first major rule: adding any unrelated
+    major-hold ahead of it would otherwise make the mutations below edit the WRONG rule, and the
+    negative cases would then report a scoped-away hold that is in fact intact."""
+    return next(r for r in c["packageRules"]
+                if any("xunit.v3" in g for g in (r.get("matchPackageNames") or [])))
 
 
 def _scope_the_hold_to_another_path(c):
@@ -1401,6 +1483,59 @@ rejects("a major-hold scoped away by matchFileNames", _scope_the_hold_to_another
 rejects("a major-hold scoped away by matchDatasources", _scope_the_hold_to_another_datasource,
         because="no rule disables its MAJOR updates")
 accepts("a major-hold explicitly scoped to the transform's tree", _scope_the_hold_onto_the_transform)
+
+
+# --- reach and resolution: the ways a hold stops holding without being deleted ----------------
+def _scope_the_hold_to_the_stock_manager(c):
+    # nuget datasource, but these deps come from a CUSTOM regex manager, so this reaches nothing.
+    _family_rule(c)["matchManagers"] = ["nuget"]
+
+
+def _reopen_majors_later(c):
+    # packageRules are last-match-wins: this undoes the hold above without touching it.
+    c["packageRules"].append({"matchPackageNames": ["xunit.v3**"], "enabled": True})
+
+
+def _ignore_the_whole_tree(c):
+    # Applied before extraction — every manager below becomes dead no matter how it is written.
+    c["ignorePaths"] = ["tests/**"]
+
+
+rejects("a major-hold scoped to the stock nuget manager", _scope_the_hold_to_the_stock_manager,
+        because="no rule disables its MAJOR updates")
+rejects("a later rule re-enabling the majors", _reopen_majors_later,
+        because="no rule disables its MAJOR updates")
+rejects("ignorePaths suppressing extraction from the transform", _ignore_the_whole_tree,
+        because="suppresses extraction")
+
+
+# --- valid config this guard must NOT refuse ---------------------------------------------------
+def _hold_scoped_with_a_segment_glob(c):
+    _family_rule(c)["matchFileNames"] = ["tests/xunit-v3/*.py"]
+
+
+def _hold_scoped_to_everything(c):
+    _family_rule(c)["matchFileNames"] = ["**"]
+
+
+def _case_insensitive_file_pattern(c):
+    for m in c["customManagers"]:
+        m["managerFilePatterns"] = ["/^tests/xunit-v3/apply-transform\\.py$/i"]
+
+
+def _unrelated_major_hold_first(c):
+    # Inserted AHEAD of the family rule: _family_rule must still find the right one.
+    c["packageRules"].insert(0, {
+        "matchPackageNames": ["Newtonsoft.Json"],
+        "matchUpdateTypes": ["major"],
+        "enabled": False,
+    })
+
+
+accepts("a hold scoped with a single-segment glob", _hold_scoped_with_a_segment_glob)
+accepts("a hold scoped to the whole repo with **", _hold_scoped_to_everything)
+accepts("a case-insensitive /…/i file pattern", _case_insensitive_file_pattern)
+accepts("an unrelated major-hold ahead of the family rule", _unrelated_major_hold_first)
 
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
