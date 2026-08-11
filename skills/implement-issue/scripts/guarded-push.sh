@@ -32,7 +32,8 @@
 #
 # Exit codes:
 #   0  pushed, and <remote>/<expected-branch> is verified equal to HEAD
-#   2  REFUSED before pushing — HEAD is another branch, or detached, or not a repo. Nothing sent.
+#   2  REFUSED before pushing — HEAD is another branch, or detached, or not a repo, or this script
+#      could not load the branch assertion it shares with guarded-commit.sh. Nothing sent.
 #   4  the push reported success but the remote does NOT carry this HEAD. This is the silent
 #      mis-push: the work is not where the exit code implied it was.
 #   *  git push's own exit code, if the push itself failed. Nothing else was done.
@@ -49,11 +50,32 @@
 
 set -euo pipefail
 
-refuse() { printf 'guarded-push: REFUSED — %s\n' "$*" >&2; exit 2; }
+TOOL=guarded-push
+NOTHING="Nothing sent."
 
-# Print the header block, whatever length it happens to be — see guarded-commit.sh for why a
-# hardcoded line range is a trap.
-usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
+# refuse(), usage() and the branch assertion itself live in _assert-branch.sh, shared with
+# guarded-commit.sh so the invariant has one home (#44). This bootstrap is deliberately identical
+# to that guard's, line for line and comment for comment — it is the part that cannot be shared,
+# because it is what loads the shared part, so it is kept mechanical with no prose to drift.
+# See guarded-commit.sh for the reasoning behind each step.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$SELF")
+ASSERT="$SCRIPT_DIR/_assert-branch.sh"
+
+if [ -r "$ASSERT" ]; then . "$ASSERT" || true; fi
+if ! command -v assert_branch >/dev/null 2>&1 || ! command -v refuse >/dev/null 2>&1; then
+  printf '%s: REFUSED — cannot load its branch assertion, so it cannot guard anything:\n  %s\n  %s The guards are not standalone files: reinstall the kit, or restore _assert-branch.sh beside this script.\n' \
+    "$TOOL" "$ASSERT" "$NOTHING" >&2
+  exit 2
+fi
 
 REPO="."
 REMOTE="origin"
@@ -61,45 +83,44 @@ EXPECTED=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -C)        [ -n "${2:-}" ] || refuse "-C needs a <repo-path>"
+    -C)        [ -n "${2:-}" ] || refuse "$TOOL" "-C needs a <repo-path>"
                REPO="$2";   shift 2 ;;
-    --remote)  [ -n "${2:-}" ] || refuse "--remote needs a <name>"
+    --remote)  [ -n "${2:-}" ] || refuse "$TOOL" "--remote needs a <name>"
                REMOTE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --)        shift; break ;;
-    -*)        refuse "unknown option: $1" ;;
+    -*)        refuse "$TOOL" "unknown option: $1" ;;
     *)
-      [ -z "$EXPECTED" ] || refuse "unexpected extra argument: $1 (git push args go after --)"
+      [ -z "$EXPECTED" ] || refuse "$TOOL" "unexpected extra argument: $1 (git push args go after --)"
       EXPECTED="$1"; shift ;;
   esac
 done
 
-[ -n "$EXPECTED" ] || refuse "an expected branch name is required: guarded-push.sh [-C <path>] <branch> [-- <git push args…>]"
-[ -n "$REMOTE" ]   || refuse "--remote needs a name"
-[ -d "$REPO" ]     || refuse "-C path is not a directory: $REPO"
-
-git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 \
-  || refuse "not a git repository: $REPO"
+[ -n "$EXPECTED" ] || refuse "$TOOL" "an expected branch name is required: guarded-push.sh [-C <path>] <branch> [-- <git push args…>]"
+[ -n "$REMOTE" ]   || refuse "$TOOL" "--remote needs a name"
 
 # ---------------------------------------------------------------- assert, before anything
+#
+# The checks and their order are in _assert-branch.sh; the prose is here, because what an
+# unguarded push costs is not what an unguarded commit costs. `{found}` is the branch HEAD turned
+# out to be on. Sets $head_sha — the sha this push must be able to prove reached the remote.
 
-# `symbolic-ref` and not `rev-parse --abbrev-ref HEAD`: on a detached HEAD the latter prints
-# the literal string "HEAD", which compares as a plain branch name and would sail past a naive
-# string test. symbolic-ref simply fails, which is the answer we want.
-head_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-
-[ -n "$head_branch" ] || refuse \
+assert_branch "$TOOL" \
   "HEAD is detached in $REPO — it belongs to no branch, so there is nothing safe to push.
-            Expected '$EXPECTED'. Nothing sent."
-
-if [ "$head_branch" != "$EXPECTED" ]; then
-  refuse "HEAD is on '$head_branch' but this task owns '$EXPECTED'.
-            Pushing now would carry this work into '$head_branch' and into that branch's
+            Expected '$EXPECTED'. Nothing sent." \
+  "HEAD is on '{found}' but this task owns '$EXPECTED'.
+            Pushing now would carry this work into '{found}' and into that branch's
             pull request. Nothing sent. Re-check out '$EXPECTED' (in a worktree of its own)
             and retry."
-fi
 
-head_sha=$(git -C "$REPO" rev-parse HEAD)
+# The helper tolerates an unreadable HEAD because a COMMIT legitimately has none — an unborn
+# branch is where a first commit starts. A PUSH does not: with no sha there is nothing to prove
+# reached the remote, and this guard's entire promise is that it can prove it. Sharing the helper
+# must not quietly relax that, so require the witness here, BEFORE the write, rather than
+# discover its absence afterwards as an exit 4.
+[ -n "$head_sha" ] || refuse "$TOOL" \
+  "HEAD in $REPO points at no commit — '$EXPECTED' is an unborn branch, so there is nothing
+            to push and nothing this guard could verify on the remote. Nothing sent."
 
 # ---------------------------------------------------------------- push
 
@@ -121,7 +142,7 @@ fi
 # the OTHER branch (push.default=simple pushes the current one), while the read-back below still
 # finds the expected branch sitting at its old tip — which happens to equal the `head_sha` captured
 # earlier, so the guard would certify a push it never made.
-now_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+now_branch=$(head_branch_of "$REPO")
 now_sha=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
 
 if [ "$now_branch" != "$EXPECTED" ] || [ "$now_sha" != "$head_sha" ]; then
