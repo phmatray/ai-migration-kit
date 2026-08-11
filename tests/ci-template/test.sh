@@ -344,15 +344,24 @@ assert cond is not None, (
     "skips it whenever an earlier step failed. The one run whose artifact matters — the failed "
     "one — therefore uploads nothing (issue #74)."
 )
-# `success()` and `cancelled()` are the two that would NOT run after a failure. Accept anything
-# else (always(), failure(), !cancelled()), because the property under test is reachability on
-# the failure path, not one particular spelling of it.
+# A WHITELIST, not a blacklist. This step has to run on BOTH paths, and the two ways to get that
+# wrong are symmetric: `success()` (implicit or written) drops the failed run — the hole #74 is
+# about — while `failure()` drops every GREEN run, which is where the dashboard's coverage
+# actually comes from. An earlier version of this assertion only rejected the first, so editing
+# the template to `if: failure()` passed the whole suite while silently ending coverage
+# publication on success. Naming the accepted spellings makes a future change deliberate.
+ALLOWED = {"always()", "${{always()}}", "!cancelled()", "${{!cancelled()}}"}
 normalised = str(cond).replace(" ", "")
-assert "success()" not in normalised, \
-    f"the artifact step's `if: {cond}` still gates on success — it cannot run after a failure"
-assert normalised != "cancelled()", f"`if: {cond}` runs only on cancellation"
+assert normalised in ALLOWED, (
+    f"the artifact step's condition is `if: {cond}`, which is not one of the conditions known to "
+    f"run on BOTH the success and the failure path: {sorted(ALLOWED)}.\n"
+    "  `success()` (or no `if:` at all) skips the failed run — that is issue #74.\n"
+    "  `failure()` skips every green run — that is the same defect mirrored, and it would stop\n"
+    "  publishing the coverage the dashboard is built from.\n"
+    "  If you mean a new spelling, add it here deliberately rather than widening the test."
+)
 PY
-echo "  [6] the coverage artifact step is reachable on the failure path"
+echo "  [6] the coverage artifact step runs on both the success and the failure path"
 
 # ---------------------------------------------------------------------------
 # 7. The artifact patterns cover the log's FALLBACK location (issue #74).
@@ -407,34 +416,62 @@ for pat, path, expected in [
     assert got is expected, f"glob translator wrong: {pat!r} vs {path!r} -> {got}, want {expected}"
 
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
-step = next(s for s in doc["jobs"]["test"]["steps"]
-            if s.get("name") == "Publier la couverture en artefact de build")
-patterns = [p.strip() for p in str(step["with"]["path"]).splitlines() if p.strip()]
-assert patterns, "the artifact step declares no path patterns"
+steps = doc["jobs"]["test"]["steps"]
 
-def covered(path):
-    return [p for p in patterns if glob_to_regex(p).match(path)]
 
-# The case this issue is about: --coverage refused, so --results-directory was refused with it.
+def patterns_of(step_name):
+    step = next((s for s in steps if s.get("name") == step_name), None)
+    assert step is not None, f"no step named {step_name!r}: {[s.get('name') for s in steps]}"
+    pats = [p.strip() for p in str(step["with"]["path"]).splitlines() if p.strip()]
+    assert pats, f"{step_name!r} declares no path patterns"
+    return pats
+
+
+cov = patterns_of("Publier la couverture en artefact de build")
+fallback_step = "Publier les logs MTP restés sous bin/ (diagnostic d'échec)"
+logs = patterns_of(fallback_step)
+
+# --- the coverage artifact's SHAPE is part of its contract ------------------
+# upload-artifact roots the archive at the least common ancestor of everything it matches. While
+# every pattern lives under coverage/, entries land flat (`X.cobertura.xml`); the moment one
+# matches outside it, the root becomes the workspace and the same reports arrive as
+# `coverage/X.cobertura.xml`. That would break a consumer running
+# `reportgenerator -reports:*.cobertura.xml`, and — because the fallback log only exists on some
+# runs — it would break it INTERMITTENTLY. Hence the second artifact, and hence this assertion.
+for p in cov:
+    assert p.startswith("coverage/"), (
+        f"the coverage artifact matches {p!r}, outside coverage/. That moves the artifact's root "
+        "to the workspace and re-shapes every cobertura entry, conditionally on whether the "
+        "out-of-tree file happens to exist. Put such paths in their own artifact instead."
+    )
+
+# --- the case this issue is about: --coverage refused, --results-directory refused with it ---
 fallback = ("tests/LegacyShop.Catalog.Tests/bin/Debug/net10.0/TestResults/"
             "LegacyShop.Catalog.Tests_net10.0_arm64.log")
-assert covered(fallback), (
-    "no artifact pattern matches the log's fallback location:\n"
+assert any(glob_to_regex(p).match(fallback) for p in logs), (
+    f"no pattern of {fallback_step!r} matches the log's fallback location:\n"
     f"    {fallback}\n"
-    f"  patterns: {patterns}\n"
+    f"  patterns: {logs}\n"
     "  That file carries `Unknown option '--coverage'` — the only explanation of the failure — and\n"
     "  the console prints nothing but its path. Uncollected, a CI-only failure of this kind cannot\n"
     "  be diagnosed without pushing commits to bisect it (issue #74)."
 )
+# ...and it must stay anchored under bin/, so a TestResults/ a legacy repo COMMITTED in its
+# sources is never swept into the artifact (nor deleted by the cleanup that mirrors this pattern).
+tracked = "tests/LegacyShop.Tests/TestResults/committed_by_the_repo.log"
+assert not any(glob_to_regex(p).match(tracked) for p in logs), (
+    f"the fallback pattern also matches a repo-tracked path ({tracked!r}): {logs}. Anchor it "
+    "under */bin/* so it only ever collects build output."
+)
 
-# Positive controls: the cases that ALREADY worked must keep working, or this fix would have
-# traded one blind spot for another.
+# --- positive controls: what already worked must keep working ---------------
 for control in ("coverage/LegacyShop.Empty.Tests_net10.0_arm64.log",
                 "coverage/4f276e85-4f13-4ee4-8809-4d67dc0cd80a.cobertura.xml",
                 "coverage/abc-guid/coverage.cobertura.xml"):
-    assert covered(control), f"a pattern that used to cover {control!r} no longer does: {patterns}"
+    assert any(glob_to_regex(p).match(control) for p in cov), \
+        f"a coverage pattern that used to cover {control!r} no longer does: {cov}"
 PY
-echo "  [7] the artifact patterns cover the log's bin/ fallback, controls still covered"
+echo "  [7] coverage artifact stays coverage-rooted; the bin/ fallback has its own, bin-anchored"
 
 # ---------------------------------------------------------------------------
 # 8. The artifact step warns that those logs are UTF-16 (issue #74).
@@ -484,5 +521,72 @@ assert "iconv" in block or "encoding=" in block, (
 )
 PY
 echo "  [8] the artifact step warns that MTP's logs are UTF-16, and says how to read them"
+
+# ---------------------------------------------------------------------------
+# 9. The bin/ fallback is CLEANED before the run, exactly as coverage/ is.
+#
+#    Publishing a location makes its hygiene part of the contract. The test step already does
+#    `rm -rf coverage`, and says why: a self-hosted runner reuses its workspace, so yesterday's
+#    files read as today's. The bin/ fallback now ships in an artifact too — and left uncleaned it
+#    is worse than coverage/ ever was, because the SAME project's log moves between the two
+#    locations depending on the outcome (measured, #74): a run that fails writes it under bin/, and
+#    a later GREEN run writes under coverage/ while the stale failure log sits there and gets
+#    uploaded. The artifact would then explain a failure that did not happen — a wrong answer, not
+#    a missing one.
+#
+#    Executed as a real shell, not grepped for: the assertion is that stale logs are GONE, which a
+#    substring match cannot establish.
+# ---------------------------------------------------------------------------
+CLEAN_STEP=$(python3 - "$TEMPLATE" <<'PY'
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+start = next(i for i, l in enumerate(lines) if l.strip() == "- name: Tests + couverture")
+run = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |")
+indent = len(lines[run]) - len(lines[run].lstrip()) + 2
+body = []
+for line in lines[run + 1:]:
+    if line.strip() and len(line) - len(line.lstrip()) < indent:
+        break
+    body.append(line[indent:])
+# Only the hygiene prologue: everything before the platform detection. Running the whole step
+# would invoke dotnet, which this suite has no business doing.
+out = []
+for line in body:
+    if line.strip().startswith("mtp="):
+        break
+    out.append(line)
+print("\n".join(out).strip("\n"))
+PY
+)
+[ -n "$CLEAN_STEP" ] || { echo "FAIL: could not slice the hygiene prologue of 'Tests + couverture'"; exit 1; }
+bash -n <<<"$CLEAN_STEP" 2>/dev/null || { echo "FAIL: the sliced prologue is not valid bash:"; echo "$CLEAN_STEP"; exit 1; }
+
+hyg="$scratch/hygiene"
+rm -rf "$hyg" && mkdir -p "$hyg"
+# Stale build output from an earlier, failed run…
+mkdir -p "$hyg/tests/Proj.Tests/bin/Debug/net10.0/TestResults"
+echo stale > "$hyg/tests/Proj.Tests/bin/Debug/net10.0/TestResults/Proj.Tests_net10.0_x64.log"
+# …a stale coverage/ …
+mkdir -p "$hyg/coverage" && echo stale > "$hyg/coverage/old.cobertura.xml"
+# …and a TestResults/ the repo COMMITTED in its sources, which must survive untouched.
+mkdir -p "$hyg/tests/Proj.Tests/TestResults"
+echo tracked > "$hyg/tests/Proj.Tests/TestResults/committed.log"
+
+( cd "$hyg" && bash -c "$CLEAN_STEP" ) > /dev/null 2>&1 || {
+  echo "FAIL: the hygiene prologue of 'Tests + couverture' exited non-zero"; exit 1; }
+
+if find "$hyg" -path '*/bin/*' -name '*.log' | grep -q .; then
+  echo "FAIL: a stale MTP log under bin/ survived the cleanup. Since that location is now"
+  echo "      published as an artifact, a green run would ship the previous run's failure log"
+  echo "      and the artifact would explain a failure that never happened (issue #74):"
+  find "$hyg" -path '*/bin/*' -name '*.log'
+  exit 1
+fi
+[ -f "$hyg/tests/Proj.Tests/TestResults/committed.log" ] || {
+  echo "FAIL: the cleanup deleted a repo-tracked TestResults/ file. It must only ever remove"
+  echo "      build output — anchor it under */bin/*."; exit 1; }
+[ -d "$hyg/coverage" ] && [ -z "$(ls -A "$hyg/coverage")" ] || {
+  echo "FAIL: coverage/ was not reset to an empty directory by the prologue"; exit 1; }
+echo "  [9] stale bin/ logs are cleaned before the run; a committed TestResults/ is left alone"
 
 echo "ci-dotnet template opt-in bundle gate golden test OK"
