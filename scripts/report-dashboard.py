@@ -35,6 +35,25 @@ def esc(s):
 CONDITIONS = re.compile(r"\((\d+)/(\d+)\)")
 
 
+def _branch_rate(root):
+    """Le `branch-rate` racine d'un rapport — seulement s'il ressemble à un taux.
+
+    Un `try/except ValueError` seul ne suffit pas : `nan` et `inf` se parsent très bien et font
+    ensuite exploser `round()` au moment du rendu, loin d'ici ; un producteur qui écrit le taux en
+    pourcent (`60`) rendrait « 6000 % branches ». Un attribut qu'on ne sait pas interpréter n'est
+    pas une mesure — on rend None, et l'appelant affichera « n/d ».
+    """
+    raw = root.get("branch-rate")
+    if raw is None:
+        return None
+    try:
+        rate = float(raw)
+    except ValueError:
+        return None
+    # Faux pour nan et inf, donc les deux tombent ici sans test dédié.
+    return rate if 0.0 <= rate <= 1.0 else None
+
+
 def _conditions(line):
     """(branches couvertes, branches totales) d'une ligne — `condition-coverage="50% (1/2)"`.
 
@@ -59,6 +78,16 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     Combiner les taux racine — même pondérés par `lines-valid` — compte ce total deux fois et
     rend 35 % là où l'union en couvre 73 %. Le recalcul est aussi cohérent avec le tableau
     qu'il légende : même périmètre, mêmes exclusions.
+
+    ⚠ Une seule exception, introduite par #50 : le `branch-rate` de la racine est lu, en REPLI,
+    quand aucune ligne du périmètre ne porte de `condition-coverage`. Il n'est admis que pour un
+    rapport UNIQUE et NON FILTRÉ — précisément parce que le raisonnement ci-dessus s'y applique
+    aussi : c'est un taux global, il ignore `exclude`/`include`, et le moyenner sur plusieurs
+    rapports n'aurait pas de sens. Hors de ce cas, la fonction rend None plutôt qu'un chiffre
+    qu'elle ne saurait pas défendre.
+
+    Conséquence sur le contrat : `line_pct` et `branch_pct` sont Optional[int]. None veut dire
+    « pas mesuré » — le rendu l'affiche `n/d`, jamais 0 %.
     """
     if isinstance(paths, (str, Path)):
         paths = [paths]
@@ -71,14 +100,13 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     # branches ici seulement. Ne lire que les lignes rendait alors « 0 % branches » sur une
     # application bien couverte — une absence de donnée affichée comme une mesure (#50).
     root_branch_rates = []
+    reports_with_conditions = 0
     for path in paths:
         root = ET.parse(path).getroot()
-        rate = root.get("branch-rate")
+        rate = _branch_rate(root)
         if rate is not None:
-            try:
-                root_branch_rates.append(float(rate))
-            except ValueError:
-                pass          # un attribut illisible n'est pas une mesure : on l'ignore, sans bruit
+            root_branch_rates.append(rate)
+        saw_conditions = False
         for cls in root.iter("class"):
             name = cls.get("name")
             if "<" in name or "/" in name:
@@ -96,12 +124,16 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
             for l in cls.findall(".//line"):
                 slot = by_line.setdefault((cls.get("filename"), l.get("number")), [0, 0, 0])
                 covered, total = _conditions(l)
+                if total:
+                    saw_conditions = True
                 slot[0] += int(l.get("hits"))
                 # Le maximum, pas la somme : deux rapports qui couvrent LA MÊME branche
                 # rendraient 2/2 sur une ligne qui n'en a qu'une de couverte. Le maximum
                 # sous-estime quand ils en couvrent deux différentes — on préfère l'erreur
                 # qui ne surestime jamais une couverture.
                 slot[1], slot[2] = max(slot[1], covered), max(slot[2], total)
+        if saw_conditions:
+            reports_with_conditions += 1
     classes, lines_covered, lines_total, br_covered, br_total = [], 0, 0, 0, 0
     for name, by_line in merged.items():
         covered = sum(1 for hits, _, _ in by_line.values() if hits > 0)
@@ -116,23 +148,36 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
             "pct": round(100 * covered / total) if total else 0,
         })
     classes.sort(key=lambda c: -c["pct"])
+    # Un périmètre vide n'est pas une couverture de 0 % : c'est une absence de mesure. Le cas se
+    # produit pour de bon — un `include` portant un nom de classe devenu périmé après un renommage
+    # filtre TOUT, et la page publiait alors « Global : 0 % lignes » sous une tuile qui gardait le
+    # chiffre écrit à la main. Deux chiffres contradictoires, à nouveau (#50).
+    line_pct = round(100 * lines_covered / lines_total) if lines_total else None
+
+    # Trois états, jamais deux — et le repli est délibérément ÉTROIT.
+    #
+    #  1. Les `condition-coverage` par ligne, quand TOUS les rapports en portent : c'est la seule
+    #     forme unionnable, et la seule qui respecte `exclude`/`include`, puisqu'elle est lue
+    #     classe par classe. Si seuls certains rapports en portent, le total ne décrirait qu'un
+    #     sous-ensemble tout en s'affichant « Global » — donc None plutôt qu'un chiffre partiel.
+    #  2. Sinon le `branch-rate` racine, mais UNIQUEMENT pour un rapport unique et sans filtre.
+    #     C'est un attribut global : il ignore `exclude`/`include` (il rendait « 100 % lignes ·
+    #     20 % branches » alors que le 20 % venait surtout du projet exclu), et sur plusieurs
+    #     rapports une moyenne non pondérée n'a pas de sens — sous MTP chaque rapport déclare le
+    #     produit entier, donc 0,9 et 0,1 rendaient 50 % quelle que soit la taille des suites.
+    #  3. Sinon None, que le rendu affiche « n/d ». Ne rien savoir n'est pas mesurer zéro.
+    scoped = bool(excluded_prefixes or included_names)
+    if br_total and reports_with_conditions == len(paths):
+        branch_pct = round(100 * br_covered / br_total)
+    elif not br_total and len(paths) == 1 and not scoped and root_branch_rates:
+        branch_pct = round(100 * root_branch_rates[0])
+    else:
+        branch_pct = None
+
     return {
         "classes": classes,
-        "line_pct": round(100 * lines_covered / lines_total) if lines_total else 0,
-        # `measured` distingue « on a lu des lignes » de « il n'y avait rien à lire ». C'est ce qui
-        # autorise kpi_value() à remplacer la tuile : sans mesure, la valeur écrite reste la seule
-        # information disponible et un 0 % calculé serait pire que la transcription (#50).
-        "measured": lines_total > 0,
-        # Trois états, jamais deux. Les `condition-coverage` par ligne quand il y en a — c'est la
-        # seule forme unionnable entre plusieurs rapports. Sinon le `branch-rate` racine, qui est
-        # le chiffre du producteur : exact pour un rapport, et pour plusieurs c'est leur moyenne,
-        # pas une union — d'où son statut de repli et non de source principale. Sinon None, que le
-        # rendu affiche « n/d » : ne rien savoir n'est pas la même chose que mesurer zéro.
-        "branch_pct": (
-            round(100 * br_covered / br_total) if br_total
-            else round(100 * sum(root_branch_rates) / len(root_branch_rates))
-            if root_branch_rates else None
-        ),
+        "line_pct": line_pct,
+        "branch_pct": branch_pct,
     }
 
 
@@ -218,11 +263,31 @@ def hbar_chart(rows, aria, note, multi_hue=False):
             + "".join(parts) + "</svg>")
 
 
-# Une tuile de couverture EN LIGNES : le libellé parle de couverture et l'unité est le pourcent.
-# C'est le libellé qui identifie la tuile parce que c'est tout ce que porte un `report.json`
-# existant — aucun champ ne la marque, et exiger un marqueur laisserait tous les rapports déjà
-# écrits sur l'ancien comportement, c'est-à-dire sur le défaut.
+# Une tuile déclare la grandeur qu'elle rend : `"source": "line_pct"` ou `"branch_pct"`. À défaut —
+# et c'est le cas de tous les `report.json` déjà écrits, qui ne portent aucun marqueur — on retombe
+# sur le libellé : une tuile en `%` qui parle de couverture rend les LIGNES, sauf si elle parle de
+# branches, auquel cas elle rend les branches.
+#
+# Cette distinction n'est pas cosmétique : sans elle, une tuile « Couverture de branches » recevait
+# le taux de LIGNES. Mesuré — la page affichait alors 70 % dans la tuile au-dessus d'un
+# « Global : 70 % lignes · 67 % branches », soit exactement les deux chiffres contradictoires que ce
+# mécanisme existe pour supprimer, reproduits par le correctif lui-même.
 COVERAGE_KPI = re.compile(r"couvertur", re.I)
+BRANCH_KPI = re.compile(r"branch", re.I)
+KPI_SOURCES = ("line_pct", "branch_pct")
+
+
+def kpi_source(k):
+    """La grandeur mesurée qu'une tuile doit rendre, ou None si elle n'en rend aucune."""
+    declared = k.get("source")
+    if declared in KPI_SOURCES:
+        return declared
+    if k.get("unit") != "%":
+        return None
+    label = k.get("label", "")
+    if not COVERAGE_KPI.search(label):
+        return None
+    return "branch_pct" if BRANCH_KPI.search(label) else "line_pct"
 
 
 def kpi_value(k, cov):
@@ -235,11 +300,13 @@ def kpi_value(k, cov):
     rendus de la même quantité rendent la promesse invérifiable depuis la page : le lecteur ne peut
     pas savoir lequel est la mesure.
 
-    Là où une mesure existe, elle gagne. Sans cobertura résolu, la valeur écrite est rendue telle
-    quelle — un rapport sans section de couverture ne change pas de comportement.
+    Là où une mesure existe, elle gagne. Là où il n'y en a pas — grandeur absente du rapport, ou
+    périmètre filtré jusqu'à ne plus rien contenir — la valeur écrite est rendue telle quelle,
+    faute de mieux, et la légende dit `n/d` de son côté plutôt que d'inventer un zéro.
     """
-    if cov.get("measured") and k.get("unit") == "%" and COVERAGE_KPI.search(k.get("label", "")):
-        return str(cov["line_pct"])
+    source = kpi_source(k)
+    if source is not None and cov.get(source) is not None:
+        return str(cov[source])
     return k["v"]
 
 
@@ -256,11 +323,13 @@ def render(r):
     cov_rows = [{"label": c["name"], "value": c["pct"], "display": f'{c["pct"]} %',
                  "tip": f'{c["name"]} : {c["covered"]}/{c["total"]} lignes couvertes'}
                 for c in cov["classes"]]
-    # « branches n/d » et jamais « 0 % branches » quand le rapport ne porte aucune donnée de
-    # branche : un zéro est un chiffre, et sur cette page un chiffre se lit comme une mesure (#50).
+    # « n/d » et jamais « 0 % » quand la grandeur n'a pas été mesurée : un zéro est un chiffre, et
+    # sur cette page un chiffre se lit comme une mesure (#50). Vaut pour les deux axes — un
+    # périmètre filtré jusqu'au vide affichait « 0 % lignes » avec le même aplomb.
+    lignes = (f'{cov["line_pct"]} % lignes' if cov["line_pct"] is not None else 'lignes n/d')
     branches = (f'{cov["branch_pct"]} % branches' if cov["branch_pct"] is not None
                 else 'branches n/d')
-    cov_note = (f'Global : {cov["line_pct"]} % lignes · {branches}'
+    cov_note = (f'Global : {lignes} · {branches}'
                 + (f' — {r["coverage"]["note"]}' if r["coverage"].get("note") else ""))
     cov_svg = hbar_chart(cov_rows, "Couverture de lignes par classe", cov_note)
     code_rows = [{"label": b["label"], "value": b["loc"], "display": str(b["loc"]),
