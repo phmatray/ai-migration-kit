@@ -138,6 +138,15 @@ jobs:
           # refuser LES DEUX, et le log retombe sous `<projet>/bin/<config>/<tfm>/TestResults/`.
           # C'est exactement le cas où ce log est la seule explication de l'échec (#74), et la
           # console n'en imprime que le chemin.
+          #
+          # ⚠ ENCODAGE : MTP écrit ces .log en UTF-16-LE AVEC BOM (mesuré : premiers octets
+          #   `ff fe`), les deux emplacements confondus. Conséquence pratique une fois l'artefact
+          #   téléchargé : `grep "Unknown option" <log>` ne renvoie RIEN — non pas parce que le
+          #   fichier est vide, mais parce qu'un lecteur UTF-8 n'y voit pas de texte. Le piège est
+          #   qu'il en donne l'apparence, et l'on conclut que le log ne dit rien. Décoder d'abord :
+          #     iconv -f UTF-16 -t UTF-8 <log>        # ou, en Python, open(p, encoding="utf-16")
+          #   Ne pas deviner l'encodage par essais successifs : `raw.decode("utf-16")` NE lève PAS
+          #   sur de l'UTF-8 de longueur paire, il rend du mojibake — se fier au BOM.
           path: |
             coverage/**/*.cobertura.xml
             coverage/*.cobertura.xml

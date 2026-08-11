@@ -436,4 +436,53 @@ for control in ("coverage/LegacyShop.Empty.Tests_net10.0_arm64.log",
 PY
 echo "  [7] the artifact patterns cover the log's bin/ fallback, controls still covered"
 
+# ---------------------------------------------------------------------------
+# 8. The artifact step warns that those logs are UTF-16 (issue #74).
+#
+#    Collecting the log is only half of it. Measured: MTP writes them UTF-16-LE with a BOM, in
+#    BOTH locations — so `grep "Unknown option" <log>` on the downloaded artifact returns nothing.
+#    Not "the log is empty": a UTF-8 reader sees no text in it. That failure mode LOOKS like an
+#    empty file, so without a warning the reader concludes the log is worthless and goes back to
+#    bisecting by pushing commits — the cost this whole issue exists to remove.
+#
+#    A comment is the only place that warning can live (a workflow cannot annotate an artifact),
+#    so this asserts it is present — comments are exactly what a later tidy-up drops silently.
+# ---------------------------------------------------------------------------
+python3 - "$TEMPLATE" <<'PY'
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+start = next((i for i, l in enumerate(lines)
+              if l.strip() == "- name: Publier la couverture en artefact de build"), None)
+assert start is not None, "the artifact step is gone — section 6 should have caught this first"
+# The step's own block, and ONLY it — bounded by INDENT, not by the next `- name:`.
+# Two boundary tests fail here, both silently and both by over-reaching:
+#   * "next `- name:`" — the next one in this file is inside the opt-in block and is COMMENTED
+#     OUT, so the scan runs to EOF and swallows 130 unrelated lines;
+#   * "next `--8<--` sentinel" — better, but the opt-in section opens with ~40 lines of comment
+#     ABOVE its sentinel, at the step's own indent, which still get absorbed.
+# Everything belonging to this step is indented deeper than its `- name:`, so the first non-blank
+# line back at that indent is the true end. The assertions below then quote this step or nothing.
+indent = len(lines[start]) - len(lines[start].lstrip())
+end = next((i for i in range(start + 1, len(lines))
+            if lines[i].strip() and (len(lines[i]) - len(lines[i].lstrip())) <= indent),
+           len(lines))
+block = "\n".join(lines[start:end])
+# Prove the slice really is one step, so a future boundary regression surfaces here rather than
+# silently widening what the assertions below are allowed to match.
+assert "--8<--" not in block, "the extracted block leaked into the opt-in section"
+assert "À N'ACTIVER" not in block, "the extracted block absorbed the opt-in section's preamble"
+assert end - start < 40, f"the artifact step slice is {end - start} lines — it over-reached"
+
+assert "UTF-16" in block, (
+    "the artifact step no longer says its .log files are UTF-16. Someone downloading the artifact "
+    "will grep them as UTF-8, get no output, and read that as 'the log is empty' — which is the "
+    "one wrong conclusion available here (issue #74)."
+)
+assert "iconv" in block or "encoding=" in block, (
+    "the UTF-16 warning names no way to actually read the file. State the decode command "
+    "(iconv -f UTF-16) or the Python codec, or the warning leaves the reader exactly as stuck."
+)
+PY
+echo "  [8] the artifact step warns that MTP's logs are UTF-16, and says how to read them"
+
 echo "ci-dotnet template opt-in bundle gate golden test OK"
