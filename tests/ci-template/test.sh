@@ -7,23 +7,33 @@
 # PR closed and the Dependency Dashboard showed the advisory as fixed. That is worse than leaving
 # it unfixed: it manufactures a FALSE REMEDIATION.
 #
-# The step ships COMMENTED OUT, and that is a measured decision, not timidity (issue #32): across
-# 193 local .NET repos, exactly 3 commit build output and exactly 1 has it consumed by the .NET
-# build. A step that fails by default on the other 192 would be deleted or `continue-on-error`'d,
-# which teaches a team to ignore a red step — strictly worse than absent.
+# The steps ship INERT, and that is a measured decision, not timidity (issue #32): across 193 local
+# .NET repos, exactly 3 commit build output and exactly 1 has it consumed by the .NET build. A step
+# that RAN by default on the other 192 would be deleted or `continue-on-error`'d, which teaches a
+# team to ignore a red step — strictly worse than absent.
 #
-# A commented-out step is dead text that nothing executes, so it rots silently. This file is what
-# stops that: it UNCOMMENTS the block and runs the guard for real, both ways.
+# Inert used to mean "commented out". Since #70 it means `if: ${{ vars.BUNDLE_DIST != '' }}` on
+# live YAML, because a comment cost more than it saved: Renovate's github-actions manager cannot
+# see a commented action reference. Measured with its own extractor — 5 dependencies from this
+# file with the block as text, 7 with it live, the two extra being `actions/setup-node` and
+# `node 26.5.0`. The gate's second precondition is a PINNED toolchain (Tailwind v4 and
+# lightningcss ship per-platform native binaries), so leaving that pin unmaintainable undercut the
+# very guarantee the step exists to provide. Going live also deleted this file's sentinel slicer
+# and un-commenter: the steps are now read the way GitHub reads them.
 #
 # What is asserted:
-#   1. the block is still there, and the template parses as YAML once it is uncommented — so the
-#      step cannot drift into something that would not run when a consumer enables it;
+#   1. three live steps — setup-node, rebuild, guard — in that order, each gated on the variable,
+#      with Node pinned to an EXACT version;
 #   2. the guard FAILS on a bundle that no longer matches its sources;
-#   3. it fails specifically on the content-hash rename (delete + UNTRACKED add) — and the same
-#      tree is proven invisible to `git diff`, which is why `git status --porcelain` is mandatory;
+#   3. it fails on the content-hash rename (delete + UNTRACKED add), and 3b on the real-world
+#      shape where the bundle dir is gitignored and force-added — both invisible to plain
+#      `--porcelain`/`git diff`, which is why `--porcelain --ignored` is mandatory;
 #   4. the guard PASSES on a bundle that does match — a gate that always fails is not a gate;
-#   5. the commented block leaves the ACTIVE template untouched: still valid YAML, and no step of
-#      it runs by default.
+#  5b. a misconfigured path is REFUSED rather than passing quietly on nothing, and 5c a directory
+#      that exists but holds no tracked file likewise;
+#   5. as shipped all three are inert, by a condition that is false when the variable is unset —
+#      and nothing outside the gate references the variable;
+#  6-9. the coverage artifact step (pre-existing assertions, unrelated to the bundle gate).
 #
 # Needs PyYAML, which ci.yml installs before every test step.
 set -euo pipefail
@@ -59,63 +69,61 @@ trap cleanup EXIT
 
 scratch=$(mktemp -d)
 
-# Uncomment the sentinel-delimited opt-in block and print the whole template. Everything below
-# runs against THIS text, never a hand-copied paraphrase of it — a test that asserts things about
-# its own string proves nothing about what the kit ships.
-uncommented() {
-  python3 - "$TEMPLATE" <<'PY'
-import re, sys
-BEGIN = "--8<-- opt-in: committed-bundle drift gate"
-END = "--8<-- end opt-in"
-lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-start = next((i for i, l in enumerate(lines) if BEGIN in l), None)
-stop = next((i for i, l in enumerate(lines) if END in l), None)
-if start is None or stop is None or stop <= start:
-    sys.exit("templates/ci-dotnet.yml no longer carries the opt-in block sentinels")
-out = lines[:start]
-for line in lines[start + 1:stop]:
-    m = re.match(r"^(\s*)#( ?)(.*)$", line)
-    # A line inside the block that is not a comment would mean the block leaked into the
-    # active workflow — refuse rather than silently emit it twice.
-    if not m:
-        sys.exit(f"line inside the opt-in block is not commented out: {line!r}")
-    out.append(m.group(1) + m.group(3))
-out += lines[stop + 1:]
-print("\n".join(out))
+# The three opt-in steps are LIVE YAML now, so they are read the way GitHub reads them — no
+# sentinel slicer, no un-commenter, no "every line inside the markers must be a comment" check.
+# #70 measured why the text form had to go: a commented action reference is INVISIBLE to
+# Renovate's github-actions manager. Running its own extractor over this file found 5 dependencies
+# and no setup-node; with the step live it finds 7, including `node 26.5.0`. The gate depends on a
+# pinned toolchain (per-platform native binaries in Tailwind v4 / lightningcss), and that pin could
+# never be maintained while it lived in a comment.
+step_named() {
+  python3 - "$TEMPLATE" "$1" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+step = next((s for s in doc["jobs"]["test"]["steps"] if s.get("name") == sys.argv[2]), None)
+if step is None:
+    sys.exit(f"templates/ci-dotnet.yml has no step named {sys.argv[2]!r}")
+sys.stdout.write(step.get("run") or "")
 PY
 }
 
 # ---------------------------------------------------------------------------
-# 1. The block exists, and the template is valid YAML once uncommented.
+# 1. The three steps are present, ordered, and inert by default.
+#
+#    Order is load-bearing: setup-node, then rebuild, then guard. A guard that ran before the
+#    rebuild would measure a tree nothing regenerated and pass on a stale bundle — the exact
+#    failure it exists to catch.
 # ---------------------------------------------------------------------------
-uncommented > "$scratch/enabled.yml"
-python3 - "$scratch/enabled.yml" <<'PY'
+python3 - "$TEMPLATE" <<'PY'
 import sys, yaml
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 steps = doc["jobs"]["test"]["steps"]
 names = [s.get("name") for s in steps]
-want = "Garde — le bundle front committé correspond toujours à ses sources"
-assert want in names, f"the guard step is missing once uncommented: {names}"
-rebuild = "Reconstruire le bundle front committé"
-assert rebuild in names, f"the rebuild step is missing once uncommented: {names}"
-# The rebuild must come BEFORE the guard, or the guard measures a tree nothing regenerated
-# and passes on a stale bundle — the exact failure it exists to catch.
-assert names.index(rebuild) < names.index(want), \
-    f"the rebuild step must precede the guard: {names}"
+want = ["Setup Node (bundle front committé)",
+        "Reconstruire le bundle front committé",
+        "Garde — le bundle front committé correspond toujours à ses sources"]
+for w in want:
+    assert w in names, f"missing step {w!r}: {names}"
+idx = [names.index(w) for w in want]
+assert idx == sorted(idx), f"setup-node -> rebuild -> guard is out of order: {idx}"
+by = {s.get("name"): s for s in steps}
+for w in want:
+    cond = str(by[w].get("if", ""))
+    assert "vars.BUNDLE_DIST" in cond, (
+        f"step {w!r} is not gated on the repo variable — it would RUN on the 192 of 193 repos "
+        f"that commit no bundle: if={cond!r}")
+# The pinned action and the exact Node version are precisely what Renovate can now maintain.
+node = by["Setup Node (bundle front committé)"]
+assert str(node.get("uses", "")).startswith("actions/setup-node@"), node
+ver = str((node.get("with") or {}).get("node-version", ""))
+assert ver[:1].isdigit() and ver.count(".") >= 2, (
+    f"node-version must be EXACT, not a floating major: {ver!r}. Precondition 2 of this gate — "
+    f"per-platform native binaries in the front-end toolchain — collapses if Node floats.")
 PY
-echo "  [1] the opt-in block uncomments into valid YAML, rebuild before guard"
+echo "  [1] three live steps, ordered, all gated on vars.BUNDLE_DIST, Node pinned exactly"
 
-# Extract the guard's shell body from the UNCOMMENTED text.
-guard_body() {
-  python3 - "$scratch/enabled.yml" <<'PY'
-import sys, yaml
-doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
-step = next(s for s in doc["jobs"]["test"]["steps"]
-            if s.get("name") == "Garde — le bundle front committé correspond toujours à ses sources")
-sys.stdout.write(step["run"])
-PY
-}
-guard_body > "$scratch/guard.sh"
+step_named "Garde — le bundle front committé correspond toujours à ses sources" > "$scratch/guard.sh"
+[ -s "$scratch/guard.sh" ] || { echo "FAIL: the guard step has an empty run: body"; exit 1; }
 bash -n "$scratch/guard.sh" || { echo "FAIL: the guard body is not valid bash"; exit 1; }
 
 # A scratch git repo carrying a committed bundle. `$1` = path, `$2` = asset filename.
@@ -304,20 +312,38 @@ fi
 echo "  [5c] refuses a directory that exists but holds no tracked file"
 
 # ---------------------------------------------------------------------------
-# 5. As shipped, the block is inert: the template is valid YAML and carries
-#    neither step. A default-on gate on the 192 repos this does not apply to is
-#    exactly what the measurement ruled out.
+# 5. As shipped the three steps are PRESENT but INERT — and inert by the one mechanism GitHub
+#    actually evaluates, not by being text.
+#
+#    The measurement that forces this: of 193 local .NET repos, 3 commit build output and 1 has it
+#    consumed by the build. A step that RAN by default on the other 192 would be deleted or
+#    `continue-on-error`'d, which teaches a team to ignore a red step — worse than absent.
+#
+#    So "inert" is now checked as: every one of the three carries a condition that is false when
+#    the repo variable is unset, and none of them is `if: always()`-style unconditional. This is
+#    the assertion that replaces "the step must not appear in the parsed YAML", which was only
+#    ever a proxy for it.
 # ---------------------------------------------------------------------------
 python3 - "$TEMPLATE" <<'PY'
 import sys, yaml
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
-names = [s.get("name") for s in doc["jobs"]["test"]["steps"]]
-for forbidden in ("Reconstruire le bundle front committé",
-                  "Garde — le bundle front committé correspond toujours à ses sources"):
-    assert forbidden not in names, \
-        f"the opt-in step is ACTIVE in the shipped template: {forbidden}"
+steps = doc["jobs"]["test"]["steps"]
+gated = [s for s in steps if "BUNDLE_DIST" in str(s.get("if", ""))]
+assert len(gated) == 3, f"expected exactly 3 bundle steps gated on the variable, got {len(gated)}"
+for s in gated:
+    cond = str(s["if"])
+    # The gate must test the variable for emptiness. `if: ${{ vars.BUNDLE_DIST }}` would also work
+    # in GitHub, but `!= ''` says the intent out loud and cannot be misread as a boolean flag.
+    assert "!= ''" in cond or '!= ""' in cond, \
+        f"the gate must compare BUNDLE_DIST to empty, so an unset variable is plainly false: {cond}"
+    assert "always()" not in cond, f"an always() gate would defeat the opt-in entirely: {cond}"
+# Nothing else in the workflow may depend on the variable — a repo that never sets it must get
+# exactly the same run it gets today.
+others = [s.get("name") for s in steps
+          if s not in gated and "BUNDLE_DIST" in yaml.safe_dump(s, allow_unicode=True)]
+assert not others, f"BUNDLE_DIST leaked into steps outside the opt-in gate: {others}"
 PY
-echo "  [5] as shipped the block is inert — neither step is active"
+echo "  [5] shipped inert — all three gated on an unset variable, nothing else touches it"
 
 # ---------------------------------------------------------------------------
 # 6. The coverage artifact is uploaded on the FAILURE path too (issue #74).
@@ -495,8 +521,9 @@ assert start is not None, "the artifact step is gone — section 6 should have c
 # Two boundary tests fail here, both silently and both by over-reaching:
 #   * "next `- name:`" — the next one in this file is inside the opt-in block and is COMMENTED
 #     OUT, so the scan runs to EOF and swallows 130 unrelated lines;
-#   * "next `--8<--` sentinel" — better, but the opt-in section opens with ~40 lines of comment
-#     ABOVE its sentinel, at the step's own indent, which still get absorbed.
+#   * "next `--8<--` sentinel" — that sentinel is gone since #70 made the opt-in steps live YAML,
+#     and even while it existed the opt-in section opened with ~40 lines of comment ABOVE it, at
+#     the step's own indent, which still got absorbed.
 # Everything belonging to this step is indented deeper than its `- name:`, so the first non-blank
 # line back at that indent is the true end. The assertions below then quote this step or nothing.
 indent = len(lines[start]) - len(lines[start].lstrip())
@@ -506,7 +533,7 @@ end = next((i for i in range(start + 1, len(lines))
 block = "\n".join(lines[start:end])
 # Prove the slice really is one step, so a future boundary regression surfaces here rather than
 # silently widening what the assertions below are allowed to match.
-assert "--8<--" not in block, "the extracted block leaked into the opt-in section"
+assert "Setup Node" not in block, "the extracted block leaked into the opt-in steps"
 assert "À N'ACTIVER" not in block, "the extracted block absorbed the opt-in section's preamble"
 assert end - start < 40, f"the artifact step slice is {end - start} lines — it over-reached"
 
