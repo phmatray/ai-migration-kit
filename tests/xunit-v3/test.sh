@@ -1727,18 +1727,29 @@ for i in $(seq 1 2000); do
   : > "$sigpipe_dir/padded-so-the-listing-overruns-the-pipe-buffer-$i.cobertura.xml"
 done
 
+# The population is measured DIRECTLY rather than inferred from the exit status, because the status
+# alone cannot tell "the reader closed the pipe" from "there was nothing to find" — and it is not
+# even the same status on both platforms. Measured: BSD find (macOS) is killed by SIGPIPE and the
+# pipeline reports 141; GNU find (the ubuntu runner) catches EPIPE, prints
+# `find: 'standard output': Broken pipe` and exits 1 — the very status an empty directory produces.
+# So an exact `-eq 141` is red on CI, and a bare `-ne 0` would call an EMPTY fixture intact and then
+# blame any_match for a directory that simply had no files in it. Proving the fixture is populated
+# first is what makes any non-zero status here unambiguous evidence of the inversion.
+created=$(find "$sigpipe_dir" -name '*.cobertura.xml' -type f | wc -l | tr -d ' ')
+if [ "$created" -lt 2000 ]; then
+  echo "FAIL: fixture broken — $created matching files created, expected 2000. Section 10 cannot"
+  echo "      reproduce #48 without enough entries to overrun the 64 KiB pipe buffer."
+  exit 1
+fi
+
 set +e
 find "$sigpipe_dir" -name '*.cobertura.xml' 2>/dev/null | grep -q .   # sigpipe-repro
 naive_rc=$?
 set -e
-# 141 SPECIFICALLY, not merely non-zero. Measured: the loaded fixture gives 141 (find killed by
-# SIGPIPE) while an EMPTY directory gives 1 (grep matched nothing) — so a `-ne 0` test would call
-# an empty fixture "intact", and the assertion below would then blame any_match for a directory
-# that simply had no files in it. Only 141 is evidence that the pipe closed under a live writer.
-if [ "$naive_rc" -ne 141 ]; then
-  echo "FAIL: fixture broken — the naive find|grep pipeline returned $naive_rc, not 141, on"
-  echo "      $(ls "$sigpipe_dir" | wc -l | tr -d ' ') matches. Section 10 is not reproducing #48:"
-  echo "      141 means find was killed writing into a closed pipe; 1 would mean it found nothing."
+if [ "$naive_rc" -eq 0 ]; then
+  echo "FAIL: fixture broken — the naive find|grep pipeline succeeded on $created matches."
+  echo "      It must report FAILURE there (141 on BSD find, 1 on GNU find's 'Broken pipe'):"
+  echo "      that inversion is the whole defect of #48, and section 10 is not reproducing it."
   exit 1
 fi
 
