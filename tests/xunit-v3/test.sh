@@ -394,6 +394,11 @@ dotnet sln "$scratch/multi/LegacyShop.sln" add \
   "$scratch/multi/tests/LegacyShop.Catalog.Tests/LegacyShop.Catalog.Tests.csproj" > /dev/null
 python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/multi" > /dev/null
 
+# Pristine, transformed, not yet built — 4f and 4g mutate a copy each. Taken HERE rather than
+# after the run below so they start from a clean tree: a coverage/ or a bin/ carried over from
+# this run would let their assertions read yesterday's artefacts.
+cp -R "$scratch/multi" "$scratch/pristine"
+
 cd "$scratch/multi"
 rm -rf coverage
 if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/multi-cov.log" 2>&1; then
@@ -437,6 +442,200 @@ if bash -c "$GUARD_STEP" > /dev/null 2>&1; then
   exit 1
 fi
 echo "  [4e] the empty-coverage guard accepts per-project reports and still refuses nothing"
+cd "$KIT"
+
+# ---------------------------------------------------------------------------
+# 4f. A test project that CANNOT collect coverage must fail the run, not shrink the report set.
+#
+#     Issue #31 assumed a project missing Microsoft.Testing.Extensions.CodeCoverage would
+#     contribute nothing while its siblings still reported — leaving the job green on a union
+#     that is quietly partial, the same wrong-answer shape as #17 one level up.
+#
+#     Measured instead (2026-08-10, SDK 10.0.302, xunit.v3 3.2.2, CodeCoverage 17.14.2):
+#     `--coverage` is an option CONTRIBUTED BY that extension, so without it MTP does not skip
+#     collection — it refuses the option, `Unknown option '--coverage'`, and the test app exits
+#     non-zero. Under the step's `set -euo pipefail` that fails the step outright, before the
+#     guard below ever runs. The report set is never silently partial for this cause.
+#
+#     So the guarantee #31 asked for already holds — but by ACCIDENT of MTP's argument parsing,
+#     with nothing pinning it. An MTP release that downgraded an unknown option to a warning
+#     would reopen the hole in silence, and the guard could not see it: one healthy sibling's
+#     report satisfies a presence check. This case is that pin.
+#
+#     It asserts the REASON, not merely a non-zero exit. A restore failure or a build break also
+#     exits non-zero and would satisfy a bare `if ! …; then` while proving nothing — the trap 4a
+#     documents for itself.
+# ---------------------------------------------------------------------------
+cp -R "$scratch/pristine" "$scratch/nocov"
+python3 - "$scratch/nocov/tests/LegacyShop.Catalog.Tests/LegacyShop.Catalog.Tests.csproj" <<'PY'
+import re, sys
+path = sys.argv[1]
+before = open(path, encoding="utf-8").read()
+after = re.sub(r'[ \t]*<PackageReference Include="Microsoft\.Testing\.Extensions\.CodeCoverage"[^\n]*\n',
+               '', before)
+if after == before:
+    sys.exit("no Microsoft.Testing.Extensions.CodeCoverage reference to remove — apply-transform.py "
+             "changed shape, and this case would silently test the healthy configuration instead")
+open(path, "w", encoding="utf-8").write(after)
+PY
+
+cd "$scratch/nocov"
+rm -rf coverage
+if SOLUTION='' bash -c "$MTP_STEP" > "$scratch/nocov.log" 2>&1; then
+  echo "FAIL: the coverage step SUCCEEDED with a test project that cannot collect coverage."
+  echo "      #31's hole is then real: green run, silently partial report set. Reports written:"
+  echo "      $(find coverage -name '*.cobertura.xml' | wc -l | tr -d ' ') for 2 test projects."
+  echo "      The guard cannot catch this — one sibling's report satisfies a presence check."
+  tail -20 "$scratch/nocov.log"; exit 1
+fi
+# The console names the log but not the reason; MTP writes the reason there, in UTF-16.
+nocov_detail=$(find "$scratch/nocov" -name 'LegacyShop.Catalog.Tests_*.log' -print -quit)
+[ -n "$nocov_detail" ] || {
+  echo "FAIL: the run failed but MTP wrote no per-project log, so the reason cannot be checked:"
+  tail -20 "$scratch/nocov.log"; exit 1; }
+python3 - "$nocov_detail" <<'PY'
+import sys
+raw = open(sys.argv[1], "rb").read()
+# Chosen by BOM, never by trial decoding. `raw.decode("utf-16")` does NOT raise on UTF-8 input of
+# even length — it returns mojibake — so a try/except chain that puts utf-16 first silently turns
+# a readable log into garbage the marker can never be found in, and the case then fails claiming
+# the wrong reason. MTP writes UTF-16-LE with a BOM (measured: b"\xff\xfe"); anything else is
+# read as UTF-8.
+if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+    text = raw.decode("utf-16")
+else:
+    text = raw.decode("utf-8", errors="replace")
+if "Unknown option '--coverage'" not in text:
+    sys.exit("the step failed, but NOT because --coverage was refused. A restore failure or a "
+             "build break exits non-zero too, so this case would pass for the wrong reason and "
+             "stop pinning anything. First 30 lines of MTP's log:\n\n"
+             + "\n".join(text.splitlines()[:30]))
+PY
+echo "  [4f] a test project without the coverage extension is REFUSED (--coverage unknown), not"
+echo "       quietly dropped from the report set"
+cd "$KIT"
+
+# ---------------------------------------------------------------------------
+# 4g. The other candidate cause of a partial report set — a project that runs ZERO tests — also
+#     fails the run, and does not even produce a shortfall.
+#
+#     #31 named this as the cause that would survive if the missing-extension one turned out to
+#     be covered. Measured, it is covered twice over: MTP treats "ran 0 tests" as a failure of
+#     that test app (`Failed! - Failed: 0, Passed: 0, Skipped: 0, Total: 0`), AND the app still
+#     writes its coverage report — so the report count never falls short in the first place.
+#
+#     Both halves are asserted. The report count matters as much as the exit status: it is the
+#     evidence that a count-based guard would have had nothing to catch here, which is the
+#     measurement the template's guard comment cites.
+# ---------------------------------------------------------------------------
+cp -R "$scratch/pristine" "$scratch/zerotests"
+python3 - "$scratch/zerotests/tests/LegacyShop.Catalog.Tests/PriceCatalogClientTests.cs" <<'PY'
+import sys
+path = sys.argv[1]
+before = open(path, encoding="utf-8").read()
+# Drop the attribute, keep the method: the project still compiles and still references xunit.v3,
+# so it is a test app that discovers nothing — not a project that failed to build.
+after = before.replace("        [Fact]\n", "")
+if after == before:
+    sys.exit("no [Fact] attribute to remove — this case would silently test a healthy project")
+open(path, "w", encoding="utf-8").write(after)
+PY
+
+cd "$scratch/zerotests"
+rm -rf coverage
+if SOLUTION='' bash -c "$MTP_STEP" > "$scratch/zerotests.log" 2>&1; then
+  echo "FAIL: the coverage step SUCCEEDED with a test project that discovers zero tests."
+  echo "      A suite that silently stopped running would then ship green."
+  tail -20 "$scratch/zerotests.log"; exit 1
+fi
+grep -q 'Total: 0' "$scratch/zerotests.log" || {
+  echo "FAIL: the step failed, but no project reported 'Total: 0' — so it failed for some other"
+  echo "      reason and this case pins nothing:"; tail -20 "$scratch/zerotests.log"; exit 1; }
+# The half that decides the template's guard shape: no shortfall to count.
+zero_reports=$(find coverage -name '*.cobertura.xml' | grep -c . || true)
+if [ "$zero_reports" -ne 2 ]; then
+  echo "FAIL: a zero-test project now yields $zero_reports report(s) for 2 test projects, where it"
+  echo "      used to yield 2. This cause has BECOME a shortfall, so the reasoning recorded on the"
+  echo "      guard in templates/ci-dotnet.yml (presence, not count) needs re-measuring — see #31."
+  exit 1
+fi
+echo "  [4g] a zero-test project FAILS the run and still writes its report — never a shortfall"
+cd "$KIT"
+
+# ---------------------------------------------------------------------------
+# 4h. `$mtp` OVER-COUNTS: it matches csproj files that are not test applications.
+#
+#     This is the second half of the reasoning recorded on the guard in templates/ci-dotnet.yml,
+#     and the one that decides its SHAPE. 4f and 4g show there is no silent shortfall left to
+#     catch; this case shows that catching one by counting would refuse a healthy repo.
+#
+#     A shared test-helper library — a custom FactAttribute, common fixtures, assertion helpers —
+#     references xunit.v3, so the discovery grep matches it. It is not a test application, so
+#     `dotnet test` correctly never runs it and it never writes a report. Expected 2, actual 1,
+#     run perfectly green. `>=` does not rescue that: the defect is in the SOURCE of the expected
+#     number, not in the comparison.
+#
+#     The discovery line is taken FROM THE TEMPLATE rather than retyped. That is the whole point:
+#     narrowing that grep is exactly the change that would make a count viable, and this case has
+#     to be what notices. A hand-copied grep would keep asserting yesterday's behaviour while the
+#     justification on the guard went stale in silence — the trap 4b/4d already document for the
+#     step itself.
+# ---------------------------------------------------------------------------
+cp -R "$FIXTURE" "$scratch/helperlib"
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/helperlib" > /dev/null
+mkdir -p "$scratch/helperlib/tests/LegacyShop.Testing.Common"
+cat > "$scratch/helperlib/tests/LegacyShop.Testing.Common/LegacyShop.Testing.Common.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+  </ItemGroup>
+</Project>
+XML
+cat > "$scratch/helperlib/tests/LegacyShop.Testing.Common/Attributes.cs" <<'CS'
+using Xunit;
+
+namespace LegacyShop.Testing.Common
+{
+    // Shared helper: cites xunit.v3, is deliberately NOT a test application (no OutputType=Exe,
+    // no TestingPlatformDotnetTestSupport). The discovery grep cannot tell the difference.
+    public sealed class IntegrationFactAttribute : FactAttribute
+    {
+    }
+}
+CS
+dotnet sln "$scratch/helperlib/LegacyShop.sln" add \
+  "$scratch/helperlib/tests/LegacyShop.Testing.Common/LegacyShop.Testing.Common.csproj" > /dev/null
+
+# The template's own project-discovery line, sliced out instead of retyped.
+mtp_line=$(grep -E '^[[:space:]]*mtp=\$\(grep ' "$KIT/templates/ci-dotnet.yml" | sed 's/^[[:space:]]*//')
+[ -n "$mtp_line" ] || {
+  echo "FAIL: no 'mtp=\$(grep …)' discovery line in templates/ci-dotnet.yml — 4h cannot compare"
+  echo "      against the template's real grep, so it would prove nothing."; exit 1; }
+
+cd "$scratch/helperlib"
+rm -rf coverage
+if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/helperlib.log" 2>&1; then
+  echo "FAIL: the coverage step failed on a solution that is merely carrying a test-helper library."
+  echo "      That library is not a test app; nothing here should refuse it:"
+  tail -25 "$scratch/helperlib.log"; exit 1
+fi
+eval "$mtp_line"                       # sets $mtp, exactly as the template's step does
+helper_expected=$(printf '%s\n' "$mtp" | grep -c . || true)
+helper_actual=$(find coverage -name '*.cobertura.xml' | grep -c . || true)
+if [ "$helper_expected" -eq "$helper_actual" ]; then
+  echo "FAIL: the discovery grep no longer over-counts — it reports $helper_expected project(s) for"
+  echo "      $helper_actual report(s) on a solution holding a non-test xunit.v3 library."
+  echo "      Point 2 of the guard's rationale in templates/ci-dotnet.yml has stopped being true:"
+  echo "      a count-based guard may now be viable, so re-measure before trusting that comment."
+  printf '%s\n' "$mtp" | sed 's/^/        /'
+  exit 1
+fi
+echo "  [4h] a shared xunit.v3 helper library makes \$mtp claim $helper_expected project(s) for"
+echo "       $helper_actual report(s) on a GREEN run — counting would refuse a healthy repo"
 cd "$KIT"
 
 # ---------------------------------------------------------------------------
