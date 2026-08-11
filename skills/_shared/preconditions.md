@@ -48,7 +48,15 @@ Substitute it in every commit/merge/rebase command. Example:
 
 ```bash
 git <commit-identity> commit -m "message here"
-git <commit-identity> merge origin/main
+```
+
+In the issue/PR lifecycle skills those writes go through the guards rather than through bare `git`,
+and there the flags travel **without** the leading `git` and **before** the branch name — that is
+where the script forwards them to `git` itself:
+
+```bash
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- -m "message here"
+"$GUARDS/guarded-merge.sh"  -C "$WORKTREE" <commit-identity> "$BRANCH" -- origin/main
 ```
 
 This ensures commits are authored with the canonical identity (usually GitHub, not work email).

@@ -265,6 +265,11 @@ the profile's *Conflict hot-spots* table, and the finish-and-verify step — is 
 and lives in [`../../_shared/sync-with-main.md`](../../_shared/sync-with-main.md). Follow it, then
 continue to Step 9 (full build/tests + format gate) — never push a merge you haven't at least built.
 
+Its three writes are guarded like every other write in this skill, so pass `$BRANCH`, `$WORKTREE` and
+`$GUARDS` (Step 4) through to it. The code to know is **exit 5 from `guarded-merge.sh`: conflicts —
+the normal outcome of a real sync, not an error.** Resolve them and *complete* the merge with
+`guarded-commit.sh … -- --no-edit`; re-running the merge on a 5 is the one wrong move.
+
 ---
 
 ## Gotchas, collected
@@ -315,5 +320,7 @@ continue to Step 9 (full build/tests + format gate) — never push a merge you h
 | A commit landed on **another branch** (and a push carried it into someone else's PR) | A concurrent checkout switched HEAD in a shared working tree between the branch creation and the commit. `git commit` never re-checks the branch, so it exits 0 | Cherry-pick the commit onto the branch it belongs to, then `git revert` it on the branch it wrongly landed on. **Never force-push a branch you do not own** — its author may already have built on it. Then move to this issue's own worktree (Step 4) and route every write through the guards |
 | `guarded-commit: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: something checked out `X` in this worktree | **Nothing was committed.** Check out `Y` — better, move to `Y`'s own worktree — and re-run. Do not "just commit anyway" |
 | `guarded-commit: ALERT — the commit was made, but HEAD is now …` (exit 3) | HEAD moved *during* the commit; the work is on the branch the message names | Recover exactly as in the first row. The commit is not lost, only misfiled |
+| `guarded-merge: CONFLICTS on <branch>` (exit 5) | **Not an error** — the expected outcome of a real sync. HEAD is still your branch and the conflicts are in the working tree | Resolve per the rule-of-thumb, then **complete** the merge: `guarded-commit.sh … -- --no-edit`. Never re-run the merge on a 5 — to walk away instead, `guarded-merge.sh … -- --abort` |
+| `guarded-merge: ALERT — HEAD is now …` (exit 3) | HEAD moved *during* the call. **Read the message before acting**: it says whether git wrote anything — if git failed, the other branch took nothing and must not be touched | **Stop and surface it**; recovery is a human call, not a step to automate. Never resolve conflicts or reset from here — the branch that moved is somebody else's, and `merge --abort`/reset are theirs to run. Get back onto your own branch, in a worktree of its own, before anything else |
 | `guarded-push: ALERT — … is NOT this HEAD` (exit 4) | `git push` exited 0 without delivering this HEAD (a `remote.<name>.push` refspec, a `--dry-run`, a rejected-then-retried push) | Treat the work as **unpushed**. Find what the remote branch actually holds before pushing again; the exit code claimed a delivery the remote does not confirm |
 | `tick-plan: ALERT — … now has an EMPTY body` | A body was written empty despite the guards (should be unreachable) | Restore immediately from `/tmp/plan-$ISSUE.orig.md`, then file a bug — the guard has a hole |
