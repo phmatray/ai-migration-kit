@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Un cobertura SANS aucune information de branche : ni `condition-coverage` par ligne, ni
+     `branch-rate` à la racine. Le rapport doit alors dire qu'il ne sait pas (`n/d`) plutôt que
+     d'imprimer « 0 % branches », qui est un chiffre et se lit comme une mesure (#50). -->
+<coverage line-rate="0.5" version="1.9" timestamp="0" lines-covered="1" lines-valid="2">
+  <packages>
+    <package name="Fixture.NoBranch" line-rate="0.5">
+      <classes>
+        <class name="Fixture.NoBranch.Plain" filename="Plain.cs" line-rate="0.5">
+          <methods />
+          <lines>
+            <line number="1" hits="1" />
+            <line number="2" hits="0" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

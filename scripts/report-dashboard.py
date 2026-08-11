@@ -66,8 +66,19 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     # les fusionner mélangerait deux classes distinctes. L'ordre d'insertion est l'ordre du
     # document, donc les ex æquo gardent l'ordre d'origine après le tri (stable).
     merged = {}
+    # `branch-rate` de la racine, gardé en repli. Tous les producteurs de cobertura n'écrivent pas
+    # de `condition-coverage` par ligne ; ceux de la chaîne VSTest/coverlet expriment souvent leurs
+    # branches ici seulement. Ne lire que les lignes rendait alors « 0 % branches » sur une
+    # application bien couverte — une absence de donnée affichée comme une mesure (#50).
+    root_branch_rates = []
     for path in paths:
         root = ET.parse(path).getroot()
+        rate = root.get("branch-rate")
+        if rate is not None:
+            try:
+                root_branch_rates.append(float(rate))
+            except ValueError:
+                pass          # un attribut illisible n'est pas une mesure : on l'ignore, sans bruit
         for cls in root.iter("class"):
             name = cls.get("name")
             if "<" in name or "/" in name:
@@ -112,7 +123,16 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
         # autorise kpi_value() à remplacer la tuile : sans mesure, la valeur écrite reste la seule
         # information disponible et un 0 % calculé serait pire que la transcription (#50).
         "measured": lines_total > 0,
-        "branch_pct": round(100 * br_covered / br_total) if br_total else 0,
+        # Trois états, jamais deux. Les `condition-coverage` par ligne quand il y en a — c'est la
+        # seule forme unionnable entre plusieurs rapports. Sinon le `branch-rate` racine, qui est
+        # le chiffre du producteur : exact pour un rapport, et pour plusieurs c'est leur moyenne,
+        # pas une union — d'où son statut de repli et non de source principale. Sinon None, que le
+        # rendu affiche « n/d » : ne rien savoir n'est pas la même chose que mesurer zéro.
+        "branch_pct": (
+            round(100 * br_covered / br_total) if br_total
+            else round(100 * sum(root_branch_rates) / len(root_branch_rates))
+            if root_branch_rates else None
+        ),
     }
 
 
@@ -236,7 +256,11 @@ def render(r):
     cov_rows = [{"label": c["name"], "value": c["pct"], "display": f'{c["pct"]} %',
                  "tip": f'{c["name"]} : {c["covered"]}/{c["total"]} lignes couvertes'}
                 for c in cov["classes"]]
-    cov_note = (f'Global : {cov["line_pct"]} % lignes · {cov["branch_pct"]} % branches'
+    # « branches n/d » et jamais « 0 % branches » quand le rapport ne porte aucune donnée de
+    # branche : un zéro est un chiffre, et sur cette page un chiffre se lit comme une mesure (#50).
+    branches = (f'{cov["branch_pct"]} % branches' if cov["branch_pct"] is not None
+                else 'branches n/d')
+    cov_note = (f'Global : {cov["line_pct"]} % lignes · {branches}'
                 + (f' — {r["coverage"]["note"]}' if r["coverage"].get("note") else ""))
     cov_svg = hbar_chart(cov_rows, "Couverture de lignes par classe", cov_note)
     code_rows = [{"label": b["label"], "value": b["loc"], "display": str(b["loc"]),

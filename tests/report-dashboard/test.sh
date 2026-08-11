@@ -254,4 +254,50 @@ if [ -z "$pct" ] || [ "$pct" -le 0 ]; then
 fi
 rm -rf "$doc_case"
 
+# ---------------------------------------------------------------------------
+# Une absence de donnée de branche n'est pas une mesure de 0 % (issue #50).
+#
+# `branch_pct` se dérivait uniquement des `condition-coverage` par ligne, avec un repli sur 0.
+# Un producteur qui exprime ses branches à la RACINE — forme courante de la chaîne VSTest/coverlet
+# que `templates/ci-dotnet.yml` supporte encore — rendait donc un « 0 % branches » péremptoire sur
+# une application bien couverte, alors que le `branch-rate` racine portait le vrai chiffre. Seul le
+# chemin MTP était protégé (tests/xunit-v3 assert branch_pct > 0), pas celui-ci.
+# ---------------------------------------------------------------------------
+PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+import importlib.util
+spec = importlib.util.spec_from_file_location("rd", "scripts/report-dashboard.py")
+rd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rd)
+
+# 1. branch-rate racine, aucun condition-coverage -> on lit la racine, pas 0.
+racine = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura-rootbranch.xml", [])
+assert racine["branch_pct"] == 60, (
+    f"branch-rate racine 0.6 doit rendre 60 %, pas {racine['branch_pct']} % — "
+    "une absence de condition-coverage n'est pas une absence de branches")
+
+# 2. Ni l'un ni l'autre -> None, que le rendu affichera « n/d ». Surtout pas 0, qui est un chiffre
+#    et se lit comme une mesure.
+muet = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura-nobranch.xml", [])
+assert muet["branch_pct"] is None, (
+    f"sans aucune donnée de branche, branch_pct doit être None, pas {muet['branch_pct']!r}")
+
+# 3. Le chemin par condition-coverage ne bouge pas.
+conds = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura.xml", ["Fixture.Web"])
+assert conds["branch_pct"] == 67, conds["branch_pct"]
+PY
+
+# …et le rendu dit « n/d » plutôt que « 0 % ».
+nd_dir="$(mktemp -d)"
+python3 - "$nd_dir" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura-nobranch.xml"}
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+cp tests/report-dashboard/fixture-cobertura-nobranch.xml "$nd_dir/"
+python3 scripts/report-dashboard.py "$nd_dir/report.json" -o "$nd_dir/report.html" 2>/dev/null
+assert_in "$nd_dir/report.html" 'branches n/d'
+refuse_in "$nd_dir/report.html" '0 % branches'
+rm -rf "$nd_dir"
+
 echo "OK test golden report-dashboard ($out)"
