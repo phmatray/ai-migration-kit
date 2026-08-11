@@ -120,6 +120,18 @@ any_match() {
   [ -n "$hit" ]
 }
 
+# `-print -quit` is what makes any_match safe, so prove the host's find HAS it — once, here, loudly.
+# Without this the tolerance above cuts both ways: on a find that does not support -quit (busybox,
+# some minimal containers) every call would answer "nothing found" with the error discarded, and
+# cleanup()'s __pycache__ guard leans on any_match from the very first exit path — including the
+# exit of an unrelated early failure, long before section 10 could report the problem. A silent
+# "clean" from that guard is exactly what lets a stray .pyc reach the tree.
+if ! find "$KIT" -maxdepth 0 -print -quit >/dev/null 2>&1; then
+  echo "FAIL: this host's find does not support '-print -quit', which every probe in this suite uses."
+  echo "      Every any_match() call would answer 'nothing found' regardless of what is there."
+  exit 1
+fi
+
 # The fixture is the "before" state and must survive this script untouched, on every exit path
 # (including a failure mid-run) — otherwise a red test would also silently rewrite the fixture.
 #
@@ -1590,9 +1602,14 @@ set +e
 find "$sigpipe_dir" -name '*.cobertura.xml' 2>/dev/null | grep -q .   # sigpipe-repro
 naive_rc=$?
 set -e
-if [ "$naive_rc" -eq 0 ]; then
-  echo "FAIL: fixture broken — the naive 'find | grep -q .' shape no longer fails on $(ls "$sigpipe_dir" | wc -l | tr -d ' ')"
-  echo "      matches, so section 10 is no longer reproducing the bug it guards (#48)."
+# 141 SPECIFICALLY, not merely non-zero. Measured: the loaded fixture gives 141 (find killed by
+# SIGPIPE) while an EMPTY directory gives 1 (grep matched nothing) — so a `-ne 0` test would call
+# an empty fixture "intact", and the assertion below would then blame any_match for a directory
+# that simply had no files in it. Only 141 is evidence that the pipe closed under a live writer.
+if [ "$naive_rc" -ne 141 ]; then
+  echo "FAIL: fixture broken — the naive find|grep pipeline returned $naive_rc, not 141, on"
+  echo "      $(ls "$sigpipe_dir" | wc -l | tr -d ' ') matches. Section 10 is not reproducing #48:"
+  echo "      141 means find was killed writing into a closed pipe; 1 would mean it found nothing."
   exit 1
 fi
 
@@ -1612,13 +1629,19 @@ fi
 # One idiom, asserted — the reason both sites were wrong is that the shape reads fine and spreads.
 # The `-[q]` keeps this line from matching itself. `grep -c .` elsewhere in this file is NOT this
 # bug: -c reads the whole stream, so it never closes the pipe early.
-# Anchored at the start of a statement — `^[[:space:]]*(if )?find` — so it counts CODE and not the
-# comments and FAIL messages on this very page, which necessarily spell the broken shape out. The
-# line above is tagged `sigpipe-repro` and excluded too: it IS the broken shape, on purpose.
-strays=$( { grep -nE '^[[:space:]]*(if[[:space:]]+)?find [^|]*\| *grep -[q] \.' "$SELF" || true; } \
+# Deliberately NOT anchored to `^[[:space:]]*(if )?find`. That was the first spelling here, and it
+# only caught two of the six natural forms: `if ! find … | grep -q .` (the negation the shipped
+# template itself uses), `elif`, `while`, and `n=$(find … | grep -q .)` all sailed past, so a
+# copy-paste in the likeliest shape would have reintroduced #48 with this guard green.
+#
+# Instead: match the shape ANYWHERE, then subtract the two kinds of line that spell it out
+# legitimately — comment lines, and the one tagged `sigpipe-repro` above, which IS the broken shape
+# on purpose. The FAIL text below says `find|grep` without the space so it cannot match itself.
+strays=$( { grep -nE 'find [^|]*\| *grep -[q] \.' "$SELF" || true; } \
+  | grep -vE '^[0-9]+:[[:space:]]*#' \
   | grep -v 'sigpipe-repro' || true)
 if [ -n "$strays" ]; then
-  echo "FAIL: a 'find … | grep -q .' site is left in $(basename "$SELF") — use any_match:"
+  echo "FAIL: a find|grep -q site is left in $(basename "$SELF") — use any_match:"
   echo "$strays"
   exit 1
 fi
