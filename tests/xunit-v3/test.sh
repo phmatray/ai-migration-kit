@@ -12,6 +12,10 @@
 #      packages.config, central package management) are all handled;
 #   7. the xunit.v3 / CodeCoverage version pairing is machine-checked, not remembered — and no
 #      ambient environment value can steer the transform, so every override is an explicit flag;
+#      `--help` names the package AND the version the transform actually writes (the docstring
+#      sends readers there for the pinned value), and every prose claim about that version — in the
+#      module's own comments and in the migration reference agents read — is swept for agreement,
+#      so a Renovate bump cannot leave a measurement standing that nobody re-took;
 #   8. THIS FILE loads kit scripts through exactly one module loader, so the no-__pycache__
 #      invariant that loader carries cannot be lost to a copy-paste;
 #   9. Renovate can actually SEE those two pins and actually HOLDS their majors — the custom
@@ -977,6 +981,123 @@ grep -qF "$pinned_coverage" "$shapes/ambient/p/p.csproj" || {
   echo "FAIL: the transform did not write its pinned coverage version ($pinned_coverage):"
   grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1; }
 echo "  [7c] no ambient value steers the transform — overrides are flags only"
+
+#     [7d] `--help` describes the package the transform actually writes.
+#
+#     renovate.json claims "the transform writes COVERAGE_PACKAGE rather than a literal, so all
+#     three move together or the suite fails". That was true of the two spellings the transform
+#     WRITES and false of the one it DISPLAYS: the argparse help text carried its own copy of the
+#     package id (#69). Nothing compared them, so renaming the constant would leave `--help`
+#     describing a package the script no longer touches.
+#
+#     Asserted against the id read from the module, never against a literal here — a literal in the
+#     test would be a fourth copy with the same problem.
+#
+#     The environment is pinned for two terminal-shaped reasons, neither of which is about the
+#     property under test: COLUMNS, because argparse wraps to the terminal width and a narrow one
+#     would split the package id across two lines; NO_COLOR, because argparse began colorizing help
+#     in Python 3.14 and emits escapes even through a pipe — today only the usage line and option
+#     names are colored, but any extension of that into the help body would break these greps.
+#
+#     Assignments, not argument-position command substitutions: `set -e` does NOT propagate a
+#     failing $(...) used as an argument, so a renamed constant would silently pass an empty string
+#     and this block would blame the help text for a defect in the module.
+coverage_package=$(read_const COVERAGE_PACKAGE)
+coverage_version=$(read_const COVERAGE_EXT_VERSION)
+help_text=$(COLUMNS=200 NO_COLOR=1 python3 "$TRANSFORM" --help)
+grep -qF "$coverage_package" <<<"$help_text" || {
+  echo "FAIL: --help never names $coverage_package, the package the transform writes:"
+  printf '%s\n' "$help_text" | grep -i 'coverage' ; exit 1; }
+# The VERSION too, and this half is load-bearing: the module docstring tells the reader to run
+# --help to learn the pinned value, which is only true while `%(default)s` is in the help string.
+# Deleting it would leave that pointer leading nowhere — silently, since the id check above would
+# still pass.
+grep -qF "$coverage_version" <<<"$help_text" || {
+  echo "FAIL: --help never prints the pinned version $coverage_version. The module docstring"
+  echo "      points readers here for it, so the help string needs '%(default)s':"
+  printf '%s\n' "$help_text" | grep -i 'coverage-version' ; exit 1; }
+# And no OTHER Microsoft.Testing.* id: a stale hardcoded name would still satisfy the check above
+# if it happened to sit alongside the derived one. The class allows digits — CodeCoverage2 would
+# otherwise leave a truncated prefix looking like a stale id and fail wholly-derived help text.
+# `|| true` sits INSIDE the pipeline, on EACH grep that legitimately exits 1 (the file's idiom, see
+# the knobs count above) — on the whole pipeline it would also swallow a real failure of grep or
+# sort under pipefail. Both greps return 1 on the PASSING path: the first when the help names no
+# Microsoft.Testing.* id at all, the second when every id it found is the expected one.
+stale_ids=$( { grep -oE 'Microsoft\.Testing\.[A-Za-z0-9.]+' <<<"$help_text" || true; } \
+             | { grep -vxF "$coverage_package" || true; } | sort -u)
+[ -z "$stale_ids" ] || {
+  echo "FAIL: --help names package id(s) other than $coverage_package: $stale_ids"; exit 1; }
+echo "  [7d] --help names the coverage package and version the transform writes, and no other id"
+
+#     [7e] EVERY prose claim about the pinned package's version agrees with the transform.
+#
+#     Renovate now bumps XUNIT_V3_VERSION in the module (#36), and the same version is restated as a
+#     MEASUREMENT in several places — a table in the reference agents read to run real migrations,
+#     and a comment block twelve lines above the constant Renovate itself rewrites. Nothing compared
+#     them, so the first bump silently invalidates all of them (#69), in documents whose entire
+#     subject is that a version mismatch is invisible until run time.
+#
+#     Swept rather than spot-checked. The first draft asserted one table row; the copies it left
+#     unguarded were nearer the constant than the one it guarded, and a reader following its
+#     "update the row" message would have fixed exactly the copy that was already covered.
+#
+#     This ASSERTS agreement rather than templating the number in. These are measurements, not
+#     restatements of a constant: substituting whatever Renovate last bumped to would manufacture a
+#     measurement nobody took, which is worse than a stale one because it looks current.
+xunit_package=$(read_const XUNIT_V3_PACKAGE)
+xunit_pin=$(read_const XUNIT_V3_VERSION)
+python3 - "$xunit_package" "$xunit_pin" "$TRANSFORM" \
+         "$KIT/skills/legacy-upgrade/references/xunit-v3-migration.md" <<'PY'
+import os, re, sys
+
+pkg, version = sys.argv[1], sys.argv[2]
+paths = sys.argv[3:]
+
+
+def die(msg):
+    # NOT `assert`: under python3 -O every assert in this block would vanish while the success
+    # line below still printed, reporting a comparison that never happened. This suite treats a
+    # false green as the one outcome worse than failing.
+    sys.exit(f"FAIL: {msg}")
+
+
+for path in paths:
+    if not os.path.isfile(path):
+        die(f"{path} does not exist — this guard would check nothing. It was moved or renamed; "
+            f"re-point it rather than dropping it.")
+    text = open(path, encoding="utf-8").read()
+
+    # Every "<pinned package> <version>" claim, in prose or in a table cell. Anchored on the id
+    # with a negative lookahead so `xunit.v3.mtp-v2` — a DIFFERENT package, on the opposite
+    # Microsoft.Testing.Platform line, whose own measured version is independent of this pin — is
+    # never mistaken for it. Backticks and asterisks between the two are markdown, not separation.
+    claims = re.findall(
+        r"(?<![\w.])" + re.escape(pkg) + r"(?![\w.])[ \t`*]*(\d+\.\d+\.\d+)", text)
+    for found in set(claims):
+        if found != version:
+            die(f"{path} states {pkg} {found}, but the transform writes {version}.\n"
+                f"       Do NOT simply edit the number: these are MEASUREMENTS (resolved through "
+                f"api.nuget.org/v3-flatcontainer), and they carry the Microsoft.Testing.Platform "
+                f"version and CodeCoverage major that a migration actually depends on. Re-measure "
+                f"how {pkg} {version} resolves, then update every claim this names.")
+    if os.path.basename(path).endswith(".md"):
+        # The reference's measured table is the load-bearing one, so its SHAPE is pinned too: were
+        # it reshaped, the sweep above would quietly find nothing to compare and pass.
+        rows = re.findall(r"^\|\s*\*\*`([^`]+)`\*\*\s+([^\s|]+)\s*\|", text, re.M)
+        names = [n for n, _ in rows]
+        if not rows:
+            die(f"{path}: the measured version table no longer has the shape this check "
+                f"understands (`| **`<package>`** <version> | …`) — re-point this assertion.")
+        if len(names) != len(set(names)):
+            # dict() would silently keep the last, letting a historical table decide the verdict.
+            die(f"{path}: the same package appears in more than one measured row {names}; this "
+                f"check cannot tell which one is current.")
+        if pkg not in names:
+            die(f"{path}: the measured table covers {sorted(names)}, but the transform pins "
+                f"{pkg} — the reference no longer describes the line the kit migrates onto.")
+
+print(f"  [7e] every measured claim about {pkg} agrees with the transform: {version}")
+PY
 
 # ---------------------------------------------------------------------------
 # 8. The no-__pycache__ invariant lives in exactly one place IN THIS FILE.
