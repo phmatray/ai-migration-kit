@@ -1,10 +1,23 @@
 #!/usr/bin/env bash
 # worktrees-ignored.sh — assert that an agent worktree can never be committed to this repository.
 #
-# Why this exists (#43). The harness puts agent worktrees under `.claude/worktrees/`, and
-# `skills/_shared/sync-with-main.md` finishes a merge with `git add -A` — a step both
-# implement-issue and merge-pr reach on the common path. Unignored, that command stages the
-# worktree, so the guarantee has to be mechanical rather than remembered.
+# Why this exists (#43). The harness puts agent worktrees under `.claude/worktrees/`. Unignored,
+# any `git add -A` in this repository stages one, so the guarantee has to be mechanical rather
+# than remembered.
+#
+# ⚠️ The original trigger — `skills/_shared/sync-with-main.md` finishing a merge with `git add -A`,
+# on the common path of both lifecycle skills — is GONE as of #68: that procedure now stages only
+# the conflicted paths, and no skill in this kit runs `add -A` any more. This gate is therefore no
+# longer defending against the kit's own command, and the rest of this header should be read that
+# way. It still earns its place, for two reasons that outlive the command that prompted it:
+#
+#   * a human (or another agent) typing `git add -A` in the main checkout is not governed by
+#     anything the kit does, and this repo is where the agents run; and
+#   * the ignore rule is cheap and the failure is silent and irreversible-ish, which is exactly the
+#     trade this gate exists to take.
+#
+# Do not read the removal as a reason to delete the rule — read it as the reason this header no
+# longer names a caller.
 #
 # WHAT IT ACTUALLY STAGES, measured (git 2.50.1) rather than assumed, because the intuitive answer
 # is wrong and sends you looking for the wrong symptom: a linked worktree carries a `.git` FILE,
@@ -49,9 +62,16 @@
 #
 # Exit codes:
 #   0  every worktree home is ignored, and the rule was not broadened
-#   1  a worktree home is NOT ignored — `git add -A` would stage a worktree
-#   2  the rule was broadened and now hides .claude/skills/repo-profile.md
-#   3  usage error, or <repo-path> is not a git repository
+#   1  a worktree home is NOT ignored — `git add -A` would stage a worktree. THE hazard.
+#   2  every home is ignored, but the rule is broad enough to also hide
+#      .claude/skills/repo-profile.md. No worktree hazard — a caller about to create one may
+#      proceed; what breaks is the repo's ability to carry a profile. Ordered after 1 because it
+#      is a different finding, NOT a worse one: do not collapse "non-zero" into "stop".
+#   3  usage error, or <repo-path> is not a git repository — no verdict was reached, so not a pass
+#
+# The repo path must be the WORKTREE ROOT. `.claude/worktrees/` is an anchored pattern (it contains
+# a slash), so git resolves it relative to the directory it is asked about: run against a subdirectory
+# and a correctly configured repo answers "NOT ignored". Callers pass `git rev-parse --show-toplevel`.
 
 set -euo pipefail
 
@@ -78,14 +98,40 @@ git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 || {
 WORKTREE_HOMES=".claude/worktrees/ .worktrees/"
 MUST_STAY_VISIBLE=".claude/skills/repo-profile.md"
 
+# Where did the matching rule come from, and will anyone else inherit it? `check-ignore` is satisfied
+# by `.git/info/exclude` and by `core.excludesFile`, which are MACHINE-LOCAL: the path is genuinely
+# ignored for whoever runs this, so the immediate hazard is covered and the verdict stays 0 — but the
+# repo itself carries no such rule, and every teammate's and CI's `git add -A` still stages the
+# worktree. Callers that write the answer down (get-repo-profile records it as a durable fact about
+# the repo) must not turn "ignored here, today" into "this repo ignores it".
+#
+# `-v` is used ONLY to name the source, never to decide — see the -q/-v note in the header. Its exit
+# status is not consulted here; `-q` has already ruled.
+rule_source() {
+  git -C "$REPO" check-ignore -v "$1" 2>/dev/null | head -1 | cut -f1 | rev | cut -d: -f3- | rev
+}
+durability_note() {
+  local src="$1"
+  case "$src" in
+    "")   printf '  note: rule source unknown — treat "ignored" as unverified beyond this checkout.\n' ;;
+    /*)   printf '  note: the rule lives in %s (a global excludes file), not in this repo — it\n' "$src"
+          printf '        protects this machine only; teammates and CI still stage the worktree.\n' ;;
+    .git/*) printf '  note: the rule lives in %s, which is NOT committed — it protects this\n' "$src"
+          printf '        checkout only; teammates and CI still stage the worktree.\n' ;;
+    *)    git -C "$REPO" ls-files --error-unmatch "$src" >/dev/null 2>&1 && return 0
+          printf '  note: %s is not tracked by git, so the rule travels with nobody — commit it.\n' "$src" ;;
+  esac
+}
+
 failed=0
 for home in $WORKTREE_HOMES; do
   if git -C "$REPO" check-ignore -q "$home"; then
     printf 'worktrees-ignored: ok — %s is ignored\n' "$home"
+    durability_note "$(rule_source "$home")"
   else
     failed=1
     printf 'worktrees-ignored: REFUSED — %s is NOT ignored.\n' "$home" >&2
-    printf '  A worktree left there is staged by the `git add -A` in sync-with-main.md, as one\n' >&2
+    printf '  A worktree left there is staged by any `git add -A` run in this repo, as one\n' >&2
     printf '  gitlink (160000) pointing at a commit no clone can fetch — see #43.\n' >&2
     printf '  fix: add "%s" to .gitignore.\n' "$home" >&2
   fi
@@ -93,10 +139,12 @@ done
 [ "$failed" -eq 0 ] || exit 1
 
 if git -C "$REPO" check-ignore -q "$MUST_STAY_VISIBLE"; then
-  printf 'worktrees-ignored: REFUSED — %s is ignored.\n' "$MUST_STAY_VISIBLE" >&2
-  printf '  The rule was broadened (most likely to `.claude/`). Consumer repos are told to COMMIT\n' >&2
-  printf '  that file — it is how the lifecycle skills read repo facts — and this repo is the\n' >&2
-  printf '  reference they copy, so the narrow path is the point, not an oversight.\n' >&2
+  printf 'worktrees-ignored: BROADENED — %s is ignored too.\n' "$MUST_STAY_VISIBLE" >&2
+  printf '  Every worktree home above IS ignored, so there is no #43 hazard here — 2 is a different\n' >&2
+  printf '  verdict from 1, not a worse one, and a caller about to create a worktree may proceed.\n' >&2
+  printf '  What it costs: the rule was broadened (most likely to `.claude/`), and consumer repos are\n' >&2
+  printf '  told to COMMIT that file — it is how the lifecycle skills read repo facts, so a repo that\n' >&2
+  printf '  hides it cannot carry a profile.\n' >&2
   printf '  fix: ignore the worktree homes specifically, not all of .claude/.\n' >&2
   exit 2
 fi
