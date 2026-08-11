@@ -110,7 +110,17 @@ jobs:
             exit 1
           fi
 
+      # `if: always()` est la condition, pas la condition implicite `success()` — et c'est ce qui
+      # rend l'artefact utile (#74). L'étape de test tourne sous `set -euo pipefail` : un hôte de
+      # test qui sort en non-zéro termine le job ICI, et toutes les étapes suivantes sont SAUTÉES.
+      # Sans cette ligne, l'artefact n'était donc publié que sur les runs où rien n'avait échoué —
+      # exactement ceux où personne n'en a besoin. Mesuré : un projet de test sans
+      # Microsoft.Testing.Extensions.CodeCoverage fait refuser `--coverage`, le job s'arrête là, et
+      # le log qui porte la RAISON ne quitte jamais le runner.
+      # `always()` et non `failure()` : le chemin vert doit continuer à publier la couverture comme
+      # avant ; `failure()` cesserait de le faire, ce qui remplacerait ce trou-ci par son symétrique.
       - name: Publier la couverture en artefact de build
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: coverage

@@ -319,4 +319,39 @@ for forbidden in ("Reconstruire le bundle front committé",
 PY
 echo "  [5] as shipped the block is inert — neither step is active"
 
+# ---------------------------------------------------------------------------
+# 6. The coverage artifact is uploaded on the FAILURE path too (issue #74).
+#
+#    Every step in this job runs under the implicit `success()` condition, so the upload step is
+#    skipped the moment an earlier step fails. `Tests + couverture` runs under `set -euo pipefail`,
+#    so a test host that exits non-zero ends the job there — and the artifact that would carry the
+#    diagnostic is never produced. The artifact therefore existed only for runs where nothing went
+#    wrong, which is precisely when nobody needs it.
+#
+#    Asserted on the SHIPPED template (the artifact step is active, not part of the opt-in block).
+# ---------------------------------------------------------------------------
+python3 - "$TEMPLATE" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+steps = doc["jobs"]["test"]["steps"]
+want = "Publier la couverture en artefact de build"
+step = next((s for s in steps if s.get("name") == want), None)
+assert step is not None, f"no step named {want!r}: {[s.get('name') for s in steps]}"
+
+cond = step.get("if")
+assert cond is not None, (
+    "the coverage artifact step carries no `if:`, so GitHub applies the implicit success() and "
+    "skips it whenever an earlier step failed. The one run whose artifact matters — the failed "
+    "one — therefore uploads nothing (issue #74)."
+)
+# `success()` and `cancelled()` are the two that would NOT run after a failure. Accept anything
+# else (always(), failure(), !cancelled()), because the property under test is reachability on
+# the failure path, not one particular spelling of it.
+normalised = str(cond).replace(" ", "")
+assert "success()" not in normalised, \
+    f"the artifact step's `if: {cond}` still gates on success — it cannot run after a failure"
+assert normalised != "cancelled()", f"`if: {cond}` runs only on cancellation"
+PY
+echo "  [6] the coverage artifact step is reachable on the failure path"
+
 echo "ci-dotnet template opt-in bundle gate golden test OK"
