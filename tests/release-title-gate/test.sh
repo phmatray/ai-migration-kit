@@ -134,7 +134,12 @@ echo "  ok: title-as-flag — '--help'/'-h' as a PR title is refused, not treate
 # 16. Runs from a foreign working directory (plugin-install simulation, cf. ci.yml). The gate
 #     reads no files, so this must hold for both the pass and the refuse path.
 KIT="$PWD"
-WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
+# Scratch dir and EXIT trap come from the shared preamble (#72). Sourced here, deep in the file,
+# because that is where this suite's only scratch directory is needed.
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT"
+WORK=$(kit_scratch)
 ( cd "$WORK" && bash "$KIT/$GATE" "fix(skills): x" skills/merge-pr/SKILL.md >/dev/null 2>&1 ) \
   || { echo "FAIL [foreign-cwd]: a valid title was refused from another directory"; exit 1; }
 if ( cd "$WORK" && bash "$KIT/$GATE" "chore(skills): x" skills/merge-pr/SKILL.md >/dev/null 2>&1 ); then

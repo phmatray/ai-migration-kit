@@ -42,32 +42,26 @@ cd "$(dirname "$0")/../.."
 KIT="$PWD"
 TEMPLATE="$KIT/templates/ci-dotnet.yml"
 
-scratch=""
 # The template must come out of this run byte-identical. Compared against a hash taken HERE, not
-# against git HEAD: the PR that adds this test also edits the template, so a `git status` check
-# would report the author's own work as damage and fail every run of a correct test.
+# against git HEAD: the PR that adds or edits this test may also edit the template, so a
+# `git status` check would report the author's own work as damage and fail every run of a correct
+# test.
 TEMPLATE_BEFORE=$(shasum -a 256 "$TEMPLATE" | cut -d' ' -f1)
-cleanup() {
-  local rc=$?
-  [ -n "$scratch" ] && rm -rf "$scratch"
+template_unchanged() {
   local after
   after=$(shasum -a 256 "$TEMPLATE" | cut -d' ' -f1)
   if [ "$after" != "$TEMPLATE_BEFORE" ]; then
     echo "FAIL: this test modified templates/ci-dotnet.yml — it must only read it."
-    exit 1
+    return 1
   fi
-  local dirty
-  dirty=$(git -C "$KIT" status --porcelain -- samples/ 2>/dev/null || true)
-  if [ -n "$dirty" ]; then
-    echo "FAIL: the committed fixture was mutated:"
-    echo "$dirty"
-    exit 1
-  fi
-  exit "$rc"
 }
-trap cleanup EXIT
 
-scratch=$(mktemp -d)
+. "$KIT/tests/_lib.sh"
+kit_init "$KIT"
+kit_guard kit_guard_samples_unchanged
+kit_guard template_unchanged
+
+scratch=$(kit_scratch)
 
 # The three opt-in steps are LIVE YAML now, so they are read the way GitHub reads them — no
 # sentinel slicer, no un-commenter, no "every line inside the markers must be a comment" check.

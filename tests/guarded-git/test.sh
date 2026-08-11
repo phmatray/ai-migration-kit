@@ -25,8 +25,15 @@ MERGE="$KIT/skills/implement-issue/scripts/guarded-merge.sh"
 [ -x "$PUSH" ]   || { echo "FAIL: $PUSH missing or not executable"; exit 1; }
 [ -x "$MERGE" ]  || { echo "FAIL: $MERGE missing or not executable"; exit 1; }
 
-WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+# Scratch dir and EXIT trap come from the shared preamble (#72) — eight suites each had
+# their own, and they had diverged. KIT_ROOT is derived from this file's location rather
+# than $PWD: $PWD is only right because a `cd` sits above, and moving it would break the
+# source silently (tests/ci-wiring did exactly that).
+KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$KIT_ROOT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT_ROOT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT_ROOT"
+WORK=$(kit_scratch)
 
 # A scratch repo with two branches, `a` and `b`, each carrying one commit; HEAD on `b`.
 # Local config only: the ambient user config may sign commits or set a commit template,
