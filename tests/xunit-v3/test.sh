@@ -1640,8 +1640,16 @@ def _hold_scoped_to_everything(c):
 
 
 def _case_insensitive_file_pattern(c):
+    # Only the managers that ALREADY select the transform. Rewriting every manager's pattern to
+    # the transform path drags unrelated ones into this section's scope — and they legitimately
+    # carry a different datasource, so `check` refuses them and this ACCEPT case fails for a
+    # reason that has nothing to do with the `/i` flag it is testing. Measured when #66 added a
+    # third manager (the Renovate validator pin in ci.yml, datasource npm): section 9 refused a
+    # config it must accept. That is hole 3 of #67 again, one level up — the guard body was
+    # scoped, the mutations that feed it were not.
     for m in c["customManagers"]:
-        m["managerFilePatterns"] = ["/^tests/xunit-v3/apply-transform\\.py$/i"]
+        if selects(m, TRANSFORM_REL)[0]:
+            m["managerFilePatterns"] = ["/^tests/xunit-v3/apply-transform\\.py$/i"]
 
 
 def _unrelated_major_hold_first(c):
