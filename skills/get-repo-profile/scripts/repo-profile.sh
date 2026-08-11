@@ -20,6 +20,9 @@
 set -uo pipefail
 
 PROFILE_REL=".claude/skills/repo-profile.md"
+# Resolved BEFORE the cd below: $0 can be relative, and cd-ing into the target repo would break it.
+# Kit root = three levels up from skills/get-repo-profile/scripts.
+KIT_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd -P)"
 CMD="${1:-show}"
 # Anchor to the repo root so the profile path resolves from any subdir/worktree.
 # An explicit [dir] arg wins; otherwise use the git top-level, falling back to cwd.
@@ -136,7 +139,52 @@ case "$CMD" in
         -iE 'never|always|in order|target-agnostic|do not|must not|keep .* (agnostic|isolated)' . 2>/dev/null | head -8 | sed 's/^/  /')"
 
     section "Worktree home"
-    if [ -d .claude/worktrees ]; then echo "  .claude/worktrees/"; else echo "  (none — use the skills' default)"; fi
+    # MEASURED, never asserted (#71). This probe used to report only whether the directory EXISTS,
+    # while the template wrote "(git-ignored)" beside it — a different question, and the wrong one:
+    # an unignored worktree home is precisely the repo where a stray `git add -A` stages a worktree
+    # as a single `160000` gitlink pointing at a commit no clone can fetch (#43).
+    #
+    # It runs the SAME guard implement-issue Step 4 and merge-pr Step 2 use as their precondition,
+    # rather than re-deriving `check-ignore` here — the trailing-slash and `-q`-not-`-v` subtleties
+    # have exactly one home — so the profile can never promise what those skills will then refuse.
+    # Which home this repo actually has is a separate fact from whether it is ignored, and the
+    # profile needs both: "record the one this repo uses" is unanswerable from ignore status alone,
+    # since a rule can be in place for a directory that does not exist.
+    found_home=0
+    for h in .claude/worktrees .worktrees; do
+      if [ -d "$h" ]; then echo "  present on disk: $h/"; found_home=1; fi
+    done
+    if [ "$found_home" -eq 0 ]; then
+      echo "  present on disk: neither — no worktree made here yet; use the skills' default"
+    fi
+
+    if [ -x "$KIT_ROOT/scripts/worktrees-ignored.sh" ]; then
+      # -C takes the worktree ROOT, not `.`: this script's cd honours an explicit [dir] argument,
+      # which may be a subdirectory, and `.claude/worktrees/` is an anchored pattern — asked about a
+      # subdirectory, a correctly configured repo answers "NOT ignored" and the profile would record
+      # that falsehood. Measured: `detect src/app` did exactly that.
+      wt_root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+      wt_out="$("$KIT_ROOT/scripts/worktrees-ignored.sh" -C "$wt_root" 2>&1)"; wt_rc=$?
+      printf '%s\n' "$wt_out" | sed 's/^/  /'
+      case "$wt_rc" in
+        0) echo "  -> ignore status verified; record it with the home above" ;;
+        1) echo "  -> TODO: a worktree home is NOT ignored — say so in the profile, and do not" \
+                "write \"(git-ignored)\"; the lifecycle skills refuse to create a worktree here" ;;
+        2) echo "  -> both homes ARE ignored (no worktree hazard), but the rule also hides" \
+                "$PROFILE_REL — TODO: narrow it, or this repo cannot carry a committed profile" ;;
+        *) echo "  -> TODO: the guard could not reach a verdict (exit $wt_rc) — not a pass" ;;
+      esac
+      # A `note:` line above means the rule is machine-local or untracked: true here, false for
+      # everyone else. It must not be written down as a property of the repo.
+      case "$wt_out" in
+        *"note:"*) echo "  -> TODO: the rule is not committed (see note above) — record it as" \
+                        "\"ignored on this machine only\", not as a fact about the repo" ;;
+      esac
+    else
+      echo "  TODO: guard not found at <kit>/scripts/worktrees-ignored.sh — verify BOTH homes by hand:"
+      echo "        git check-ignore -q .claude/worktrees/ && git check-ignore -q .worktrees/"
+      echo "        (the trailing slash is load-bearing; -q, never -v)"
+    fi
 
     echo ""
     echo "# End of facts. Fill references/profile-template.md from the above, then write $PROFILE_REL"

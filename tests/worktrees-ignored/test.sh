@@ -101,8 +101,10 @@ bash "$KIT/$GUARD" -C "$dir" >/dev/null 2>&1
 [ ! -e "$dir/.worktrees" ] || { echo "FAIL [read-only]: the guard created $dir/.worktrees"; exit 1; }
 echo "  ok: read-only — audits the workspace without writing to it"
 
-# 11. The real article, end to end: a genuine `git worktree add` into an unignored home, then the
-#     `git add -A` from sync-with-main.md. Asserts BOTH that the guard refuses and what the damage
+# 11. The real article, end to end: a genuine `git worktree add` into an unignored home, then a
+#     `git add -A` in the MAIN checkout — note the location, because it is the only place the
+#     gitlink is reachable from: run from inside the linked worktree the home lives in the parent
+#     checkout and `add -A` sees nothing (measured, #68). Asserts BOTH that the guard refuses and what the damage
 #     actually looks like — a single 160000 gitlink, not a copy of the tree. The guard's header
 #     states that as measured fact; this is the measurement, so it cannot rot into folklore.
 real="$WORK/real"
@@ -167,5 +169,68 @@ dir=$(scratch '')
 ( cd "$WORK" && bash "$KIT/$GUARD" -C "$dir" >/dev/null 2>&1 ) \
   && { echo "FAIL [foreign-cwd]: an unignored repo passed from another directory"; exit 1; }
 echo "  ok: foreign cwd — the verdict follows -C, not the ambient directory"
+
+# 18. THE shape the skills invoke (#71): a consumer installs the kit as a plugin, so the guard runs
+#     from a directory that is not this repository — and, in the plugin cache, need not be a git
+#     repository at all. Case 17 varies the working directory; this varies the SCRIPT'S OWN home,
+#     which is the part a consumer changes.
+#
+#     Asserted as a pair, and the pair is the point. A guard that consulted its surroundings instead
+#     of -C would answer from whatever repo it found and wave the consumer's repo through looking
+#     exactly like a pass — so "refuses the unignored repo" is only meaningful next to "passes the
+#     one that is configured". Neither half alone rules that out.
+away="$WORK/plugin-cache/scripts"               # outside any git repo, like an installed plugin —
+mkdir -p "$away"                                # and under $WORK, so the EXIT trap still cleans it up
+cp "$KIT/$GUARD" "$away/worktrees-ignored.sh"
+git -C "$(dirname "$(dirname "$away")")" rev-parse --git-dir >/dev/null 2>&1 \
+  && { echo "FAIL [installed-elsewhere]: the fixture is inside a git repo — it proves nothing"; exit 1; }
+
+dir=$(scratch '')                                # a consumer repo with no rule at all
+rc=0; ( cd / && bash "$away/worktrees-ignored.sh" -C "$dir" >/dev/null 2>&1 ) || rc=$?
+[ "$rc" -eq 1 ] || {
+  echo "FAIL [installed-elsewhere]: expected exit 1 for an unignored consumer repo, got $rc"; exit 1; }
+
+rc=0; ( cd / && bash "$away/worktrees-ignored.sh" -C "$KIT" >/dev/null 2>&1 ) || rc=$?
+[ "$rc" -eq 0 ] || {
+  echo "FAIL [installed-elsewhere]: a correctly configured repo was refused (exit $rc) — control invalid"; exit 1; }
+echo "  ok: installed-elsewhere — judges the repo at -C, from a copy living outside any git repo"
+
+# 19. -C takes the worktree ROOT. `.claude/worktrees/` contains a slash, so git anchors it and
+#     resolves it relative to the directory it is asked about — point the guard at a subdirectory and
+#     a perfectly configured repo answers "NOT ignored". Measured, and it reached a caller: the
+#     profile probe passed `-C .` after cd-ing into an explicit [dir] argument.
+#     `.worktrees/` has no internal slash, so it matches at any depth and hides the bug half the time
+#     — which is why this asserts on the anchored home specifically.
+dir=$(scratch '.claude/worktrees/\n.worktrees/\n')
+mkdir -p "$dir/src/app"
+bash "$KIT/$GUARD" -C "$dir" >/dev/null 2>&1 \
+  || { echo "FAIL [root-vs-subdir]: the configured repo failed at its root — control invalid"; exit 1; }
+rc=0; bash "$KIT/$GUARD" -C "$dir/src/app" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || {
+  echo "FAIL [root-vs-subdir]: expected a subdirectory to be refused (exit 1), got $rc."
+  echo "  If this now passes, git stopped anchoring the pattern and callers need not pass the root."; exit 1; }
+echo "  ok: root-vs-subdir — the anchored home is only satisfied from the worktree root"
+
+# 20. A rule that is in EFFECT but not committed still exits 0 — the path really is ignored for
+#     whoever runs this, so the immediate hazard is covered — but it must SAY so, because callers
+#     write the answer down. check-ignore is satisfied by .git/info/exclude and core.excludesFile.
+dir=$(scratch '')                                # nothing committed
+printf '.claude/worktrees/\n.worktrees/\n' >> "$dir/.git/info/exclude"
+out=$(bash "$KIT/$GUARD" -C "$dir" 2>&1); rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [local-exclude]: expected exit 0 (it IS ignored here), got $rc"; exit 1; }
+grep -qF 'note:' <<<"$out" \
+  || { echo "FAIL [local-exclude]: a machine-local rule passed silently as if committed:"; echo "$out"; exit 1; }
+grep -qF '.git/info/exclude' <<<"$out" \
+  || { echo "FAIL [local-exclude]: the note does not name where the rule actually lives:"; echo "$out"; exit 1; }
+echo "  ok: local-exclude — passes, but names the rule as uncommitted rather than a repo fact"
+
+# 21. The committed case must NOT carry that note, or it means nothing.
+dir=$(scratch '.claude/worktrees/\n.worktrees/\n')
+git -C "$dir" add .gitignore
+git -C "$dir" -c user.email=t@test -c user.name=T commit -qm "ignore worktree homes"
+out=$(bash "$KIT/$GUARD" -C "$dir" 2>&1)
+grep -qF 'note:' <<<"$out" \
+  && { echo "FAIL [committed-rule]: a tracked .gitignore was flagged as undurable:"; echo "$out"; exit 1; }
+echo "  ok: committed-rule — a tracked rule carries no durability note"
 
 echo "worktrees-ignored golden test OK"
