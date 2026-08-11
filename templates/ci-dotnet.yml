@@ -132,10 +132,17 @@ jobs:
           # Les .log sont ceux que MTP écrit à côté, un par projet : ils portent le détail des
           # assertions, seule chose qui rende diagnosticable un test qui n'échoue que sur le
           # runner. Ils n'arrivaient pas jusqu'ici tant que MTP les écrivait sous bin/.
+          # Le dernier motif rattrape le cas où MTP n'écrit PAS sous coverage/. C'est
+          # `--results-directory` qui l'y met — mais il voyage dans la même liste d'arguments que
+          # `--coverage`, donc un projet sans Microsoft.Testing.Extensions.CodeCoverage se voit
+          # refuser LES DEUX, et le log retombe sous `<projet>/bin/<config>/<tfm>/TestResults/`.
+          # C'est exactement le cas où ce log est la seule explication de l'échec (#74), et la
+          # console n'en imprime que le chemin.
           path: |
             coverage/**/*.cobertura.xml
             coverage/*.cobertura.xml
             coverage/**/*.log
+            **/TestResults/*.log
 
       # À N'ACTIVER que si ce dépôt COMMITTE un bundle front — un `dist/` suivi par git — que le
       # build .NET consomme (EmbeddedResource, Content, ou contenu statique servi tel quel).

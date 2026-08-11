@@ -354,4 +354,86 @@ assert normalised != "cancelled()", f"`if: {cond}` runs only on cancellation"
 PY
 echo "  [6] the coverage artifact step is reachable on the failure path"
 
+# ---------------------------------------------------------------------------
+# 7. The artifact patterns cover the log's FALLBACK location (issue #74).
+#
+#    MTP writes the log that explains a failure next to its results. `--results-directory` is what
+#    puts that under coverage/ — but it is passed in the SAME argument list as `--coverage`, so a
+#    project without Microsoft.Testing.Extensions.CodeCoverage has BOTH refused, and the log falls
+#    back under `<proj>/bin/<config>/<tfm>/TestResults/`. Measured in #31/#60. The console names
+#    that file and nothing else, so if the patterns miss it the failure is undiagnosable remotely.
+#
+#    The patterns are EXECUTED against representative paths, not eyeballed: a `path:` list is a
+#    glob, and "it looks like it covers that" is how #17 shipped a pattern that matched nothing.
+#    The translator is itself self-tested first — a wrong one would make every assertion below
+#    vacuous, and the failure would be invisible because the expected colour is green.
+# ---------------------------------------------------------------------------
+python3 - "$TEMPLATE" <<'PY'
+import re, sys, yaml
+
+def glob_to_regex(pattern):
+    """Translate an @actions/glob pattern: `**` spans zero or more path segments, `*` stays
+    inside one segment. Python's fnmatch is unusable here — its `*` crosses `/`, which would
+    make `coverage/*.log` appear to match a nested path and turn this whole section green."""
+    out, i, n = [], 0, len(pattern)
+    while i < n:
+        if pattern.startswith("**/", i):
+            out.append("(?:[^/]*/)*")          # zero or more segments
+            i += 3
+        elif pattern.startswith("**", i) and i + 2 == n:
+            out.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif pattern[i] == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(pattern[i]))
+            i += 1
+    return re.compile("^" + "".join(out) + "$")
+
+# --- the translator must be right before it can judge anything ---------------
+for pat, path, expected in [
+    ("coverage/**/*.log", "coverage/a.log", True),            # ** matches ZERO segments
+    ("coverage/**/*.log", "coverage/x/y/a.log", True),        # ...and more than one
+    ("coverage/**/*.log", "other/a.log", False),
+    ("coverage/*.log", "coverage/a/b.log", False),            # * must not cross '/'
+    ("**/TestResults/*.log", "a/b/TestResults/c.log", True),
+    ("**/TestResults/*.log", "a/b/TestResults/c/d.log", False),
+]:
+    got = bool(glob_to_regex(pat).match(path))
+    assert got is expected, f"glob translator wrong: {pat!r} vs {path!r} -> {got}, want {expected}"
+
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+step = next(s for s in doc["jobs"]["test"]["steps"]
+            if s.get("name") == "Publier la couverture en artefact de build")
+patterns = [p.strip() for p in str(step["with"]["path"]).splitlines() if p.strip()]
+assert patterns, "the artifact step declares no path patterns"
+
+def covered(path):
+    return [p for p in patterns if glob_to_regex(p).match(path)]
+
+# The case this issue is about: --coverage refused, so --results-directory was refused with it.
+fallback = ("tests/LegacyShop.Catalog.Tests/bin/Debug/net10.0/TestResults/"
+            "LegacyShop.Catalog.Tests_net10.0_arm64.log")
+assert covered(fallback), (
+    "no artifact pattern matches the log's fallback location:\n"
+    f"    {fallback}\n"
+    f"  patterns: {patterns}\n"
+    "  That file carries `Unknown option '--coverage'` — the only explanation of the failure — and\n"
+    "  the console prints nothing but its path. Uncollected, a CI-only failure of this kind cannot\n"
+    "  be diagnosed without pushing commits to bisect it (issue #74)."
+)
+
+# Positive controls: the cases that ALREADY worked must keep working, or this fix would have
+# traded one blind spot for another.
+for control in ("coverage/LegacyShop.Empty.Tests_net10.0_arm64.log",
+                "coverage/4f276e85-4f13-4ee4-8809-4d67dc0cd80a.cobertura.xml",
+                "coverage/abc-guid/coverage.cobertura.xml"):
+    assert covered(control), f"a pattern that used to cover {control!r} no longer does: {patterns}"
+PY
+echo "  [7] the artifact patterns cover the log's bin/ fallback, controls still covered"
+
 echo "ci-dotnet template opt-in bundle gate golden test OK"
