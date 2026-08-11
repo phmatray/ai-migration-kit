@@ -562,6 +562,14 @@ run merge-incident "$MERGE" -C "$R" a -- m
 [ ! -e "$R/.git/MERGE_HEAD" ] || fail merge-incident "a refused merge left MERGE_HEAD behind"
 grep -q "'b'" "$OUT" && grep -q "'a'" "$OUT" \
   || fail merge-incident "the refusal must name both the branch found and the branch expected"
+# Since #78 the prefix is an ARGUMENT passed to a shared refuse() rather than a literal in this
+# script, and the found branch arrives through a `{found}` token rather than by interpolation —
+# so both are now things that can be got wrong while every other assertion here still passes.
+# The prefix is published: the troubleshooting table tells operators to grep for exactly it.
+grep -q '^guarded-merge: REFUSED — ' "$OUT" \
+  || fail merge-incident "the refusal must carry the published 'guarded-merge: REFUSED — ' prefix"
+grep -q '{found}' "$OUT" \
+  && fail merge-incident "the message template leaked a literal {found} instead of the branch name"
 echo "  ok: merge-incident — HEAD switched to b behind the task; refused (2), nothing merged"
 
 # ---------------------------------------------------------------- 20. happy path
@@ -887,9 +895,10 @@ before_a=$(tip "$R" a); before_b=$(tip "$R" b)
 before_remote=$(remote_tip helper-missing a)
 echo "task work" >> "$R/seed.txt"
 
-# A lone guard: copied out with no `_assert-branch.sh` beside it.
+# A lone guard: copied out with no `_assert-branch.sh` beside it. All three guards source the
+# helper since #78, so all three are copied and all three must refuse.
 LONE=$(mktemp -d "$WORK/lone-guard.XXXX")
-cp "$COMMIT" "$PUSH" "$LONE/"
+cp "$COMMIT" "$PUSH" "$MERGE" "$LONE/"
 
 run helper-missing-commit bash "$LONE/guarded-commit.sh" -C "$R" a -- -am "must never land"
 
@@ -911,11 +920,22 @@ grep -q '_assert-branch.sh' "$OUT" \
 [ "$(remote_tip helper-missing a)" = "$before_remote" ] \
   || fail helper-missing-push "the remote moved even though the guard refused"
 
+# The merge guard is the largest write of the three, so a lone copy of it matters most: it would
+# carry the whole of another ref into whatever branch HEAD names, with no assertion behind it.
+run helper-missing-merge bash "$LONE/guarded-merge.sh" -C "$R" a -- b
+
+[ "$RC" -eq 2 ] || fail helper-missing-merge "a guard without its helper must refuse (2), got $RC"
+grep -q '_assert-branch.sh' "$OUT" \
+  || fail helper-missing-merge "the refusal must name the file it could not load"
+[ "$(tip "$R" a)" = "$before_a" ] \
+  || fail helper-missing-merge "branch a advanced — the merge ran with no assertion behind it"
+[ "$(tip "$R" b)" = "$before_b" ] || fail helper-missing-merge "branch b moved"
+
 # --help too. "Never proceeds" has no exception: the helper is loaded before the option loop is
 # parsed at all (that loop's own errors are reported through the helper's refuse()), so there is no
 # state in which a lone guard does something useful. A --help that worked would advertise a guard
 # that cannot guard.
-for g in guarded-commit guarded-push; do
+for g in guarded-commit guarded-push guarded-merge; do
   run "helper-missing-help-$g" bash "$LONE/$g.sh" --help
   [ "$RC" -eq 2 ] || fail "helper-missing-help-$g" "--help on a lone guard must refuse (2), got $RC"
   grep -q '_assert-branch.sh' "$OUT" \
@@ -934,7 +954,7 @@ echo "  ok: helper-missing — a guard that cannot load its assertion refuses (2
 
 for payload in '' '# a comment and nothing else' 'assert_branch_typo() { :; }'; do
   TRUNC=$(mktemp -d "$WORK/trunc-guard.XXXX")
-  cp "$COMMIT" "$PUSH" "$TRUNC/"
+  cp "$COMMIT" "$PUSH" "$MERGE" "$TRUNC/"
   printf '%s' "$payload" > "$TRUNC/_assert-branch.sh"
 
   before_a=$(tip "$R" a)
@@ -949,6 +969,13 @@ for payload in '' '# a comment and nothing else' 'assert_branch_typo() { :; }'; 
     || fail trunc-push "a helper that defines nothing must refuse (2), got $RC (127 = the hole)"
   [ "$(remote_tip helper-missing a)" = "$before_remote" ] \
     || fail trunc-push "the remote moved even though the guard refused"
+
+  before_a=$(tip "$R" a)
+  run trunc-merge bash "$TRUNC/guarded-merge.sh" -C "$R" a -- b
+  [ "$RC" -eq 2 ] \
+    || fail trunc-merge "a helper that defines nothing must refuse (2), got $RC (127 = the hole)"
+  grep -q '_assert-branch.sh' "$OUT" || fail trunc-merge "the refusal must name the helper"
+  [ "$(tip "$R" a)" = "$before_a" ] || fail trunc-merge "branch a advanced with no assertion loaded"
 done
 echo "  ok: helper-truncated — a readable helper that defines nothing still refuses (2), never 127"
 
@@ -975,6 +1002,18 @@ run symlink-commit bash "$LINKDIR/guarded-commit.sh" -C "$R" a -- -am "feat: com
 run symlink-help bash "$LINKDIR/gp" --help
 [ "$RC" -eq 0 ] || fail symlink-help "a renamed symlink to guarded-push.sh failed to load (exit $RC)"
 grep -q 'Exit codes:' "$OUT" || fail symlink-help "--help through a symlink lost the exit-code table"
+
+# The merge guard through a symlink, doing real work: `m` is merged into `a` via a link whose name
+# matches no script in the kit.
+ln -s "$MERGE" "$LINKDIR/gm"
+RM=$(new_merge_repo symlinked-merge)
+before_a=$(tip "$RM" a)
+
+run symlink-merge bash "$LINKDIR/gm" -C "$RM" a -- m
+
+[ "$RC" -eq 0 ] || fail symlink-merge "a guard reached through a symlink could not find its helper (exit $RC)"
+[ "$(tip "$RM" a)" != "$before_a" ] || fail symlink-merge "branch a did not advance"
+grep -q '^guarded-merge: a@' "$OUT" || fail symlink-merge "the receipt must name the branch and its new tip"
 echo "  ok: symlinked guard — \$0 is resolved through its links, so the helper is found beside the real file"
 
 # ---------------------------------------------------------------- 30d. the helper is not a command
