@@ -1067,7 +1067,7 @@ def covers(glob, dep):
 
 
 def selects(manager, path):
-    """Does this manager's file-pattern list actually select `path`?
+    """Does this manager's file-pattern list actually select `path`?  -> (bool, [unevaluated…])
 
     The previous spelling of this check was `any("apply-transform" in p for p in pats)` — a
     substring test on the pattern TEXT, which never once ran the pattern against a path. A typo'd
@@ -1077,23 +1077,26 @@ def selects(manager, path):
     The two keys have different dialects and are not interchangeable:
       * `managerFilePatterns` — a `/…/`-delimited entry is a regex; a bare entry is a minimatch glob.
       * `fileMatch` (legacy)  — always a bare regex, never a glob.
-    Only the forms this helper can evaluate FAITHFULLY are accepted; anything else refuses rather
-    than guessing, because a wrong "yes" here restores exactly the blindness being tested for."""
+
+    A pattern this helper cannot evaluate faithfully (a minimatch glob — which is NOT Python's
+    fnmatch — or a `!`-negation, which inverts meaning) counts as NOT selecting, and is returned in
+    the second element rather than raised. That combination is deliberate: guessing "yes" would
+    restore the blindness this exists to catch, while raising would let an unrelated manager
+    somewhere else in the repo fail the xunit suite. Reported as not-ours and surfaced by the
+    caller if the set comes out empty, it fails closed either way."""
+    unevaluated = []
     pats = manager.get("managerFilePatterns")
     if pats:
+        hit = False
         for p in pats:
-            assert not p.startswith("!"), (
-                f"negated file pattern {p!r}: it EXCLUDES files, and treating it as a match would "
-                f"invert the meaning of this check. Teach this helper negation first."
-            )
-            assert len(p) > 1 and p.startswith("/") and p.endswith("/"), (
-                f"file pattern {p!r} is not the /regex/ form this guard can evaluate — Renovate "
-                f"would read it as a minimatch glob, which is not Python's fnmatch. Teach this "
-                f"helper that dialect before using one; an unevaluated pattern must not read as a match."
-            )
-        return any(re.search(p[1:-1], path) for p in pats)
+            if p.startswith("!") or not (len(p) > 1 and p.startswith("/") and p.endswith("/")):
+                unevaluated.append(p)
+                continue
+            if re.search(p[1:-1], path):
+                hit = True
+        return hit, unevaluated
     # Legacy key: bare regex by definition, so no delimiters to strip.
-    return any(re.search(p, path) for p in (manager.get("fileMatch") or []))
+    return any(re.search(p, path) for p in (manager.get("fileMatch") or [])), unevaluated
 
 
 def check(cfg):
@@ -1107,14 +1110,26 @@ def check(cfg):
     managers = cfg.get("customManagers", [])
     assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
 
-    found = {}
+    # Only the managers that actually select the transform are this section's business. Asserting
+    # over ALL of them meant an unrelated custom manager added elsewhere in the repo would fail the
+    # xunit suite, with a message about a transform it has nothing to do with (#67).
+    mine, unevaluated = [], []
     for m in managers:
+        hit, unknown = selects(m, TRANSFORM_REL)
+        unevaluated.extend(unknown)
+        if hit:
+            mine.append(m)
+    assert mine, (
+        f"no customManager selects {TRANSFORM_REL}, so Renovate extracts nothing from it and the "
+        f"pins go unwatched"
+        + (f" — note that {unevaluated} could not be evaluated by this guard and were treated as "
+           f"non-matching; if one of those is meant to select the transform, teach `selects` its "
+           f"dialect" if unevaluated else "")
+    )
+
+    found = {}
+    for m in mine:
         assert m.get("customType") == "regex", m
-        # The file patterns must actually SELECT apply-transform.py, or the manager is decorative.
-        assert selects(m, TRANSFORM_REL), (
-            f"no file pattern selects {TRANSFORM_REL}, so Renovate extracts nothing from it and "
-            f"the pins go unwatched: {m.get('managerFilePatterns') or m.get('fileMatch')}"
-        )
         # Asserted per MANAGER, not per match: inside the match loop these never run for a manager
         # whose regex has gone blind, which is exactly the manager worth complaining about.
         assert m.get("datasourceTemplate") == "nuget", f"datasource must be nuget: {m}"
@@ -1182,6 +1197,19 @@ def rejects(why, mutate, because):
     raise AssertionError(f"section 9 accepted a config it must reject — {why}")
 
 
+def accepts(why, mutate):
+    """Assert that `check` still PASSES a legitimate variation of the real config.
+
+    The mirror of `rejects`, and just as necessary: a guard that refuses valid configs gets
+    loosened by whoever hits it next, usually by deleting the assertion rather than narrowing it."""
+    ok = copy.deepcopy(cfg)
+    mutate(ok)
+    try:
+        check(ok)
+    except AssertionError as exc:
+        raise AssertionError(f"section 9 refused a config it must accept — {why}: {exc}") from None
+
+
 found = check(cfg)   # the real config: must pass
 
 
@@ -1190,8 +1218,32 @@ def _typo_the_path(c):
     c["customManagers"][0]["managerFilePatterns"] = ["/^test/xunit-v3/apply-transform\\.py$/"]
 
 
+# Refused because the xunit pin ends up unwatched — the actual consequence of the typo. The other
+# manager still selects the transform, so `mine` is non-empty and the failure surfaces one step
+# later, at the point where it can name the pin that lost its watcher.
 rejects("a file pattern that selects nothing (typo'd directory)", _typo_the_path,
-        because="no file pattern selects")
+        because="never matched xunit.v3")
+
+
+def _typo_every_path(c):
+    # Both managers mis-targeted: nothing selects the transform at all.
+    for m in c["customManagers"]:
+        m["managerFilePatterns"] = ["/^test/xunit-v3/apply-transform\\.py$/"]
+
+
+rejects("no manager selecting the transform at all", _typo_every_path,
+        because="no customManager selects")
+
+
+def _transform_manager_as_a_glob(c):
+    # The transform's OWN manager written in a dialect this guard cannot evaluate: it must fail
+    # closed and say so, never quietly treat the pins as watched.
+    for m in c["customManagers"]:
+        m["managerFilePatterns"] = ["tests/xunit-v3/**"]
+
+
+rejects("the transform's manager written as an unevaluatable glob", _transform_manager_as_a_glob,
+        because="could not be evaluated")
 
 
 def _lookahead(c):
@@ -1219,6 +1271,32 @@ def _lookbehind(c):
 rejects("a lookahead in a matchString", _lookahead, because="lookahead")
 rejects("a backreference in a matchString", _backreference, because="backreference")
 rejects("a lookbehind in a matchString", _lookbehind, because="lookbehind")
+
+
+def _unrelated_manager(c):
+    # A future manager pinning something else entirely: different dialect (jsonata), different
+    # file, no bearing on the transform. This suite must not have an opinion about it.
+    c["customManagers"].append({
+        "customType": "jsonata",
+        "managerFilePatterns": ["/^templates/ci-dotnet\\.yml$/"],
+        "matchStrings": ["irrelevant"],
+        "datasourceTemplate": "github-tags",
+    })
+
+
+def _unrelated_manager_with_a_glob(c):
+    # Same, but written as a minimatch glob — the form `selects` deliberately cannot evaluate. It
+    # must read as "not ours", not as a crash and not as a match.
+    c["customManagers"].append({
+        "customType": "regex",
+        "managerFilePatterns": ["templates/**"],
+        "matchStrings": ["irrelevant"],
+        "datasourceTemplate": "github-tags",
+    })
+
+
+accepts("an unrelated custom manager elsewhere in the repo", _unrelated_manager)
+accepts("an unrelated custom manager written as a glob", _unrelated_manager_with_a_glob)
 
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
