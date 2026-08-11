@@ -418,6 +418,57 @@ run push-happy "$PUSH" -C "$R" a
 grep -q "$(git -C "$R" rev-parse --short HEAD)" "$OUT" || fail push-happy "output must report the sha it verified"
 echo "  ok: push-happy — pushed and proved origin/a == HEAD"
 
+# 12b. …the same push, but `ls-remote` writes a line to stderr first.
+#
+# The read-back used to be captured with `2>&1`, so whatever git or ssh wrote to stderr FIRST
+# became line 1 of what the sha parser read (#47). Two entirely ordinary lines do that: the
+# known-hosts notice every first SSH connection from a fresh machine, container or CI runner
+# prints, and the `warning: redirecting to https://…` of a redirecting HTTPS remote. `awk
+# 'NR==1 {print $1}'` then answered with the literal word `Warning:`, which never equals HEAD,
+# so the guard printed its "the remote is NOT this HEAD" ALERT and exited 4 — on a push that
+# had fully succeeded. SKILL.md tells the agent to read exit 4 as "the work is unpushed", so a
+# guard that cries wolf on the success path is worse than no guard at all.
+#
+# None of the cases above can see it: their origin is a LOCAL bare repo, and `git ls-remote`
+# against a path writes nothing to stderr. The test passed for the same reason the bug hid.
+# So this case puts a `git` on PATH that does write one — and records that it did, because a
+# stub that silently stopped being reached would leave a case that passes while reproducing
+# nothing.
+
+R=$(new_repo_with_origin push-noisy-stderr)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work pushed while ls-remote warns"
+head_sha=$(git -C "$R" rev-parse HEAD)
+
+STUB="$WORK/noisy-bin"
+MARKER="$WORK/noisy-ls-remote-was-called"
+mkdir -p "$STUB"
+REAL_GIT=$(command -v git)
+cat > "$STUB/git" <<EOF
+#!/bin/sh
+# Noisy for ls-remote only: every other git call the guard makes must behave as usual.
+for a in "\$@"; do
+  [ "\$a" = ls-remote ] || continue
+  echo called >> "$MARKER"
+  echo "Warning: Permanently added 'github.com' (ED25519) to the list of known hosts." >&2
+  break
+done
+exec $REAL_GIT "\$@"
+EOF
+chmod +x "$STUB/git"
+
+run push-noisy-stderr env "PATH=$STUB:$PATH" bash "$PUSH" -C "$R" a
+
+[ -s "$MARKER" ] \
+  || fail push-noisy-stderr "the stub git was never reached — this case is reproducing nothing"
+[ "$RC" -eq 0 ] \
+  || fail push-noisy-stderr "a push that succeeded was reported unverified because ls-remote warned on stderr (exit $RC)"
+[ "$(remote_tip push-noisy-stderr a)" = "$head_sha" ] \
+  || fail push-noisy-stderr "fixture broken: the push itself should have succeeded"
+grep -q "$(git -C "$R" rev-parse --short HEAD)" "$OUT" \
+  || fail push-noisy-stderr "output must report the sha it verified"
+echo "  ok: push-noisy-stderr — a warning on stderr never becomes the sha the guard compares"
+
 # ---------------------------------------------------------------- 13. first push (-u passthrough)
 #
 # implement-issue's very first push is `git push -u origin <branch>` on a branch with no
