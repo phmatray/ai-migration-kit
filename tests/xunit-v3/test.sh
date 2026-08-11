@@ -1019,15 +1019,16 @@ echo "  [8] one module loader carries the no-__pycache__ invariant"
 python3 - "$KIT/renovate.json" "$TRANSFORM" "$(read_const XUNIT_V3_PACKAGE)" \
          "$(read_const XUNIT_V3_VERSION)" "$(read_const COVERAGE_PACKAGE)" \
          "$(read_const COVERAGE_EXT_VERSION)" <<'PY'
-import json, re, sys
+import copy, json, re, sys
 
 cfg_path, transform_path = sys.argv[1], sys.argv[2]
 want = {sys.argv[3]: sys.argv[4], sys.argv[5]: sys.argv[6]}   # depName -> version the module reports
 
-cfg = json.load(open(cfg_path, encoding="utf-8"))
-managers = cfg.get("customManagers", [])
-assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
+# Renovate matches file patterns against REPO-RELATIVE paths; transform_path is absolute because
+# every other section of this suite needs it that way.
+TRANSFORM_REL = "tests/xunit-v3/apply-transform.py"
 
+cfg = json.load(open(cfg_path, encoding="utf-8"))
 source = open(transform_path, encoding="utf-8").read()
 
 
@@ -1046,38 +1047,6 @@ def to_python(pattern):
     return pattern.replace("(?<", "(?P<")
 
 
-found = {}
-for m in managers:
-    assert m.get("customType") == "regex", m
-    # The file patterns must actually select apply-transform.py, or the manager is decorative.
-    pats = m.get("managerFilePatterns") or m.get("fileMatch") or []
-    assert any("apply-transform" in p for p in pats), f"manager does not target the transform: {m}"
-    # Asserted per MANAGER, not per match: inside the match loop these never run for a manager
-    # whose regex has gone blind, which is exactly the manager worth complaining about.
-    assert m.get("datasourceTemplate") == "nuget", f"datasource must be nuget: {m}"
-    assert m.get("versioningTemplate") == "nuget", (
-        f"versioning must be nuget — the custom-manager default is semver-coerced, which mis-orders "
-        f"NuGet's four-segment versions: {m}"
-    )
-    matched = 0
-    for raw in m["matchStrings"]:
-        for hit in re.finditer(to_python(raw), source):
-            g = hit.groupdict()
-            dep = g.get("depName") or m.get("depNameTemplate")
-            assert dep, f"no depName captured or templated for {raw!r}"
-            assert "currentValue" in g, f"{dep}: {raw!r} captures no currentValue"
-            found[dep] = g["currentValue"]
-            matched += 1
-    assert matched, f"this manager matched nothing in the transform — it is dead: {m}"
-
-for dep, version in want.items():
-    assert dep in found, (
-        f"the custom manager never matched {dep} — a constant was renamed and the regex went "
-        f"quietly blind. Matched: {found}"
-    )
-    assert found[dep] == version, (
-        f"{dep}: the regex captured {found[dep]!r} but the module reports {version!r}"
-    )
 # Exposing these pins is only SAFE because majors are disabled for the family: a lone CodeCoverage
 # 18.x would restore clean, build clean and die at run time. So the rule that makes it safe must
 # actually cover the depNames these managers emit — edit a glob and the managers keep working while
@@ -1089,16 +1058,120 @@ def covers(glob, dep):
     return d.startswith(g.rstrip("*")) if g.endswith("*") else g == d
 
 
-major_rules = [
-    r for r in cfg.get("packageRules", [])
-    if r.get("enabled") is False and "major" in (r.get("matchUpdateTypes") or [])
-]
-for dep in found:
-    assert any(any(covers(g, dep) for g in (r.get("matchPackageNames") or []))
-               for r in major_rules), (
-        f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
-        f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
-    )
+def selects(manager, path):
+    """Does this manager's file-pattern list actually select `path`?
+
+    The previous spelling of this check was `any("apply-transform" in p for p in pats)` — a
+    substring test on the pattern TEXT, which never once ran the pattern against a path. A typo'd
+    directory, or a stale path after a rename, satisfied it while Renovate selected zero files and
+    extracted nothing (#67).
+
+    The two keys have different dialects and are not interchangeable:
+      * `managerFilePatterns` — a `/…/`-delimited entry is a regex; a bare entry is a minimatch glob.
+      * `fileMatch` (legacy)  — always a bare regex, never a glob.
+    Only the forms this helper can evaluate FAITHFULLY are accepted; anything else refuses rather
+    than guessing, because a wrong "yes" here restores exactly the blindness being tested for."""
+    pats = manager.get("managerFilePatterns")
+    if pats:
+        for p in pats:
+            assert not p.startswith("!"), (
+                f"negated file pattern {p!r}: it EXCLUDES files, and treating it as a match would "
+                f"invert the meaning of this check. Teach this helper negation first."
+            )
+            assert len(p) > 1 and p.startswith("/") and p.endswith("/"), (
+                f"file pattern {p!r} is not the /regex/ form this guard can evaluate — Renovate "
+                f"would read it as a minimatch glob, which is not Python's fnmatch. Teach this "
+                f"helper that dialect before using one; an unevaluated pattern must not read as a match."
+            )
+        return any(re.search(p[1:-1], path) for p in pats)
+    # Legacy key: bare regex by definition, so no delimiters to strip.
+    return any(re.search(p, path) for p in (manager.get("fileMatch") or []))
+
+
+def check(cfg):
+    """Refuse any config under which Renovate would fail to WATCH, or fail to hold the MAJORS of,
+    the two pins the transform writes. Returns the {depName: version} it saw.
+
+    Takes the config as an argument rather than closing over the real one so the negative cases at
+    the bottom can drive it with deliberately broken copies. That is the whole point: every hole
+    #67 records was a assertion that had never once been executed against a config it should
+    refuse, so it was impossible to tell a working guard from a decorative one."""
+    managers = cfg.get("customManagers", [])
+    assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
+
+    found = {}
+    for m in managers:
+        assert m.get("customType") == "regex", m
+        # The file patterns must actually SELECT apply-transform.py, or the manager is decorative.
+        assert selects(m, TRANSFORM_REL), (
+            f"no file pattern selects {TRANSFORM_REL}, so Renovate extracts nothing from it and "
+            f"the pins go unwatched: {m.get('managerFilePatterns') or m.get('fileMatch')}"
+        )
+        # Asserted per MANAGER, not per match: inside the match loop these never run for a manager
+        # whose regex has gone blind, which is exactly the manager worth complaining about.
+        assert m.get("datasourceTemplate") == "nuget", f"datasource must be nuget: {m}"
+        assert m.get("versioningTemplate") == "nuget", (
+            f"versioning must be nuget — the custom-manager default is semver-coerced, which mis-orders "
+            f"NuGet's four-segment versions: {m}"
+        )
+        matched = 0
+        for raw in m["matchStrings"]:
+            for hit in re.finditer(to_python(raw), source):
+                g = hit.groupdict()
+                dep = g.get("depName") or m.get("depNameTemplate")
+                assert dep, f"no depName captured or templated for {raw!r}"
+                assert "currentValue" in g, f"{dep}: {raw!r} captures no currentValue"
+                found[dep] = g["currentValue"]
+                matched += 1
+        assert matched, f"this manager matched nothing in the transform — it is dead: {m}"
+
+    for dep, version in want.items():
+        assert dep in found, (
+            f"the custom manager never matched {dep} — a constant was renamed and the regex went "
+            f"quietly blind. Matched: {found}"
+        )
+        assert found[dep] == version, (
+            f"{dep}: the regex captured {found[dep]!r} but the module reports {version!r}"
+        )
+
+    major_rules = [
+        r for r in cfg.get("packageRules", [])
+        if r.get("enabled") is False and "major" in (r.get("matchUpdateTypes") or [])
+    ]
+    for dep in found:
+        assert any(any(covers(g, dep) for g in (r.get("matchPackageNames") or []))
+                   for r in major_rules), (
+            f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
+            f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
+        )
+    return found
+
+
+def rejects(why, mutate):
+    """Assert that `check` REFUSES a deliberately broken copy of the real config.
+
+    Each of these corresponds to a way the guard was previously green while Renovate was, or would
+    have been, doing nothing. Mutating a deepcopy of the REAL config (rather than hand-building a
+    fixture) keeps the negative cases honest: they stay one edit away from what ships, so they
+    cannot drift into testing a config shape the repo no longer has."""
+    bad = copy.deepcopy(cfg)
+    mutate(bad)
+    try:
+        check(bad)
+    except AssertionError:
+        return
+    raise AssertionError(f"section 9 accepted a config it must reject — {why}")
+
+
+found = check(cfg)   # the real config: must pass
+
+
+def _typo_the_path(c):
+    # `test/` instead of `tests/` — one character, and Renovate selects zero files.
+    c["customManagers"][0]["managerFilePatterns"] = ["/^test/xunit-v3/apply-transform\\.py$/"]
+
+
+rejects("a file pattern that selects nothing (typo'd directory)", _typo_the_path)
 
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
