@@ -108,6 +108,10 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     return {
         "classes": classes,
         "line_pct": round(100 * lines_covered / lines_total) if lines_total else 0,
+        # `measured` distingue « on a lu des lignes » de « il n'y avait rien à lire ». C'est ce qui
+        # autorise kpi_value() à remplacer la tuile : sans mesure, la valeur écrite reste la seule
+        # information disponible et un 0 % calculé serait pire que la transcription (#50).
+        "measured": lines_total > 0,
         "branch_pct": round(100 * br_covered / br_total) if br_total else 0,
     }
 
@@ -194,11 +198,36 @@ def hbar_chart(rows, aria, note, multi_hue=False):
             + "".join(parts) + "</svg>")
 
 
+# Une tuile de couverture EN LIGNES : le libellé parle de couverture et l'unité est le pourcent.
+# C'est le libellé qui identifie la tuile parce que c'est tout ce que porte un `report.json`
+# existant — aucun champ ne la marque, et exiger un marqueur laisserait tous les rapports déjà
+# écrits sur l'ancien comportement, c'est-à-dire sur le défaut.
+COVERAGE_KPI = re.compile(r"couvertur", re.I)
+
+
+def kpi_value(k, cov):
+    """La valeur à rendre pour une tuile : la MESURE quand il y en a une (#50).
+
+    Le tableau de bord affichait deux chiffres de couverture sur la même page — la tuile recopiée
+    depuis `report.json` (un nombre tapé par un humain) au-dessus d'une légende recalculée depuis
+    les coberturas. La fixture du kit publiait ainsi 70 % au-dessus de « Global : 75 % », sur
+    l'artefact même que le kit donne en exemple de « couverture mesurée, jamais estimée ». Deux
+    rendus de la même quantité rendent la promesse invérifiable depuis la page : le lecteur ne peut
+    pas savoir lequel est la mesure.
+
+    Là où une mesure existe, elle gagne. Sans cobertura résolu, la valeur écrite est rendue telle
+    quelle — un rapport sans section de couverture ne change pas de comportement.
+    """
+    if cov.get("measured") and k.get("unit") == "%" and COVERAGE_KPI.search(k.get("label", "")):
+        return str(cov["line_pct"])
+    return k["v"]
+
+
 def render(r):
     cov = parse_cobertura(r["coverage"]["cobertura"], r["coverage"].get("exclude", []),
                           r["coverage"].get("include"))
     kpis = "".join(
-        f'<div class="tile"><div class="v">{esc(k["v"])}'
+        f'<div class="tile"><div class="v">{esc(kpi_value(k, cov))}'
         + (f'<small>{esc(k["unit"])}</small>' if k.get("unit") else "")
         + f'</div><div class="l">{esc(k["label"])}</div></div>'
         for k in r["kpis"])
