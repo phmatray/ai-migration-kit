@@ -53,7 +53,7 @@ Create a task per item and complete in order. For a batch of ideas, run steps 2-
 
 1. **Preconditions** — confirm `gh` works and you're in the repo.
 2. **Capture the idea(s)** — from the user's message; don't interrogate.
-3. **Check for duplicates & related issues** — don't refile what exists; link what's adjacent.
+3. **Check for duplicates, root causes & related issues** — don't refile what exists, fold a symptom into the issue that owns its cause, link what's adjacent.
 4. **Build the template-compliant body fields** — read the live issue template and fill it.
 5. **Brainstorm + Spec** — collapsible `<details>` sections (via `superpowers:brainstorming`).
 6. **Implementation plan** (via `superpowers:writing-plans`) — a *visible* section whose `- [ ]` checkboxes feed the progress meter; never inside a `<details>`.
@@ -78,7 +78,7 @@ export, an admin panel"). Don't open a Q&A — infer scope from the prompt, READ
 codebase. Treat each named idea as its own issue and loop. For each, settle on a crisp **title**
 (imperative, e.g. "Add CSV export") before writing anything.
 
-## Step 3 — Check for duplicates & related issues
+## Step 3 — Check for duplicates, root causes & related issues
 
 A duplicate is noise; an issue that ignores its neighbours reads like it landed from orbit. Search open
 *and* closed issues for the idea's key terms first:
@@ -88,11 +88,27 @@ gh issue list --state all --search "csv export" --limit 10 \
   --json number,title,state,url --jq '.[] | "#\(.number) [\(.state)] \(.title)"'
 ```
 
+Then run a **second, differently-shaped search** — by the file or subsystem the idea touches, and
+across the open refactors. A root-cause issue is phrased in terms of the *cause* while its symptoms
+are phrased in terms of what the user saw, so the two share almost no vocabulary and the keyword
+search above structurally cannot find the issue that already owns this work:
+
+```bash
+gh issue list --state open --search "ExportService in:title,body" --limit 10 \
+  --json number,title --jq '.[] | "#\(.number) \(.title)"'
+gh issue list --state open --label "type:refactor" --limit 30 \
+  --json number,title --jq '.[] | "#\(.number) \(.title)"'
+```
+
 Then decide (don't interrogate):
 
 - **Clear duplicate** (open issue already captures it): don't refile. Report *"#N already covers this — skipped"* and move on; file anyway only if asked.
+- **An instance of a tracked root cause** — an open issue owns the *cause* and this idea is one of its symptoms (it converges two code paths, and this is one more attribute that drifted; it replaces a parser, and this is one more input it mishandles). Don't file a leaf: add it to that issue as a `- [ ]` checklist item, or as a comment when it has no plan, and report *"folded into #N"*. Filing it separately splits one piece of work across two trackers and buries the issue that would actually close it.
 - **Related but distinct**: proceed, carry the links forward — add a `**Related:** #N, #M` line near the top of the body in Step 7 (GitHub auto-renders the cross-references, and it's where your brainstorm's prior art gets cited).
 - **Nothing similar**: proceed clean.
+
+The bar is *"would resolving the existing issue resolve this too?"* — if yes, it's an instance, however
+different the two read.
 
 ## Step 4 — Build the template-compliant body fields
 
@@ -274,7 +290,9 @@ way `implement-issue`'s checkbox PATCH once did. If a label is missing, re-add (
 
 List every issue created with its title, URL, and applied labels (type / priority / effort / scope),
 and flag anything assumed or skipped (a label not in the live list, a duplicate you declined, a
-defaulted field). Then **close the loop**: point the user at **`/implement-issue #N`** to run the plan
+defaulted field). Name each idea **folded into an existing issue** and where it went (`#N`) — a fold
+is a result, not a non-event, and it's the one outcome the user can't see by listing new issues. Then
+**close the loop**: point the user at **`/implement-issue #N`** to run the plan
 (worktree → draft PR → task-by-task commits, ticking the body's checkboxes). For a batch, give the
 command per issue. Keep the report short — the issues carry the detail.
 

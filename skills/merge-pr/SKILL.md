@@ -4,10 +4,11 @@ description: >-
   Land an open GitHub pull request the way a careful maintainer would — the "ship it" counterpart
   to `implement-issue`. Use whenever the user wants to MERGE, land, ship, or close out an open PR:
   waits for CI, then applies corrections until mergeable — fixes red checks, merges the latest
-  `main` and resolves conflicts, addresses unresolved review — squash-merges, files follow-up work
-  as issues via `create-issue` (inline `--follow-up "…"` args plus ones discovered in the PR), and
-  tears down the branch and worktree. Triggers: "merge PR 279", "land #281", "ship this PR", "get
-  that PR merged once CI's green", "wrap up 279 and open follow-ups", « merge la PR 279 », « fais
+  `main` and resolves conflicts, addresses unresolved review — squash-merges, triages follow-up work
+  (inline `--follow-up "…"` args plus ones discovered in the PR) by folding symptoms into the root
+  issue that owns them and filing the rest via `create-issue`, and tears down the branch and
+  worktree. Triggers: "merge PR 279", "land #281", "ship this PR", "get that PR merged once CI's
+  green", "wrap up 279 and open follow-ups", « merge la PR 279 », « fais
   atterrir la 281 », or a bare PR link with "merge it". Does NOT apply to opening or implementing a
   PR, to syncing one still being built (implement-issue), to reviewing without merging
   (code-review), or to filing a standalone issue (create-issue).
@@ -50,7 +51,8 @@ blocker:
 The merge is the irreversible act — earn it. Merge only when CI is **green on the just-corrected
 branch** and GitHub reports the PR mergeable; a textual merge of `main` is not a semantic one, so
 re-build/re-test after resolving conflicts. Filing a follow-up and deleting a local branch are
-reversible and cheap.
+reversible — but a follow-up is cheap to *file* and expensive to *carry*, which is why Step 6 triages
+before it files.
 
 ## Inputs
 
@@ -66,7 +68,7 @@ Create a task per item and work them in order. Step 4 is a loop — repeat until
 3. **Wait for CI** — let the checks finish; read the rollup.
 4. **Apply corrections (loop)** — clear each blocker the merge state reports (red CI · behind/dirty vs `main` · unresolved review · draft), push, re-wait until the PR is `CLEAN`.
 5. **Merge (squash)** — `gh pr merge --squash --delete-branch` once green and mergeable.
-6. **File follow-ups** — gather inline `--follow-up` args + ones discovered in the PR, file each via `create-issue`.
+6. **Triage follow-ups** — gather inline `--follow-up` args + ones discovered in the PR, cluster them by root cause, fold instances into the issue that already owns them, and file at most 3 new issues via `create-issue`.
 7. **Delete the local branch & worktree** — from the main checkout, remove the PR's worktree and local branch.
 8. **Report** — merged PR URL, corrections applied, follow-ups filed, cleanup done.
 
@@ -300,18 +302,48 @@ one Conventional Commit line per distinct change, e.g.:
 Verify the resulting release PR lists an entry per line. If the release tooling does not split the
 body, prefer not bundling unrelated issues into one squash in the first place.
 
-## Step 6 — File follow-ups via `create-issue`
+## Step 6 — Triage follow-ups, then file what earns an issue
 
-Landing a PR often leaves a tail of "not now, but worth doing" work. Capture it as tracked issues.
-Gather from two sources and **de-duplicate**:
+Landing a PR often leaves a tail of "not now, but worth doing" work. Gather it from two sources and
+**de-duplicate**:
 
 1. **Inline args** — every `--follow-up "<idea>"` passed on the command.
 2. **Discovered in the PR** — a `## Follow-ups` / "Deferred" / "Out of scope" section in the PR body, and review comments that explicitly defer work ("let's do X in a separate PR", "follow-up:", "TODO in a future change"). Pull the PR body + review comments and scan (snippets in `references/merge-mechanics.md` §6). Don't manufacture follow-ups from ordinary code comments.
 
-For **each** distinct follow-up, invoke the **`create-issue` skill** with that idea (it seeds the
-brainstorm → spec → plan trail and labels it). Mention the just-merged PR for traceability, e.g.
-*"Follow-up from #279: add Rust snapshot tests."* Batch several in one `create-issue` run. No follow-ups
-→ skip and say so.
+Then **triage before filing**. An issue is a commitment to do work, not a record of an observation,
+and the two must not share a channel. Filing costs seconds; resolving costs a PR — so a Step 6 that
+files everything it noticed grows the backlog faster than any loop can drain it, and the owner ends
+up unable to see which item actually matters.
+
+**6a — Cluster by root cause.** Group the findings by the file or subsystem they land in. Findings
+that share one are *instances of a single defect*, not N defects: "the numeric path drops `Format`",
+"date item fields still discard the adornment" and "`Mask` is inert on both paths" are one duplicated
+render path reported three times. Name the shared cause — that, not the symptom, is the unit of work.
+
+**6b — Look for a root that's already tracked.** For each cluster, search open issues for one that
+already owns the cause — typically a `type:refactor` issue naming the same file (commands in
+`references/merge-mechanics.md` §6). Search by **file and subsystem**, not by the symptom's wording:
+a root issue and its symptoms share almost no vocabulary, which is exactly why `create-issue`'s own
+duplicate check won't surface it. This search has to happen here.
+
+**6c — Route each cluster to one channel:**
+
+| The cluster is | Channel | Why |
+|---|---|---|
+| an instance of a **root issue that exists** | a `- [ ]` item or comment **on that issue** | the work is already committed to; this sharpens its scope instead of lengthening the queue |
+| ≥2 findings sharing a **root not yet tracked** | **one** `create-issue` run for the *root*, citing the instances as evidence | fixing symptoms one by one in code the root refactor deletes is work thrown away twice — once writing it, once resolving its conflict |
+| genuinely **independent** deferred work | its own `create-issue` run | this is what the channel is for |
+| an observation worth **recording, not doing** | a comment on the merged PR | retrievable later, and costs nothing to ignore |
+
+**6d — Budget: at most 3 new issues per merge.** Past that, the tail goes into **one** issue named for
+the PR ("Findings from #279") listing the rest, or onto the root from 6b. The cap isn't a quality
+judgement — it's the brake that keeps arrivals under the rate work can actually be done. Hitting it
+means 6a under-clustered: re-read the findings for the cause they share before filing the overflow.
+
+For each cluster that earns an issue, invoke the **`create-issue` skill** (it seeds the brainstorm →
+spec → plan trail and labels it). Mention the just-merged PR for traceability, e.g. *"Follow-up from
+#279: add Rust snapshot tests."* Batch several in one `create-issue` run. No follow-ups → skip and
+say so.
 
 ## Step 7 — Delete the local branch & worktree
 
@@ -351,7 +383,7 @@ delete the main checkout or an unrelated worktree — match the path to the PR's
 Short and concrete:
 - The merged PR — URL and confirmation it's `MERGED` (with the squash commit sha); the branch it closed.
 - **Corrections applied** — one line each: red checks fixed, conflicts resolved (which files, how), review addressed. "None needed — merged clean" is a fine report.
-- **Follow-ups filed** — each new issue's title + URL, or "none."
+- **Follow-ups** — how the findings were routed: each new issue's title + URL, each one **folded** into an existing issue (`#N`), each recorded as a PR comment, or "none." If the 6d budget capped anything, say so and name the overflow issue.
 - **Cleanup** — worktree removed and local branch deleted (or "already gone").
 - Anything assumed, deferred, or unverifiable (e.g. full suite skipped for a missing local prerequisite the profile flags). Keep detail in the PR/issues; the report points there.
 
@@ -363,3 +395,4 @@ Short and concrete:
 - **Correct, don't paper over.** Fix the red test, resolve the real conflict, address the real review note. Skipping a test, forcing past a check, or hand-stitching a snapshot to clear a conflict all *look* like progress and are worse than stopping.
 - **Stay resumable.** Every step keys off live GitHub/git state, so a re-run won't double-merge, double-file, or fail because a branch is already gone.
 - **Follow-ups are tracked, not narrated** — deferred work belongs in an issue (via `create-issue`), not buried in the merge report.
+- **…but tracked at the root, and rationed.** The failure mode this skill is most likely to cause is not a bad merge, it's a backlog nobody can read: one merge that files a dozen leaf issues, each a symptom of one defect, is a net loss even though every issue is individually accurate. Step 6's triage is the corrective — cluster first, fold into the root second, file last.

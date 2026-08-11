@@ -218,8 +218,41 @@ gh api "repos/{owner}/{repo}/pulls/$PR/comments" --paginate --jq '.[].body' \
 ```
 
 Only treat as a follow-up something **explicitly flagged as deferred** — not every `// TODO` in the
-diff. De-dup against the inline args (don't file the same idea twice), then hand each distinct idea to
-the `create-issue` skill, noting the source PR for traceability.
+diff. De-dup against the inline args (don't file the same idea twice), then **triage** the survivors
+per SKILL.md Step 6 before any of them becomes an issue.
+
+**Find the root issue for a cluster.** Search by the *file or subsystem* the findings touch, not by
+the symptom's wording — a root issue is phrased in terms of the cause ("converge the two render
+paths") while its symptoms are phrased in terms of what broke ("date fields drop the adornment"), so
+the two share almost no vocabulary and a keyword search on the symptom misses the very issue you want:
+
+```bash
+# root causes are usually refactors — read the open ones first
+gh issue list --state open --label "type:refactor" --limit 30 \
+  --json number,title --jq '.[] | "#\(.number) \(.title)"'
+
+# then search on the file the findings land in
+gh issue list --state open --search "<TheFile> in:title,body" --limit 10 \
+  --json number,title,url --jq '.[] | "#\(.number) \(.title)"'
+```
+
+**Fold an instance into that root** instead of filing a leaf — the comment carries the evidence:
+
+```bash
+gh issue comment "$ROOT" --body "Another instance, found merging #$PR: <what broke> (\`<file>:<symbol>\`)."
+```
+
+If the root issue carries an implementation-plan checklist, add the instance as a `- [ ]` item in the
+body instead — those boxes drive the progress meter and `implement-issue` ticks them as it goes.
+
+**Record — don't file — an observation** that's worth retrieving but not worth doing:
+
+```bash
+gh pr comment "$PR" --body "Noted while merging: … (recorded, not filed — no action planned)."
+```
+
+Then hand only the clusters that earned an issue to the `create-issue` skill, noting the source PR
+for traceability.
 
 ---
 
