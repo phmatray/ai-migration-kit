@@ -74,11 +74,37 @@
 
 set -euo pipefail
 
-refuse() { printf 'guarded-merge: REFUSED — %s\n' "$*" >&2; exit 2; }
+TOOL=guarded-merge
+NOTHING="Nothing merged."
 
-# Print the header block, whatever length it happens to be — see guarded-commit.sh for why a
-# hardcoded line range is a trap.
-usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
+# refuse(), usage() and the branch assertion itself live in _assert-branch.sh, so all THREE guards
+# share ONE definition of the invariant rather than a copy each (#44). This guard arrived with #41,
+# after #44's extraction was already written against the other two, so for a while the "single
+# home" had a third occupant — exactly the drift that issue predicted. This bootstrap is the one
+# part that cannot be shared (it is what loads the shared part), so it is kept mechanical and
+# identical to its siblings: no hand-aligned prose to drift between the three copies.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$SELF")
+ASSERT="$SCRIPT_DIR/_assert-branch.sh"
+
+# Fail CLOSED, in this script's own voice — refuse() is in the file that may be missing. The test
+# is whether the assertion is CALLABLE, not whether the file is readable: a truncated helper
+# sources without error and defines nothing, and the first call would die with bash's exit 127,
+# which appears in no exit-code table.
+if [ -r "$ASSERT" ]; then . "$ASSERT" || true; fi
+if ! command -v assert_branch >/dev/null 2>&1 || ! command -v refuse >/dev/null 2>&1; then
+  printf '%s: REFUSED — cannot load its branch assertion, so it cannot guard anything:\n  %s\n  %s The guards are not standalone files: reinstall the kit, or restore _assert-branch.sh beside this script.\n' \
+    "$TOOL" "$ASSERT" "$NOTHING" >&2
+  exit 2
+fi
 
 REPO="."
 EXPECTED=""
@@ -86,46 +112,37 @@ GIT_OPTS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -C)        [ -n "${2:-}" ] || refuse "-C needs a <repo-path>"
+    -C)        [ -n "${2:-}" ] || refuse "$TOOL" "-C needs a <repo-path>"
                REPO="$2"; shift 2 ;;
-    -c)        [ -n "${2:-}" ] || refuse "-c needs a <key>=<value>"
+    -c)        [ -n "${2:-}" ] || refuse "$TOOL" "-c needs a <key>=<value>"
                GIT_OPTS+=(-c "$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --)        shift; break ;;
-    -*)        refuse "unknown option: $1" ;;
+    -*)        refuse "$TOOL" "unknown option: $1" ;;
     *)
-      [ -z "$EXPECTED" ] || refuse "unexpected extra argument: $1 (git merge args go after --)"
+      [ -z "$EXPECTED" ] || refuse "$TOOL" "unexpected extra argument: $1 (git merge args go after --)"
       EXPECTED="$1"; shift ;;
   esac
 done
 
-[ -n "$EXPECTED" ] || refuse "an expected branch name is required: guarded-merge.sh [-C <path>] <branch> -- <git merge args…>"
-[ $# -gt 0 ]       || refuse "no git merge arguments given (expected: -- origin/main)"
-[ -d "$REPO" ]     || refuse "-C path is not a directory: $REPO"
-
-git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 \
-  || refuse "not a git repository: $REPO"
+[ -n "$EXPECTED" ] || refuse "$TOOL" "an expected branch name is required: guarded-merge.sh [-C <path>] <branch> -- <git merge args…>"
+[ $# -gt 0 ]       || refuse "$TOOL" "no git merge arguments given (expected: -- origin/main)"
 
 # ---------------------------------------------------------------- assert, before anything
-
-# `symbolic-ref` and not `rev-parse --abbrev-ref HEAD`: on a detached HEAD the latter prints
-# the literal string "HEAD", which compares as a plain branch name and would sail past a naive
-# string test. symbolic-ref simply fails, which is the answer we want.
-head_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-
-[ -n "$head_branch" ] || refuse \
+#
+# The checks and their order live in _assert-branch.sh; the two messages stay here, because what
+# an unguarded MERGE costs is not what an unguarded commit or push costs — it carries the whole of
+# the merged ref into someone else's branch in one write.
+assert_branch "$TOOL" \
   "HEAD is detached in $REPO — it belongs to no branch, so this merge has nowhere safe to
-             land. Expected '$EXPECTED'. Nothing merged."
-
-if [ "$head_branch" != "$EXPECTED" ]; then
-  refuse "HEAD is on '$head_branch' but this task owns '$EXPECTED'.
+             land. Expected '$EXPECTED'. $NOTHING" \
+  "HEAD is on '{found}' but this task owns '$EXPECTED'.
              Something checked out another branch in $REPO. Merging now would carry the whole
-             of the merged ref into '$head_branch' and a later push would deliver it into that
+             of the merged ref into '{found}' and a later push would deliver it into that
              branch's pull request — the largest write this flow makes, in the wrong place.
-             Nothing merged. Re-check out '$EXPECTED' (in a worktree of its own) and retry."
-fi
+             $NOTHING Re-check out '$EXPECTED' (in a worktree of its own) and retry."
 
-before_sha=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
+before_sha="$head_sha"
 
 # ---------------------------------------------------------------- assert the index, too
 #
@@ -151,7 +168,7 @@ done
 before_conflicts=$(git -C "$REPO" ls-files --unmerged 2>/dev/null || true)
 
 if [ -n "$before_conflicts" ] && [ "$STATE_VERB" -eq 0 ]; then
-  refuse "the index in $REPO already carries an UNRESOLVED merge, so this one cannot start
+  refuse "$TOOL" "the index in $REPO already carries an UNRESOLVED merge, so this one cannot start
              (git would refuse it too, with its own exit 128). Nothing merged. Finish the merge
              that is already in flight — resolve, then
                  guarded-commit.sh -C '$REPO' <identity> '$EXPECTED' -- --no-edit
@@ -175,7 +192,7 @@ set -e
 # somebody else's branch is not a conflict to resolve, it is a misfiled write — and the
 # conflicted working tree belongs to whoever owns that branch now.
 
-now_branch=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+now_branch=$(head_branch_of "$REPO")
 conflicts=$(git -C "$REPO" ls-files --unmerged 2>/dev/null || true)
 
 # Collected here, with `|| true`, rather than piped into the exit-5 report below. Under

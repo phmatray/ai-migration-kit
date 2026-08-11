@@ -418,6 +418,100 @@ run push-happy "$PUSH" -C "$R" a
 grep -q "$(git -C "$R" rev-parse --short HEAD)" "$OUT" || fail push-happy "output must report the sha it verified"
 echo "  ok: push-happy — pushed and proved origin/a == HEAD"
 
+# 12b. …the same push, but `ls-remote` writes a line to stderr first.
+#
+# The read-back used to be captured with `2>&1`, so whatever git or ssh wrote to stderr FIRST
+# became line 1 of what the sha parser read (#47). Two entirely ordinary lines do that: the
+# known-hosts notice every first SSH connection from a fresh machine, container or CI runner
+# prints, and the `warning: redirecting to https://…` of a redirecting HTTPS remote. `awk
+# 'NR==1 {print $1}'` then answered with the literal word `Warning:`, which never equals HEAD,
+# so the guard printed its "the remote is NOT this HEAD" ALERT and exited 4 — on a push that
+# had fully succeeded. SKILL.md tells the agent to read exit 4 as "the work is unpushed", so a
+# guard that cries wolf on the success path is worse than no guard at all.
+#
+# None of the cases above can see it: their origin is a LOCAL bare repo, and `git ls-remote`
+# against a path writes nothing to stderr. The test passed for the same reason the bug hid.
+# So this case puts a `git` on PATH that does write one — and records that it did, because a
+# stub that silently stopped being reached would leave a case that passes while reproducing
+# nothing.
+
+R=$(new_repo_with_origin push-noisy-stderr)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work pushed while ls-remote warns"
+head_sha=$(git -C "$R" rev-parse HEAD)
+
+STUB="$WORK/noisy-bin"
+MARKER="$WORK/noisy-ls-remote-was-called"
+mkdir -p "$STUB"
+REAL_GIT=$(command -v git)
+cat > "$STUB/git" <<EOF
+#!/bin/sh
+# Noisy for ls-remote only: every other git call the guard makes must behave as usual.
+for a in "\$@"; do
+  [ "\$a" = ls-remote ] || continue
+  echo called >> "$MARKER"
+  echo "Warning: Permanently added 'github.com' (ED25519) to the list of known hosts." >&2
+  break
+done
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$STUB/git"
+
+run push-noisy-stderr env "PATH=$STUB:$PATH" bash "$PUSH" -C "$R" a
+
+[ -s "$MARKER" ] \
+  || fail push-noisy-stderr "the stub git was never reached — this case is reproducing nothing"
+[ "$RC" -eq 0 ] \
+  || fail push-noisy-stderr "a push that succeeded was reported unverified because ls-remote warned on stderr (exit $RC)"
+[ "$(remote_tip push-noisy-stderr a)" = "$head_sha" ] \
+  || fail push-noisy-stderr "fixture broken: the push itself should have succeeded"
+grep -q "$(git -C "$R" rev-parse --short HEAD)" "$OUT" \
+  || fail push-noisy-stderr "output must report the sha it verified"
+echo "  ok: push-noisy-stderr — a warning on stderr never becomes the sha the guard compares"
+
+# 12c. …and the same again, with the preamble on STDOUT.
+#
+# The fix for #47 has two independent halves — the streams are split, AND the sha is matched by
+# shape instead of by `NR==1` — and 12b alone pins neither: with the split in place no warning
+# reaches the parse, so the anchor is never exercised; with the anchor in place the warning is
+# skipped even when folded in, so the split is never exercised. Measured on a scratch copy:
+# reverting EITHER half left the whole suite green. That is how a later tidy-up deletes the temp
+# file and the trap, or restores `NR==1`, with CI applauding.
+#
+# Splitting the streams cannot help a line git writes on stdout, so this case can only pass if
+# the parse is anchored — which is what pins that half. (push-unlistable pins the other half, by
+# requiring git's own stderr to reach the ALERT.)
+
+R=$(new_repo_with_origin push-noisy-stdout)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work pushed while ls-remote prefixes stdout"
+head_sha=$(git -C "$R" rev-parse HEAD)
+
+STUB_OUT="$WORK/noisy-stdout-bin"
+MARKER_OUT="$WORK/noisy-stdout-ls-remote-was-called"
+mkdir -p "$STUB_OUT"
+cat > "$STUB_OUT/git" <<EOF
+#!/bin/sh
+for a in "\$@"; do
+  [ "\$a" = ls-remote ] || continue
+  echo called >> "$MARKER_OUT"
+  echo "note: this line is on stdout, ahead of git's answer"
+  break
+done
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$STUB_OUT/git"
+
+run push-noisy-stdout env "PATH=$STUB_OUT:$PATH" bash "$PUSH" -C "$R" a
+
+[ -s "$MARKER_OUT" ] \
+  || fail push-noisy-stdout "the stub git was never reached — this case is reproducing nothing"
+[ "$RC" -eq 0 ] \
+  || fail push-noisy-stdout "a preamble on stdout was parsed as the remote sha (exit $RC) — the parse is not anchored"
+[ "$(remote_tip push-noisy-stdout a)" = "$head_sha" ] \
+  || fail push-noisy-stdout "fixture broken: the push itself should have succeeded"
+echo "  ok: push-noisy-stdout — the sha is found by shape, not by being on line 1"
+
 # ---------------------------------------------------------------- 13. first push (-u passthrough)
 #
 # implement-issue's very first push is `git push -u origin <branch>` on a branch with no
@@ -489,9 +583,44 @@ run push-unlistable "$PUSH" -C "$R" a --remote nosuchremote -- origin a
 [ -s "$OUT" ] || fail push-unlistable "died silently — the caller learns nothing"
 grep -qi 'unverified\|could not be listed' "$OUT" \
   || fail push-unlistable "the alert must say the push is UNVERIFIED, not that it failed"
+# …and it must carry git's OWN words. Keeping the stderr is the entire reason the read-back does
+# not simply discard it, and until this line nothing asserted the message survives: the guard
+# could have dropped the capture altogether and stayed green here on the boilerplate above.
+grep -q 'does not appear to be a git repository' "$OUT" \
+  || fail push-unlistable "git's own stderr must reach the ALERT — that is what the capture is for"
 [ "$(remote_tip push-unlistable a)" = "$head_sha" ] \
   || fail push-unlistable "fixture broken: the push itself should have succeeded"
 echo "  ok: push-unlistable — push succeeded, read-back failed; reported (4), not a silent 128"
+
+# 17b. …and when the guard cannot capture stderr at all, it must say SO — not report silence.
+#
+# Keeping git's stderr out of the sha parse (#47) means routing it to a temp file, and a temp file
+# is something that can fail to exist: an unwritable TMPDIR, a restrictive container — the same
+# fresh-runner environments the known-hosts warning comes from. The first version of this fix fell
+# back to /dev/null and then printed "<git ls-remote printed nothing on stderr>", which is a claim
+# about git made by a tool that had stopped listening. "It said nothing" and "we discarded what it
+# said" are different facts, and only the ALERT can tell an operator which one they are looking at.
+#
+# `mktemp` is stubbed to fail rather than TMPDIR being pointed at a missing directory: BSD mktemp
+# ignores that and succeeds anyway, so the environment trick silently tests nothing (measured).
+
+R=$(new_repo_with_origin push-no-tmpfile)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work that really is pushed"
+
+MK_STUB="$WORK/no-mktemp-bin"
+mkdir -p "$MK_STUB"
+printf '#!/bin/sh\nexit 1\n' > "$MK_STUB/mktemp"
+chmod +x "$MK_STUB/mktemp"
+
+run push-no-tmpfile env "PATH=$MK_STUB:$PATH" bash "$PUSH" -C "$R" a --remote nosuchremote -- origin a
+
+[ "$RC" -eq 4 ] || fail push-no-tmpfile "a failed capture must still be exit 4, got $RC"
+grep -qi 'could not be captured' "$OUT" \
+  || fail push-no-tmpfile "the ALERT must say the stderr was never captured"
+grep -qi 'printed nothing on stderr' "$OUT" \
+  && fail push-no-tmpfile "the guard claimed git was silent when it had merely stopped listening"
+echo "  ok: push-no-tmpfile — an uncapturable stderr is reported as lost, never as silence"
 
 # ---------------------------------------------------------------- 18. HEAD moved during the push
 #
@@ -954,7 +1083,7 @@ echo "task work" >> "$R/seed.txt"
 
 # A lone guard: copied out with no `_assert-branch.sh` beside it.
 LONE=$(mktemp -d "$WORK/lone-guard.XXXX")
-cp "$COMMIT" "$PUSH" "$LONE/"
+cp "$COMMIT" "$PUSH" "$MERGE" "$LONE/"
 
 run helper-missing-commit bash "$LONE/guarded-commit.sh" -C "$R" a -- -am "must never land"
 
@@ -980,12 +1109,26 @@ grep -q '_assert-branch.sh' "$OUT" \
 # parsed at all (that loop's own errors are reported through the helper's refuse()), so there is no
 # state in which a lone guard does something useful. A --help that worked would advertise a guard
 # that cannot guard.
-for g in guarded-commit guarded-push; do
+for g in guarded-commit guarded-push guarded-merge; do
   run "helper-missing-help-$g" bash "$LONE/$g.sh" --help
   [ "$RC" -eq 2 ] || fail "helper-missing-help-$g" "--help on a lone guard must refuse (2), got $RC"
   grep -q '_assert-branch.sh' "$OUT" \
     || fail "helper-missing-help-$g" "the refusal must name the file it could not load"
 done
+
+# The merge guard joined the helper later than its siblings (#41 landed it self-contained, #44 had
+# already extracted the other two), so its bootstrap is the one most likely to be the odd one out.
+# It gets the same "refuses, and writes NOTHING" proof rather than only the --help check above.
+before_a=$(tip "$R" a); before_b=$(tip "$R" b)
+run helper-missing-merge bash "$LONE/guarded-merge.sh" -C "$R" a -- b
+
+[ "$RC" -eq 2 ] || fail helper-missing-merge "a guard without its helper must refuse (2), got $RC"
+grep -q '_assert-branch.sh' "$OUT" \
+  || fail helper-missing-merge "the refusal must name the file it could not load"
+[ "$(tip "$R" a)" = "$before_a" ] \
+  || fail helper-missing-merge "branch a advanced — the merge ran with no assertion behind it"
+[ "$(tip "$R" b)" = "$before_b" ] || fail helper-missing-merge "branch b moved"
+[ ! -e "$R/.git/MERGE_HEAD" ] || fail helper-missing-merge "a refused merge was left in progress"
 echo "  ok: helper-missing — a guard that cannot load its assertion refuses (2) and names the file"
 
 # ---------------------------------------------------------------- 30b. the helper is TRUNCATED
@@ -999,7 +1142,7 @@ echo "  ok: helper-missing — a guard that cannot load its assertion refuses (2
 
 for payload in '' '# a comment and nothing else' 'assert_branch_typo() { :; }'; do
   TRUNC=$(mktemp -d "$WORK/trunc-guard.XXXX")
-  cp "$COMMIT" "$PUSH" "$TRUNC/"
+  cp "$COMMIT" "$PUSH" "$MERGE" "$TRUNC/"
   printf '%s' "$payload" > "$TRUNC/_assert-branch.sh"
 
   before_a=$(tip "$R" a)
@@ -1014,6 +1157,13 @@ for payload in '' '# a comment and nothing else' 'assert_branch_typo() { :; }'; 
     || fail trunc-push "a helper that defines nothing must refuse (2), got $RC (127 = the hole)"
   [ "$(remote_tip helper-missing a)" = "$before_remote" ] \
     || fail trunc-push "the remote moved even though the guard refused"
+
+  before_b=$(tip "$R" b)
+  run trunc-merge bash "$TRUNC/guarded-merge.sh" -C "$R" a -- b
+  [ "$RC" -eq 2 ] \
+    || fail trunc-merge "a helper that defines nothing must refuse (2), got $RC (127 = the hole)"
+  [ "$(tip "$R" a)" = "$before_a" ] || fail trunc-merge "branch a took a merge with no assertion loaded"
+  [ "$(tip "$R" b)" = "$before_b" ] || fail trunc-merge "branch b moved"
 done
 echo "  ok: helper-truncated — a readable helper that defines nothing still refuses (2), never 127"
 
@@ -1031,6 +1181,7 @@ echo "task work" >> "$R/seed.txt"
 LINKDIR=$(mktemp -d "$WORK/symlink-bin.XXXX")
 ln -s "$COMMIT" "$LINKDIR/guarded-commit.sh"
 ln -s "$PUSH" "$LINKDIR/gp"          # also renamed, to prove the resolution is not name-based
+ln -s "$MERGE" "$LINKDIR/gm"
 
 run symlink-commit bash "$LINKDIR/guarded-commit.sh" -C "$R" a -- -am "feat: committed via a symlink"
 
@@ -1040,6 +1191,11 @@ run symlink-commit bash "$LINKDIR/guarded-commit.sh" -C "$R" a -- -am "feat: com
 run symlink-help bash "$LINKDIR/gp" --help
 [ "$RC" -eq 0 ] || fail symlink-help "a renamed symlink to guarded-push.sh failed to load (exit $RC)"
 grep -q 'Exit codes:' "$OUT" || fail symlink-help "--help through a symlink lost the exit-code table"
+
+run symlink-help-merge bash "$LINKDIR/gm" --help
+[ "$RC" -eq 0 ] || fail symlink-help-merge "a renamed symlink to guarded-merge.sh failed to load (exit $RC)"
+grep -q '^  5 ' "$OUT" \
+  || fail symlink-help-merge "--help through a symlink lost the merge guard's exit-5 row"
 echo "  ok: symlinked guard — \$0 is resolved through its links, so the helper is found beside the real file"
 
 # ---------------------------------------------------------------- 30d. the helper is not a command
@@ -1089,5 +1245,43 @@ run unborn-commit "$COMMIT" -C "$UNBORN" a -- -m "feat: the very first commit"
 [ -n "$(git -C "$UNBORN" rev-parse --quiet --verify refs/heads/a || true)" ] \
   || fail unborn-commit "branch a was not created by the first commit"
 echo "  ok: unborn branch — push refuses (2) with no witness; the first commit still lands"
+
+# 31b. …and the MERGE side is a third answer again: it must SUCCEED.
+#
+# This case is green the day it is written, and that is its job. #78 proposed making guarded-merge
+# refuse on an empty $head_sha "as guarded-push.sh does", by analogy rather than by measurement.
+# The measurement says otherwise: `git merge <ref>` into an unborn branch is a supported
+# fast-forward — it creates the branch at the merged tip and checks the files out — and
+# guarded-merge.sh has always allowed it. It is the first sync of a freshly branched worktree.
+#
+# So the three guards genuinely differ on an unborn HEAD (push refuses, commit and merge proceed),
+# and only a test says which is which. Without this case, adopting the shared assertion is one
+# plausible-looking `[ -n "$head_sha" ] || refuse` away from silently breaking a working operation.
+
+MUNBORN="$WORK/unborn-merge"
+git init -q "$MUNBORN"
+git -C "$MUNBORN" config user.email test@example.com
+git -C "$MUNBORN" config user.name "Guarded Git Test"
+git -C "$MUNBORN" config commit.gpgsign false
+git -C "$MUNBORN" config core.hooksPath "$MUNBORN/.git/hooks"
+git -C "$MUNBORN" checkout -q -b m
+echo m > "$MUNBORN/m.txt"
+git -C "$MUNBORN" add m.txt
+git -C "$MUNBORN" commit -q -m "m has content"
+git -C "$MUNBORN" symbolic-ref HEAD refs/heads/a      # `a` is unborn: refs/heads/a does not exist
+git -C "$MUNBORN" read-tree --empty
+rm -f "$MUNBORN/m.txt"
+
+[ -z "$(git -C "$MUNBORN" rev-parse --quiet --verify refs/heads/a || true)" ] \
+  || fail unborn-merge "fixture broken: branch a should not exist yet"
+
+run unborn-merge "$MERGE" -C "$MUNBORN" a -- m
+
+[ "$RC" -eq 0 ] || fail unborn-merge "merging into an unborn branch must succeed, got $RC"
+[ "$(git -C "$MUNBORN" rev-parse --quiet --verify refs/heads/a || true)" = "$(tip "$MUNBORN" m)" ] \
+  || fail unborn-merge "branch a was not created at m's tip by the merge"
+[ -f "$MUNBORN/m.txt" ] || fail unborn-merge "the merged content was not checked out"
+grep -q "^guarded-merge: a@" "$OUT" || fail unborn-merge "the receipt must name the branch and its new tip"
+echo "  ok: unborn merge — the first sync into a fresh branch still lands (0), not refused"
 
 echo "guarded-git golden test OK"

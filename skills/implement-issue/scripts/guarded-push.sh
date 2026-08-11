@@ -165,23 +165,71 @@ fi
 # swallowed — after a push that already succeeded. The caller would read 128 as "the push failed,
 # nothing else was done", the exact inversion of what happened, and the ALERT below would be
 # unreachable. Verification failing is not the same as verification passing: it is exit 4.
+#
+# The two streams are captured SEPARATELY. Folding them with `2>&1` put whatever git or ssh
+# happened to write first onto line 1 of the very variable the sha is parsed out of (#47): the
+# `Warning: Permanently added 'github.com' … to the list of known hosts.` of a first SSH
+# connection from a fresh machine, container or CI runner, or the `warning: redirecting to
+# https://…` of a redirecting HTTPS remote. The guard then compared the word `Warning:` against
+# HEAD, found them unequal, and exited 4 — its "the work is not where the exit code implied"
+# verdict — on a push that had fully succeeded. That inversion is worse than no guard, because
+# this script exists to be the thing the caller believes.
+#
+# The stderr is still wanted; it is only kept out of the parse. The ALERT below quotes it when
+# the listing FAILS, which is what the `2>&1` was there for in the first place.
+# Not worth failing a verified push over if mktemp fails — but the ALERT below must then say it
+# STOPPED LISTENING rather than report silence, because "git printed nothing" and "we discarded
+# what git printed" are different facts and only one of them is observable here.
+remote_err_sink=/dev/null
+remote_err_captured=0
+if remote_err_file=$(mktemp 2>/dev/null); then
+  # Registered before anything can write to it, and `rm -f` so a vanished file is not an error
+  # under `set -e`. This is the script's only EXIT trap — a second one would silently replace it.
+  trap 'rm -f "$remote_err_file"' EXIT
+  remote_err_sink="$remote_err_file"
+  remote_err_captured=1
+fi
+
 set +e
-remote_out=$(git -C "$REPO" ls-remote "$REMOTE" "refs/heads/$EXPECTED" 2>&1)
+remote_out=$(git -C "$REPO" ls-remote "$REMOTE" "refs/heads/$EXPECTED" 2>"$remote_err_sink")
 ls_rc=$?
 set -e
 
 if [ "$ls_rc" -ne 0 ]; then
+  # Three outcomes, three different sentences. Folding "could not read it back" or "never captured
+  # it" into the empty case would print `<git ls-remote printed nothing>` — a claim about git made
+  # by a tool that had stopped listening, on the one path whose whole job is to explain the failure.
+  if [ "$remote_err_captured" -eq 0 ]; then
+    remote_err="<stderr could not be captured: mktemp failed, so git's message is lost, not absent>"
+  elif remote_err=$(cat -- "$remote_err_file" 2>/dev/null); then
+    [ -n "$remote_err" ] || remote_err="<git ls-remote printed nothing on stderr>"
+  else
+    remote_err="<stderr was captured but could not be read back from $remote_err_file>"
+  fi
   {
     echo "guarded-push: ALERT — git push exited 0, but '$REMOTE' could not be listed, so the"
     echo "              push is UNVERIFIED (git ls-remote exited $ls_rc):"
-    printf '%s\n' "$remote_out" | sed 's/^/                  /'
+    printf '%s\n' "$remote_err" | sed 's/^/                  /'
     echo "              Treat the work as unpushed. If the push targeted a different remote,"
     echo "              re-run with --remote <name> so the guard checks the one you wrote to."
   } >&2
   exit 4
 fi
 
-remote_sha=$(printf '%s\n' "$remote_out" | awk 'NR==1 {print $1}')
+# Anchored on the SHAPE of an object id, not on position. `NR==1 {print $1}` trusted the first
+# line to be git's answer, and #47 is precisely the case where it is not. `ls-remote` writes
+# `<oid><TAB><ref>`; a warning line never has a bare full-length hex first field, so matching the
+# shape and taking the first hit skips any preamble that still reaches this variable. The length
+# test admits sha-256 repositories (64) alongside sha-1 (40) — a literal `{40}` would have turned
+# every push from a sha-256 repository into an exit 4.
+#
+# Fed by a here-string, NOT by `printf … | awk`: `exit` closes the pipe while the writer may still
+# hold data, and under `set -o pipefail` that SIGPIPE becomes the substitution's status — 141 —
+# out here, where the `set +e` window has already closed. A verified push would abort with the code
+# callers are told means "git push itself failed. Nothing else was done." The kit already names
+# this trap in tests/xunit-v3/test.sh; a here-string has no writer to kill.
+remote_sha=$(awk '$1 ~ /^[0-9a-f]+$/ && (length($1) == 40 || length($1) == 64) { print $1; exit }' \
+  <<<"$remote_out")
 
 if [ -z "$remote_sha" ]; then
   {
