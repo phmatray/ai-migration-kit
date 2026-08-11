@@ -100,18 +100,20 @@ jobs:
       - name: Every golden test suite is enforced by CI
         run: python3 scripts/ci-wiring-check.py
 
-      # …and the guard gets the same treatment it exists to enforce: a golden test over its
+      # Ten suites now get their EXIT trap from tests/_lib.sh (#72), so a bug in that handler would
+      # silently weaken all of them at once — the `local rc=$?`-first invariant is the difference
+      # between a failing suite reporting failure and reporting success. It sits AHEAD of every
+      # suite that sources the helper, ci-wiring included: otherwise a regression in the shared
+      # handler surfaces first as an unexplained failure somewhere else, with the step that would
+      # name the cause still queued behind it.
+      - name: Shared test preamble golden test (the rc invariant every suite now leans on)
+        run: ./tests/lib/test.sh
+
+      # …and the wiring guard gets the same treatment it exists to enforce: a golden test over its
       # refusal path. An inline `run:` block could not have one, which is exactly how the first
       # version of scripts/release-title-gate.sh managed to fail open.
       - name: CI-wiring guard golden test (refusal paths, not just the happy one)
         run: ./tests/ci-wiring/test.sh
-
-      # Every other suite now gets its EXIT trap from tests/_lib.sh (#72), so a bug in that handler
-      # would silently weaken all of them at once — the `local rc=$?`-first invariant is the
-      # difference between a failing suite reporting failure and reporting success. Runs early, and
-      # ahead of the suites that depend on it.
-      - name: Shared test preamble golden test (the rc invariant every suite now leans on)
-        run: ./tests/lib/test.sh
 
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo

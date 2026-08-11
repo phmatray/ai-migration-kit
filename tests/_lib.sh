@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/_lib.sh — the golden suites' shared preamble. SOURCED, never executed.
 #
-# Why this file exists (#72). Four suites each carried their own scratch directory, their own EXIT
+# Why this file exists (#72). Ten suites each carried their own scratch directory, their own EXIT
 # trap and their own copy of the samples/ immutability check — including their own restatement of
 # the invariant that `local rc=$?` must be the FIRST statement in the handler. Anything before it
 # overwrites the status being reported, which turns a failing suite into a silent green: the one
@@ -11,8 +11,9 @@
 # loader — an invisible, load-bearing prefix that a copy-paste drops with no symptom — applied to
 # the trap handler instead. #42 gave the loader one home; this gives the trap one.
 #
-# They had already diverged before this landed, which is the usual first sign. Measured on the four
-# suites at the time of writing:
+# They had already diverged before this landed, which is the usual first sign. The issue counted
+# three; a survey found EIGHT; the anti-recurrence check in tests/lib/test.sh then found two more
+# that spell the trap as a one-liner. Measured on the four that carried a full `cleanup()`:
 #
 #     suite              scratch      samples/ check   __pycache__   other
 #     audit-inventory    $scratch     yes              no (argued)   —
@@ -69,9 +70,20 @@ kit_init() {
   #
   # A parent directory has no such failure mode: the child is created inside a path the parent
   # already knows, so nothing has to be communicated back out of the subshell.
+  # A caller-supplied root replaces what used to be a hardcoded `git -C "$KIT"` per suite, so a
+  # wrong argument now silently disables every guard that depends on it. Prove it is a repository
+  # here, once, loudly — rather than letting kit_guard_samples_unchanged report "clean" about a
+  # directory it never measured.
+  if ! git -C "$KIT_LIB_ROOT" rev-parse --git-dir > /dev/null 2>&1; then
+    echo "FAIL: kit_init was given '$KIT_LIB_ROOT', which is not a git repository."
+    echo "      The samples/ guard would then report clean without measuring anything."
+    exit 1
+  fi
+  # Trap FIRST, then the probe: the probe can exit 1, and a directory created before the handler is
+  # armed is stranded on the one path that is meant to be loud — eight suites' worth per CI run.
+  trap kit_cleanup EXIT
   KIT_LIB_TMP=$(mktemp -d)
   kit_require_find_quit
-  trap kit_cleanup EXIT
 }
 
 kit_scratch() {
@@ -86,13 +98,16 @@ kit_cleanup() {
   # FIRST statement, always. A `rm`, an `echo`, even a `local d` with a command substitution in it
   # would replace the status this handler exists to report.
   local rc=$?
-  local g
+  local g failed=0
   [ -n "$KIT_LIB_TMP" ] && rm -rf "$KIT_LIB_TMP"
+  # EVERY guard runs, then the status is decided. Exiting on the first failure hides the rest: with
+  # ci-template's two guards registered in the order samples-then-template, a run that damaged BOTH
+  # printed only the samples message and never named the template — the reverse of what the inline
+  # handler this replaced used to report.
   for g in ${KIT_LIB_GUARDS+"${KIT_LIB_GUARDS[@]}"}; do
-    if ! "$g"; then
-      exit 1
-    fi
+    "$g" || failed=1
   done
+  [ "$failed" -eq 0 ] || exit 1
   exit "$rc"
 }
 

@@ -1744,11 +1744,15 @@ fi
 # Instead: match the shape ANYWHERE, then subtract the two kinds of line that spell it out
 # legitimately — comment lines, and the one tagged `sigpipe-repro` above, which IS the broken shape
 # on purpose. The FAIL text below says `find|grep` without the space so it cannot match itself.
-strays=$( { grep -nE 'find [^|]*\| *grep -[q] \.' "$SELF" || true; } \
+# Scans tests/_lib.sh too, since #72 moved any_match there: the idiom this guard polices no longer
+# lives in this file, so scanning only $SELF would let someone revert any_match to the broken
+# pipeline and reintroduce #48 for all ten converted suites at once, with this check still green.
+strays=$( { grep -nE 'find [^|]*\| *grep -[q] \.' "$SELF" "$KIT/tests/_lib.sh" || true; } \
+  | grep -vE ':[0-9]+:[[:space:]]*#' \
   | grep -vE '^[0-9]+:[[:space:]]*#' \
   | grep -v 'sigpipe-repro' || true)
 if [ -n "$strays" ]; then
-  echo "FAIL: a find|grep -q site is left in $(basename "$SELF") — use any_match:"
+  echo "FAIL: a find|grep -q site is left in this suite or tests/_lib.sh — use any_match:"
   echo "$strays"
   exit 1
 fi

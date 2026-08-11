@@ -503,7 +503,7 @@ echo "  [9] .gitkeep and README are not vendored libraries; the real asset still
 # 6. Still valid JSON, including from a foreign working directory — CI runs this
 #    script from someone else's checkout on purpose.
 # ---------------------------------------------------------------------------
-( cd "$(mktemp -d)" && bash "$INV" "$A" | python3 -m json.tool > /dev/null )
+( cd "$(kit_scratch)" && bash "$INV" "$A" | python3 -m json.tool > /dev/null )
 echo "  [6] valid JSON, from a foreign working directory"
 
 echo "audit-inventory vendoredAssets golden test OK"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/_lib.sh golden test.
 #
-# The helper exists so four suites stop each carrying their own EXIT trap (#72). The invariant it
+# The helper exists so ten suites stop each carrying their own EXIT trap (#72). The invariant it
 # centralises is one line — `local rc=$?` must be the FIRST statement in the handler — and getting
 # it wrong turns a FAILING suite into a silent green. Every suite that sources this file now
 # depends on that being right here, so it is driven for real rather than restated in a comment.
@@ -13,7 +13,9 @@
 #   4. a registered guard that passes leaves the status alone;
 #   5. `kit_guard_samples_unchanged` catches a mutated samples/ and is silent otherwise;
 #   6. `any_match` answers correctly and does NOT trip SIGPIPE with many matches (#48);
-#   7. sourcing is loud when the helper is missing — a suite must never run unguarded.
+#   7. sourcing is loud when the helper is missing — a suite must never run unguarded;
+#   8. no suite hand-rolls the EXIT trap again — the anti-recurrence check;
+#   9. a suite that uses the helper takes its scratch from it, per occurrence.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -49,11 +51,20 @@ run_suite() {
 # ---------------------------------------------------------------------------
 # 1. The invariant. A suite that fails must still report failure through the handler.
 # ---------------------------------------------------------------------------
-r=$(run_suite 's=$(kit_scratch); echo "working in $s"; exit 3')
+r=$(run_suite 's=$(kit_scratch); echo "SCRATCH:$s"; exit 3')
 [ "${r%%|*}" = "3" ] || { echo "FAIL: a failing suite reported ${r%%|*}, not 3 — the handler ate the status"; exit 1; }
+# …and the scratch dir is gone on the FAILURE path too. This is the whole advantage kit_scratch
+# claims over an inline `rm -rf` at the end of a suite, and nothing else here drives it: section 2
+# only inspects a passing run. Move the removal behind an `[ "$rc" -eq 0 ]` and every failing run
+# of every converted suite would strand its tree, silently.
+failed_dir=$(printf '%s' "${r#*|}" | sed -n 's/^SCRATCH://p')
+[ -n "$failed_dir" ] || { echo "FAIL: could not read the scratch path back: ${r#*|}"; exit 1; }
+[ -d "$failed_dir" ] && { echo "FAIL: a FAILING suite left its scratch dir behind: $failed_dir"; exit 1; }
+# Backticks would be command substitution inside double quotes, so `set -e` would run as a command
+# and the message would print with a blank subject — on the very assertion this file exists for.
 r=$(run_suite 's=$(kit_scratch); false')
-[ "${r%%|*}" = "1" ] || { echo "FAIL: `set -e` failure reported ${r%%|*}, not 1"; exit 1; }
-echo "  [1] a failing suite still exits non-zero"
+[ "${r%%|*}" = "1" ] || { echo 'FAIL: a `set -e` failure reported '"${r%%|*}"', not 1'; exit 1; }
+echo "  [1] a failing suite exits non-zero, and its scratch dir is removed on that path too"
 
 # ---------------------------------------------------------------------------
 # 2. A passing suite exits 0 and leaves no scratch behind.
@@ -106,8 +117,9 @@ echo "  [5] the samples/ guard catches a mutation, names it, and is silent other
 #    The bug it replaces (#48) is a RACE — `find … | grep -q .` only returns 141 when find is still
 #    writing as grep exits — so the negative case needs enough matches to provoke it, not one.
 # ---------------------------------------------------------------------------
-many="$scratch/many"; mkdir -p "$many"
-for i in $(seq 1 300); do mkdir -p "$many/d$i/__pycache__"; done
+many="$scratch/many"
+# One process, not 301. This suite is a prerequisite of ten others and pays this on every run.
+mkdir -p "$many"/d{1..300}/__pycache__
 if ! any_match "$many" -name '__pycache__' -type d; then
   echo "FAIL: any_match said 'nothing found' with 300 matches present — the SIGPIPE bug is back"
   exit 1
@@ -154,17 +166,23 @@ echo "  [7] a missing helper stops the suite instead of letting it run unguarded
 #    Enumerated from the filesystem, never from a list in this file: a hardcoded roster is the
 #    stale-inventory failure #45 filed, where the README named three suites and CI ran eight.
 # ---------------------------------------------------------------------------
+#    The patterns are UNANCHORED on purpose. The first version keyed on `^trap .* EXIT` and shipped
+#    blind to the two live copies already in the tree — `tests/worktrees-ignored` and
+#    `tests/release-title-gate` both write `WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT`, where
+#    the trap is not at column 0. A guard whose whole job is catching a ninth copy could not see
+#    the eighth.
 offenders=""
 for f in tests/*/test.sh; do
   # This suite is the documented exception — it owns its trap so it can test the shared one.
   [ "$f" = "tests/lib/test.sh" ] && continue
-  if grep -q '^cleanup() {' "$f" || grep -q '^trap .* EXIT' "$f"; then
+  if grep -qE '(^|[[:space:];])(cleanup|function cleanup)[[:space:]]*(\(\))?[[:space:]]*\{' "$f" \
+     || grep -qE '(^|[[:space:];])trap[[:space:]].*EXIT' "$f"; then
     offenders="$offenders $f"
   fi
 done
 if [ -n "$offenders" ]; then
   echo "FAIL: these suites define their own EXIT trap instead of using tests/_lib.sh:$offenders"
-  echo "      That is how the four copies this helper replaced came to diverge — one lost the"
+  echo "      That is how the ten copies this helper replaced came to diverge — one lost the"
   echo "      samples/ check entirely. Use kit_init + kit_guard, or add a documented exception."
   exit 1
 fi
@@ -175,9 +193,15 @@ echo "  [8] no suite hand-rolls the EXIT trap (tests/lib is the documented excep
 #
 #    Scoped to the suites that source `_lib.sh`, deliberately — not to every suite that calls
 #    `mktemp -d`. Five others (preflight, release-title-gate, repo-profile, report-dashboard,
-#    worktrees-ignored) manage their own with an inline `rm -rf`, and measured, they do not leak:
-#    234 tmp entries before a run of three of them, 234 after. Converting them is tidying, not a
-#    fix, and #72 is about the duplicated PREAMBLE rather than about every temp directory.
+#    worktrees-ignored) manage their own with an inline `rm -rf`, and measured, they do not leak.
+#    Converting them is tidying, not a fix, and #72 is about the duplicated PREAMBLE rather than
+#    about every temp directory. Reproduce that measurement — a number kept without the command
+#    that produced it is not a measurement:
+#
+#      before=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tmp.*' | wc -l)
+#      for s in preflight repo-profile worktrees-ignored; do bash "tests/$s/test.sh" >/dev/null; done
+#      after=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tmp.*' | wc -l)
+#      echo "$before -> $after"      # observed 234 -> 234 when this was written
 #
 #    The real difference, for whoever does convert them: an inline `rm -rf` at the end runs only on
 #    the success path, so a suite that fails midway leaves its directory behind. kit_scratch's is
@@ -186,17 +210,28 @@ echo "  [8] no suite hand-rolls the EXIT trap (tests/lib is the documented excep
 #    Within a converted suite, though, a stray `mktemp -d` IS a leak — kit_cleanup only removes
 #    what lives under its own parent directory.
 # ---------------------------------------------------------------------------
+#    Checked PER OCCURRENCE, not per file. Exempting a whole file the moment it mentions
+#    `kit_scratch` anywhere is the opposite of the leak described above, and it had a live
+#    instance: tests/audit-inventory ran `( cd "$(mktemp -d)" && … )` for its foreign-cwd case, a
+#    directory outside KIT_LIB_TMP that nothing removes, in a suite this change converted.
 leaky=""
 for f in tests/*/test.sh; do
   [ "$f" = "tests/lib/test.sh" ] && continue
   grep -q '_lib\.sh' "$f" || continue
-  if grep -q 'mktemp -d' "$f" && ! grep -q 'kit_scratch' "$f"; then
-    leaky="$leaky $f"
-  fi
+  # A `mktemp -d` rooted under a kit_scratch result is fine — that IS inside KIT_LIB_TMP.
+  while IFS= read -r line; do
+    # `<n>:<text>` from grep -n; a comment line is prose about mktemp, not a call.
+    case "${line#*:}" in [[:space:]]*\#*|\#*) continue ;; esac
+    case "$line" in
+      *kit_scratch*|*'$WORK'*|*'$scratch'*) continue ;;
+      *) leaky="$leaky
+    $f: $line" ;;
+    esac
+  done < <(grep -n 'mktemp -d' "$f")
 done
 if [ -n "$leaky" ]; then
-  echo "FAIL: these suites source tests/_lib.sh but still call mktemp -d directly, so kit_cleanup"
-  echo "      does not remove what they take:$leaky"
+  echo "FAIL: these mktemp -d calls sit outside kit_scratch's tree, so kit_cleanup cannot remove"
+  echo "      what they take:$leaky"
   exit 1
 fi
 echo "  [9] a suite that uses the helper takes its scratch from it"

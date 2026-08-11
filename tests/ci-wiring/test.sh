@@ -24,10 +24,16 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHECK="$REPO/scripts/ci-wiring-check.py"
-# Scratch dir and EXIT trap come from the shared preamble (#72) — four suites each had
-# their own, and they had diverged.
-. "$PWD/tests/_lib.sh"
-kit_init "$PWD"
+# Scratch dir and EXIT trap come from the shared preamble (#72).
+#
+# Sourced via $REPO, never $PWD: this suite deliberately does NOT cd — it is written to run from
+# anywhere — and it sets `set -uo pipefail` without `-e`. With `$PWD` the source silently failed
+# off-root, `kit_init`/`kit_scratch` were then "command not found", `WORK` stayed empty, and every
+# fixture path resolved against the filesystem ROOT (`mkdir /uninvoked`, `rm -rf /empty/tests`).
+# CI never saw it because CI invokes from the repo root.
+. "$REPO/tests/_lib.sh" || {
+  echo "FAIL: cannot source $REPO/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$REPO"
 WORK=$(kit_scratch)
 
 fails=0
