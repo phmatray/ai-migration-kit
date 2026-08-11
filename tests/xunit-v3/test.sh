@@ -978,6 +978,31 @@ grep -qF "$pinned_coverage" "$shapes/ambient/p/p.csproj" || {
   grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1; }
 echo "  [7c] no ambient value steers the transform — overrides are flags only"
 
+#     [7d] `--help` describes the package the transform actually writes.
+#
+#     renovate.json claims "the transform writes COVERAGE_PACKAGE rather than a literal, so all
+#     three move together or the suite fails". That was true of the two spellings the transform
+#     WRITES and false of the one it DISPLAYS: the argparse help text carried its own copy of the
+#     package id (#69). Nothing compared them, so renaming the constant would leave `--help`
+#     describing a package the script no longer touches.
+#
+#     Asserted against the id read from the module, never against a literal here — a literal in the
+#     test would be a fourth copy with the same problem.
+#     COLUMNS is pinned because argparse wraps help text to the terminal width: on a narrow one it
+#     would split the package id across two lines and this check would fail for a reason that has
+#     nothing to do with the property being tested.
+help_text=$(COLUMNS=200 python3 "$KIT/tests/xunit-v3/apply-transform.py" --help)
+coverage_package=$(read_const COVERAGE_PACKAGE)
+grep -qF "$coverage_package" <<<"$help_text" || {
+  echo "FAIL: --help never names $coverage_package, the package the transform writes:"
+  printf '%s\n' "$help_text" | grep -i 'coverage' ; exit 1; }
+# And no OTHER Microsoft.Testing.* id: a stale hardcoded name would still satisfy the check above
+# if it happened to sit alongside the derived one.
+stale_ids=$(grep -oE 'Microsoft\.Testing\.[A-Za-z.]+' <<<"$help_text" | grep -vxF "$coverage_package" | sort -u || true)
+[ -z "$stale_ids" ] || {
+  echo "FAIL: --help names package id(s) other than $coverage_package: $stale_ids"; exit 1; }
+echo "  [7d] --help names the coverage package the transform writes, and no other"
+
 # ---------------------------------------------------------------------------
 # 8. The no-__pycache__ invariant lives in exactly one place IN THIS FILE.
 #
