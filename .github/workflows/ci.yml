@@ -74,6 +74,21 @@ jobs:
       - name: Install Python test dependencies
         run: python3 -m pip install --quiet PyYAML
 
+      # The README used to enumerate the golden suites and went stale four times, which is the
+      # visible half of the problem (#45). The costly half is that a suite nobody runs looks
+      # exactly like a suite that passes — no red check, just an absent one. So the inventory is
+      # mechanical now, and it asserts enforcement rather than mere mention: a step that is
+      # commented out, `continue-on-error`, `if: false` or `|| true`-ed does not count.
+      # Cheap and structural — kept ahead of the builds so it fails fast.
+      - name: Every golden test suite is enforced by CI
+        run: python3 scripts/ci-wiring-check.py
+
+      # …and the guard gets the same treatment it exists to enforce: a golden test over its
+      # refusal path. An inline `run:` block could not have one, which is exactly how the first
+      # version of scripts/release-title-gate.sh managed to fail open.
+      - name: CI-wiring guard golden test (refusal paths, not just the happy one)
+        run: ./tests/ci-wiring/test.sh
+
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo
 
