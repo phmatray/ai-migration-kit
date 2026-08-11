@@ -12,8 +12,16 @@
 #      packages.config, central package management) are all handled;
 #   7. the xunit.v3 / CodeCoverage version pairing is machine-checked, not remembered — and no
 #      ambient environment value can steer the transform, so every override is an explicit flag;
+#      `--help` names the package AND the version the transform actually writes (the docstring
+#      sends readers there for the pinned value), and every prose claim about that version — in the
+#      module's own comments and in the migration reference agents read — is swept for agreement,
+#      so a Renovate bump cannot leave a measurement standing that nobody re-took;
 #   8. THIS FILE loads kit scripts through exactly one module loader, so the no-__pycache__
-#      invariant that loader carries cannot be lost to a copy-paste.
+#      invariant that loader carries cannot be lost to a copy-paste;
+#   9. Renovate can actually SEE those two pins and actually HOLDS their majors — the custom
+#      managers are executed against the real file, and the holds are tested for REACH, so a config
+#      the engine would reject, or protection that has been scoped away from the pins, fails here
+#      instead of surfacing as PRs that silently never appear.
 #
 # The committed fixture is never mutated: cleanup() asserts it on every exit path, and CI asserts it
 # stays "green AND legacy".
@@ -974,6 +982,123 @@ grep -qF "$pinned_coverage" "$shapes/ambient/p/p.csproj" || {
   grep CodeCoverage "$shapes/ambient/p/p.csproj"; exit 1; }
 echo "  [7c] no ambient value steers the transform — overrides are flags only"
 
+#     [7d] `--help` describes the package the transform actually writes.
+#
+#     renovate.json claims "the transform writes COVERAGE_PACKAGE rather than a literal, so all
+#     three move together or the suite fails". That was true of the two spellings the transform
+#     WRITES and false of the one it DISPLAYS: the argparse help text carried its own copy of the
+#     package id (#69). Nothing compared them, so renaming the constant would leave `--help`
+#     describing a package the script no longer touches.
+#
+#     Asserted against the id read from the module, never against a literal here — a literal in the
+#     test would be a fourth copy with the same problem.
+#
+#     The environment is pinned for two terminal-shaped reasons, neither of which is about the
+#     property under test: COLUMNS, because argparse wraps to the terminal width and a narrow one
+#     would split the package id across two lines; NO_COLOR, because argparse began colorizing help
+#     in Python 3.14 and emits escapes even through a pipe — today only the usage line and option
+#     names are colored, but any extension of that into the help body would break these greps.
+#
+#     Assignments, not argument-position command substitutions: `set -e` does NOT propagate a
+#     failing $(...) used as an argument, so a renamed constant would silently pass an empty string
+#     and this block would blame the help text for a defect in the module.
+coverage_package=$(read_const COVERAGE_PACKAGE)
+coverage_version=$(read_const COVERAGE_EXT_VERSION)
+help_text=$(COLUMNS=200 NO_COLOR=1 python3 "$TRANSFORM" --help)
+grep -qF "$coverage_package" <<<"$help_text" || {
+  echo "FAIL: --help never names $coverage_package, the package the transform writes:"
+  printf '%s\n' "$help_text" | grep -i 'coverage' ; exit 1; }
+# The VERSION too, and this half is load-bearing: the module docstring tells the reader to run
+# --help to learn the pinned value, which is only true while `%(default)s` is in the help string.
+# Deleting it would leave that pointer leading nowhere — silently, since the id check above would
+# still pass.
+grep -qF "$coverage_version" <<<"$help_text" || {
+  echo "FAIL: --help never prints the pinned version $coverage_version. The module docstring"
+  echo "      points readers here for it, so the help string needs '%(default)s':"
+  printf '%s\n' "$help_text" | grep -i 'coverage-version' ; exit 1; }
+# And no OTHER Microsoft.Testing.* id: a stale hardcoded name would still satisfy the check above
+# if it happened to sit alongside the derived one. The class allows digits — CodeCoverage2 would
+# otherwise leave a truncated prefix looking like a stale id and fail wholly-derived help text.
+# `|| true` sits INSIDE the pipeline, on EACH grep that legitimately exits 1 (the file's idiom, see
+# the knobs count above) — on the whole pipeline it would also swallow a real failure of grep or
+# sort under pipefail. Both greps return 1 on the PASSING path: the first when the help names no
+# Microsoft.Testing.* id at all, the second when every id it found is the expected one.
+stale_ids=$( { grep -oE 'Microsoft\.Testing\.[A-Za-z0-9.]+' <<<"$help_text" || true; } \
+             | { grep -vxF "$coverage_package" || true; } | sort -u)
+[ -z "$stale_ids" ] || {
+  echo "FAIL: --help names package id(s) other than $coverage_package: $stale_ids"; exit 1; }
+echo "  [7d] --help names the coverage package and version the transform writes, and no other id"
+
+#     [7e] EVERY prose claim about the pinned package's version agrees with the transform.
+#
+#     Renovate now bumps XUNIT_V3_VERSION in the module (#36), and the same version is restated as a
+#     MEASUREMENT in several places — a table in the reference agents read to run real migrations,
+#     and a comment block twelve lines above the constant Renovate itself rewrites. Nothing compared
+#     them, so the first bump silently invalidates all of them (#69), in documents whose entire
+#     subject is that a version mismatch is invisible until run time.
+#
+#     Swept rather than spot-checked. The first draft asserted one table row; the copies it left
+#     unguarded were nearer the constant than the one it guarded, and a reader following its
+#     "update the row" message would have fixed exactly the copy that was already covered.
+#
+#     This ASSERTS agreement rather than templating the number in. These are measurements, not
+#     restatements of a constant: substituting whatever Renovate last bumped to would manufacture a
+#     measurement nobody took, which is worse than a stale one because it looks current.
+xunit_package=$(read_const XUNIT_V3_PACKAGE)
+xunit_pin=$(read_const XUNIT_V3_VERSION)
+python3 - "$xunit_package" "$xunit_pin" "$TRANSFORM" \
+         "$KIT/skills/legacy-upgrade/references/xunit-v3-migration.md" <<'PY'
+import os, re, sys
+
+pkg, version = sys.argv[1], sys.argv[2]
+paths = sys.argv[3:]
+
+
+def die(msg):
+    # NOT `assert`: under python3 -O every assert in this block would vanish while the success
+    # line below still printed, reporting a comparison that never happened. This suite treats a
+    # false green as the one outcome worse than failing.
+    sys.exit(f"FAIL: {msg}")
+
+
+for path in paths:
+    if not os.path.isfile(path):
+        die(f"{path} does not exist — this guard would check nothing. It was moved or renamed; "
+            f"re-point it rather than dropping it.")
+    text = open(path, encoding="utf-8").read()
+
+    # Every "<pinned package> <version>" claim, in prose or in a table cell. Anchored on the id
+    # with a negative lookahead so `xunit.v3.mtp-v2` — a DIFFERENT package, on the opposite
+    # Microsoft.Testing.Platform line, whose own measured version is independent of this pin — is
+    # never mistaken for it. Backticks and asterisks between the two are markdown, not separation.
+    claims = re.findall(
+        r"(?<![\w.])" + re.escape(pkg) + r"(?![\w.])[ \t`*]*(\d+\.\d+\.\d+)", text)
+    for found in set(claims):
+        if found != version:
+            die(f"{path} states {pkg} {found}, but the transform writes {version}.\n"
+                f"       Do NOT simply edit the number: these are MEASUREMENTS (resolved through "
+                f"api.nuget.org/v3-flatcontainer), and they carry the Microsoft.Testing.Platform "
+                f"version and CodeCoverage major that a migration actually depends on. Re-measure "
+                f"how {pkg} {version} resolves, then update every claim this names.")
+    if os.path.basename(path).endswith(".md"):
+        # The reference's measured table is the load-bearing one, so its SHAPE is pinned too: were
+        # it reshaped, the sweep above would quietly find nothing to compare and pass.
+        rows = re.findall(r"^\|\s*\*\*`([^`]+)`\*\*\s+([^\s|]+)\s*\|", text, re.M)
+        names = [n for n, _ in rows]
+        if not rows:
+            die(f"{path}: the measured version table no longer has the shape this check "
+                f"understands (`| **`<package>`** <version> | …`) — re-point this assertion.")
+        if len(names) != len(set(names)):
+            # dict() would silently keep the last, letting a historical table decide the verdict.
+            die(f"{path}: the same package appears in more than one measured row {names}; this "
+                f"check cannot tell which one is current.")
+        if pkg not in names:
+            die(f"{path}: the measured table covers {sorted(names)}, but the transform pins "
+                f"{pkg} — the reference no longer describes the line the kit migrates onto.")
+
+print(f"  [7e] every measured claim about {pkg} agrees with the transform: {version}")
+PY
+
 # ---------------------------------------------------------------------------
 # 8. The no-__pycache__ invariant lives in exactly one place IN THIS FILE.
 #
@@ -1019,76 +1144,54 @@ echo "  [8] one module loader carries the no-__pycache__ invariant"
 python3 - "$KIT/renovate.json" "$TRANSFORM" "$(read_const XUNIT_V3_PACKAGE)" \
          "$(read_const XUNIT_V3_VERSION)" "$(read_const COVERAGE_PACKAGE)" \
          "$(read_const COVERAGE_EXT_VERSION)" <<'PY'
-import json, re, sys
+import copy, json, re, sys
 
 cfg_path, transform_path = sys.argv[1], sys.argv[2]
 want = {sys.argv[3]: sys.argv[4], sys.argv[5]: sys.argv[6]}   # depName -> version the module reports
 
-cfg = json.load(open(cfg_path, encoding="utf-8"))
-managers = cfg.get("customManagers", [])
-assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
+# Renovate matches file patterns against REPO-RELATIVE paths; transform_path is absolute because
+# every other section of this suite needs it that way.
+TRANSFORM_REL = "tests/xunit-v3/apply-transform.py"
 
+cfg = json.load(open(cfg_path, encoding="utf-8"))
 source = open(transform_path, encoding="utf-8").read()
 
 
 def to_python(pattern):
-    """Renovate evaluates these with RE2, where a named group is `(?<name>…)`; Python spells the
+    r"""Renovate evaluates these with RE2, where a named group is `(?<name>…)`; Python spells the
     same thing `(?P<name>…)`. Translate for the check.
 
-    Lookbehind is REJECTED rather than translated: Python supports it, RE2 does not, so a pattern
-    using one would match happily here while Renovate's own compile throws CONFIG_VALIDATION and
-    stops managing the repo entirely — whose only symptom is that no PRs ever appear again. A guard
-    that is green on a config the real engine refuses is worse than no guard."""
-    assert not re.search(r"\(\?<[=!]", pattern), (
-        f"lookbehind in a matchString: RE2 cannot compile it and Renovate would reject the whole "
-        f"config — {pattern!r}"
-    )
+    Constructs RE2 cannot compile are REJECTED rather than translated: Python supports them, RE2
+    does not, so a pattern using one would match happily here while Renovate's own compile throws
+    CONFIG_VALIDATION and stops managing the repo entirely — whose only symptom is that no PRs ever
+    appear again. A guard that is green on a config the real engine refuses is worse than no guard.
+
+    Everything RE2 omits, it omits for one reason — it guarantees linear-time matching, and every
+    construct below needs backtracking. That is a principle, not a list, and the probes here are a
+    best effort at covering it rather than a proof: Python keeps ADDING such constructs (atomic
+    groups and possessive quantifiers arrived in 3.11 and were missed by the first version of this
+    check), so treat it as extendable, not closed.
+
+    The probes are independent of each other — `(?<!` does NOT match the lookahead probe, because
+    that one requires `=`/`!` immediately after `(?` where a lookbehind has `<`. Order here is for
+    reading, not correctness. (An earlier revision of this comment claimed the opposite and was
+    simply wrong; it is checked now rather than asserted, by `_lookbehind` below.)
+
+    The possessive-quantifier probe can in principle false-positive on an escaped `\+` followed by
+    `+`. That direction is deliberate: a false positive fails loudly and is fixed in a minute, while
+    a false negative ships a config Renovate refuses and shows up only as PRs that never appear."""
+    for probe, name in ((r"\(\?<[=!]", "lookbehind"),
+                        (r"\(\?[=!]", "lookahead"),
+                        (r"\(\?>", "atomic group"),
+                        (r"[*+?}]\+", "possessive quantifier"),
+                        (r"\\[1-9]", "backreference")):
+        assert not re.search(probe, pattern), (
+            f"{name} in a matchString: RE2 cannot compile it and Renovate would reject the whole "
+            f"config — {pattern!r}"
+        )
     return pattern.replace("(?<", "(?P<")
 
 
-found = {}
-# This section is about the pins the TRANSFORM bakes into every migration, so it judges the
-# managers that target the transform — not every customManager in the repo. The loop used to
-# assert ownership over all of them, which made adding an unrelated manager (the Renovate
-# validator pin in ci.yml, #66) fail a suite that has nothing to say about it. Scoped here rather
-# than asserted; #67 is the full accounting of this section's holes, and hole 3 is this one.
-transform_managers = [
-    m for m in managers
-    if any("apply-transform" in p
-           for p in (m.get("managerFilePatterns") or m.get("fileMatch") or []))
-]
-assert transform_managers, (
-    "no customManager targets apply-transform.py — the transform's pins are unmanaged, which is "
-    "the whole failure #36 filed this section to prevent"
-)
-for m in transform_managers:
-    assert m.get("customType") == "regex", m
-    # Asserted per MANAGER, not per match: inside the match loop these never run for a manager
-    # whose regex has gone blind, which is exactly the manager worth complaining about.
-    assert m.get("datasourceTemplate") == "nuget", f"datasource must be nuget: {m}"
-    assert m.get("versioningTemplate") == "nuget", (
-        f"versioning must be nuget — the custom-manager default is semver-coerced, which mis-orders "
-        f"NuGet's four-segment versions: {m}"
-    )
-    matched = 0
-    for raw in m["matchStrings"]:
-        for hit in re.finditer(to_python(raw), source):
-            g = hit.groupdict()
-            dep = g.get("depName") or m.get("depNameTemplate")
-            assert dep, f"no depName captured or templated for {raw!r}"
-            assert "currentValue" in g, f"{dep}: {raw!r} captures no currentValue"
-            found[dep] = g["currentValue"]
-            matched += 1
-    assert matched, f"this manager matched nothing in the transform — it is dead: {m}"
-
-for dep, version in want.items():
-    assert dep in found, (
-        f"the custom manager never matched {dep} — a constant was renamed and the regex went "
-        f"quietly blind. Matched: {found}"
-    )
-    assert found[dep] == version, (
-        f"{dep}: the regex captured {found[dep]!r} but the module reports {version!r}"
-    )
 # Exposing these pins is only SAFE because majors are disabled for the family: a lone CodeCoverage
 # 18.x would restore clean, build clean and die at run time. So the rule that makes it safe must
 # actually cover the depNames these managers emit — edit a glob and the managers keep working while
@@ -1100,16 +1203,468 @@ def covers(glob, dep):
     return d.startswith(g.rstrip("*")) if g.endswith("*") else g == d
 
 
-major_rules = [
-    r for r in cfg.get("packageRules", [])
-    if r.get("enabled") is False and "major" in (r.get("matchUpdateTypes") or [])
-]
-for dep in found:
-    assert any(any(covers(g, dep) for g in (r.get("matchPackageNames") or []))
-               for r in major_rules), (
-        f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
-        f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
+def path_glob(glob):
+    """Compile the minimatch subset used for FILE scopes (`matchFileNames`, `ignorePaths`).
+
+    Supported: `**` (any depth, including none, when written `**/`), `*` (one path segment), `?`
+    (one character), and literals. Brace expansion, character classes and `!`-negation return None
+    and are reported unevaluated by the callers.
+
+    The first version of this understood only an exact path and a `dir/**` prefix, which rejected
+    two of the most ordinary valid scopes — `["**"]` and `["tests/xunit-v3/*.py"]` both reach the
+    transform, and both failed the suite on a correct config. That direction of error matters: a
+    guard that refuses valid input gets deleted by whoever hits it, not narrowed."""
+    if any(ch in glob for ch in "{}[]!"):
+        return None
+    out, i = [], 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out.append("(?:.*/)?")        # `**/` may span zero directories
+            i += 3
+        elif glob.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif glob[i] == "*":
+            out.append("[^/]*")           # a single `*` never crosses a separator
+            i += 1
+        elif glob[i] == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(glob[i]))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
+def rule_applies(rule, path, datasource):
+    """Does this packageRule actually reach `path` at `datasource`?  -> (bool, [unevaluated…])
+
+    A rule that disables majors only protects what it MATCHES. THREE keys narrow that reach and all
+    three were once ignored here — so scoping the family rule to `samples/**` (or to the stock
+    `nuget` manager, which never sees deps a custom regex manager extracted) left this guard green
+    while the transform's pins lost their hold completely. That is exactly the "edit a glob and the
+    protection quietly stops applying" failure the comment above warns about (#67).
+
+    ABSENT means "applies everywhere". Getting that inversion backwards would make every rule look
+    inapplicable and fail the suite on a perfectly good config, so it is the first thing each branch
+    decides. As elsewhere here, a glob this cannot evaluate faithfully is reported rather than
+    guessed, and counts as NOT applying — an unreadable scope must never be mistaken for protection."""
+    unevaluated = []
+    datasources = rule.get("matchDatasources")
+    if datasources is not None and datasource not in datasources:
+        return False, unevaluated
+
+    # These pins reach Renovate through a CUSTOM regex manager, so a rule scoped to the stock nuget
+    # manager does not touch them — even though the datasource is nuget. Renovate has spelled this
+    # manager both `custom.regex` (v37+) and `regex`; accept either.
+    managers = rule.get("matchManagers")
+    if managers is not None and not any(m in ("custom.regex", "regex") for m in managers):
+        return False, unevaluated
+
+    globs = rule.get("matchFileNames")
+    if globs is None:
+        return True, unevaluated          # unscoped by path: reaches the whole repo
+    for g in globs:
+        rx = path_glob(g)
+        if rx is None:
+            unevaluated.append(g)
+        elif rx.match(path):
+            return True, unevaluated
+    return False, unevaluated
+
+
+def selects(manager, path):
+    """Does this manager's file-pattern list actually select `path`?  -> (bool, [unevaluated…])
+
+    The previous spelling of this check was `any("apply-transform" in p for p in pats)` — a
+    substring test on the pattern TEXT, which never once ran the pattern against a path. A typo'd
+    directory, or a stale path after a rename, satisfied it while Renovate selected zero files and
+    extracted nothing (#67).
+
+    The two keys have different dialects and are not interchangeable:
+      * `managerFilePatterns` — a `/…/`-delimited entry is a regex; a bare entry is a minimatch glob.
+      * `fileMatch` (legacy)  — always a bare regex, never a glob.
+
+    A pattern this helper cannot evaluate faithfully (a minimatch glob — which is NOT Python's
+    fnmatch — or a `!`-negation, which inverts meaning) counts as NOT selecting, and is returned in
+    the second element rather than raised. That combination is deliberate: guessing "yes" would
+    restore the blindness this exists to catch, while raising would let an unrelated manager
+    somewhere else in the repo fail the xunit suite. Reported as not-ours and surfaced by the
+    caller if the set comes out empty, it fails closed either way."""
+    unevaluated = []
+    pats = manager.get("managerFilePatterns")
+    if pats:
+        hit = False
+        for p in pats:
+            # `/body/flags` — Renovate allows trailing flags, and `/…/i` is ordinary valid config
+            # that an earlier revision here rejected outright. Only `i` is understood; any other
+            # flag is reported rather than silently dropped, since dropping one changes what matches.
+            delimited = None if p.startswith("!") else re.fullmatch(r"/(.*)/([a-z]*)", p, re.DOTALL)
+            if not delimited or set(delimited.group(2)) - {"i"}:
+                unevaluated.append(p)
+                continue
+            body, flags = delimited.group(1), delimited.group(2)
+            if re.search(body, path, re.IGNORECASE if "i" in flags else 0):
+                hit = True
+        return hit, unevaluated
+    # Legacy key: bare regex by definition, so no delimiters to strip.
+    return any(re.search(p, path) for p in (manager.get("fileMatch") or [])), unevaluated
+
+
+def check(cfg):
+    """Refuse any config under which Renovate would fail to WATCH, or fail to hold the MAJORS of,
+    the two pins the transform writes. Returns the {depName: version} it saw.
+
+    Takes the config as an argument rather than closing over the real one so the negative cases at
+    the bottom can drive it with deliberately broken copies. That is the whole point: every hole
+    #67 records was a assertion that had never once been executed against a config it should
+    refuse, so it was impossible to tell a working guard from a decorative one."""
+    managers = cfg.get("customManagers", [])
+    assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
+
+    # ignorePaths is applied BEFORE extraction, so a manager can select the transform perfectly and
+    # still see nothing. This config's own description block explains that mechanism (it is why the
+    # frozen fixture is disabled rather than ignored), which makes it a plausible edit — and one
+    # that would leave every other assertion here green.
+    for g in cfg.get("ignorePaths") or []:
+        rx = path_glob(g)
+        assert rx is None or not rx.match(TRANSFORM_REL), (
+            f"ignorePaths entry {g!r} suppresses extraction from {TRANSFORM_REL} — Renovate never "
+            f"reads the file, so the custom managers below are dead no matter how they are written"
+        )
+
+    # Only the managers that actually select the transform are this section's business. Asserting
+    # over ALL of them meant an unrelated custom manager added elsewhere in the repo would fail the
+    # xunit suite, with a message about a transform it has nothing to do with (#67).
+    mine, unevaluated = [], []
+    for m in managers:
+        hit, unknown = selects(m, TRANSFORM_REL)
+        unevaluated.extend(unknown)
+        if hit:
+            mine.append(m)
+    assert mine, (
+        f"no customManager selects {TRANSFORM_REL}, so Renovate extracts nothing from it and the "
+        f"pins go unwatched"
+        + (f" — note that {unevaluated} could not be evaluated by this guard and were treated as "
+           f"non-matching; if one of those is meant to select the transform, teach `selects` its "
+           f"dialect" if unevaluated else "")
     )
+
+    found = {}
+    for m in mine:
+        assert m.get("customType") == "regex", m
+        # Asserted per MANAGER, not per match: inside the match loop these never run for a manager
+        # whose regex has gone blind, which is exactly the manager worth complaining about.
+        assert m.get("datasourceTemplate") == "nuget", f"datasource must be nuget: {m}"
+        assert m.get("versioningTemplate") == "nuget", (
+            f"versioning must be nuget — the custom-manager default is semver-coerced, which mis-orders "
+            f"NuGet's four-segment versions: {m}"
+        )
+        assert m.get("matchStrings"), f"manager declares no matchStrings — it extracts nothing: {m}"
+        for raw in m["matchStrings"]:
+            hits = list(re.finditer(to_python(raw), source))
+            # Exactly one, asserted per MATCHSTRING rather than per manager (a manager may carry
+            # several, each pinning its own constant). Zero means the regex went blind — a renamed
+            # constant, the case this section was built for. More than one means Renovate extracts
+            # several dependencies where this guard reports a single pin: the extras are invisible
+            # here and would still be rewritten on a bump, and `found[dep] = …` would keep only
+            # whichever came last.
+            assert len(hits) == 1, (
+                f"this matchString matched {len(hits)} time(s) in the transform, expected exactly 1 "
+                f"— {raw!r}"
+            )
+            g = hits[0].groupdict()
+            # Renovate's precedence, not the intuitive one: depNameTemplate OVERRIDES a captured
+            # depName. Reading it the other way round meant that a manager carrying both would be
+            # checked under a name Renovate never uses — including by the major-hold check below,
+            # which could then pass for a package that has no hold at all.
+            dep = m.get("depNameTemplate") or g.get("depName")
+            assert dep, f"no depName captured or templated for {raw!r}"
+            assert "currentValue" in g, f"{dep}: {raw!r} captures no currentValue"
+            found[dep] = g["currentValue"]
+
+    for dep, version in want.items():
+        assert dep in found, (
+            f"the custom manager never matched {dep} — a constant was renamed and the regex went "
+            f"quietly blind. Matched: {found}"
+        )
+        assert found[dep] == version, (
+            f"{dep}: the regex captured {found[dep]!r} but the module reports {version!r}"
+        )
+
+    # Every manager in `mine` was asserted to emit nuget deps above, so that is the datasource the
+    # holds have to cover.
+    #
+    # Renovate resolves packageRules LAST-MATCH-WINS, not "any rule that disables it". Asking only
+    # whether some rule disables majors meant a later `{matchPackageNames: [...], enabled: true}`
+    # silently restored them while this guard still printed "majors held" (#67). So walk the rules
+    # in order and keep the last verdict, exactly as Renovate would.
+    for dep in found:
+        held, out_of_reach = False, []
+        for r in cfg.get("packageRules", []):
+            types = r.get("matchUpdateTypes")
+            if types is not None and "major" not in types:
+                continue                       # this rule has nothing to say about majors
+            names = r.get("matchPackageNames")
+            if names is not None and not any(covers(g, dep) for g in names):
+                continue                       # …nor about this package
+            reaches, unknown = rule_applies(r, TRANSFORM_REL, "nuget")
+            out_of_reach.extend(unknown)
+            if not reaches:
+                continue
+            if r.get("enabled") is False:
+                held = True
+            elif r.get("enabled") is True:
+                held = False                   # a later rule re-opened it
+        assert held, (
+            f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
+            f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
+            + (f". Note: {out_of_reach} could not be evaluated as file scopes and were treated as "
+               f"not reaching {TRANSFORM_REL}" if out_of_reach else "")
+        )
+    return found
+
+
+def rejects(why, mutate, because):
+    """Assert that `check` REFUSES a deliberately broken copy of the real config, FOR THE STATED
+    REASON.
+
+    Each of these corresponds to a way the guard was previously green while Renovate was, or would
+    have been, doing nothing. Mutating a deepcopy of the REAL config (rather than hand-building a
+    fixture) keeps the negative cases honest: they stay one edit away from what ships, so they
+    cannot drift into testing a config shape the repo no longer has.
+
+    `because` is not decoration. A broken regex usually matches nothing, which trips the
+    "this manager is dead" assert — so a negative case can go green having never exercised the
+    assertion it was written for. Pinning a substring of the refusal message is what separates
+    "refused" from "refused for the reason I claimed", and that distinction is the entire subject
+    of #67."""
+    bad = copy.deepcopy(cfg)
+    mutate(bad)
+    try:
+        check(bad)
+    except AssertionError as exc:
+        assert because in str(exc), (
+            f"section 9 rejected the {why!r} case, but for the WRONG reason — expected a message "
+            f"containing {because!r}, got: {exc}"
+        )
+        return
+    raise AssertionError(f"section 9 accepted a config it must reject — {why}")
+
+
+def accepts(why, mutate):
+    """Assert that `check` still PASSES a legitimate variation of the real config.
+
+    The mirror of `rejects`, and just as necessary: a guard that refuses valid configs gets
+    loosened by whoever hits it next, usually by deleting the assertion rather than narrowing it."""
+    ok = copy.deepcopy(cfg)
+    mutate(ok)
+    try:
+        check(ok)
+    except AssertionError as exc:
+        raise AssertionError(f"section 9 refused a config it must accept — {why}: {exc}") from None
+
+
+found = check(cfg)   # the real config: must pass
+
+
+def _typo_the_path(c):
+    # `test/` instead of `tests/` — one character, and Renovate selects zero files.
+    c["customManagers"][0]["managerFilePatterns"] = ["/^test/xunit-v3/apply-transform\\.py$/"]
+
+
+# Refused because the xunit pin ends up unwatched — the actual consequence of the typo. The other
+# manager still selects the transform, so `mine` is non-empty and the failure surfaces one step
+# later, at the point where it can name the pin that lost its watcher.
+rejects("a file pattern that selects nothing (typo'd directory)", _typo_the_path,
+        because="never matched xunit.v3")
+
+
+def _typo_every_path(c):
+    # Both managers mis-targeted: nothing selects the transform at all.
+    for m in c["customManagers"]:
+        m["managerFilePatterns"] = ["/^test/xunit-v3/apply-transform\\.py$/"]
+
+
+rejects("no manager selecting the transform at all", _typo_every_path,
+        because="no customManager selects")
+
+
+def _transform_manager_as_a_glob(c):
+    # The transform's OWN manager written in a dialect this guard cannot evaluate: it must fail
+    # closed and say so, never quietly treat the pins as watched.
+    for m in c["customManagers"]:
+        m["managerFilePatterns"] = ["tests/xunit-v3/**"]
+
+
+rejects("the transform's manager written as an unevaluatable glob", _transform_manager_as_a_glob,
+        because="could not be evaluated")
+
+
+def _lookahead(c):
+    # Still matches in Python, so this can only be refused by the RE2 check itself.
+    c["customManagers"][0]["matchStrings"] = [
+        'XUNIT_V3_PACKAGE = "(?<depName>[^"]+)"\\nXUNIT_V3_VERSION = "(?=3)(?<currentValue>[^"]+)"'
+    ]
+
+
+def _backreference(c):
+    # `\1` re-matches the literal "XUNIT" captured by group 1 — legal in Python, rejected by RE2.
+    c["customManagers"][0]["matchStrings"] = [
+        '(XUNIT)_V3_PACKAGE = "(?<depName>[^"]+)"\\n\\1_V3_VERSION = "(?<currentValue>[^"]+)"'
+    ]
+
+
+def _lookbehind(c):
+    # `(?<="` succeeds where the version literal opens, so this too is refused only by the RE2 check
+    # — and it must be named LOOKBEHIND, not lookahead, which is why that probe is ordered first.
+    c["customManagers"][0]["matchStrings"] = [
+        'XUNIT_V3_PACKAGE = "(?<depName>[^"]+)"\\nXUNIT_V3_VERSION = "(?<=")(?<currentValue>[^"]+)"'
+    ]
+
+
+rejects("a lookahead in a matchString", _lookahead, because="lookahead")
+rejects("a backreference in a matchString", _backreference, because="backreference")
+rejects("a lookbehind in a matchString", _lookbehind, because="lookbehind")
+
+
+def _unrelated_manager(c):
+    # A future manager pinning something else entirely: different dialect (jsonata), different
+    # file, no bearing on the transform. This suite must not have an opinion about it.
+    c["customManagers"].append({
+        "customType": "jsonata",
+        "managerFilePatterns": ["/^templates/ci-dotnet\\.yml$/"],
+        "matchStrings": ["irrelevant"],
+        "datasourceTemplate": "github-tags",
+    })
+
+
+def _unrelated_manager_with_a_glob(c):
+    # Same, but written as a minimatch glob — the form `selects` deliberately cannot evaluate. It
+    # must read as "not ours", not as a crash and not as a match.
+    c["customManagers"].append({
+        "customType": "regex",
+        "managerFilePatterns": ["templates/**"],
+        "matchStrings": ["irrelevant"],
+        "datasourceTemplate": "github-tags",
+    })
+
+
+accepts("an unrelated custom manager elsewhere in the repo", _unrelated_manager)
+accepts("an unrelated custom manager written as a glob", _unrelated_manager_with_a_glob)
+
+
+def _template_shadows_capture(c):
+    # Both present. Renovate resolves the dep as the TEMPLATE, so the name actually watched is this
+    # sentinel — the captured xunit.v3 is not watched at all, and the guard must notice.
+    c["customManagers"][0]["depNameTemplate"] = "Sentinel.Not.The.Pin"
+
+
+def _matches_more_than_once(c):
+    # Matches every `= "…"` assignment in the module, not just the coverage pin.
+    c["customManagers"][1]["matchStrings"] = ['= "(?<currentValue>[^"]+)"']
+
+
+rejects("depNameTemplate shadowing a captured depName", _template_shadows_capture,
+        because="never matched xunit.v3")
+rejects("a matchString that matches more than once", _matches_more_than_once,
+        because="expected exactly 1")
+
+
+def _family_rule(c):
+    """The packageRule that holds the MTP family's majors.
+
+    Identified by the packages it names, not by being the first major rule: adding any unrelated
+    major-hold ahead of it would otherwise make the mutations below edit the WRONG rule, and the
+    negative cases would then report a scoped-away hold that is in fact intact."""
+    return next(r for r in c["packageRules"]
+                if any("xunit.v3" in g for g in (r.get("matchPackageNames") or [])))
+
+
+def _scope_the_hold_to_another_path(c):
+    # Still enabled:false, still matchUpdateTypes:[major], still the right package globs — but it
+    # no longer applies to the file the pins live in, so it protects nothing that matters.
+    _family_rule(c)["matchFileNames"] = ["samples/**"]
+
+
+def _scope_the_hold_to_another_datasource(c):
+    # Same, via the other axis: the managers emit nuget deps, this rule now only covers npm.
+    _family_rule(c)["matchDatasources"] = ["npm"]
+
+
+def _scope_the_hold_onto_the_transform(c):
+    # The other direction of the same inversion: a hold explicitly scoped to where the pins live is
+    # still a hold. Reading "absent"/"present" backwards would fail this perfectly good config, and
+    # whoever hit that would delete the assertion rather than narrow it.
+    _family_rule(c)["matchFileNames"] = ["tests/**"]
+
+
+rejects("a major-hold scoped away by matchFileNames", _scope_the_hold_to_another_path,
+        because="no rule disables its MAJOR updates")
+rejects("a major-hold scoped away by matchDatasources", _scope_the_hold_to_another_datasource,
+        because="no rule disables its MAJOR updates")
+accepts("a major-hold explicitly scoped to the transform's tree", _scope_the_hold_onto_the_transform)
+
+
+# --- reach and resolution: the ways a hold stops holding without being deleted ----------------
+def _scope_the_hold_to_the_stock_manager(c):
+    # nuget datasource, but these deps come from a CUSTOM regex manager, so this reaches nothing.
+    _family_rule(c)["matchManagers"] = ["nuget"]
+
+
+def _reopen_majors_later(c):
+    # packageRules are last-match-wins: this undoes the hold above without touching it.
+    c["packageRules"].append({"matchPackageNames": ["xunit.v3**"], "enabled": True})
+
+
+def _ignore_the_whole_tree(c):
+    # Applied before extraction — every manager below becomes dead no matter how it is written.
+    c["ignorePaths"] = ["tests/**"]
+
+
+rejects("a major-hold scoped to the stock nuget manager", _scope_the_hold_to_the_stock_manager,
+        because="no rule disables its MAJOR updates")
+rejects("a later rule re-enabling the majors", _reopen_majors_later,
+        because="no rule disables its MAJOR updates")
+rejects("ignorePaths suppressing extraction from the transform", _ignore_the_whole_tree,
+        because="suppresses extraction")
+
+
+# --- valid config this guard must NOT refuse ---------------------------------------------------
+def _hold_scoped_with_a_segment_glob(c):
+    _family_rule(c)["matchFileNames"] = ["tests/xunit-v3/*.py"]
+
+
+def _hold_scoped_to_everything(c):
+    _family_rule(c)["matchFileNames"] = ["**"]
+
+
+def _case_insensitive_file_pattern(c):
+    # Only the managers that ALREADY select the transform. Rewriting every manager's pattern to
+    # the transform path drags unrelated ones into this section's scope — and they legitimately
+    # carry a different datasource, so `check` refuses them and this ACCEPT case fails for a
+    # reason that has nothing to do with the `/i` flag it is testing. Measured when #66 added a
+    # third manager (the Renovate validator pin in ci.yml, datasource npm): section 9 refused a
+    # config it must accept. That is hole 3 of #67 again, one level up — the guard body was
+    # scoped, the mutations that feed it were not.
+    for m in c["customManagers"]:
+        if selects(m, TRANSFORM_REL)[0]:
+            m["managerFilePatterns"] = ["/^tests/xunit-v3/apply-transform\\.py$/i"]
+
+
+def _unrelated_major_hold_first(c):
+    # Inserted AHEAD of the family rule: _family_rule must still find the right one.
+    c["packageRules"].insert(0, {
+        "matchPackageNames": ["Newtonsoft.Json"],
+        "matchUpdateTypes": ["major"],
+        "enabled": False,
+    })
+
+
+accepts("a hold scoped with a single-segment glob", _hold_scoped_with_a_segment_glob)
+accepts("a hold scoped to the whole repo with **", _hold_scoped_to_everything)
+accepts("a case-insensitive /…/i file pattern", _case_insensitive_file_pattern)
+accepts("an unrelated major-hold ahead of the family rule", _unrelated_major_hold_first)
 
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))

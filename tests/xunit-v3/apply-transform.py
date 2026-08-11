@@ -7,7 +7,14 @@ test (`tests/xunit-v3/test.sh`) runs it against a scratch copy of `samples/Legac
 then counts the tests that actually execute.
 
   usage: apply-transform.py <app-dir> [--skip-output-type] [--tfm net10.0]
-                            [--coverage-version 17.14.2]
+                            [--coverage-version <version>]
+
+The concrete default is deliberately NOT repeated here — Renovate bumps COVERAGE_EXT_VERSION in
+this file, and a second copy in prose would go stale on the first bump with nothing to catch it.
+Run `--help` for the live value: its help string carries `%(default)s`, so argparse prints the
+constant itself. (Note that argparse prints NO default without that placeholder, and that the
+value cannot be interpolated into this docstring either — an f-string as a module's first
+statement is not a docstring at all, and would leave `__doc__` set to None.)
 
 `--skip-output-type` deliberately omits `<OutputType>Exe</OutputType>` so the test can pin
 what happens when the single most likely mistake is made. `--coverage-version` lets the test
@@ -369,7 +376,17 @@ def main() -> int:
     ap.add_argument("--tfm", default="net10.0")
     ap.add_argument(
         "--coverage-version", default=COVERAGE_EXT_VERSION,
-        help="Microsoft.Testing.Extensions.CodeCoverage version to write. Test-only: it exists so "
+        # Derived, not spelled again: this text used to carry its own copy of the package id, so
+        # renaming COVERAGE_PACKAGE left --help describing a package the script no longer writes
+        # (#69). Pinned by section 7d of the golden test.
+        #
+        # `%(default)s` is what makes the version visible at all — argparse prints no default
+        # unless the help string asks for it. The docstring points readers here for the pinned
+        # value, so without this that pointer led nowhere. And COVERAGE_PACKAGE is interpolated
+        # into a string argparse later expands with `%`, so a `%` in the id would raise
+        # "badly formed help string" from add_argument and take --help down entirely.
+        help=f"{COVERAGE_PACKAGE.replace('%', '%%')} version to write "
+             "(default: %(default)s). Test-only: it exists so "
              "the golden test can inject a deliberately mismatched pair. Never pass it in a real "
              "migration — resolve the version from the live feed instead.",
     )

@@ -150,7 +150,21 @@ does not exist), then:
 git worktree list --porcelain | grep -Fxq "branch refs/heads/$BRANCH"
 ```
 
-Reuse what that finds; create otherwise. Then record the two names every later step needs:
+Reuse what that finds; and **before creating one, prove its home is ignored** — the worktree directory
+is the kit's convention, not a fact about the repository you are pointed at:
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+<kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT"
+```
+
+`0` create it · `1` a home is **not** ignored, so don't · `2` ignored but over-broad, so **do** create
+it and mention the profile cost · `3`/`127` no verdict was reached, which is not a pass. The verdicts,
+the reason `2` is not a stop, and the rule against editing someone's `.gitignore` unasked live in
+[`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md) — read it there, not from
+a copy here, which is how the four copies of this table drifted apart in the first place (#71).
+
+Then record the two names every later step needs:
 
 ```bash
 WORKTREE=<absolute path of this issue's worktree>
