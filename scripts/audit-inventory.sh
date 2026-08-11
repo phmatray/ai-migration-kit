@@ -406,8 +406,8 @@ def count_files(root):
 PKG_KEYS = ('dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies')
 # Ce qu'un fichier posé à plat doit être pour compter comme une bibliothèque vendorisée.
 ASSET_EXT = {'.js', '.mjs', '.cjs', '.css', '.scss', '.map', '.woff', '.woff2', '.ttf', '.eot'}
-pkg_manifests = []    # (parts du répertoire du manifeste, {noms déclarés})
-libman_dests = []     # parts du chemin de destination, depuis la racine du dépôt
+pkg_manifests = []    # (parts du répertoire, {noms déclarés}, chemin du manifeste)
+libman_dests = []     # (parts de la destination, parts du répertoire, chemin du manifeste)
 
 
 def lire_manifestes(dirpath, filenames):
@@ -430,7 +430,7 @@ def lire_manifestes(dirpath, filenames):
                     noms.add(n)
                     noms.add(n.split('/')[-1])   # @scope/pkg -> pkg, le nom que porte le dossier
             if noms:
-                pkg_manifests.append((parts, noms))
+                pkg_manifests.append((parts, noms, '/'.join(parts + (name,))))
         else:
             # `bower.json` reste volontairement absent : Bower est abandonné depuis 2017 et ni
             # Renovate ni Dependabot ne le lisent. Le compter comme une couverture inverserait le
@@ -438,32 +438,53 @@ def lire_manifestes(dirpath, filenames):
             for lib in (data.get('libraries') or []):
                 dest = (lib.get('destination') or '').strip('/')
                 if dest:
-                    libman_dests.append(parts + tuple(dest.split('/')))
+                    libman_dests.append((parts + tuple(dest.split('/')),
+                                         parts, '/'.join(parts + (name,))))
 
 
 def couvert(cible, est_fichier):
-    """`cible` (tuple de parts) est-il déclaré par un manifeste qui a autorité sur lui ?"""
-    for dir_parts, noms in pkg_manifests:
+    """Quel manifeste déclare `cible` ? -> son chemin, ou None.
+
+    Renvoie le CHEMIN et non un booléen : `couvert()` identifiait déjà le manifeste et le jetait,
+    alors que c'est précisément la preuve dont la phase 1 a besoin pour décider de dé-vendoriser —
+    elle montre que le dépôt a déjà un motif qui marche, dans un fichier nommé.
+
+    Plusieurs manifestes peuvent couvrir le même répertoire. Il en faut UN, toujours le même :
+    sinon `coveredBy` suit l'ordre d'os.walk, la sortie change entre deux exécutions sur un dépôt
+    que personne n'a touché, et un lecteur qui compare deux évaluations voit une différence qui
+    n'en est pas une. La règle est donc : le manifeste le plus PROCHE l'emporte (répertoire le
+    plus profond, donc le plus spécifique à la bibliothèque), et à profondeur égale libman passe
+    devant — c'est lui qui régit réellement `wwwroot/lib`, là où un package.json ne fait que
+    nommer le même paquet.
+    """
+    candidats_couv = []          # (profondeur, rang, chemin du manifeste)
+    for dir_parts, noms, manifeste in pkg_manifests:
         if cible[:len(dir_parts)] != dir_parts:
             continue                                  # ce manifeste ne régit pas ce chemin
         feuille = cible[-1]
-        if feuille in noms:
-            return True
-        if est_fichier:
+        touche = feuille in noms
+        if not touche and est_fichier:
             # `jquery-3.4.1.min.js` / `jquery.min.js` sont couverts par un `jquery` déclaré, mais
             # le nom doit s'arrêter net : sans la frontière, `jquery` couvrirait `jqueryui.js`.
             bas = feuille.lower()
-            for n in noms:
-                n = n.lower()
-                if bas.startswith(n) and bas[len(n):len(n) + 1] in ('.', '-', '_'):
-                    return True
-    for dest in libman_dests:
+            touche = any(bas.startswith(n.lower())
+                         and bas[len(n):len(n) + 1] in ('.', '-', '_')
+                         for n in noms if n)
+        if touche:
+            candidats_couv.append((len(dir_parts), 1, manifeste))
+    for dest, dir_parts, manifeste in libman_dests:
         # L'un est préfixe de l'autre : `destination` peut viser le répertoire de la lib, ou un
         # sous-répertoire de celui-ci (`…/bootstrap/dist`), ou un fichier précis.
         n = min(len(dest), len(cible))
         if dest[:n] == cible[:n]:
-            return True
-    return False
+            candidats_couv.append((len(dir_parts), 0, manifeste))
+    if not candidats_couv:
+        return None
+    # Profondeur décroissante, puis rang croissant (libman=0 avant package.json=1), puis le chemin
+    # pour que deux manifestes également proches et de même type restent départagés de façon
+    # stable plutôt que par l'ordre de parcours.
+    candidats_couv.sort(key=lambda c: (-c[0], c[1], c[2]))
+    return candidats_couv[0][2]
 
 
 vendored_assets = []
@@ -497,12 +518,12 @@ for dirpath, dirnames, filenames in os.walk('.'):
 # Les manifestes ne sont tous connus qu'à la fin du parcours : un `package.json` peut apparaître
 # après le répertoire qu'il déclare.
 for cible, disque, est_fichier in candidats:
-    if couvert(cible, est_fichier):
-        continue
+    manifeste = couvert(cible, est_fichier)
     vendored_assets.append({
         'path': '/'.join(cible),
         'files': 1 if est_fichier else count_files(disque),
-        'coveredByManifest': False,
+        'coveredByManifest': manifeste is not None,
+        'coveredBy': manifeste,
     })
 vendored_assets.sort(key=lambda x: x['path'])
 
