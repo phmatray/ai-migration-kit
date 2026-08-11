@@ -1117,4 +1117,42 @@ run unborn-commit "$COMMIT" -C "$UNBORN" a -- -m "feat: the very first commit"
   || fail unborn-commit "branch a was not created by the first commit"
 echo "  ok: unborn branch — push refuses (2) with no witness; the first commit still lands"
 
+# 31b. …and the MERGE side is a third answer again: it must SUCCEED.
+#
+# This case is green the day it is written, and that is its job. #78 proposed making guarded-merge
+# refuse on an empty $head_sha "as guarded-push.sh does", by analogy rather than by measurement.
+# The measurement says otherwise: `git merge <ref>` into an unborn branch is a supported
+# fast-forward — it creates the branch at the merged tip and checks the files out — and
+# guarded-merge.sh has always allowed it. It is the first sync of a freshly branched worktree.
+#
+# So the three guards genuinely differ on an unborn HEAD (push refuses, commit and merge proceed),
+# and only a test says which is which. Without this case, adopting the shared assertion is one
+# plausible-looking `[ -n "$head_sha" ] || refuse` away from silently breaking a working operation.
+
+MUNBORN="$WORK/unborn-merge"
+git init -q "$MUNBORN"
+git -C "$MUNBORN" config user.email test@example.com
+git -C "$MUNBORN" config user.name "Guarded Git Test"
+git -C "$MUNBORN" config commit.gpgsign false
+git -C "$MUNBORN" config core.hooksPath "$MUNBORN/.git/hooks"
+git -C "$MUNBORN" checkout -q -b m
+echo m > "$MUNBORN/m.txt"
+git -C "$MUNBORN" add m.txt
+git -C "$MUNBORN" commit -q -m "m has content"
+git -C "$MUNBORN" symbolic-ref HEAD refs/heads/a      # `a` is unborn: refs/heads/a does not exist
+git -C "$MUNBORN" read-tree --empty
+rm -f "$MUNBORN/m.txt"
+
+[ -z "$(git -C "$MUNBORN" rev-parse --quiet --verify refs/heads/a || true)" ] \
+  || fail unborn-merge "fixture broken: branch a should not exist yet"
+
+run unborn-merge "$MERGE" -C "$MUNBORN" a -- m
+
+[ "$RC" -eq 0 ] || fail unborn-merge "merging into an unborn branch must succeed, got $RC"
+[ "$(git -C "$MUNBORN" rev-parse --quiet --verify refs/heads/a || true)" = "$(tip "$MUNBORN" m)" ] \
+  || fail unborn-merge "branch a was not created at m's tip by the merge"
+[ -f "$MUNBORN/m.txt" ] || fail unborn-merge "the merged content was not checked out"
+grep -q "^guarded-merge: a@" "$OUT" || fail unborn-merge "the receipt must name the branch and its new tip"
+echo "  ok: unborn merge — the first sync into a fresh branch still lands (0), not refused"
+
 echo "guarded-git golden test OK"
