@@ -13,7 +13,11 @@
 #   7. the xunit.v3 / CodeCoverage version pairing is machine-checked, not remembered — and no
 #      ambient environment value can steer the transform, so every override is an explicit flag;
 #   8. THIS FILE loads kit scripts through exactly one module loader, so the no-__pycache__
-#      invariant that loader carries cannot be lost to a copy-paste.
+#      invariant that loader carries cannot be lost to a copy-paste;
+#   9. Renovate can actually SEE those two pins and actually HOLDS their majors — the custom
+#      managers are executed against the real file, and the holds are tested for REACH, so a config
+#      the engine would reject, or protection that has been scoped away from the pins, fails here
+#      instead of surfacing as PRs that silently never appear.
 #
 # The committed fixture is never mutated: cleanup() asserts it on every exit path, and CI asserts it
 # stays "green AND legacy".
