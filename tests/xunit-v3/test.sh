@@ -21,7 +21,10 @@
 #   9. Renovate can actually SEE those two pins and actually HOLDS their majors — the custom
 #      managers are executed against the real file, and the holds are tested for REACH, so a config
 #      the engine would reject, or protection that has been scoped away from the pins, fails here
-#      instead of surfacing as PRs that silently never appear.
+#      instead of surfacing as PRs that silently never appear;
+#  10. the "did we find any?" probes cannot invert on a large result set — a SIGPIPE'd find under
+#      `pipefail` used to make two of this file's own checks skip themselves precisely when they
+#      had something to report.
 #
 # The committed fixture is never mutated: cleanup() asserts it on every exit path, and CI asserts it
 # stays "green AND legacy".
@@ -103,6 +106,36 @@ template_step_checked() {
   printf '%s' "$body"
 }
 
+# "Is there at least one match?" — one home for the idiom, for the reason #42 gave about the module
+# loader: the wrong shape is what gets copied, and two call sites had already copied it (#48).
+#
+# `-print -quit` rather than `… | grep -q .`: grep exits at its first match, find then writes into a
+# closed pipe, takes SIGPIPE and returns 141 — and `set -o pipefail` promotes that to the pipeline's
+# status. The pipeline therefore reports FAILURE precisely when something IS found, and both callers
+# below are `if`s whose else-branch means "found nothing". Each one could skip the very check it
+# exists to perform, in the quiet direction. Section 10 drives that difference to red.
+#
+# `|| true` keeps the callers' tolerance of a path that legitimately does not exist: find exits
+# non-zero there, and a bare assignment under `set -e` would abort the script — in cleanup()'s case
+# on every exit path, including the successful one.
+any_match() {
+  local hit
+  hit=$(find "$@" -print -quit 2>/dev/null || true)
+  [ -n "$hit" ]
+}
+
+# `-print -quit` is what makes any_match safe, so prove the host's find HAS it — once, here, loudly.
+# Without this the tolerance above cuts both ways: on a find that does not support -quit (busybox,
+# some minimal containers) every call would answer "nothing found" with the error discarded, and
+# cleanup()'s __pycache__ guard leans on any_match from the very first exit path — including the
+# exit of an unrelated early failure, long before section 10 could report the problem. A silent
+# "clean" from that guard is exactly what lets a stray .pyc reach the tree.
+if ! find "$KIT" -maxdepth 0 -print -quit >/dev/null 2>&1; then
+  echo "FAIL: this host's find does not support '-print -quit', which every probe in this suite uses."
+  echo "      Every any_match() call would answer 'nothing found' regardless of what is there."
+  exit 1
+fi
+
 # The fixture is the "before" state and must survive this script untouched, on every exit path
 # (including a failure mid-run) — otherwise a red test would also silently rewrite the fixture.
 #
@@ -121,7 +154,7 @@ cleanup() {
   fi
   # Nor may the run leave build droppings in the kit: a __pycache__ next to a kit script is how
   # a stray .pyc got committed once.
-  if find "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d 2>/dev/null | grep -q .; then
+  if any_match "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d; then
     echo "FAIL: the test left a __pycache__ inside the kit — it must not modify the repo it tests."
     exit 1
   fi
@@ -297,7 +330,7 @@ fi
 # Any cobertura, not the old fixed name: were the collector to start working through MTP's own
 # writer, the file would carry a generated name and a narrow `-name` would find nothing — this
 # canary would then print "pinned" forever while the hole it pins had closed.
-if find coverage -name '*.cobertura.xml' 2>/dev/null | grep -q .; then
+if any_match coverage -name '*.cobertura.xml'; then
   echo "NOTE: --collect:\"XPlat Code Coverage\" now yields cobertura under MTP."
   echo "      templates/ci-dotnet.yml can drop its MTP branch — re-check before simplifying."
   exit 1
@@ -1669,5 +1702,89 @@ accepts("an unrelated major-hold ahead of the family rule", _unrelated_major_hol
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
 PY
+
+# ---------------------------------------------------------------------------
+# 10. A "did we find any?" probe reports on what it FOUND, not on how the reader exited.
+#
+#     `find … | grep -q .` under `set -o pipefail` inverts on large results: grep exits at the
+#     first match, find takes SIGPIPE on the closed pipe and returns 141, and pipefail makes that
+#     the pipeline's status — so the `if` takes its else-branch, the one that means "nothing
+#     there", exactly when something IS there. Two call sites had this shape (#48): section 4a's
+#     canary, which exists to be LOUD the day the VSTest collector starts working under MTP, and
+#     cleanup()'s __pycache__ guard, which exists to catch a stray .pyc reaching the tree. Both
+#     failed silent, and a small result set hides it — one match fits in the pipe buffer and find
+#     finishes before grep can close it.
+#
+#     So the fixture is deliberately big enough to overrun the 64 KiB pipe buffer, and the naive
+#     shape is run first: if IT stopped failing, this case would be proving nothing, and that is
+#     reported as a broken fixture rather than quietly passing.
+# ---------------------------------------------------------------------------
+sigpipe_dir="$scratch/sigpipe-probe"
+mkdir -p "$sigpipe_dir"
+# Long names on purpose: the listing must exceed the pipe buffer well before find runs out of
+# entries, which is what leaves find still writing when grep exits.
+for i in $(seq 1 2000); do
+  : > "$sigpipe_dir/padded-so-the-listing-overruns-the-pipe-buffer-$i.cobertura.xml"
+done
+
+# The population is measured DIRECTLY rather than inferred from the exit status, because the status
+# alone cannot tell "the reader closed the pipe" from "there was nothing to find" — and it is not
+# even the same status on both platforms. Measured: BSD find (macOS) is killed by SIGPIPE and the
+# pipeline reports 141; GNU find (the ubuntu runner) catches EPIPE, prints
+# `find: 'standard output': Broken pipe` and exits 1 — the very status an empty directory produces.
+# So an exact `-eq 141` is red on CI, and a bare `-ne 0` would call an EMPTY fixture intact and then
+# blame any_match for a directory that simply had no files in it. Proving the fixture is populated
+# first is what makes any non-zero status here unambiguous evidence of the inversion.
+created=$(find "$sigpipe_dir" -name '*.cobertura.xml' -type f | wc -l | tr -d ' ')
+if [ "$created" -lt 2000 ]; then
+  echo "FAIL: fixture broken — $created matching files created, expected 2000. Section 10 cannot"
+  echo "      reproduce #48 without enough entries to overrun the 64 KiB pipe buffer."
+  exit 1
+fi
+
+set +e
+find "$sigpipe_dir" -name '*.cobertura.xml' 2>/dev/null | grep -q .   # sigpipe-repro
+naive_rc=$?
+set -e
+if [ "$naive_rc" -eq 0 ]; then
+  echo "FAIL: fixture broken — the naive find|grep pipeline succeeded on $created matches."
+  echo "      It must report FAILURE there (141 on BSD find, 1 on GNU find's 'Broken pipe'):"
+  echo "      that inversion is the whole defect of #48, and section 10 is not reproducing it."
+  exit 1
+fi
+
+if ! any_match "$sigpipe_dir" -name '*.cobertura.xml'; then
+  echo "FAIL: any_match reported NOTHING FOUND on a directory full of matches — the probe inverts"
+  echo "      on large result sets, which is the whole defect of #48."
+  exit 1
+fi
+
+# …and a path that does not exist must still answer "no", not abort. cleanup() runs on every exit
+# path, so an aborting probe there would replace the real exit status with its own.
+if any_match "$scratch/definitely-not-here" -name '*.cobertura.xml'; then
+  echo "FAIL: any_match reported a match under a directory that does not exist"
+  exit 1
+fi
+
+# One idiom, asserted — the reason both sites were wrong is that the shape reads fine and spreads.
+# The `-[q]` keeps this line from matching itself. `grep -c .` elsewhere in this file is NOT this
+# bug: -c reads the whole stream, so it never closes the pipe early.
+# Deliberately NOT anchored to `^[[:space:]]*(if )?find`. That was the first spelling here, and it
+# only caught two of the six natural forms: `if ! find … | grep -q .` (the negation the shipped
+# template itself uses), `elif`, `while`, and `n=$(find … | grep -q .)` all sailed past, so a
+# copy-paste in the likeliest shape would have reintroduced #48 with this guard green.
+#
+# Instead: match the shape ANYWHERE, then subtract the two kinds of line that spell it out
+# legitimately — comment lines, and the one tagged `sigpipe-repro` above, which IS the broken shape
+# on purpose. The FAIL text below says `find|grep` without the space so it cannot match itself.
+strays=$( { grep -nE 'find [^|]*\| *grep -[q] \.' "$SELF" || true; } \
+  | grep -vE '^[0-9]+:[[:space:]]*#' \
+  | grep -v 'sigpipe-repro' || true)
+if [ -n "$strays" ]; then
+  echo "FAIL: a find|grep -q site is left in $(basename "$SELF") — use any_match:"
+  echo "$strays"
+  exit 1
+fi
+echo "  [10] the find probes report what they found, not how the reader exited"
 
 echo "xunit v3 golden test OK"
