@@ -69,7 +69,10 @@ them exactly as the repo uses them.
 - <or: "none stated — see CLAUDE.md/README">
 
 ## Worktree home
-- <e.g. `.claude/worktrees/` (git-ignored)>
+- <the path, plus the ignore status **as `detect` measured it** — never "(git-ignored)" by habit.
+  e.g. `.claude/worktrees/` (verified ignored) · or `.claude/worktrees/` (**NOT ignored** — a
+  worktree here would be staged by a stray `git add -A`; implement-issue and merge-pr refuse to
+  create one until the rule exists)>
 
 ## Environment gotchas
 - <e.g. "raw git fetch/push sandbox-blocked while gh works — disable sandbox for those">
@@ -144,7 +147,7 @@ for the grain each field wants:
 - Do NOT set `TreatWarningsAsErrors` — generated client code may warn and must still build.
 
 ## Worktree home
-- `.claude/worktrees/` (git-ignored)
+- `.claude/worktrees/` (verified ignored — `worktrees-ignored.sh` exit 0 at profile time)
 
 ## Environment gotchas
 - Raw `git fetch`/`push` can be sandbox-blocked while `gh` works (`port 443` timeout) — re-run those with the sandbox disabled; use `git -C <path>`, not `cd`.
