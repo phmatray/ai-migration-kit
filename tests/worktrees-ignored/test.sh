@@ -18,7 +18,11 @@ GUARD="./scripts/worktrees-ignored.sh"
 [ -x "$GUARD" ] || { echo "FAIL: $GUARD missing or not executable"; exit 1; }
 KIT="$PWD"
 
-WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
+# Scratch dir and EXIT trap come from the shared preamble (#72).
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT"
+WORK=$(kit_scratch)
 n=0
 
 # A fresh repo whose .gitignore is exactly $1. Nothing is created on disk beyond .gitignore —
