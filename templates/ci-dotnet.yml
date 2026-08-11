@@ -196,10 +196,11 @@ jobs:
 
       # À N'ACTIVER que si ce dépôt COMMITTE un bundle front — un `dist/` suivi par git — que le
       # build .NET consomme (EmbeddedResource, Content, ou contenu statique servi tel quel).
-      # Laissé commenté par défaut sur une mesure, pas par prudence : sur 193 dépôts .NET, 3
+      # Livré INERTE par défaut sur une mesure, pas par prudence : sur 193 dépôts .NET, 3
       # committent une sortie de build et UN SEUL la fait consommer par le build (issue #32). Une
-      # étape rouge par défaut sur les 192 autres finit supprimée ou en `continue-on-error`, ce
-      # qui apprend à l'équipe à ignorer une étape rouge — pire qu'une étape absente.
+      # étape rouge par défaut sur les 192 dépôts où la garde n'a rien à mesurer finirait
+      # supprimée ou en `continue-on-error`, ce qui apprend à l'équipe à ignorer une étape rouge —
+      # pire qu'une étape absente.
       #
       # Le motif, mesuré sur Ninjadog : `dist/` est committé et AUCUNE cible MSBuild n'appelle
       # npm. Un bump de la dépendance JS vulnérable change donc le lockfile et pas un octet du
@@ -232,63 +233,113 @@ jobs:
       #     un bundle parfaitement correct, et vous aurez construit le faux rouge que le point
       #     précédent cherche à éviter.
       #
-      #     Il vous faut donc une étape `actions/setup-node` avec un `node-version` EXACT (pas
-      #     `26.x`, qui flotte). Elle n'est délibérément PAS fournie décommentable ici : ce serait
-      #     une référence d'action figée dans un commentaire, et rien ne prouve que le manager
-      #     github-actions de Renovate — configuré dans ce dépôt pour couvrir `templates/` — la
-      #     voie. Le kit a déjà payé cette facture (issue #35 : les workflows LIVRÉS avaient trois
-      #     majeures de retard pendant que la CI du kit restait à jour). Reprenez donc la version
-      #     d'action de vos propres workflows, où votre Renovate la maintiendra.
+      #     Les trois étapes ci-dessous sont donc LIVE, et inertes par défaut : elles ne
+      #     s'exécutent que si les variables de dépôt sont renseignées. Sur les 190 dépôts sur 193
+      #     qui ne committent aucune sortie de build — 192 si l'on compte ceux dont le build .NET
+      #     ne la consomme pas — elles apparaissent « skipped » et ne font rien. Les deux
+      #     dénominateurs répondent à deux questions différentes ; ne pas les confondre.
+      #     C'est un choix mesuré (#70) : en commentaire, une référence d'action est
+      #     INVISIBLE au manager github-actions de Renovate — vérifié en exécutant son propre
+      #     extracteur sur ce fichier, 5 dépendances extraites et `setup-node` absent. En clair,
+      #     il en voit 7, dont `actions/setup-node` ET `node 26.5.0` lui-même. C'est ce second
+      #     point qui rend la garde saine : la précondition 2 exige un Node épinglé à l'exact, et
+      #     ainsi c'est Renovate qui le maintient au lieu d'un commentaire qui vieillit — la
+      #     facture déjà payée en #35, où les workflows LIVRÉS avaient trois majeures de retard.
       #
-      # Renseignez les deux chemins marqués ← ci-dessous, puis décommentez le bloc — c'est-à-dire
-      # les lignes entre les deux marqueurs `--8<--`, et elles seules. Ces marqueurs ne sont pas
-      # décoratifs : tests/ci-template/test.sh découpe exactement entre eux, décommente, et
-      # EXÉCUTE la garde dans les deux sens. Le bloc ne peut donc pas pourrir en silence, ce qui
-      # est le sort habituel d'une étape en commentaire.
+      # POUR ACTIVER — deux variables de dépôt (Settings → Secrets and variables → Actions →
+      # Variables), et rien à éditer dans ce fichier :
       #
-      # --8<-- opt-in: committed-bundle drift gate (uncomment to enable) --8<--
-      # - name: Reconstruire le bundle front committé
-      #   working-directory: web              # ← le répertoire qui porte package.json
-      #   run: |
-      #     npm ci
-      #     npm run build
+      #     BUNDLE_SRC   le répertoire qui porte package.json   ex. src/App/WebUI
+      #     BUNDLE_DIST  le bundle committé, sous BUNDLE_SRC    ex. src/App/WebUI/dist
       #
-      # - name: Garde — le bundle front committé correspond toujours à ses sources
-      #   env:
-      #     BUNDLE_DIST: web/dist             # ← le répertoire committé, depuis la racine du dépôt
-      #   run: |
-      #     # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
-      #     # inexistant>` sort en 0 avec une sortie VIDE : un chemin resté au placeholder, ou un
-      #     # répertoire renommé six mois plus tard, donnerait donc une étape verte à chaque run
-      #     # qui ne vérifie plus rien — « ça a l'air entretenu, ça ne mesure rien », exactement
-      #     # le défaut que cette étape existe pour empêcher, reproduit dans l'étape elle-même.
-      #     # Le vert est ici la couleur attendue, donc rien ne le signalerait jamais.
-      #     if [ -z "${BUNDLE_DIST:-}" ] || [ ! -d "$BUNDLE_DIST" ]; then
-      #       echo "::error::BUNDLE_DIST ('${BUNDLE_DIST:-}') n'est pas un répertoire de ce dépôt."
-      #       echo "Renseignez le chemin du bundle committé, ou retirez cette étape."
-      #       exit 1
-      #     fi
-      #     if ! git ls-files --error-unmatch -- "$BUNDLE_DIST" > /dev/null 2>&1; then
-      #       echo "::error::$BUNDLE_DIST n'est suivi par git pour aucun fichier."
-      #       echo "Cette garde ne vaut que pour un bundle COMMITTÉ : sans fichier suivi, elle"
-      #       echo "resterait verte sans rien mesurer."
-      #       exit 1
-      #     fi
-      #     # `--ignored` est OBLIGATOIRE, pas un extra. La façon normale de committer une sortie
-      #     # de build est de mettre `dist/` dans .gitignore puis de forcer l'ajout (`git add -f`).
-      #     # Dans ce dépôt-là, un nouveau chunk n'est pas seulement non suivi : il est IGNORÉ, et
-      #     # `--porcelain` seul omet les fichiers ignorés — il n'affiche rien, et la garde annonce
-      #     # « à jour » sur un bundle périmé. Mesuré. Contrepartie assumée : si le bundler écrit
-      #     # un cache ignoré DANS ce répertoire, il sera signalé — faites pointer BUNDLE_DIST sur
-      #     # la sortie livrée, pas sur un dossier qui contient aussi du cache.
-      #     changes=$(git status --porcelain --ignored -- "$BUNDLE_DIST")
-      #     if [ -n "$changes" ]; then
-      #       echo "::error::$BUNDLE_DIST est périmé : il ne correspond plus à ses sources."
-      #       echo "Le binaire livré embarque encore l'ancien bundle — un bump de dépendance JS"
-      #       echo "ne l'a donc PAS corrigé, il a seulement fermé la PR."
-      #       echo "Correctif : reconstruire le bundle, puis committer le résultat."
-      #       echo "$changes"
-      #       exit 1
-      #     fi
-      #     echo "$BUNDLE_DIST est à jour."
-      # --8<-- end opt-in --8<--
+      # Deux, et pas une seule, parce que le chemin de sortie n'est pas déductible de l'entrée
+      # (`dist`, `build`, `wwwroot/dist`…). Mais deux réglages indépendants seraient pires qu'un :
+      # s'ils désignaient des arbres différents, npm reconstruirait l'un pendant que la garde
+      # examine l'autre, elle ne verrait aucune dérive, et l'étape passerait au VERT sur un bundle
+      # périmé — la fausse remédiation même que tout ceci existe pour empêcher, produite par la
+      # garde. La garde vérifie donc que `BUNDLE_DIST` est bien SOUS `BUNDLE_SRC` et refuse sinon.
+      #
+      # ⚠ La précondition 2 demande d'épingler la plateforme ENTIÈRE, pas seulement Node : ce
+      # modèle tourne sur `runs-on: ubuntu-latest`, qui FLOTTE. Le jour où GitHub bascule l'image,
+      # le binaire natif change, le bundle reconstruit diffère, et la garde rougit sur un bundle
+      # correct. Si vous activez ceci, épinglez aussi `runs-on:` sur une image datée
+      # (`ubuntu-24.04`) et régénérez le bundle committé depuis cette image-là.
+      #
+      # ⚠ Renovate proposera des bumps de `node-version` — c'est le but, la ligne est managée.
+      # Mais un changement de majeure de Node change l'ABI des modules natifs, donc la sortie du
+      # bundler : la PR de bump SEULE fera rougir la garde, avec un message qui accuse un bundle
+      # périmé alors que c'est la chaîne d'outils qui a bougé. Reconstruisez et committez le
+      # bundle DANS la même PR que le bump.
+      #
+      # Pour désactiver : supprimez les variables — le code reste en place, sous test, inerte.
+      - name: Setup Node (bundle front committé)
+        if: ${{ vars.BUNDLE_DIST != '' }}
+        uses: actions/setup-node@v5
+        with:
+          # Version EXACTE, jamais `26.x` ni `26.5.x` : la précondition 2 tombe si Node flotte,
+          # et `tests/ci-template/test.sh` refuse toute forme non `N.N.N`.
+          # Renovate maintient cette ligne — elle est extraite comme dépendance `node`.
+          node-version: 26.5.0
+
+      - name: Reconstruire le bundle front committé
+        if: ${{ vars.BUNDLE_DIST != '' }}
+        working-directory: ${{ vars.BUNDLE_SRC }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Garde — le bundle front committé correspond toujours à ses sources
+        if: ${{ vars.BUNDLE_DIST != '' }}
+        env:
+          BUNDLE_DIST: ${{ vars.BUNDLE_DIST }}
+          BUNDLE_SRC: ${{ vars.BUNDLE_SRC }}
+        run: |
+          # Les deux variables doivent désigner le MÊME arbre. Si `BUNDLE_SRC` pointe ailleurs,
+          # l'étape précédente a reconstruit un autre répertoire, celui-ci n'a pas bougé, et la
+          # garde certifierait « à jour » un bundle que rien n'a régénéré.
+          if [ -z "${BUNDLE_SRC:-}" ]; then
+            echo "::error::BUNDLE_SRC n'est pas renseignée alors que BUNDLE_DIST l'est."
+            echo "La reconstruction n'a donc pas eu lieu là où vit le bundle."
+            exit 1
+          fi
+          case "$BUNDLE_DIST/" in
+            "$BUNDLE_SRC"/*) : ;;
+            *) echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')."
+               echo "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :"
+               echo "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé."
+               exit 1 ;;
+          esac
+          # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
+          # inexistant>` sort en 0 avec une sortie VIDE : un chemin mal renseigné, ou un répertoire
+          # renommé six mois plus tard, donnerait donc une étape verte à chaque run qui ne vérifie
+          # plus rien — « ça a l'air entretenu, ça ne mesure rien », exactement le défaut que cette
+          # étape existe pour empêcher, reproduit dans l'étape elle-même. Le vert est ici la
+          # couleur attendue, donc rien ne le signalerait jamais.
+          if [ -z "${BUNDLE_DIST:-}" ] || [ ! -d "$BUNDLE_DIST" ]; then
+            echo "::error::BUNDLE_DIST ('${BUNDLE_DIST:-}') n'est pas un répertoire de ce dépôt."
+            echo "Corrigez la variable de dépôt, ou supprimez-la pour désactiver la garde."
+            exit 1
+          fi
+          if ! git ls-files --error-unmatch -- "$BUNDLE_DIST" > /dev/null 2>&1; then
+            echo "::error::$BUNDLE_DIST n'est suivi par git pour aucun fichier."
+            echo "Cette garde ne vaut que pour un bundle COMMITTÉ : sans fichier suivi, elle"
+            echo "resterait verte sans rien mesurer."
+            exit 1
+          fi
+          # `--ignored` est OBLIGATOIRE, pas un extra. La façon normale de committer une sortie de
+          # build est de mettre `dist/` dans .gitignore puis de forcer l'ajout (`git add -f`). Dans
+          # ce dépôt-là, un nouveau chunk n'est pas seulement non suivi : il est IGNORÉ, et
+          # `--porcelain` seul omet les fichiers ignorés — il n'affiche rien, et la garde annonce
+          # « à jour » sur un bundle périmé. Mesuré. Contrepartie assumée : si le bundler écrit un
+          # cache ignoré DANS ce répertoire, il sera signalé — faites pointer BUNDLE_DIST sur la
+          # sortie livrée, pas sur un dossier qui contient aussi du cache.
+          changes=$(git status --porcelain --ignored -- "$BUNDLE_DIST")
+          if [ -n "$changes" ]; then
+            echo "::error::$BUNDLE_DIST est périmé : il ne correspond plus à ses sources."
+            echo "Le binaire livré embarque encore l'ancien bundle — un bump de dépendance JS"
+            echo "ne l'a donc PAS corrigé, il a seulement fermé la PR."
+            echo "Correctif : reconstruire le bundle, puis committer le résultat."
+            echo "$changes"
+            exit 1
+          fi
+          echo "$BUNDLE_DIST est à jour."
