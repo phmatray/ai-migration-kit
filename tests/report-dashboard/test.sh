@@ -189,16 +189,24 @@ import json, pathlib, re, sys
 # est le bon endroit.
 doc = pathlib.Path("skills/legacy-upgrade/references/report-template.md").read_text(encoding="utf-8")
 blocks = [b for b in re.findall(r"```json\n(.*?)```", doc, re.S) if '"cobertura"' in b]
-assert blocks, "report-template.md ne documente plus de snippet coverage.cobertura"
+# EXACTEMENT un. Zéro = la référence ne documente plus rien ; deux = ce test en épinglerait un au
+# hasard et laisserait l'autre dériver — or `docs/backlog.md` programme une traduction anglaise de
+# ce fichier, dont une issue plausible est justement deux snippets côte à côte.
+assert len(blocks) == 1, (
+    f"report-template.md documente {len(blocks)} snippets coverage.cobertura ; "
+    "ce test ne peut en épingler qu'un — adapter l'extraction avant d'en ajouter un second")
 documented = json.loads("{" + blocks[0].strip().rstrip(",") + "}")["coverage"]
 
-r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text())
+# encoding= explicite comme au-dessus : la fixture porte « démonstration », « Vérifié », « Leçon ».
+# Sous un interpréteur dont locale.getpreferredencoding() n'est pas UTF-8, la lecture par défaut
+# lève UnicodeDecodeError et le test meurt sur son propre montage plutôt que sur ce qu'il mesure.
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
 r["coverage"] = documented          # tel quel, sans retouche : c'est le sujet du test
 pathlib.Path(sys.argv[1], "migration", "report.json").write_text(json.dumps(r))
 PY
 
-if err=$(python3 scripts/report-dashboard.py "$doc_case/migration/report.json" \
-           -o "$doc_case/migration/report.html" 2>&1); then :; else
+if ! err=$(python3 scripts/report-dashboard.py "$doc_case/migration/report.json" \
+             -o "$doc_case/migration/report.html" 2>&1); then
   echo "ÉCHEC : le snippet documenté ne résout pas depuis la disposition documentée."
   echo "        migration/report.json + coverage/ à la racine, recopié depuis"
   echo "        skills/legacy-upgrade/references/report-template.md :"

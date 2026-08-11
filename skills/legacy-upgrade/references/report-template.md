@@ -19,7 +19,7 @@ Toute migration (in place ou réécriture) livre **deux fichiers** committés da
 2. **`migration/report.md` — le résumé diffable** (grep/diff-friendly) : mêmes chiffres condensés,
    lien vers le dashboard.
 
-⚠ **`coverage.cobertura` doit désigner le RÉPERTOIRE `coverage/`, pas un fichier.** Sous
+⚠ **`coverage.cobertura` doit désigner un RÉPERTOIRE, pas un fichier.** Sous
 Microsoft Testing Platform, chaque projet de test écrit son propre rapport et c'est le
 collecteur qui le nomme, avec un identifiant neuf à chaque run :
 
@@ -28,10 +28,14 @@ collecteur qui le nomme, avec un identifiant neuf à chaque run :
 ```
 
 ⚠ **Un chemin relatif se résout contre le répertoire du `report.json`, pas contre la racine du
-repo.** C'est ce qui rend le dossier `migration/` autonome et déplaçable — mais comme le rapport vit
-dans `migration/` et que `templates/ci-dotnet.yml` écrit ses rapports dans le `coverage/` de la
-**racine**, le chemin correct remonte d'un cran : `"../coverage"`. Écrire `"coverage"` désigne
-`migration/coverage`, où rien n'écrit jamais.
+repo.** Le rapport vit dans `migration/` et `templates/ci-dotnet.yml` écrit ses rapports dans le
+`coverage/` de la **racine** : le chemin correct remonte donc d'un cran, `"../coverage"`. Écrire
+`"coverage"` désignerait `migration/coverage`, où rien n'écrit jamais.
+
+Cette résolution rend `migration/` autonome pour tout ce qu'il contient — mais `../coverage` sort
+précisément du dossier, donc **déplacer `migration/` ailleurs casse la regénération du rapport**.
+C'est le prix assumé de lire la couverture là où la CI l'écrit ; le HTML produit, lui, reste
+autonome (CSS/JS inline, captures en data URI) et se déplace sans rien casser.
 
 Le champ accepte aussi un fichier, une liste de fichiers ou un motif glob, mais un chemin
 littéral écrit dans un `report.json` versionné sera périmé au run suivant. Et en choisir **un**
