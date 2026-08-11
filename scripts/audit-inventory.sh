@@ -12,18 +12,100 @@ export LAST_COMMIT="$(git log -1 --format=%cs 2>/dev/null || echo unknown)"
 export FIRST_COMMIT="$(git log --reverse --format=%cs 2>/dev/null | head -1 || echo unknown)"
 
 python3 - <<'PY'
-import json, os, re, subprocess
+import fnmatch, json, os, re, subprocess
 from pathlib import Path
 
-EXCLUDE = re.compile(r'/(obj|bin|packages|node_modules|\.git|\.vs)/')
+# ── LA règle de parcours, unique ────────────────────────────────────────────────────────────────
+# Il y en avait deux : une regex `EXCLUDE` pour `files()` (donc csFiles, locTotal, testStack,
+# projectDetails…) et un `prune()` pour le seul scan vendorisé, ajouté par #64. Elles avaient
+# divergé, et tout ce que ce script émet est lu comme une mesure — la phase 1 recopie `testStack[]`
+# et `vendoredAssets[]` dans l'évaluation. Deux règles = un document incohérent avec lui-même, sans
+# le moindre symptôme. Mesuré avant la correction (#65) :
+#   - `ai-migration-kit` annonçait testStack = 6 pour UN seul projet de test : les cinq autres
+#     étaient des copies de samples/LegacyShop dans ses propres worktrees d'agent ;
+#   - Koine 1825 csFiles, NetImpex 1116, repo-audit 348 — tous gonflés par des copies ;
+#   - `openjam-monorepo` annonçait csFiles = 0, locTotal = 0, testStack = 0. Pas « petit » :
+#     INVISIBLE, parce que tous ses projets vivent sous `packages/`. Des zéros, pas une erreur.
+PRUNE = {'obj', 'bin', 'node_modules', '.git', '.vs'}
+VENDOR_PARENTS = (('wwwroot', 'lib'), ('wwwroot', 'vendor'))
+
+
+def sous_vendor(parts):
+    """`parts` est À OU SOUS un répertoire `wwwroot/{lib,vendor}`."""
+    return any((parts[i], parts[i + 1]) in VENDOR_PARENTS for i in range(len(parts) - 1))
+
+
+def est_restore_nuget(chemin):
+    """Un `packages/` de RESTAURATION NuGet — décidé par son contenu, pas par son nom.
+
+    `packages` était écarté inconditionnellement. C'est juste pour le public legacy, où c'est le
+    dossier de restauration NuGet, et catastrophique pour un monorepo qui y range ses applications.
+    La détection par DÉCLARATION (`workspaces` dans un package.json) était le plan de #65 et elle
+    est morte à la mesure : ZÉRO dépôt local déclare un workspace `packages/`, et openjam-monorepo
+    — le cas motivant — n'a aucun package.json racine. Le contenu, lui, sépare les deux sans
+    ambiguïté : 7 dossiers de restauration portent de 3 à 28 `.nupkg`, le seul dossier source n'en
+    porte aucun (8/8 sur le parc réel).
+    """
+    if os.path.isfile(os.path.join(chemin, 'repositories.config')):
+        return True
+    try:
+        for entree in os.scandir(chemin):
+            if entree.name.endswith('.nupkg'):
+                return True
+            if entree.is_dir(follow_symlinks=False):
+                # Disposition canonique : packages/<Id>.<Version>/<Id>.<Version>.nupkg
+                try:
+                    if any(f.name.endswith('.nupkg') for f in os.scandir(entree.path)):
+                        return True
+                except OSError:
+                    continue
+    except OSError:
+        return False
+    return False
+
+
+def prune(dirpath, dirnames, garder_vendor=False):
+    """Écarte le bruit connu, la restauration NuGet, et les CHECKOUTS IMBRIQUÉS.
+
+    Un répertoire portant son propre `.git` est un autre projet : worktree d'agent, sous-module,
+    clone vendorisé. Ses fichiers ne sont pas le code de ce dépôt. Mesuré sur NetImpex : 8
+    répertoires vendorisés rapportés pour 4 réels, 120 fichiers au lieu de 60.
+
+    `garder_vendor` porte l'unique exception, et elle est réservée au scan vendorisé : SOUS
+    `wwwroot/{lib,vendor}`, un sous-module EST la copie cherchée — et la moins surveillée de
+    toutes. Les autres clés n'en veulent pas : le code d'une lib vendorisée n'est pas le code du
+    dépôt. Une règle, une exception nommée, plutôt que deux règles qui dérivent.
+    """
+    base = Path(dirpath).parts
+    kept = []
+    for d in dirnames:
+        if d in PRUNE:
+            continue
+        chemin = os.path.join(dirpath, d)
+        if d == 'packages' and est_restore_nuget(chemin):
+            continue
+        if (os.path.exists(os.path.join(chemin, '.git'))
+                and not (garder_vendor and sous_vendor(base + (d,)))):
+            continue
+        kept.append(d)
+    return kept
+
+
+def _tous_les_fichiers():
+    out = []
+    for dirpath, dirnames, filenames in os.walk('.'):
+        dirnames[:] = prune(dirpath, dirnames)
+        base = Path(dirpath)
+        out.extend(base / f for f in filenames)
+    return out
+
+
+TOUS_FICHIERS = _tous_les_fichiers()
+
 
 def files(pattern):
-    out = []
-    for p in Path('.').rglob(pattern):
-        s = '/' + p.as_posix()
-        if not EXCLUDE.search(s):
-            out.append(p)
-    return out
+    """Les fichiers du dépôt dont le NOM matche `pattern` — mêmes chemins que l'ancien rglob."""
+    return [p for p in TOUS_FICHIERS if fnmatch.fnmatch(p.name, pattern)]
 
 def loc(paths):
     total = 0
@@ -243,45 +325,15 @@ test_stack.sort(key=lambda x: x['project'])
 #
 # La clé est TOUJOURS présente, vide s'il n'y a rien : un consommateur doit pouvoir distinguer
 # « mesuré, aucun » de « pas mesuré ».
-VENDOR_PARENTS = (('wwwroot', 'lib'), ('wwwroot', 'vendor'))
-PRUNE = {'obj', 'bin', 'packages', 'node_modules', '.git', '.vs'}
-
-
-def sous_vendor(parts):
-    """`parts` est À OU SOUS un répertoire `wwwroot/{lib,vendor}`."""
-    return any((parts[i], parts[i + 1]) in VENDOR_PARENTS for i in range(len(parts) - 1))
-
-
-def prune(dirpath, dirnames):
-    """Écarte le bruit connu, et les CHECKOUTS IMBRIQUÉS — sauf s'ils SONT la copie cherchée.
-
-    Un répertoire qui porte son propre `.git` est normalement un autre projet : worktree d'agent
-    sous `.claude/worktrees/`, sous-module, clone vendorisé. Mesuré sur NetImpex avant d'ajouter
-    ce filtre : 8 répertoires vendorisés rapportés pour 4 réels, 120 fichiers au lieu de 60 —
-    chacun compté une seconde fois dans un worktree d'agent. Un chiffre faux, pas un manquant.
-
-    L'exception est essentielle : SOUS `wwwroot/{lib,vendor}`, un sous-module EST la copie
-    vendorisée qu'on cherche, et c'est même la forme la moins surveillée de toutes — le manager
-    `git-submodules` de Renovate est désactivé par défaut, et l'écosystème `gitsubmodule` de
-    Dependabot doit être activé à la main. L'écarter reviendrait à rendre aveugle précisément le
-    cas pour lequel cette clé existe.
-    """
-    base = Path(dirpath).parts
-    kept = []
-    for d in dirnames:
-        if d in PRUNE:
-            continue
-        if (os.path.exists(os.path.join(dirpath, d, '.git'))
-                and not sous_vendor(base + (d,))):
-            continue
-        kept.append(d)
-    return kept
+# `VENDOR_PARENTS`, `PRUNE`, `sous_vendor()` et `prune()` vivent en tête de fichier, avec la règle
+# de parcours unique : c'était précisément la duplication que #65 a supprimée. Ici on ne fait
+# qu'activer l'exception `garder_vendor` — le seul endroit du script qui en veut.
 
 
 def count_files(root):
     total = 0
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = prune(dirpath, dirnames)
+        dirnames[:] = prune(dirpath, dirnames, garder_vendor=True)
         total += len(filenames)
     return total
 
@@ -359,7 +411,9 @@ def couvert(cible, est_fichier):
 vendored_assets = []
 candidats = []
 for dirpath, dirnames, filenames in os.walk('.'):
-    dirnames[:] = prune(dirpath, dirnames)
+    # La SEULE utilisation de l'exception : ici un sous-module sous `wwwroot/{lib,vendor}` est la
+    # copie vendorisée qu'on cherche, pas un projet étranger.
+    dirnames[:] = prune(dirpath, dirnames, garder_vendor=True)
     lire_manifestes(dirpath, filenames)
     # Path() normalise déjà le './' de tête qu'os.walk ajoute : Path('./wwwroot/lib').parts vaut
     # ('wwwroot', 'lib'), pas ('.', 'wwwroot', 'lib'). Un [1:] « pour retirer le point » mangerait

@@ -315,6 +315,95 @@ PY
 echo "  [5f] loose files count, and a declared name covers only on a name boundary"
 
 # ---------------------------------------------------------------------------
+# 7. ONE traversal rule — a nested checkout must not inflate ANY key.
+#
+#    `vendoredAssets` has skipped nested checkouts since #64; every other key still walked them,
+#    because the script carried two encodings of "directories we never walk" (`EXCLUDE`, used by
+#    files(); `PRUNE`/prune(), used by the vendored scan only). Measured before this was fixed:
+#      - ai-migration-kit reported testStack = 6 for ONE test project — five were copies of
+#        samples/LegacyShop inside its own agent worktrees, each contributing the same xunit pin;
+#      - Koine 1825 csFiles, NetImpex 1116, repo-audit 348, all inflated by worktree copies.
+#    Wrong numbers with no symptom, in a document phase 1 copies into an assessment.
+# ---------------------------------------------------------------------------
+N="$scratch/nested-inflates"
+mk_app "$N/src/App"
+cat > "$N/src/App/Real.cs" <<'CS'
+namespace App { public class Real { public int X() { return 1; } } }
+CS
+# A worktree-shaped copy of the whole app, carrying its own .git — a COPY, not this repo's code.
+mkdir -p "$N/.claude/worktrees/agent/src/App"
+cp "$N/src/App/App.csproj" "$N/.claude/worktrees/agent/src/App/App.csproj"
+cp "$N/src/App/Real.cs"    "$N/.claude/worktrees/agent/src/App/Real.cs"
+echo "gitdir: /elsewhere/.git/worktrees/agent" > "$N/.claude/worktrees/agent/.git"
+# …and a test project inside the copy, which is what inflated testStack.
+mkdir -p "$N/.claude/worktrees/agent/tests/App.Tests"
+cat > "$N/.claude/worktrees/agent/tests/App.Tests/App.Tests.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net6.0</TargetFramework></PropertyGroup>
+  <ItemGroup><PackageReference Include="xunit" Version="2.4.2" /></ItemGroup>
+</Project>
+XML
+out=$("$INV" "$N")
+python3 - "$out" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["csFiles"] == 1, \
+    f"a nested checkout inflated csFiles: expected 1, got {inv['csFiles']}"
+assert inv["testStack"] == [], \
+    f"a nested checkout's test project entered testStack: {inv['testStack']}"
+assert inv["projects"] == ["App"], \
+    f"a nested checkout's project entered the project list: {inv['projects']}"
+PY
+echo "  [7] a nested checkout inflates no key — csFiles, testStack and projects all exclude it"
+
+# ---------------------------------------------------------------------------
+# 8. `packages/` is decided by CONTENT, not by its name.
+#
+#    Skipping it repo-wide is right for the legacy population, where it is the NuGet restore
+#    folder, and catastrophic for a monorepo that keeps its apps there: measured, openjam-monorepo
+#    reported csFiles = 0, locTotal = 0, testStack = 0 — not "small", INVISIBLE, with zeroes
+#    instead of an error.
+#
+#    Declaration-based detection was the plan and it is dead: ZERO local repos declare a
+#    `packages/` workspace, openjam-monorepo has no root package.json at all. The measured
+#    discriminator is content — a restore folder carries `.nupkg` files (and usually
+#    `repositories.config`); a source folder does not. 8/8 correct on the real population.
+# ---------------------------------------------------------------------------
+P="$scratch/packages-restore"
+mk_app "$P/src/App"
+mkdir -p "$P/packages/Newtonsoft.Json.13.0.1/lib/net45"
+: > "$P/packages/Newtonsoft.Json.13.0.1/Newtonsoft.Json.13.0.1.nupkg"
+: > "$P/packages/repositories.config"
+# A .cs inside the restore folder must never be counted as this repo's code.
+echo 'namespace Pkg { public class Junk { } }' > "$P/packages/Newtonsoft.Json.13.0.1/lib/net45/Junk.cs"
+out=$("$INV" "$P")
+python3 - "$out" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["csFiles"] == 0, f"a NuGet restore folder was walked: csFiles={inv['csFiles']}"
+assert inv["projects"] == ["App"], inv["projects"]
+PY
+
+Q="$scratch/packages-source"
+mkdir -p "$Q/packages/app-one"
+mk_app "$Q/packages/app-one"
+echo 'namespace One { public class Svc { public int N() { return 2; } } }' \
+  > "$Q/packages/app-one/Svc.cs"
+mk_files "$Q/packages/app-one/wwwroot/lib/bootstrap" 3
+out=$("$INV" "$Q")
+python3 - "$out" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["csFiles"] == 1, \
+    f"a SOURCE packages/ was skipped — the repo reads as invisible: csFiles={inv['csFiles']}"
+assert inv["projects"] == ["App"], inv["projects"]
+paths = [e["path"] for e in inv["vendoredAssets"]]
+assert paths == ["packages/app-one/wwwroot/lib/bootstrap"], \
+    f"a vendored copy under a source packages/ was missed: {paths}"
+PY
+echo "  [8] packages/ walked when it holds source, skipped when it holds .nupkg restore output"
+
+# ---------------------------------------------------------------------------
 # 6. Still valid JSON, including from a foreign working directory — CI runs this
 #    script from someone else's checkout on purpose.
 # ---------------------------------------------------------------------------
