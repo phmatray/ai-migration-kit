@@ -889,7 +889,7 @@ echo "task work" >> "$R/seed.txt"
 
 # A lone guard: copied out with no `_assert-branch.sh` beside it.
 LONE=$(mktemp -d "$WORK/lone-guard.XXXX")
-cp "$COMMIT" "$PUSH" "$LONE/"
+cp "$COMMIT" "$PUSH" "$MERGE" "$LONE/"
 
 run helper-missing-commit bash "$LONE/guarded-commit.sh" -C "$R" a -- -am "must never land"
 
@@ -915,12 +915,26 @@ grep -q '_assert-branch.sh' "$OUT" \
 # parsed at all (that loop's own errors are reported through the helper's refuse()), so there is no
 # state in which a lone guard does something useful. A --help that worked would advertise a guard
 # that cannot guard.
-for g in guarded-commit guarded-push; do
+for g in guarded-commit guarded-push guarded-merge; do
   run "helper-missing-help-$g" bash "$LONE/$g.sh" --help
   [ "$RC" -eq 2 ] || fail "helper-missing-help-$g" "--help on a lone guard must refuse (2), got $RC"
   grep -q '_assert-branch.sh' "$OUT" \
     || fail "helper-missing-help-$g" "the refusal must name the file it could not load"
 done
+
+# The merge guard joined the helper later than its siblings (#41 landed it self-contained, #44 had
+# already extracted the other two), so its bootstrap is the one most likely to be the odd one out.
+# It gets the same "refuses, and writes NOTHING" proof rather than only the --help check above.
+before_a=$(tip "$R" a); before_b=$(tip "$R" b)
+run helper-missing-merge bash "$LONE/guarded-merge.sh" -C "$R" a -- b
+
+[ "$RC" -eq 2 ] || fail helper-missing-merge "a guard without its helper must refuse (2), got $RC"
+grep -q '_assert-branch.sh' "$OUT" \
+  || fail helper-missing-merge "the refusal must name the file it could not load"
+[ "$(tip "$R" a)" = "$before_a" ] \
+  || fail helper-missing-merge "branch a advanced — the merge ran with no assertion behind it"
+[ "$(tip "$R" b)" = "$before_b" ] || fail helper-missing-merge "branch b moved"
+[ ! -e "$R/.git/MERGE_HEAD" ] || fail helper-missing-merge "a refused merge was left in progress"
 echo "  ok: helper-missing — a guard that cannot load its assertion refuses (2) and names the file"
 
 # ---------------------------------------------------------------- 30b. the helper is TRUNCATED
@@ -934,7 +948,7 @@ echo "  ok: helper-missing — a guard that cannot load its assertion refuses (2
 
 for payload in '' '# a comment and nothing else' 'assert_branch_typo() { :; }'; do
   TRUNC=$(mktemp -d "$WORK/trunc-guard.XXXX")
-  cp "$COMMIT" "$PUSH" "$TRUNC/"
+  cp "$COMMIT" "$PUSH" "$MERGE" "$TRUNC/"
   printf '%s' "$payload" > "$TRUNC/_assert-branch.sh"
 
   before_a=$(tip "$R" a)
@@ -949,6 +963,13 @@ for payload in '' '# a comment and nothing else' 'assert_branch_typo() { :; }'; 
     || fail trunc-push "a helper that defines nothing must refuse (2), got $RC (127 = the hole)"
   [ "$(remote_tip helper-missing a)" = "$before_remote" ] \
     || fail trunc-push "the remote moved even though the guard refused"
+
+  before_b=$(tip "$R" b)
+  run trunc-merge bash "$TRUNC/guarded-merge.sh" -C "$R" a -- b
+  [ "$RC" -eq 2 ] \
+    || fail trunc-merge "a helper that defines nothing must refuse (2), got $RC (127 = the hole)"
+  [ "$(tip "$R" a)" = "$before_a" ] || fail trunc-merge "branch a took a merge with no assertion loaded"
+  [ "$(tip "$R" b)" = "$before_b" ] || fail trunc-merge "branch b moved"
 done
 echo "  ok: helper-truncated — a readable helper that defines nothing still refuses (2), never 127"
 
@@ -966,6 +987,7 @@ echo "task work" >> "$R/seed.txt"
 LINKDIR=$(mktemp -d "$WORK/symlink-bin.XXXX")
 ln -s "$COMMIT" "$LINKDIR/guarded-commit.sh"
 ln -s "$PUSH" "$LINKDIR/gp"          # also renamed, to prove the resolution is not name-based
+ln -s "$MERGE" "$LINKDIR/gm"
 
 run symlink-commit bash "$LINKDIR/guarded-commit.sh" -C "$R" a -- -am "feat: committed via a symlink"
 
@@ -975,6 +997,11 @@ run symlink-commit bash "$LINKDIR/guarded-commit.sh" -C "$R" a -- -am "feat: com
 run symlink-help bash "$LINKDIR/gp" --help
 [ "$RC" -eq 0 ] || fail symlink-help "a renamed symlink to guarded-push.sh failed to load (exit $RC)"
 grep -q 'Exit codes:' "$OUT" || fail symlink-help "--help through a symlink lost the exit-code table"
+
+run symlink-help-merge bash "$LINKDIR/gm" --help
+[ "$RC" -eq 0 ] || fail symlink-help-merge "a renamed symlink to guarded-merge.sh failed to load (exit $RC)"
+grep -q '^  5 ' "$OUT" \
+  || fail symlink-help-merge "--help through a symlink lost the merge guard's exit-5 row"
 echo "  ok: symlinked guard — \$0 is resolved through its links, so the helper is found beside the real file"
 
 # ---------------------------------------------------------------- 30d. the helper is not a command
