@@ -194,9 +194,11 @@ jobs:
       - name: Templates are valid YAML
         run: python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/*.yml')]"
 
-      # The step above only proves the SHIPPED template parses. The opt-in bundle gate is
-      # commented out, so it is invisible to that check and would rot unnoticed — this one
-      # uncomments it and runs the guard for real, both ways.
+      # The step above only proves the template PARSES. The opt-in bundle gate is live YAML since
+      # #70, so it is covered by that parse — but parsing says nothing about whether the guard
+      # still catches drift. This one EXECUTES it, both ways: against bundles that are stale
+      # (renamed, added-to, gitignored-and-force-added) and one that matches, plus the three
+      # misconfigurations that must be refused rather than passed over in silence.
       - name: CI template golden test — the opt-in committed-bundle drift gate
         run: ./tests/ci-template/test.sh
 

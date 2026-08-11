@@ -95,32 +95,68 @@ PY
 #    failure it exists to catch.
 # ---------------------------------------------------------------------------
 python3 - "$TEMPLATE" <<'PY'
-import sys, yaml
+import re, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 steps = doc["jobs"]["test"]["steps"]
 names = [s.get("name") for s in steps]
 want = ["Setup Node (bundle front committé)",
         "Reconstruire le bundle front committé",
         "Garde — le bundle front committé correspond toujours à ses sources"]
+# Index by POSITION, never by name: a duplicated step name would silently collapse in a
+# name->step dict, so the assertions below would inspect the last copy while `names.index()`
+# still found the first — an ungated duplicate could pass every check here.
+named = [n for n in names if n is not None]   # `uses:`-only steps carry no name; that is fine
+assert len(named) == len(set(named)), \
+    f"duplicate step names make these assertions unsound: {names}"
 for w in want:
     assert w in names, f"missing step {w!r}: {names}"
 idx = [names.index(w) for w in want]
 assert idx == sorted(idx), f"setup-node -> rebuild -> guard is out of order: {idx}"
-by = {s.get("name"): s for s in steps}
+by = {names[i]: steps[i] for i in idx}
 for w in want:
     cond = str(by[w].get("if", ""))
     assert "vars.BUNDLE_DIST" in cond, (
-        f"step {w!r} is not gated on the repo variable — it would RUN on the 192 of 193 repos "
-        f"that commit no bundle: if={cond!r}")
+        f"step {w!r} is not gated on the repo variable — it would RUN on every repo that takes "
+        f"this template, including the ones with no bundle at all: if={cond!r}")
 # The pinned action and the exact Node version are precisely what Renovate can now maintain.
 node = by["Setup Node (bundle front committé)"]
 assert str(node.get("uses", "")).startswith("actions/setup-node@"), node
 ver = str((node.get("with") or {}).get("node-version", ""))
-assert ver[:1].isdigit() and ver.count(".") >= 2, (
-    f"node-version must be EXACT, not a floating major: {ver!r}. Precondition 2 of this gate — "
+# `N.N.N` of digits and nothing else. A looser check (first char a digit, two dots) accepts
+# `26.5.x`, `26.5.*` and `26.5.0 - 26.9.0` — every one of which lets setup-node resolve a
+# different patch per run, which is exactly the drift the pin exists to remove.
+assert re.fullmatch(r"\d+\.\d+\.\d+", ver), (
+    f"node-version must be an EXACT N.N.N, not a range: {ver!r}. Precondition 2 of this gate — "
     f"per-platform native binaries in the front-end toolchain — collapses if Node floats.")
+# The rebuild must be driven by the SAME configuration as the guard. A hardcoded
+# working-directory beside a variable-driven guard is two sources of truth: point them at
+# different trees and npm rebuilds one while the guard inspects the other, so the step goes
+# GREEN over a stale bundle — the false remediation this whole gate exists to prevent.
+wd = str(by["Reconstruire le bundle front committé"].get("working-directory", ""))
+assert "vars.BUNDLE_SRC" in wd, (
+    f"the rebuild's working-directory must come from the same repo configuration as the guard, "
+    f"not be hardcoded in the template: {wd!r}")
 PY
-echo "  [1] three live steps, ordered, all gated on vars.BUNDLE_DIST, Node pinned exactly"
+echo "  [1] three live steps, ordered, gated, Node pinned N.N.N, rebuild driven by the variable"
+
+# ---------------------------------------------------------------------------
+# 1b. The plumbing itself — `env: BUNDLE_DIST: ${{ vars.BUNDLE_DIST }}` — is the SUBJECT of this
+#     design, and every other section injects the variable itself, so nothing would notice if the
+#     wiring were deleted or misspelled. Then the one repo that opted in gets a guard that either
+#     reds out on every run or silently measures the wrong directory.
+# ---------------------------------------------------------------------------
+python3 - "$TEMPLATE" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+guard = next(s for s in doc["jobs"]["test"]["steps"]
+             if s.get("name") == "Garde — le bundle front committé correspond toujours à ses sources")
+env = guard.get("env") or {}
+for var in ("BUNDLE_DIST", "BUNDLE_SRC"):
+    assert var in env, f"the guard does not receive {var} from the repo variables: env={env}"
+    assert f"vars.{var}" in str(env[var]), \
+        f"{var} is not wired to the repo variable: {env[var]!r}"
+PY
+echo "  [1b] the guard receives both paths from the repo variables, by name"
 
 step_named "Garde — le bundle front committé correspond toujours à ses sources" > "$scratch/guard.sh"
 [ -s "$scratch/guard.sh" ] || { echo "FAIL: the guard step has an empty run: body"; exit 1; }
@@ -159,7 +195,7 @@ if git -C "$D" diff --stat -- web/dist | grep -q 'index-BBBBBBBB'; then
   exit 1
 fi
 set +e
-( cd "$D" && BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-renamed.txt" 2>&1
+( cd "$D" && BUNDLE_SRC=web BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-renamed.txt" 2>&1
 rc=$?
 set -e
 if [ "$rc" -eq 0 ]; then
@@ -190,7 +226,7 @@ git -C "$A" diff --quiet -- web/dist || {
   echo "      If git changed, the porcelain rationale in the template needs rewriting."
   exit 1; }
 set +e
-( cd "$A" && BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-added.txt" 2>&1
+( cd "$A" && BUNDLE_SRC=web BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-added.txt" 2>&1
 rc=$?
 set -e
 if [ "$rc" -eq 0 ]; then
@@ -226,7 +262,7 @@ printf 'console.log(9)\n' > "$I/web/dist/assets/chunk-GGGGGGGG.js"
 git -C "$I" check-ignore -q web/dist/assets/chunk-GGGGGGGG.js || {
   echo "FAIL: the premise no longer holds — the new chunk is not ignored here."; exit 1; }
 set +e
-( cd "$I" && BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-ignored.txt" 2>&1
+( cd "$I" && BUNDLE_SRC=web BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-ignored.txt" 2>&1
 rc=$?
 set -e
 if [ "$rc" -eq 0 ]; then
@@ -246,7 +282,7 @@ echo "  [3b] fails when the bundle dir is gitignored and force-added — the rea
 M="$scratch/matching"
 mk_repo "$M" "index-CCCCCCCC.js"
 set +e
-( cd "$M" && BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-match.txt" 2>&1
+( cd "$M" && BUNDLE_SRC=web BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) > "$scratch/out-match.txt" 2>&1
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
@@ -272,7 +308,7 @@ for bad in "" "does/not/exist"; do
   B="$scratch/misconfigured-$(echo "$bad" | tr -c 'a-z' '-')"
   mk_repo "$B" "index-EEEEEEEE.js"
   set +e
-  ( cd "$B" && BUNDLE_DIST="$bad" bash "$scratch/guard.sh" ) > "$scratch/out-bad.txt" 2>&1
+  ( cd "$B" && BUNDLE_SRC="$bad" BUNDLE_DIST="$bad" bash "$scratch/guard.sh" ) > "$scratch/out-bad.txt" 2>&1
   rc=$?
   set -e
   if [ "$rc" -eq 0 ]; then
@@ -300,7 +336,7 @@ mk_repo "$U" "index-HHHHHHHH.js"
 mkdir -p "$U/other/dist"
 printf 'x\n' > "$U/other/dist/nothing-committed.js"
 set +e
-( cd "$U" && BUNDLE_DIST=other/dist bash "$scratch/guard.sh" ) > "$scratch/out-untracked.txt" 2>&1
+( cd "$U" && BUNDLE_SRC=other BUNDLE_DIST=other/dist bash "$scratch/guard.sh" ) > "$scratch/out-untracked.txt" 2>&1
 rc=$?
 set -e
 if [ "$rc" -eq 0 ]; then
@@ -310,6 +346,34 @@ if [ "$rc" -eq 0 ]; then
   exit 1
 fi
 echo "  [5c] refuses a directory that exists but holds no tracked file"
+
+# ---------------------------------------------------------------------------
+# 5d. The two variables must describe the SAME tree.
+#
+#     Splitting the configuration in two created a way for the gate to certify a bundle nothing
+#     rebuilt: point BUNDLE_SRC at one project and BUNDLE_DIST at another's output, and npm
+#     regenerates the first while the guard inspects the second, finds it unchanged, and reports
+#     "à jour" on a stale bundle — the false remediation this whole step exists to prevent,
+#     produced by the step. Cheap to get wrong, too: two settings edited months apart.
+# ---------------------------------------------------------------------------
+X="$scratch/mismatched"
+mk_repo "$X" "index-JJJJJJJJ.js"
+mkdir -p "$X/docs-site"
+: > "$X/docs-site/package.json"
+set +e
+( cd "$X" && BUNDLE_SRC=docs-site BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) \
+  > "$scratch/out-mismatch.txt" 2>&1
+rc=$?
+set -e
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: the guard accepted BUNDLE_DIST outside BUNDLE_SRC. npm rebuilt one tree while the"
+  echo "      guard inspected another — it would go green on a bundle nothing regenerated:"
+  cat "$scratch/out-mismatch.txt"
+  exit 1
+fi
+grep -q "BUNDLE_SRC" "$scratch/out-mismatch.txt" || {
+  echo "FAIL: refused, but never named the mismatch:"; cat "$scratch/out-mismatch.txt"; exit 1; }
+echo "  [5d] refuses when BUNDLE_DIST is not under BUNDLE_SRC — the two-sources-of-truth trap"
 
 # ---------------------------------------------------------------------------
 # 5. As shipped the three steps are PRESENT but INERT — and inert by the one mechanism GitHub
@@ -326,24 +390,31 @@ echo "  [5c] refuses a directory that exists but holds no tracked file"
 # ---------------------------------------------------------------------------
 python3 - "$TEMPLATE" <<'PY'
 import sys, yaml
-doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+raw = open(sys.argv[1], encoding="utf-8").read()
+doc = yaml.safe_load(raw)
 steps = doc["jobs"]["test"]["steps"]
-gated = [s for s in steps if "BUNDLE_DIST" in str(s.get("if", ""))]
+gated = [i for i, s in enumerate(steps) if "BUNDLE_DIST" in str(s.get("if", ""))]
 assert len(gated) == 3, f"expected exactly 3 bundle steps gated on the variable, got {len(gated)}"
-for s in gated:
-    cond = str(s["if"])
+for i in gated:
+    cond = str(steps[i]["if"])
     # The gate must test the variable for emptiness. `if: ${{ vars.BUNDLE_DIST }}` would also work
     # in GitHub, but `!= ''` says the intent out loud and cannot be misread as a boolean flag.
     assert "!= ''" in cond or '!= ""' in cond, \
         f"the gate must compare BUNDLE_DIST to empty, so an unset variable is plainly false: {cond}"
     assert "always()" not in cond, f"an always() gate would defeat the opt-in entirely: {cond}"
-# Nothing else in the workflow may depend on the variable — a repo that never sets it must get
-# exactly the same run it gets today.
-others = [s.get("name") for s in steps
-          if s not in gated and "BUNDLE_DIST" in yaml.safe_dump(s, allow_unicode=True)]
-assert not others, f"BUNDLE_DIST leaked into steps outside the opt-in gate: {others}"
+# Nothing OUTSIDE those three steps may depend on the variables — a repo that never sets them must
+# get exactly the run it gets today. Checked against the whole document, not just `steps`: the
+# workflow already keeps `SOLUTION` in a top-level `env:`, and `jobs.test.env`, `defaults.run` and
+# a second job are all places a reference could hide from a steps-only scan.
+rest = dict(doc)
+rest["jobs"] = {k: (dict(v, steps=[s for i, s in enumerate(v["steps"]) if i not in gated])
+                    if k == "test" else v)
+               for k, v in doc["jobs"].items()}
+leaked = [ln for ln in yaml.safe_dump(rest, allow_unicode=True).splitlines()
+          if "BUNDLE_DIST" in ln or "BUNDLE_SRC" in ln]
+assert not leaked, f"a bundle variable is referenced outside the three gated steps: {leaked}"
 PY
-echo "  [5] shipped inert — all three gated on an unset variable, nothing else touches it"
+echo "  [5] shipped inert — three gated steps, and nothing outside them references the variables"
 
 # ---------------------------------------------------------------------------
 # 6. The coverage artifact is uploaded on the FAILURE path too (issue #74).
@@ -518,12 +589,15 @@ start = next((i for i, l in enumerate(lines)
               if l.strip() == "- name: Publier la couverture en artefact de build"), None)
 assert start is not None, "the artifact step is gone — section 6 should have caught this first"
 # The step's own block, and ONLY it — bounded by INDENT, not by the next `- name:`.
-# Two boundary tests fail here, both silently and both by over-reaching:
-#   * "next `- name:`" — the next one in this file is inside the opt-in block and is COMMENTED
-#     OUT, so the scan runs to EOF and swallows 130 unrelated lines;
-#   * "next `--8<--` sentinel" — that sentinel is gone since #70 made the opt-in steps live YAML,
-#     and even while it existed the opt-in section opened with ~40 lines of comment ABOVE it, at
-#     the step's own indent, which still got absorbed.
+# Both of the obvious boundaries have failed here historically, silently and by over-reaching:
+#   * "next `- name:`" — while the opt-in block was commented out, the next `- name:` was inside
+#     it and therefore invisible, so the scan ran to EOF and swallowed 130 unrelated lines. #70
+#     made those steps live, so today that boundary would in fact stop at the MTP-log step — but
+#     it stops there by accident of the current layout, not by construction, and the next
+#     commented step anywhere above would break it again.
+#   * "next `--8<--` sentinel" — that sentinel is gone since #70, and even while it existed the
+#     opt-in section opened with ~40 lines of comment ABOVE it, at the step's own indent, which
+#     still got absorbed.
 # Everything belonging to this step is indented deeper than its `- name:`, so the first non-blank
 # line back at that indent is the true end. The assertions below then quote this step or nothing.
 indent = len(lines[start]) - len(lines[start].lstrip())

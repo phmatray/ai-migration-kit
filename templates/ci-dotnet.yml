@@ -196,10 +196,11 @@ jobs:
 
       # À N'ACTIVER que si ce dépôt COMMITTE un bundle front — un `dist/` suivi par git — que le
       # build .NET consomme (EmbeddedResource, Content, ou contenu statique servi tel quel).
-      # Laissé commenté par défaut sur une mesure, pas par prudence : sur 193 dépôts .NET, 3
+      # Livré INERTE par défaut sur une mesure, pas par prudence : sur 193 dépôts .NET, 3
       # committent une sortie de build et UN SEUL la fait consommer par le build (issue #32). Une
-      # étape rouge par défaut sur les 192 autres finit supprimée ou en `continue-on-error`, ce
-      # qui apprend à l'équipe à ignorer une étape rouge — pire qu'une étape absente.
+      # étape rouge par défaut sur les 192 dépôts où la garde n'a rien à mesurer finirait
+      # supprimée ou en `continue-on-error`, ce qui apprend à l'équipe à ignorer une étape rouge —
+      # pire qu'une étape absente.
       #
       # Le motif, mesuré sur Ninjadog : `dist/` est committé et AUCUNE cible MSBuild n'appelle
       # npm. Un bump de la dépendance JS vulnérable change donc le lockfile et pas un octet du
@@ -233,9 +234,11 @@ jobs:
       #     précédent cherche à éviter.
       #
       #     Les trois étapes ci-dessous sont donc LIVE, et inertes par défaut : elles ne
-      #     s'exécutent que si la variable de dépôt `BUNDLE_DIST` est renseignée. Sur les 192
-      #     dépôts sur 193 qui ne committent aucun bundle, elles apparaissent « skipped » et ne
-      #     font rien. C'est un choix mesuré (#70) : en commentaire, une référence d'action est
+      #     s'exécutent que si les variables de dépôt sont renseignées. Sur les 190 dépôts sur 193
+      #     qui ne committent aucune sortie de build — 192 si l'on compte ceux dont le build .NET
+      #     ne la consomme pas — elles apparaissent « skipped » et ne font rien. Les deux
+      #     dénominateurs répondent à deux questions différentes ; ne pas les confondre.
+      #     C'est un choix mesuré (#70) : en commentaire, une référence d'action est
       #     INVISIBLE au manager github-actions de Renovate — vérifié en exécutant son propre
       #     extracteur sur ce fichier, 5 dépendances extraites et `setup-node` absent. En clair,
       #     il en voit 7, dont `actions/setup-node` ET `node 26.5.0` lui-même. C'est ce second
@@ -243,21 +246,44 @@ jobs:
       #     ainsi c'est Renovate qui le maintient au lieu d'un commentaire qui vieillit — la
       #     facture déjà payée en #35, où les workflows LIVRÉS avaient trois majeures de retard.
       #
-      # POUR ACTIVER : créez la variable de dépôt `BUNDLE_DIST` (Settings → Secrets and variables
-      # → Actions → Variables) avec le chemin du bundle committé, p. ex. `src/App/WebUI/dist`, et
-      # renseignez `working-directory` ci-dessous. Rien d'autre. Pour désactiver : supprimez la
-      # variable — le code reste en place, sous test, et ne s'exécute plus.
+      # POUR ACTIVER — deux variables de dépôt (Settings → Secrets and variables → Actions →
+      # Variables), et rien à éditer dans ce fichier :
+      #
+      #     BUNDLE_SRC   le répertoire qui porte package.json   ex. src/App/WebUI
+      #     BUNDLE_DIST  le bundle committé, sous BUNDLE_SRC    ex. src/App/WebUI/dist
+      #
+      # Deux, et pas une seule, parce que le chemin de sortie n'est pas déductible de l'entrée
+      # (`dist`, `build`, `wwwroot/dist`…). Mais deux réglages indépendants seraient pires qu'un :
+      # s'ils désignaient des arbres différents, npm reconstruirait l'un pendant que la garde
+      # examine l'autre, elle ne verrait aucune dérive, et l'étape passerait au VERT sur un bundle
+      # périmé — la fausse remédiation même que tout ceci existe pour empêcher, produite par la
+      # garde. La garde vérifie donc que `BUNDLE_DIST` est bien SOUS `BUNDLE_SRC` et refuse sinon.
+      #
+      # ⚠ La précondition 2 demande d'épingler la plateforme ENTIÈRE, pas seulement Node : ce
+      # modèle tourne sur `runs-on: ubuntu-latest`, qui FLOTTE. Le jour où GitHub bascule l'image,
+      # le binaire natif change, le bundle reconstruit diffère, et la garde rougit sur un bundle
+      # correct. Si vous activez ceci, épinglez aussi `runs-on:` sur une image datée
+      # (`ubuntu-24.04`) et régénérez le bundle committé depuis cette image-là.
+      #
+      # ⚠ Renovate proposera des bumps de `node-version` — c'est le but, la ligne est managée.
+      # Mais un changement de majeure de Node change l'ABI des modules natifs, donc la sortie du
+      # bundler : la PR de bump SEULE fera rougir la garde, avec un message qui accuse un bundle
+      # périmé alors que c'est la chaîne d'outils qui a bougé. Reconstruisez et committez le
+      # bundle DANS la même PR que le bump.
+      #
+      # Pour désactiver : supprimez les variables — le code reste en place, sous test, inerte.
       - name: Setup Node (bundle front committé)
         if: ${{ vars.BUNDLE_DIST != '' }}
         uses: actions/setup-node@v5
         with:
-          # Version EXACTE, jamais `26.x` : la précondition 2 ci-dessus tombe si Node flotte.
+          # Version EXACTE, jamais `26.x` ni `26.5.x` : la précondition 2 tombe si Node flotte,
+          # et `tests/ci-template/test.sh` refuse toute forme non `N.N.N`.
           # Renovate maintient cette ligne — elle est extraite comme dépendance `node`.
           node-version: 26.5.0
 
       - name: Reconstruire le bundle front committé
         if: ${{ vars.BUNDLE_DIST != '' }}
-        working-directory: web              # ← le répertoire qui porte package.json
+        working-directory: ${{ vars.BUNDLE_SRC }}
         run: |
           npm ci
           npm run build
@@ -266,7 +292,23 @@ jobs:
         if: ${{ vars.BUNDLE_DIST != '' }}
         env:
           BUNDLE_DIST: ${{ vars.BUNDLE_DIST }}
+          BUNDLE_SRC: ${{ vars.BUNDLE_SRC }}
         run: |
+          # Les deux variables doivent désigner le MÊME arbre. Si `BUNDLE_SRC` pointe ailleurs,
+          # l'étape précédente a reconstruit un autre répertoire, celui-ci n'a pas bougé, et la
+          # garde certifierait « à jour » un bundle que rien n'a régénéré.
+          if [ -z "${BUNDLE_SRC:-}" ]; then
+            echo "::error::BUNDLE_SRC n'est pas renseignée alors que BUNDLE_DIST l'est."
+            echo "La reconstruction n'a donc pas eu lieu là où vit le bundle."
+            exit 1
+          fi
+          case "$BUNDLE_DIST/" in
+            "$BUNDLE_SRC"/*) : ;;
+            *) echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')."
+               echo "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :"
+               echo "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé."
+               exit 1 ;;
+          esac
           # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
           # inexistant>` sort en 0 avec une sortie VIDE : un chemin mal renseigné, ou un répertoire
           # renommé six mois plus tard, donnerait donc une étape verte à chaque run qui ne vérifie
