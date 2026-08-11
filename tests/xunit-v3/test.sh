@@ -1137,16 +1137,28 @@ def check(cfg):
             f"versioning must be nuget — the custom-manager default is semver-coerced, which mis-orders "
             f"NuGet's four-segment versions: {m}"
         )
-        matched = 0
+        assert m.get("matchStrings"), f"manager declares no matchStrings — it extracts nothing: {m}"
         for raw in m["matchStrings"]:
-            for hit in re.finditer(to_python(raw), source):
-                g = hit.groupdict()
-                dep = g.get("depName") or m.get("depNameTemplate")
-                assert dep, f"no depName captured or templated for {raw!r}"
-                assert "currentValue" in g, f"{dep}: {raw!r} captures no currentValue"
-                found[dep] = g["currentValue"]
-                matched += 1
-        assert matched, f"this manager matched nothing in the transform — it is dead: {m}"
+            hits = list(re.finditer(to_python(raw), source))
+            # Exactly one, asserted per MATCHSTRING rather than per manager (a manager may carry
+            # several, each pinning its own constant). Zero means the regex went blind — a renamed
+            # constant, the case this section was built for. More than one means Renovate extracts
+            # several dependencies where this guard reports a single pin: the extras are invisible
+            # here and would still be rewritten on a bump, and `found[dep] = …` would keep only
+            # whichever came last.
+            assert len(hits) == 1, (
+                f"this matchString matched {len(hits)} time(s) in the transform, expected exactly 1 "
+                f"— {raw!r}"
+            )
+            g = hits[0].groupdict()
+            # Renovate's precedence, not the intuitive one: depNameTemplate OVERRIDES a captured
+            # depName. Reading it the other way round meant that a manager carrying both would be
+            # checked under a name Renovate never uses — including by the major-hold check below,
+            # which could then pass for a package that has no hold at all.
+            dep = m.get("depNameTemplate") or g.get("depName")
+            assert dep, f"no depName captured or templated for {raw!r}"
+            assert "currentValue" in g, f"{dep}: {raw!r} captures no currentValue"
+            found[dep] = g["currentValue"]
 
     for dep, version in want.items():
         assert dep in found, (
@@ -1297,6 +1309,23 @@ def _unrelated_manager_with_a_glob(c):
 
 accepts("an unrelated custom manager elsewhere in the repo", _unrelated_manager)
 accepts("an unrelated custom manager written as a glob", _unrelated_manager_with_a_glob)
+
+
+def _template_shadows_capture(c):
+    # Both present. Renovate resolves the dep as the TEMPLATE, so the name actually watched is this
+    # sentinel — the captured xunit.v3 is not watched at all, and the guard must notice.
+    c["customManagers"][0]["depNameTemplate"] = "Sentinel.Not.The.Pin"
+
+
+def _matches_more_than_once(c):
+    # Matches every `= "…"` assignment in the module, not just the coverage pin.
+    c["customManagers"][1]["matchStrings"] = ['= "(?<currentValue>[^"]+)"']
+
+
+rejects("depNameTemplate shadowing a captured depName", _template_shadows_capture,
+        because="never matched xunit.v3")
+rejects("a matchString that matches more than once", _matches_more_than_once,
+        because="expected exactly 1")
 
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
