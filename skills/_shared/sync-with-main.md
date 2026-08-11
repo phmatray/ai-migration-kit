@@ -109,10 +109,27 @@ profile flags as CI-only).
 is nothing to commit, and a `commit` with an empty index fails — that failure would surface as git's
 own exit code and read like a real problem.
 
+Stage **only** the merge's own resolution — the conflicted paths, plus modifications to files git
+already tracks. Never `git add -A`:
+
 ```bash
-git -C "$WORKTREE" add -A
+# the paths you just resolved (-z/-0: a repo may have spaces in a path; -r: empty list = no-op)
+git -C "$WORKTREE" diff --name-only --diff-filter=U -z | xargs -0 -r git -C "$WORKTREE" add --
+git -C "$WORKTREE" add -u                      # tracked modifications; cannot add an untracked file
 "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- --no-edit
 ```
+
+⚠️ **`git add -A` here is a real defect, not a style preference (#68).** It stages every *untracked*
+file in the worktree, and the guards do not catch it — they assert which **branch** a write lands on,
+which is the only claim they make; *what* is in the commit is not their business. Two ways it bites:
+the build this very section prescribes leaves artifacts (`TestResults/`, coverage XML, scratch notes)
+that get swept into the merge commit; and **this file is a skill, shipped to consumer repos**, which
+never inherit this repo's `.gitignore` — so the `.claude/worktrees/` protection added in #61 does not
+travel with it, and `-A` can stage a whole agent worktree there as a single gitlink
+(`160000 <sha> 0 .claude/worktrees/<branch>`) pointing at a commit no clone can fetch.
+
+Order matters: once a conflict is resolved *and staged*, `--diff-filter=U` stops reporting it, so the
+first command has to run before anything else clears the unmerged entries.
 
 Then, on **both** paths, build before pushing:
 
