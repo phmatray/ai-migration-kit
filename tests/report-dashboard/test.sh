@@ -163,4 +163,73 @@ case "$err" in
 esac
 rm -rf "$dir_case"
 
+# ---------------------------------------------------------------------------
+# Le snippet DOCUMENTÉ, exécuté contre la disposition DOCUMENTÉE (issue #49).
+#
+# `report-template.md` impose `migration/report.json`, et `report-dashboard.py` résout un chemin
+# cobertura relatif contre le répertoire du report.json (`base = Path(args.report_json).parent`).
+# Les deux règles sont bonnes ; leur combinaison rend le `"coverage"` évident FAUX — il désigne
+# `migration/coverage`, alors que `templates/ci-dotnet.yml` écrit dans le `coverage/` de la racine.
+# Recopié tel quel — ce à quoi sert une référence — il meurt sur « rapport de couverture
+# introuvable », à la fin d'un long pipeline, sur l'artefact censé prouver le travail.
+#
+# La valeur n'est donc PAS écrite en dur ici : elle est EXTRAITE du fichier de référence. Une
+# référence qu'on se contente de lire dérive — c'est exactement comme ça qu'on en est arrivé là.
+# ---------------------------------------------------------------------------
+doc_case="$(mktemp -d)"
+mkdir -p "$doc_case/migration" "$doc_case/coverage"
+cp tests/report-dashboard/fixture-cobertura.xml   "$doc_case/coverage/projet-un.cobertura.xml"
+cp tests/report-dashboard/fixture-cobertura-b.xml "$doc_case/coverage/projet-deux.cobertura.xml"
+
+python3 - "$doc_case" <<'PY'
+import json, pathlib, re, sys
+
+# Le bloc ```json de report-template.md qui porte "cobertura". C'est un FRAGMENT d'objet, donc on
+# l'enveloppe avant de le parser — si le fragment cesse d'être du JSON valide, ça casse ici, ce qui
+# est le bon endroit.
+doc = pathlib.Path("skills/legacy-upgrade/references/report-template.md").read_text(encoding="utf-8")
+blocks = [b for b in re.findall(r"```json\n(.*?)```", doc, re.S) if '"cobertura"' in b]
+# EXACTEMENT un. Zéro = la référence ne documente plus rien ; deux = ce test en épinglerait un au
+# hasard et laisserait l'autre dériver — or `docs/backlog.md` programme une traduction anglaise de
+# ce fichier, dont une issue plausible est justement deux snippets côte à côte.
+assert len(blocks) == 1, (
+    f"report-template.md documente {len(blocks)} snippets coverage.cobertura ; "
+    "ce test ne peut en épingler qu'un — adapter l'extraction avant d'en ajouter un second")
+documented = json.loads("{" + blocks[0].strip().rstrip(",") + "}")["coverage"]
+
+# encoding= explicite comme au-dessus : la fixture porte « démonstration », « Vérifié », « Leçon ».
+# Sous un interpréteur dont locale.getpreferredencoding() n'est pas UTF-8, la lecture par défaut
+# lève UnicodeDecodeError et le test meurt sur son propre montage plutôt que sur ce qu'il mesure.
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = documented          # tel quel, sans retouche : c'est le sujet du test
+pathlib.Path(sys.argv[1], "migration", "report.json").write_text(json.dumps(r))
+PY
+
+if ! err=$(python3 scripts/report-dashboard.py "$doc_case/migration/report.json" \
+             -o "$doc_case/migration/report.html" 2>&1); then
+  echo "ÉCHEC : le snippet documenté ne résout pas depuis la disposition documentée."
+  echo "        migration/report.json + coverage/ à la racine, recopié depuis"
+  echo "        skills/legacy-upgrade/references/report-template.md :"
+  echo "        $err"
+  exit 1
+fi
+# Résolu ne suffit pas : il faut que la couverture soit réellement LUE. Un 0 % passerait un simple
+# test d'existence tout en republiant un rapport vide.
+#
+# Le taux exact n'est PAS figé ici : le snippet documenté porte son propre `exclude`
+# (`MonApp.Web`), qui n'est pas celui de la fixture, donc un nombre en dur coupleraient ce cas à une
+# liste d'exclusion qui n'a rien à voir avec ce qu'il teste — la résolution du chemin. Le contrat
+# est « la couverture a été lue », et c'est ce qui est asserté. Les autres blocs de ce fichier
+# vérifient déjà les chiffres eux-mêmes.
+#
+# `sed`, jamais `grep -o … | head -1` : sous le `set -o pipefail` de la ligne 4, la sortie anticipée
+# de head tuerait grep par SIGPIPE et le statut du tube ferait échouer l'assignation (#48).
+pct=$(sed -n 's/.*Global : \([0-9]*\) % lignes.*/\1/p' "$doc_case/migration/report.html" | sed -n '1p')
+if [ -z "$pct" ] || [ "$pct" -le 0 ]; then
+  echo "ÉCHEC : le chemin documenté se résout mais la couverture lue vaut « ${pct:-<absente>} » %."
+  echo "        Un rapport vide passerait un simple test d'existence du répertoire."
+  exit 1
+fi
+rm -rf "$doc_case"
+
 echo "OK test golden report-dashboard ($out)"

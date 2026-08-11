@@ -84,9 +84,9 @@ mk_files() {
 # ---------------------------------------------------------------------------
 A="$scratch/discriminate"
 mk_app "$A"
-mk_files "$A/wwwroot/lib/bootstrap/dist" 4        # vendored, no manifest        -> reported (4)
-mk_files "$A/wwwroot/lib/jquery" 2                # declared in package.json     -> not reported
-mk_files "$A/wwwroot/lib/prism" 3                 # declared in libman.json      -> not reported
+mk_files "$A/wwwroot/lib/bootstrap/dist" 4        # vendored, no manifest    -> covered=false
+mk_files "$A/wwwroot/lib/jquery" 2                # declared in package.json -> covered=true
+mk_files "$A/wwwroot/lib/prism" 3                 # declared in libman.json  -> covered=true
 cat > "$A/package.json" <<'JSON'
 { "name": "app", "dependencies": { "jquery": "3.7.1" } }
 JSON
@@ -109,12 +109,20 @@ assert "wwwroot/lib/bootstrap" in paths, \
     f"the uncovered vendored copy was not reported: {sorted(paths)}"
 assert paths["wwwroot/lib/bootstrap"]["files"] == 4, paths["wwwroot/lib/bootstrap"]
 assert paths["wwwroot/lib/bootstrap"]["coveredByManifest"] is False, paths["wwwroot/lib/bootstrap"]
-# The whole point of the check: a declared library is NOT a finding.
-assert "wwwroot/lib/jquery" not in paths, "a package.json dependency was reported as vendored"
-assert "wwwroot/lib/prism" not in paths, "a libman.json library was reported as vendored"
-assert len(va) == 1, f"expected exactly one finding, got {va}"
+assert paths["wwwroot/lib/bootstrap"].get("coveredBy") is None, paths["wwwroot/lib/bootstrap"]
+# The key is a CENSUS: a declared library is still listed, with the manifest that declares it. That
+# is the de-vendoring evidence phase 1 needs — it shows the repo already has a working pattern to
+# copy, in a named file — and it is what makes `coveredByManifest` real data instead of a constant
+# that could only ever read false.
+for lib, manifest in (("jquery", "package.json"), ("prism", "libman.json")):
+    e = paths.get(f"wwwroot/lib/{lib}")
+    assert e is not None, f"the census dropped a covered library: {sorted(paths)}"
+    assert e["coveredByManifest"] is True, e
+    assert e["coveredBy"] == manifest, \
+        f"{lib} must name the manifest that covers it, got {e.get('coveredBy')!r}"
+assert len(va) == 3, f"the census must list all three vendored directories, got {va}"
 PY
-echo "  [1-3] reports the uncovered copy, and only it (package.json and libman.json both count)"
+echo "  [1-3] a census: the uncovered copy AND the covered ones, each naming its manifest"
 
 # ---------------------------------------------------------------------------
 # 4. Present and empty when there is nothing to report — "measured, none" must be
@@ -255,13 +263,16 @@ JSON
 out=$("$INV" "$F")
 python3 - "$out" <<'PY'
 import json, sys
-paths = sorted(e["path"] for e in json.loads(sys.argv[1])["vendoredAssets"])
-assert "appA/wwwroot/lib/jquery" in paths, \
-    f"(b) another app's package.json silenced a real finding: {paths}"
-assert "appB/wwwroot/lib/bootstrap" not in paths, \
-    f"(a) a library declared by a deep libman destination was reported anyway: {paths}"
-assert "appB/wwwroot/lib/dist" in paths, \
-    f"(c) an unrelated directory was masked by a bare name harvested from a destination: {paths}"
+by = {e["path"]: e for e in json.loads(sys.argv[1])["vendoredAssets"]}
+# Every directory is listed now; what discriminates is `coveredByManifest`.
+assert by["appA/wwwroot/lib/jquery"]["coveredByManifest"] is False, \
+    f"(b) another app's package.json silenced a real finding: {by['appA/wwwroot/lib/jquery']}"
+assert by["appB/wwwroot/lib/bootstrap"]["coveredByManifest"] is True, \
+    f"(a) a library declared by a deep libman destination reads as unwatched: {by['appB/wwwroot/lib/bootstrap']}"
+assert by["appB/wwwroot/lib/bootstrap"]["coveredBy"] == "appB/libman.json", \
+    by["appB/wwwroot/lib/bootstrap"]
+assert by["appB/wwwroot/lib/dist"]["coveredByManifest"] is False, \
+    f"(c) an unrelated directory was masked by a bare name from a destination: {by['appB/wwwroot/lib/dist']}"
 PY
 echo "  [5d] coverage is per-path and per-scope (deep libman dest, multi-app, no bare-name leak)"
 
@@ -314,15 +325,58 @@ out=$("$INV" "$H")
 python3 - "$out" <<'PY'
 import json, sys
 va = json.loads(sys.argv[1])["vendoredAssets"]
-paths = sorted(e["path"] for e in va)
-assert "wwwroot/lib/htmx.min.js" in paths, f"a loose vendored file was missed: {paths}"
-assert "wwwroot/lib/jquery-3.4.1.min.js" not in paths, \
-    f"a loose file covered by a declared name was reported: {paths}"
-assert "wwwroot/lib/jqueryui.js" in paths, \
-    f"the name-boundary rule leaked: 'jquery' must not cover 'jqueryui.js': {paths}"
+by = {e["path"]: e for e in va}
+assert by["wwwroot/lib/htmx.min.js"]["coveredByManifest"] is False, \
+    f"an undeclared loose file reads as covered: {by['wwwroot/lib/htmx.min.js']}"
+assert by["wwwroot/lib/jquery-3.4.1.min.js"]["coveredByManifest"] is True, \
+    f"a loose file covered by a declared name reads as unwatched: {by['wwwroot/lib/jquery-3.4.1.min.js']}"
+assert by["wwwroot/lib/jqueryui.js"]["coveredByManifest"] is False, \
+    f"the name-boundary rule leaked: 'jquery' must not cover 'jqueryui.js': {by['wwwroot/lib/jqueryui.js']}"
 assert all(e["files"] == 1 for e in va if e["path"].endswith(".js")), va
 PY
 echo "  [5f] loose files count, and a declared name covers only on a name boundary"
+
+# ---------------------------------------------------------------------------
+# 5g. When several manifests cover the same directory, ONE of them is named, and it is the same
+#     one on every run.
+#
+#     Without a rule, `coveredBy` depends on os.walk order — so the JSON churns between runs on a
+#     repo nobody touched, and a consumer diffing two assessments sees a change that is not one.
+#     The rule: the NEAREST manifest wins (the one whose directory is deepest, i.e. most specific
+#     to the library); libman breaks a tie, because it is the manifest that actually governs
+#     `wwwroot/lib` while package.json merely happens to name the same package.
+# ---------------------------------------------------------------------------
+J="$scratch/multi-manifest"
+mk_app "$J/app"
+mk_files "$J/app/wwwroot/lib/bootstrap" 2
+cat > "$J/package.json" <<'JSON'
+{ "name": "root", "dependencies": { "bootstrap": "5.3.3" } }
+JSON
+cat > "$J/app/package.json" <<'JSON'
+{ "name": "app", "dependencies": { "bootstrap": "5.3.3" } }
+JSON
+cat > "$J/app/libman.json" <<'JSON'
+{ "version": "1.0", "defaultProvider": "cdnjs",
+  "libraries": [ { "library": "twitter-bootstrap@5.3.3",
+                   "destination": "wwwroot/lib/bootstrap" } ] }
+JSON
+first=$("$INV" "$J")
+second=$("$INV" "$J")
+python3 - "$first" "$second" <<'PY'
+import json, sys
+a = {e["path"]: e for e in json.loads(sys.argv[1])["vendoredAssets"]}
+b = {e["path"]: e for e in json.loads(sys.argv[2])["vendoredAssets"]}
+e = a["app/wwwroot/lib/bootstrap"]
+assert e["coveredByManifest"] is True, e
+assert e["coveredBy"] == b["app/wwwroot/lib/bootstrap"]["coveredBy"], \
+    ("coveredBy changed between two runs of the same tree — the JSON would churn and a consumer "
+     f"diffing assessments would see a phantom change: {e['coveredBy']!r} vs "
+     f"{b['app/wwwroot/lib/bootstrap']['coveredBy']!r}")
+# Nearest wins: app/ beats the repo root. Libman breaks the tie at the same depth.
+assert e["coveredBy"] == "app/libman.json", \
+    f"expected the nearest manifest (app/libman.json), got {e['coveredBy']!r}"
+PY
+echo "  [5g] several covering manifests -> the nearest one, named, and stable across runs"
 
 # ---------------------------------------------------------------------------
 # 7. ONE traversal rule — a nested checkout must not inflate ANY key.
