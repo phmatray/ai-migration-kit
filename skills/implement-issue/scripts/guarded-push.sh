@@ -165,23 +165,54 @@ fi
 # swallowed — after a push that already succeeded. The caller would read 128 as "the push failed,
 # nothing else was done", the exact inversion of what happened, and the ALERT below would be
 # unreachable. Verification failing is not the same as verification passing: it is exit 4.
+#
+# The two streams are captured SEPARATELY. Folding them with `2>&1` put whatever git or ssh
+# happened to write first onto line 1 of the very variable the sha is parsed out of (#47): the
+# `Warning: Permanently added 'github.com' … to the list of known hosts.` of a first SSH
+# connection from a fresh machine, container or CI runner, or the `warning: redirecting to
+# https://…` of a redirecting HTTPS remote. The guard then compared the word `Warning:` against
+# HEAD, found them unequal, and exited 4 — its "the work is not where the exit code implied"
+# verdict — on a push that had fully succeeded. That inversion is worse than no guard, because
+# this script exists to be the thing the caller believes.
+#
+# The stderr is still wanted; it is only kept out of the parse. The ALERT below quotes it when
+# the listing FAILS, which is what the `2>&1` was there for in the first place.
+remote_err_file=""
+if remote_err_file=$(mktemp 2>/dev/null); then
+  # Registered before anything can write to it, and `rm -f` so a vanished file is not an error
+  # under `set -e`. This is the script's only EXIT trap — a second one would silently replace it.
+  trap 'rm -f "$remote_err_file"' EXIT
+else
+  # Not worth failing a verified push over: with no file the stderr is merely unquotable, and
+  # every verdict below is still reached on exactly the same evidence.
+  remote_err_file=/dev/null
+fi
+
 set +e
-remote_out=$(git -C "$REPO" ls-remote "$REMOTE" "refs/heads/$EXPECTED" 2>&1)
+remote_out=$(git -C "$REPO" ls-remote "$REMOTE" "refs/heads/$EXPECTED" 2>"$remote_err_file")
 ls_rc=$?
 set -e
 
 if [ "$ls_rc" -ne 0 ]; then
+  remote_err=$(cat "$remote_err_file" 2>/dev/null || true)
   {
     echo "guarded-push: ALERT — git push exited 0, but '$REMOTE' could not be listed, so the"
     echo "              push is UNVERIFIED (git ls-remote exited $ls_rc):"
-    printf '%s\n' "$remote_out" | sed 's/^/                  /'
+    printf '%s\n' "${remote_err:-<git ls-remote printed nothing on stderr>}" | sed 's/^/                  /'
     echo "              Treat the work as unpushed. If the push targeted a different remote,"
     echo "              re-run with --remote <name> so the guard checks the one you wrote to."
   } >&2
   exit 4
 fi
 
-remote_sha=$(printf '%s\n' "$remote_out" | awk 'NR==1 {print $1}')
+# Anchored on the SHAPE of an object id, not on position. `NR==1 {print $1}` trusted the first
+# line to be git's answer, and #47 is precisely the case where it is not. `ls-remote` writes
+# `<oid><TAB><ref>`; a warning line never has a bare full-length hex first field, so matching the
+# shape and taking the first hit skips any preamble that still reaches this variable. The length
+# test admits sha-256 repositories (64) alongside sha-1 (40) — a literal `{40}` would have turned
+# every push from a sha-256 repository into an exit 4.
+remote_sha=$(printf '%s\n' "$remote_out" \
+  | awk '$1 ~ /^[0-9a-f]+$/ && (length($1) == 40 || length($1) == 64) { print $1; exit }')
 
 if [ -z "$remote_sha" ]; then
   {
