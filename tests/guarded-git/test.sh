@@ -131,6 +131,14 @@ run incident "$COMMIT" -C "$R" a -- -am "feat: the task's own work"
 [ "$(tip "$R" b)" = "$before_b" ] || fail incident "branch b gained the commit — this IS the bug"
 grep -q "'b'" "$OUT" && grep -q "'a'" "$OUT" \
   || fail incident "the refusal must name both the branch found and the branch expected"
+# The prefix is a published constant: the troubleshooting table in
+# references/github-mechanics.md tells operators to grep for exactly this. Since the refactor it
+# is an ARGUMENT passed to a shared refuse() rather than a literal in this script, so it is now
+# something that can be got wrong — and until this line, nothing in the suite looked at it.
+grep -q '^guarded-commit: REFUSED — ' "$OUT" \
+  || fail incident "the refusal must carry the published 'guarded-commit: REFUSED — ' prefix"
+grep -q '{found}' "$OUT" \
+  && fail incident "the message template leaked a literal {found} instead of the branch name"
 echo "  ok: incident — HEAD switched to b behind the task; refused (2), neither branch moved"
 
 # ---------------------------------------------------------------- 2. detached HEAD
@@ -349,7 +357,16 @@ run push-wrong "$PUSH" -C "$R" a
 [ "$RC" -eq 2 ] || fail push-wrong "expected exit 2, got $RC"
 [ "$(remote_tip push-wrong-branch a)" = "$before_remote" ] || fail push-wrong "the remote moved on a refused push"
 [ -z "$(remote_tip push-wrong-branch b)" ] || fail push-wrong "branch b reached the remote — this IS the bug"
-echo "  ok: push-wrong-branch — refused (2), nothing left the machine"
+# The commit side has asserted its message since the incident case; the push side asserted only
+# the exit code, so a typo'd `{found}` token would have shipped a refusal that prints the literal
+# token where the operator expects the branch name — the one fact they act on.
+grep -q '^guarded-push: REFUSED — ' "$OUT" \
+  || fail push-wrong "the refusal must carry the published 'guarded-push: REFUSED — ' prefix"
+grep -q "'b'" "$OUT" && grep -q "'a'" "$OUT" \
+  || fail push-wrong "the refusal must name both the branch found and the branch expected"
+grep -q '{found}' "$OUT" \
+  && fail push-wrong "the message template leaked a literal {found} instead of the branch name"
+echo "  ok: push-wrong-branch — refused (2), nothing left the machine, message names both branches"
 
 # ---------------------------------------------------------------- 10. push exits 0, remote did not move
 #
@@ -845,5 +862,167 @@ set -e
 [ "$RC" -eq 0 ] || fail merge-foreign "refused when run from another directory (exit $RC)"
 [ "$(tip "$R" a)" != "$before_a" ] || fail merge-foreign "branch a did not advance"
 echo "  ok: merge foreign cwd — the guard follows -C, not the ambient directory"
+
+# ================================================================== the shared helper
+#
+# ---------------------------------------------------------------- 30. the helper is missing
+#
+# The branch assertion has one home, `_assert-branch.sh`, sourced by both guards (#44). That buys a
+# single reviewed definition of the invariant and costs a new failure mode: the kit is installed as
+# a plugin and its guards are invoked by absolute path, so a partial install — or a guard copied out
+# of the kit on its own, which these single-file scripts invite — leaves a guard whose assertion
+# cannot load.
+#
+# A guard that cannot start is a guard that is not guarding, so it must fail CLOSED: refuse (2) and
+# name the file it wanted. Letting bash's own "No such file or directory" from the `.` line stand
+# would exit 1 — the documented "git's own failure" bucket, which a caller is entitled to read as
+# transient and retry.
+
+HELPER="$KIT/skills/implement-issue/scripts/_assert-branch.sh"
+[ -r "$HELPER" ] || { echo "FAIL: $HELPER missing or unreadable"; exit 1; }
+
+R=$(new_repo_with_origin helper-missing)
+git -C "$R" checkout -q a
+before_a=$(tip "$R" a); before_b=$(tip "$R" b)
+before_remote=$(remote_tip helper-missing a)
+echo "task work" >> "$R/seed.txt"
+
+# A lone guard: copied out with no `_assert-branch.sh` beside it.
+LONE=$(mktemp -d "$WORK/lone-guard.XXXX")
+cp "$COMMIT" "$PUSH" "$LONE/"
+
+run helper-missing-commit bash "$LONE/guarded-commit.sh" -C "$R" a -- -am "must never land"
+
+[ "$RC" -eq 2 ] || fail helper-missing-commit "a guard without its helper must refuse (2), got $RC"
+grep -q '_assert-branch.sh' "$OUT" \
+  || fail helper-missing-commit "the refusal must name the file it could not load"
+[ "$(tip "$R" a)" = "$before_a" ] \
+  || fail helper-missing-commit "branch a advanced — the commit ran with no assertion behind it"
+[ "$(tip "$R" b)" = "$before_b" ] || fail helper-missing-commit "branch b moved"
+
+run helper-missing-push bash "$LONE/guarded-push.sh" -C "$R" a
+
+[ "$RC" -eq 2 ] || fail helper-missing-push "a guard without its helper must refuse (2), got $RC"
+grep -q '_assert-branch.sh' "$OUT" \
+  || fail helper-missing-push "the refusal must name the file it could not load"
+# The suite's contract is "nothing left the machine", not merely "the exit code was 2". Every
+# other push case proves that against the bare repo, and a bootstrap that ever degraded to
+# refusing AFTER `git push` ran would still satisfy the exit code alone.
+[ "$(remote_tip helper-missing a)" = "$before_remote" ] \
+  || fail helper-missing-push "the remote moved even though the guard refused"
+
+# --help too. "Never proceeds" has no exception: the helper is loaded before the option loop is
+# parsed at all (that loop's own errors are reported through the helper's refuse()), so there is no
+# state in which a lone guard does something useful. A --help that worked would advertise a guard
+# that cannot guard.
+for g in guarded-commit guarded-push; do
+  run "helper-missing-help-$g" bash "$LONE/$g.sh" --help
+  [ "$RC" -eq 2 ] || fail "helper-missing-help-$g" "--help on a lone guard must refuse (2), got $RC"
+  grep -q '_assert-branch.sh' "$OUT" \
+    || fail "helper-missing-help-$g" "the refusal must name the file it could not load"
+done
+echo "  ok: helper-missing — a guard that cannot load its assertion refuses (2) and names the file"
+
+# ---------------------------------------------------------------- 30b. the helper is TRUNCATED
+#
+# The nastier half, and the one a readability check misses: an empty or truncated helper — a
+# partial install, an interrupted write, a checkout in flight — is perfectly readable and sources
+# without error. It just defines nothing. Testing `-r` would pass it, and the first call would
+# then die with bash's `command not found`, exit 127: a code in NO exit-code table, which lands in
+# the documented "git's own exit code" bucket and reads as a transient git failure worth retrying.
+# So the guard must test that the assertion is CALLABLE, not that the file is present.
+
+for payload in '' '# a comment and nothing else' 'assert_branch_typo() { :; }'; do
+  TRUNC=$(mktemp -d "$WORK/trunc-guard.XXXX")
+  cp "$COMMIT" "$PUSH" "$TRUNC/"
+  printf '%s' "$payload" > "$TRUNC/_assert-branch.sh"
+
+  before_a=$(tip "$R" a)
+  run trunc-commit bash "$TRUNC/guarded-commit.sh" -C "$R" a -- -am "must never land"
+  [ "$RC" -eq 2 ] \
+    || fail trunc-commit "a helper that defines nothing must refuse (2), got $RC (127 = the hole)"
+  grep -q '_assert-branch.sh' "$OUT" || fail trunc-commit "the refusal must name the helper"
+  [ "$(tip "$R" a)" = "$before_a" ] || fail trunc-commit "branch a advanced with no assertion loaded"
+
+  run trunc-push bash "$TRUNC/guarded-push.sh" -C "$R" a
+  [ "$RC" -eq 2 ] \
+    || fail trunc-push "a helper that defines nothing must refuse (2), got $RC (127 = the hole)"
+  [ "$(remote_tip helper-missing a)" = "$before_remote" ] \
+    || fail trunc-push "the remote moved even though the guard refused"
+done
+echo "  ok: helper-truncated — a readable helper that defines nothing still refuses (2), never 127"
+
+# ---------------------------------------------------------------- 30c. reached through a symlink
+#
+# Before the helper existed the guards were self-contained, so installing one as a symlink on
+# $PATH worked. `dirname "$0"` yields the LINK's directory and `pwd -P` canonicalizes only that
+# directory — never the script link itself — so resolving the helper beside `$0` alone would have
+# broken every symlink install. The guards resolve $0 through its symlinks first; this proves it.
+
+R=$(new_repo symlinked)
+git -C "$R" checkout -q a
+before_a=$(tip "$R" a)
+echo "task work" >> "$R/seed.txt"
+LINKDIR=$(mktemp -d "$WORK/symlink-bin.XXXX")
+ln -s "$COMMIT" "$LINKDIR/guarded-commit.sh"
+ln -s "$PUSH" "$LINKDIR/gp"          # also renamed, to prove the resolution is not name-based
+
+run symlink-commit bash "$LINKDIR/guarded-commit.sh" -C "$R" a -- -am "feat: committed via a symlink"
+
+[ "$RC" -eq 0 ] || fail symlink-commit "a guard reached through a symlink could not find its helper (exit $RC)"
+[ "$(tip "$R" a)" != "$before_a" ] || fail symlink-commit "branch a did not advance"
+
+run symlink-help bash "$LINKDIR/gp" --help
+[ "$RC" -eq 0 ] || fail symlink-help "a renamed symlink to guarded-push.sh failed to load (exit $RC)"
+grep -q 'Exit codes:' "$OUT" || fail symlink-help "--help through a symlink lost the exit-code table"
+echo "  ok: symlinked guard — \$0 is resolved through its links, so the helper is found beside the real file"
+
+# ---------------------------------------------------------------- 30d. the helper is not a command
+#
+# `_assert-branch.sh` is sourced, never executed. Its leading underscore says so and its file mode
+# should too — but prose is not a check, and the suite already machine-checks the inverse property
+# (`-x`) for the two guards. A packaging step that blanket-chmods `skills/**/scripts/*.sh`, plus a
+# regression in the ${BASH_SOURCE[0]} test, would leave a file that looks like a command and
+# asserts nothing — which its own comment calls the most misleading thing a guard-shaped file can be.
+
+[ ! -x "$HELPER" ] || fail helper-mode "_assert-branch.sh is executable — it is sourced, not run"
+
+run helper-run-directly bash "$HELPER"
+[ "$RC" -eq 2 ] || fail helper-run-directly "running the helper directly must refuse (2), got $RC"
+grep -qi 'sourced' "$OUT" || fail helper-run-directly "the refusal must say the file is meant to be sourced"
+echo "  ok: helper-not-a-command — non-executable, and refuses (2) if run directly anyway"
+
+# ---------------------------------------------------------------- 31. an unborn branch
+#
+# Sharing one assertion must not quietly relax either caller's preconditions, and it nearly did.
+# The helper reads HEAD's sha tolerantly because a COMMIT legitimately has none: an unborn branch
+# is where a first commit starts. A PUSH has no such case — with no sha there is nothing to prove
+# reached the remote, which is this guard's whole promise — so guarded-push.sh must refuse BEFORE
+# the write rather than discover the missing witness afterwards.
+
+UNBORN="$WORK/unborn"
+git init -q "$UNBORN"
+git -C "$UNBORN" symbolic-ref HEAD refs/heads/a
+git -C "$UNBORN" config user.email test@example.com
+git -C "$UNBORN" config user.name "Guarded Git Test"
+git -C "$UNBORN" config commit.gpgsign false
+git -C "$UNBORN" config core.hooksPath "$UNBORN/.git/hooks"
+git init -q --bare "$WORK/unborn.git"
+git -C "$UNBORN" remote add origin "$WORK/unborn.git"
+
+run unborn-push "$PUSH" -C "$UNBORN" a
+[ "$RC" -eq 2 ] || fail unborn-push "pushing an unborn branch must refuse (2) before the write, got $RC"
+grep -qi 'unborn\|no commit' "$OUT" || fail unborn-push "the refusal must say why there is nothing to push"
+[ -z "$(git -C "$WORK/unborn.git" rev-parse --quiet --verify refs/heads/a || true)" ] \
+  || fail unborn-push "something reached the remote from an unborn branch"
+
+# The commit side must still work: this is the legitimate first commit.
+echo first > "$UNBORN/f.txt"
+git -C "$UNBORN" add f.txt
+run unborn-commit "$COMMIT" -C "$UNBORN" a -- -m "feat: the very first commit"
+[ "$RC" -eq 0 ] || fail unborn-commit "the first commit on an unborn branch was refused (exit $RC)"
+[ -n "$(git -C "$UNBORN" rev-parse --quiet --verify refs/heads/a || true)" ] \
+  || fail unborn-commit "branch a was not created by the first commit"
+echo "  ok: unborn branch — push refuses (2) with no witness; the first commit still lands"
 
 echo "guarded-git golden test OK"
