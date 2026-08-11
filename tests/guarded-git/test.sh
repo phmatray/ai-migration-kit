@@ -25,8 +25,11 @@ MERGE="$KIT/skills/implement-issue/scripts/guarded-merge.sh"
 [ -x "$PUSH" ]   || { echo "FAIL: $PUSH missing or not executable"; exit 1; }
 [ -x "$MERGE" ]  || { echo "FAIL: $MERGE missing or not executable"; exit 1; }
 
-WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+# Scratch dir and EXIT trap come from the shared preamble (#72) — four suites each had
+# their own, and they had diverged.
+. "$PWD/tests/_lib.sh"
+kit_init "$PWD"
+WORK=$(kit_scratch)
 
 # A scratch repo with two branches, `a` and `b`, each carrying one commit; HEAD on `b`.
 # Local config only: the ambient user config may sign commits or set a commit template,

@@ -109,58 +109,24 @@ template_step_checked() {
 # "Is there at least one match?" — one home for the idiom, for the reason #42 gave about the module
 # loader: the wrong shape is what gets copied, and two call sites had already copied it (#48).
 #
-# `-print -quit` rather than `… | grep -q .`: grep exits at its first match, find then writes into a
-# closed pipe, takes SIGPIPE and returns 141 — and `set -o pipefail` promotes that to the pipeline's
-# status. The pipeline therefore reports FAILURE precisely when something IS found, and both callers
-# below are `if`s whose else-branch means "found nothing". Each one could skip the very check it
-# exists to perform, in the quiet direction. Section 10 drives that difference to red.
+# The scratch dirs, the EXIT trap, the samples/ immutability check and any_match all live in
+# tests/_lib.sh since #72 — four suites each carried their own copy, and they had already diverged.
+# The invariant that matters (`local rc=$?` FIRST, or a failing suite reports success) is asserted
+# once, in tests/lib/test.sh, instead of being restated in four comments.
 #
-# `|| true` keeps the callers' tolerance of a path that legitimately does not exist: find exits
-# non-zero there, and a bare assignment under `set -e` would abort the script — in cleanup()'s case
-# on every exit path, including the successful one.
-any_match() {
-  local hit
-  hit=$(find "$@" -print -quit 2>/dev/null || true)
-  [ -n "$hit" ]
-}
-
-# `-print -quit` is what makes any_match safe, so prove the host's find HAS it — once, here, loudly.
-# Without this the tolerance above cuts both ways: on a find that does not support -quit (busybox,
-# some minimal containers) every call would answer "nothing found" with the error discarded, and
-# cleanup()'s __pycache__ guard leans on any_match from the very first exit path — including the
-# exit of an unrelated early failure, long before section 10 could report the problem. A silent
-# "clean" from that guard is exactly what lets a stray .pyc reach the tree.
-if ! find "$KIT" -maxdepth 0 -print -quit >/dev/null 2>&1; then
-  echo "FAIL: this host's find does not support '-print -quit', which every probe in this suite uses."
-  echo "      Every any_match() call would answer 'nothing found' regardless of what is there."
-  exit 1
-fi
-
-# The fixture is the "before" state and must survive this script untouched, on every exit path
-# (including a failure mid-run) — otherwise a red test would also silently rewrite the fixture.
-#
-# `rc=$?` must be the FIRST thing this function does: anything before it (a cleanup `rm`, an
-# `echo`) overwrites the exit status being reported, which would turn every failure below into
-# a silent green — the exact class of bug this whole test exists to catch.
-cleanup() {
-  local rc=$?
-  [ -n "${scratch:-}" ] && rm -rf "$scratch"
-  local dirty
-  dirty=$(git -C "$KIT" status --porcelain -- samples/ 2>/dev/null || true)
-  if [ -n "$dirty" ]; then
-    echo "FAIL: the committed fixture was mutated — it must stay xunit 2.4.2 / net6.0:"
-    echo "$dirty"
-    exit 1
-  fi
-  # Nor may the run leave build droppings in the kit: a __pycache__ next to a kit script is how
-  # a stray .pyc got committed once.
+# This suite registers the one guard only it needs: a __pycache__ left beside a kit script. It
+# leans on any_match, which is why kit_init proves the host's find supports `-print -quit`.
+no_pycache() {
   if any_match "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d; then
     echo "FAIL: the test left a __pycache__ inside the kit — it must not modify the repo it tests."
-    exit 1
+    return 1
   fi
-  exit "$rc"
 }
-trap cleanup EXIT
+
+. "$KIT/tests/_lib.sh"
+kit_init "$KIT"
+kit_guard kit_guard_samples_unchanged
+kit_guard no_pycache
 
 # ---------------------------------------------------------------------------
 # 0. No knob in the transform reads the environment.
@@ -221,8 +187,9 @@ echo "  [1] inventory reports the fixture's test stack (xunit 2.4.2, net6.0)"
 # ---------------------------------------------------------------------------
 BASELINE_TESTS=6
 
-# A scratch copy, never the fixture itself. The EXIT trap removes it and checks `git status`.
-scratch=$(mktemp -d)
+# A scratch copy, never the fixture itself. kit_scratch's directory is removed at exit, and the
+# registered guards then assert the fixture came through untouched.
+scratch=$(kit_scratch)
 cp -R "$FIXTURE" "$scratch/v3"
 
 # The fixture has no ITestOutputHelper, so the namespace half of the transform would go

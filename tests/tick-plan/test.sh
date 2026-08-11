@@ -13,8 +13,11 @@ cd "$(dirname "$0")/../.."
 TICK="./skills/implement-issue/scripts/tick-plan.sh"
 [ -x "$TICK" ] || { echo "FAIL: $TICK missing or not executable"; exit 1; }
 
-WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+# Scratch dir and EXIT trap come from the shared preamble (#72) — four suites each had
+# their own, and they had diverged.
+. "$PWD/tests/_lib.sh"
+kit_init "$PWD"
+WORK=$(kit_scratch)
 
 # A `gh` stub on PATH: records every invocation, so the test can prove that a refused write
 # never reached the network. It also stores the PATCHed body and serves it back on a GET, so

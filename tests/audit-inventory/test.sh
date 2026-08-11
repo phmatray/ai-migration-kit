@@ -47,30 +47,17 @@ cd "$(dirname "$0")/../.."
 KIT="$PWD"
 INV="$KIT/scripts/audit-inventory.sh"
 
-scratch=""
-# `rc=$?` must be the FIRST statement: anything before it overwrites the status being reported,
-# which would turn a failure below into a silent green.
-cleanup() {
-  local rc=$?
-  [ -n "$scratch" ] && rm -rf "$scratch"
-  local dirty
-  dirty=$(git -C "$KIT" status --porcelain -- samples/ 2>/dev/null || true)
-  if [ -n "$dirty" ]; then
-    echo "FAIL: the committed fixture was mutated — this test must not write to samples/:"
-    echo "$dirty"
-    exit 1
-  fi
-  # Deliberately NO __pycache__ assertion here, though sibling suites carry one. This file only
-  # ever runs `python3 - <<PY` (script on stdin) and audit-inventory.sh (likewise), and neither
-  # path can write bytecode — so the guard would be dead with respect to its own work. The only
-  # way it could fire is on a __pycache__ left by an EARLIER ci.yml step, and it would then blame
-  # this test for another's leftovers. tests/xunit-v3/test.sh §8 owns that kit-wide invariant,
-  # where the importlib loader it guards actually lives.
-  exit "$rc"
-}
-trap cleanup EXIT
+. "$KIT/tests/_lib.sh"
+kit_init "$KIT"
+kit_guard kit_guard_samples_unchanged
+# Deliberately NO __pycache__ guard here, though a sibling suite registers one. This file only ever
+# runs `python3 - <<PY` (script on stdin) and audit-inventory.sh (likewise), and neither path can
+# write bytecode — so the guard would be dead with respect to its own work. The only way it could
+# fire is on a __pycache__ left by an EARLIER ci.yml step, and it would then blame this suite for
+# another's leftovers. tests/xunit-v3/test.sh owns that kit-wide invariant, where the importlib
+# loader it guards actually lives.
 
-scratch=$(mktemp -d)
+scratch=$(kit_scratch)
 
 # A minimal .NET repo shape. audit-inventory walks the filesystem, so a csproj is all it needs to
 # recognise the tree; git is optional (the script already falls back to "unknown" for the dates).

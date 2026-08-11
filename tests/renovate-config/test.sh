@@ -30,14 +30,12 @@ KIT="$PWD"
 CI="$KIT/.github/workflows/ci.yml"
 FLOOR=40
 
-scratch=""
-cleanup() {
-  local rc=$?
-  [ -n "$scratch" ] && rm -rf "$scratch"
-  exit "$rc"
-}
-trap cleanup EXIT
-scratch=$(mktemp -d)
+. "$KIT/tests/_lib.sh"
+kit_init "$KIT"
+# This suite only reads ci.yml and renovate.json and shells out to npx, so it registers no extra
+# guard. Saying so beats leaving it unsaid: before #72 this was the one suite silently missing the
+# samples/ check, and "decided it does not apply" looked exactly like "forgot".
+scratch=$(kit_scratch)
 
 # ---------------------------------------------------------------------------
 # 3. ci.yml pins an exact version, at or above the measured floor.

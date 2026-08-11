@@ -24,8 +24,11 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHECK="$REPO/scripts/ci-wiring-check.py"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# Scratch dir and EXIT trap come from the shared preamble (#72) — four suites each had
+# their own, and they had diverged.
+. "$PWD/tests/_lib.sh"
+kit_init "$PWD"
+WORK=$(kit_scratch)
 
 fails=0
 ok()   { printf '  ok    %s\n' "$1"; }
