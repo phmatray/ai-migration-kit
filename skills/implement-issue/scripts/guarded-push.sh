@@ -177,28 +177,39 @@ fi
 #
 # The stderr is still wanted; it is only kept out of the parse. The ALERT below quotes it when
 # the listing FAILS, which is what the `2>&1` was there for in the first place.
-remote_err_file=""
+# Not worth failing a verified push over if mktemp fails — but the ALERT below must then say it
+# STOPPED LISTENING rather than report silence, because "git printed nothing" and "we discarded
+# what git printed" are different facts and only one of them is observable here.
+remote_err_sink=/dev/null
+remote_err_captured=0
 if remote_err_file=$(mktemp 2>/dev/null); then
   # Registered before anything can write to it, and `rm -f` so a vanished file is not an error
   # under `set -e`. This is the script's only EXIT trap — a second one would silently replace it.
   trap 'rm -f "$remote_err_file"' EXIT
-else
-  # Not worth failing a verified push over: with no file the stderr is merely unquotable, and
-  # every verdict below is still reached on exactly the same evidence.
-  remote_err_file=/dev/null
+  remote_err_sink="$remote_err_file"
+  remote_err_captured=1
 fi
 
 set +e
-remote_out=$(git -C "$REPO" ls-remote "$REMOTE" "refs/heads/$EXPECTED" 2>"$remote_err_file")
+remote_out=$(git -C "$REPO" ls-remote "$REMOTE" "refs/heads/$EXPECTED" 2>"$remote_err_sink")
 ls_rc=$?
 set -e
 
 if [ "$ls_rc" -ne 0 ]; then
-  remote_err=$(cat "$remote_err_file" 2>/dev/null || true)
+  # Three outcomes, three different sentences. Folding "could not read it back" or "never captured
+  # it" into the empty case would print `<git ls-remote printed nothing>` — a claim about git made
+  # by a tool that had stopped listening, on the one path whose whole job is to explain the failure.
+  if [ "$remote_err_captured" -eq 0 ]; then
+    remote_err="<stderr could not be captured: mktemp failed, so git's message is lost, not absent>"
+  elif remote_err=$(cat -- "$remote_err_file" 2>/dev/null); then
+    [ -n "$remote_err" ] || remote_err="<git ls-remote printed nothing on stderr>"
+  else
+    remote_err="<stderr was captured but could not be read back from $remote_err_file>"
+  fi
   {
     echo "guarded-push: ALERT — git push exited 0, but '$REMOTE' could not be listed, so the"
     echo "              push is UNVERIFIED (git ls-remote exited $ls_rc):"
-    printf '%s\n' "${remote_err:-<git ls-remote printed nothing on stderr>}" | sed 's/^/                  /'
+    printf '%s\n' "$remote_err" | sed 's/^/                  /'
     echo "              Treat the work as unpushed. If the push targeted a different remote,"
     echo "              re-run with --remote <name> so the guard checks the one you wrote to."
   } >&2
@@ -211,8 +222,14 @@ fi
 # shape and taking the first hit skips any preamble that still reaches this variable. The length
 # test admits sha-256 repositories (64) alongside sha-1 (40) — a literal `{40}` would have turned
 # every push from a sha-256 repository into an exit 4.
-remote_sha=$(printf '%s\n' "$remote_out" \
-  | awk '$1 ~ /^[0-9a-f]+$/ && (length($1) == 40 || length($1) == 64) { print $1; exit }')
+#
+# Fed by a here-string, NOT by `printf … | awk`: `exit` closes the pipe while the writer may still
+# hold data, and under `set -o pipefail` that SIGPIPE becomes the substitution's status — 141 —
+# out here, where the `set +e` window has already closed. A verified push would abort with the code
+# callers are told means "git push itself failed. Nothing else was done." The kit already names
+# this trap in tests/xunit-v3/test.sh; a here-string has no writer to kill.
+remote_sha=$(awk '$1 ~ /^[0-9a-f]+$/ && (length($1) == 40 || length($1) == 64) { print $1; exit }' \
+  <<<"$remote_out")
 
 if [ -z "$remote_sha" ]; then
   {

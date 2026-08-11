@@ -453,7 +453,7 @@ for a in "\$@"; do
   echo "Warning: Permanently added 'github.com' (ED25519) to the list of known hosts." >&2
   break
 done
-exec $REAL_GIT "\$@"
+exec "$REAL_GIT" "\$@"
 EOF
 chmod +x "$STUB/git"
 
@@ -468,6 +468,49 @@ run push-noisy-stderr env "PATH=$STUB:$PATH" bash "$PUSH" -C "$R" a
 grep -q "$(git -C "$R" rev-parse --short HEAD)" "$OUT" \
   || fail push-noisy-stderr "output must report the sha it verified"
 echo "  ok: push-noisy-stderr — a warning on stderr never becomes the sha the guard compares"
+
+# 12c. …and the same again, with the preamble on STDOUT.
+#
+# The fix for #47 has two independent halves — the streams are split, AND the sha is matched by
+# shape instead of by `NR==1` — and 12b alone pins neither: with the split in place no warning
+# reaches the parse, so the anchor is never exercised; with the anchor in place the warning is
+# skipped even when folded in, so the split is never exercised. Measured on a scratch copy:
+# reverting EITHER half left the whole suite green. That is how a later tidy-up deletes the temp
+# file and the trap, or restores `NR==1`, with CI applauding.
+#
+# Splitting the streams cannot help a line git writes on stdout, so this case can only pass if
+# the parse is anchored — which is what pins that half. (push-unlistable pins the other half, by
+# requiring git's own stderr to reach the ALERT.)
+
+R=$(new_repo_with_origin push-noisy-stdout)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work pushed while ls-remote prefixes stdout"
+head_sha=$(git -C "$R" rev-parse HEAD)
+
+STUB_OUT="$WORK/noisy-stdout-bin"
+MARKER_OUT="$WORK/noisy-stdout-ls-remote-was-called"
+mkdir -p "$STUB_OUT"
+cat > "$STUB_OUT/git" <<EOF
+#!/bin/sh
+for a in "\$@"; do
+  [ "\$a" = ls-remote ] || continue
+  echo called >> "$MARKER_OUT"
+  echo "note: this line is on stdout, ahead of git's answer"
+  break
+done
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$STUB_OUT/git"
+
+run push-noisy-stdout env "PATH=$STUB_OUT:$PATH" bash "$PUSH" -C "$R" a
+
+[ -s "$MARKER_OUT" ] \
+  || fail push-noisy-stdout "the stub git was never reached — this case is reproducing nothing"
+[ "$RC" -eq 0 ] \
+  || fail push-noisy-stdout "a preamble on stdout was parsed as the remote sha (exit $RC) — the parse is not anchored"
+[ "$(remote_tip push-noisy-stdout a)" = "$head_sha" ] \
+  || fail push-noisy-stdout "fixture broken: the push itself should have succeeded"
+echo "  ok: push-noisy-stdout — the sha is found by shape, not by being on line 1"
 
 # ---------------------------------------------------------------- 13. first push (-u passthrough)
 #
@@ -540,9 +583,44 @@ run push-unlistable "$PUSH" -C "$R" a --remote nosuchremote -- origin a
 [ -s "$OUT" ] || fail push-unlistable "died silently — the caller learns nothing"
 grep -qi 'unverified\|could not be listed' "$OUT" \
   || fail push-unlistable "the alert must say the push is UNVERIFIED, not that it failed"
+# …and it must carry git's OWN words. Keeping the stderr is the entire reason the read-back does
+# not simply discard it, and until this line nothing asserted the message survives: the guard
+# could have dropped the capture altogether and stayed green here on the boilerplate above.
+grep -q 'does not appear to be a git repository' "$OUT" \
+  || fail push-unlistable "git's own stderr must reach the ALERT — that is what the capture is for"
 [ "$(remote_tip push-unlistable a)" = "$head_sha" ] \
   || fail push-unlistable "fixture broken: the push itself should have succeeded"
 echo "  ok: push-unlistable — push succeeded, read-back failed; reported (4), not a silent 128"
+
+# 17b. …and when the guard cannot capture stderr at all, it must say SO — not report silence.
+#
+# Keeping git's stderr out of the sha parse (#47) means routing it to a temp file, and a temp file
+# is something that can fail to exist: an unwritable TMPDIR, a restrictive container — the same
+# fresh-runner environments the known-hosts warning comes from. The first version of this fix fell
+# back to /dev/null and then printed "<git ls-remote printed nothing on stderr>", which is a claim
+# about git made by a tool that had stopped listening. "It said nothing" and "we discarded what it
+# said" are different facts, and only the ALERT can tell an operator which one they are looking at.
+#
+# `mktemp` is stubbed to fail rather than TMPDIR being pointed at a missing directory: BSD mktemp
+# ignores that and succeeds anyway, so the environment trick silently tests nothing (measured).
+
+R=$(new_repo_with_origin push-no-tmpfile)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work that really is pushed"
+
+MK_STUB="$WORK/no-mktemp-bin"
+mkdir -p "$MK_STUB"
+printf '#!/bin/sh\nexit 1\n' > "$MK_STUB/mktemp"
+chmod +x "$MK_STUB/mktemp"
+
+run push-no-tmpfile env "PATH=$MK_STUB:$PATH" bash "$PUSH" -C "$R" a --remote nosuchremote -- origin a
+
+[ "$RC" -eq 4 ] || fail push-no-tmpfile "a failed capture must still be exit 4, got $RC"
+grep -qi 'could not be captured' "$OUT" \
+  || fail push-no-tmpfile "the ALERT must say the stderr was never captured"
+grep -qi 'printed nothing on stderr' "$OUT" \
+  && fail push-no-tmpfile "the guard claimed git was silent when it had merely stopped listening"
+echo "  ok: push-no-tmpfile — an uncapturable stderr is reported as lost, never as silence"
 
 # ---------------------------------------------------------------- 18. HEAD moved during the push
 #
