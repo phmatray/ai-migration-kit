@@ -1036,14 +1036,22 @@ def to_python(pattern):
     """Renovate evaluates these with RE2, where a named group is `(?<name>…)`; Python spells the
     same thing `(?P<name>…)`. Translate for the check.
 
-    Lookbehind is REJECTED rather than translated: Python supports it, RE2 does not, so a pattern
-    using one would match happily here while Renovate's own compile throws CONFIG_VALIDATION and
-    stops managing the repo entirely — whose only symptom is that no PRs ever appear again. A guard
-    that is green on a config the real engine refuses is worse than no guard."""
-    assert not re.search(r"\(\?<[=!]", pattern), (
-        f"lookbehind in a matchString: RE2 cannot compile it and Renovate would reject the whole "
-        f"config — {pattern!r}"
-    )
+    Constructs RE2 cannot compile are REJECTED rather than translated: Python supports them, RE2
+    does not, so a pattern using one would match happily here while Renovate's own compile throws
+    CONFIG_VALIDATION and stops managing the repo entirely — whose only symptom is that no PRs ever
+    appear again. A guard that is green on a config the real engine refuses is worse than no guard.
+
+    RE2 omits all three of these by design (it guarantees linear-time matching, and each of them
+    requires backtracking), so the list is closed rather than a running tally of things we happened
+    to hit. Order matters: `(?<!` also matches the lookahead pattern, so lookbehind is tested first
+    and reported by its own name."""
+    for probe, name in ((r"\(\?<[=!]", "lookbehind"),
+                        (r"\(\?[=!]", "lookahead"),
+                        (r"\\[1-9]", "backreference")):
+        assert not re.search(probe, pattern), (
+            f"{name} in a matchString: RE2 cannot compile it and Renovate would reject the whole "
+            f"config — {pattern!r}"
+        )
     return pattern.replace("(?<", "(?P<")
 
 
@@ -1147,18 +1155,29 @@ def check(cfg):
     return found
 
 
-def rejects(why, mutate):
-    """Assert that `check` REFUSES a deliberately broken copy of the real config.
+def rejects(why, mutate, because):
+    """Assert that `check` REFUSES a deliberately broken copy of the real config, FOR THE STATED
+    REASON.
 
     Each of these corresponds to a way the guard was previously green while Renovate was, or would
     have been, doing nothing. Mutating a deepcopy of the REAL config (rather than hand-building a
     fixture) keeps the negative cases honest: they stay one edit away from what ships, so they
-    cannot drift into testing a config shape the repo no longer has."""
+    cannot drift into testing a config shape the repo no longer has.
+
+    `because` is not decoration. A broken regex usually matches nothing, which trips the
+    "this manager is dead" assert — so a negative case can go green having never exercised the
+    assertion it was written for. Pinning a substring of the refusal message is what separates
+    "refused" from "refused for the reason I claimed", and that distinction is the entire subject
+    of #67."""
     bad = copy.deepcopy(cfg)
     mutate(bad)
     try:
         check(bad)
-    except AssertionError:
+    except AssertionError as exc:
+        assert because in str(exc), (
+            f"section 9 rejected the {why!r} case, but for the WRONG reason — expected a message "
+            f"containing {because!r}, got: {exc}"
+        )
         return
     raise AssertionError(f"section 9 accepted a config it must reject — {why}")
 
@@ -1171,7 +1190,35 @@ def _typo_the_path(c):
     c["customManagers"][0]["managerFilePatterns"] = ["/^test/xunit-v3/apply-transform\\.py$/"]
 
 
-rejects("a file pattern that selects nothing (typo'd directory)", _typo_the_path)
+rejects("a file pattern that selects nothing (typo'd directory)", _typo_the_path,
+        because="no file pattern selects")
+
+
+def _lookahead(c):
+    # Still matches in Python, so this can only be refused by the RE2 check itself.
+    c["customManagers"][0]["matchStrings"] = [
+        'XUNIT_V3_PACKAGE = "(?<depName>[^"]+)"\\nXUNIT_V3_VERSION = "(?=3)(?<currentValue>[^"]+)"'
+    ]
+
+
+def _backreference(c):
+    # `\1` re-matches the literal "XUNIT" captured by group 1 — legal in Python, rejected by RE2.
+    c["customManagers"][0]["matchStrings"] = [
+        '(XUNIT)_V3_PACKAGE = "(?<depName>[^"]+)"\\n\\1_V3_VERSION = "(?<currentValue>[^"]+)"'
+    ]
+
+
+def _lookbehind(c):
+    # `(?<="` succeeds where the version literal opens, so this too is refused only by the RE2 check
+    # — and it must be named LOOKBEHIND, not lookahead, which is why that probe is ordered first.
+    c["customManagers"][0]["matchStrings"] = [
+        'XUNIT_V3_PACKAGE = "(?<depName>[^"]+)"\\nXUNIT_V3_VERSION = "(?<=")(?<currentValue>[^"]+)"'
+    ]
+
+
+rejects("a lookahead in a matchString", _lookahead, because="lookahead")
+rejects("a backreference in a matchString", _backreference, because="backreference")
+rejects("a lookbehind in a matchString", _lookbehind, because="lookbehind")
 
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
