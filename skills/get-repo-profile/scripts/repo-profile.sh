@@ -20,6 +20,9 @@
 set -uo pipefail
 
 PROFILE_REL=".claude/skills/repo-profile.md"
+# Resolved BEFORE the cd below: $0 can be relative, and cd-ing into the target repo would break it.
+# Kit root = three levels up from skills/get-repo-profile/scripts.
+KIT_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd -P)"
 CMD="${1:-show}"
 # Anchor to the repo root so the profile path resolves from any subdir/worktree.
 # An explicit [dir] arg wins; otherwise use the git top-level, falling back to cwd.
@@ -136,7 +139,28 @@ case "$CMD" in
         -iE 'never|always|in order|target-agnostic|do not|must not|keep .* (agnostic|isolated)' . 2>/dev/null | head -8 | sed 's/^/  /')"
 
     section "Worktree home"
-    if [ -d .claude/worktrees ]; then echo "  .claude/worktrees/"; else echo "  (none — use the skills' default)"; fi
+    # MEASURED, never asserted (#71). This probe used to report only whether the directory EXISTS,
+    # while the template wrote "(git-ignored)" beside it — a different question, and the wrong one:
+    # an unignored worktree home is precisely the repo where a stray `git add -A` stages a worktree
+    # as a single `160000` gitlink pointing at a commit no clone can fetch (#43).
+    #
+    # It runs the SAME guard implement-issue Step 4 and merge-pr Step 2 use as their precondition,
+    # rather than re-deriving `check-ignore` here — the trailing-slash and `-q`-not-`-v` subtleties
+    # have exactly one home — so the profile can never promise what those skills will then refuse.
+    if [ -x "$KIT_ROOT/scripts/worktrees-ignored.sh" ]; then
+      wt_out="$("$KIT_ROOT/scripts/worktrees-ignored.sh" -C . 2>&1)"; wt_rc=$?
+      printf '%s\n' "$wt_out" | sed 's/^/  /'
+      case "$wt_rc" in
+        0) echo "  -> both homes ignored; record the one this repo uses" ;;
+        1) echo "  -> TODO: a worktree home is NOT ignored — say so in the profile, and do not" \
+                "write \"(git-ignored)\"; the lifecycle skills refuse to create a worktree here" ;;
+        2) echo "  -> TODO: the rule was broadened over $PROFILE_REL, which this repo must commit" ;;
+        *) echo "  -> TODO: the guard could not reach a verdict (exit $wt_rc) — not a pass" ;;
+      esac
+    else
+      echo "  TODO: guard not found at \$KIT_ROOT/scripts/worktrees-ignored.sh — verify by hand with"
+      echo "        git check-ignore -q .claude/worktrees/  (the trailing slash is load-bearing)"
+    fi
 
     echo ""
     echo "# End of facts. Fill references/profile-template.md from the above, then write $PROFILE_REL"

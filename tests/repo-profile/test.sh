@@ -45,5 +45,32 @@ grep -qF "TODO: no marker file at the repo root" <<<"$out" \
 # The one commit made above must be visible (probes emit real facts, not only TODOs).
 grep -qF "T <t@test>" <<<"$out" || fail "detect: recent-authors probe lost the real fact"
 
-rm -rf "$tmp" "$tmp2" "$repo"
+# 5. The worktree-home probe reports the MEASURED ignore status, never a fixed claim (#71).
+#    detect's whole contract is "facts a probe established", and this field was the exception: it
+#    tested whether the directory EXISTS and the template then wrote "(git-ignored)" beside it. Those
+#    are different questions, and the wrong one is the one that matters — an unignored worktree home
+#    is exactly the repo where `git add -A` stages a worktree as a 160000 gitlink (#43).
+wt=$(mktemp -d)
+git -C "$wt" init -q
+git -C "$wt" -c user.email=t@test -c user.name=T commit -q --allow-empty -m "init"
+mkdir -p "$wt/.claude/worktrees"
+
+# 5a. Present but NOT ignored — must be reported as such, and must not claim git-ignored.
+out=$(bash "$SCRIPT" detect "$wt")
+grep -qE '\.claude/worktrees/.*NOT ignored' <<<"$out" \
+  || fail "detect: an unignored worktree home was not reported as unignored:
+$(grep -A2 'Worktree home' <<<"$out")"
+grep -qE '\.claude/worktrees/ +\(git-ignored\)' <<<"$out" \
+  && fail "detect: claimed (git-ignored) for a home that is not ignored"
+
+# 5b. The same repo once the rule exists — the control. Without it, 5a could pass merely because the
+#     probe stopped mentioning the path at all.
+printf '.claude/worktrees/\n' > "$wt/.gitignore"
+out=$(bash "$SCRIPT" detect "$wt")
+grep -qE '\.claude/worktrees/.*ignored' <<<"$out" \
+  || fail "detect: a correctly ignored worktree home vanished from the report"
+grep -qE '\.claude/worktrees/.*NOT ignored' <<<"$out" \
+  && fail "detect: reported an ignored home as NOT ignored"
+
+rm -rf "$tmp" "$tmp2" "$repo" "$wt"
 echo "repo-profile golden test OK"
