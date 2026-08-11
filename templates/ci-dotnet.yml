@@ -40,6 +40,15 @@ jobs:
           # ci-dessous passerait sur le rapport d'hier pendant qu'une collecte muette ne
           # produit plus rien. L'agrégat compterait en prime des classes déjà supprimées.
           rm -rf coverage && mkdir -p coverage
+          # Même raison, deuxième emplacement (#74). MTP n'écrit pas toujours sous coverage/ :
+          # quand `--coverage` est refusé, `--results-directory` l'est avec lui et le log retombe
+          # sous `<projet>/bin/<config>/<tfm>/TestResults/`. Ce chemin-là est publié en artefact,
+          # donc il doit être aussi propre que coverage/ — sinon un run VERT embarque le log
+          # d'échec d'un run précédent, et l'artefact explique une panne qui n'a pas eu lieu.
+          # C'est pire que le log manquant que #74 corrige : faux, pas absent.
+          # Restreint à `*/bin/*` : un dépôt legacy peut committer un TestResults/ dans ses
+          # sources, et ce nettoyage ne doit jamais toucher un fichier suivi par git.
+          find . -type d -path '*/bin/*' -name TestResults -prune -exec rm -rf {} + 2>/dev/null || true
           mtp=$(grep -rlE 'xunit\.v3|TestingPlatformDotnetTestSupport' --include='*.csproj' . || true)
           vstest=$(grep -rlE 'PackageReference[^>]*Include="(xunit\.runner\.visualstudio|MSTest\.TestAdapter|NUnit3TestAdapter|coverlet\.collector)"' \
                      --include='*.csproj' . || true)
@@ -110,7 +119,25 @@ jobs:
             exit 1
           fi
 
+      # Une condition EXPLICITE, pas la condition implicite `success()` — et c'est ce qui rend
+      # l'artefact utile (#74). L'étape de test tourne sous `set -euo pipefail` : un hôte de test
+      # qui sort en non-zéro termine le job ICI, et toutes les étapes suivantes sont SAUTÉES. Sans
+      # cette ligne, l'artefact n'était donc publié que sur les runs où rien n'avait échoué —
+      # exactement ceux où personne n'en a besoin. Mesuré : un projet de test sans
+      # Microsoft.Testing.Extensions.CodeCoverage fait refuser `--coverage`, le job s'arrête là, et
+      # le log qui porte la RAISON ne quitte jamais le runner.
+      #
+      # Le choix de la condition, entre les trois qui « tournent après un échec » :
+      #   • `failure()` seul est FAUX ici : il cesserait de publier la couverture sur les runs
+      #     verts, remplaçant ce trou-ci par son symétrique — et c'est le chemin vert qui alimente
+      #     le tableau de bord.
+      #   • `always()` marche, mais il est vrai AUSSI quand le job est annulé : un run long qu'on
+      #     interrompt exécute encore l'upload avant de rendre la main.
+      #   • `!cancelled()` couvre l'échec sans couvrir l'annulation. C'est ce que recommande la
+      #     doc GitHub, et c'est ce qu'on prend.
+      # `${{ }}` est nécessaire : en YAML nu, `!` ouvre un tag et la valeur ne se parse pas.
       - name: Publier la couverture en artefact de build
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: coverage
@@ -122,10 +149,50 @@ jobs:
           # Les .log sont ceux que MTP écrit à côté, un par projet : ils portent le détail des
           # assertions, seule chose qui rende diagnosticable un test qui n'échoue que sur le
           # runner. Ils n'arrivaient pas jusqu'ici tant que MTP les écrivait sous bin/.
+          # ⚠ TOUS les motifs de CET artefact restent sous coverage/, et ce n'est pas cosmétique :
+          #   actions/upload-artifact enracine l'archive au PLUS PETIT ANCÊTRE COMMUN des fichiers
+          #   trouvés. Tant que tout est sous coverage/, les rapports arrivent à plat
+          #   (`X.cobertura.xml`). Qu'un seul motif matche hors de coverage/ et la racine devient
+          #   l'espace de travail : les MÊMES rapports deviennent `coverage/X.cobertura.xml`, et un
+          #   job qui télécharge cet artefact pour lancer `reportgenerator -reports:*.cobertura.xml`
+          #   ne trouve plus rien. Pire, le changement serait CONDITIONNEL — il dépendrait de
+          #   l'existence d'un log hors coverage/, donc la forme de l'artefact varierait d'un run à
+          #   l'autre. Les logs restés sous bin/ partent donc dans un artefact SÉPARÉ, juste après.
+          #
+          # ⚠ ENCODAGE : MTP écrit ces .log en UTF-16-LE AVEC BOM (mesuré : premiers octets
+          #   `ff fe`), les deux emplacements confondus. Conséquence pratique une fois l'artefact
+          #   téléchargé : `grep "Unknown option" <log>` ne renvoie RIEN — non pas parce que le
+          #   fichier est vide, mais parce qu'un lecteur UTF-8 n'y voit pas de texte. Le piège est
+          #   qu'il en donne l'apparence, et l'on conclut que le log ne dit rien. Décoder d'abord :
+          #     iconv -f UTF-16 -t UTF-8 <log>        # ou, en Python, open(p, encoding="utf-16")
+          #   Ne pas deviner l'encodage par essais successifs : `raw.decode("utf-16")` NE lève PAS
+          #   sur de l'UTF-8 de longueur paire, il rend du mojibake — se fier au BOM.
           path: |
             coverage/**/*.cobertura.xml
             coverage/*.cobertura.xml
             coverage/**/*.log
+
+      # L'autre emplacement, dans son PROPRE artefact (#74). C'est `--results-directory` qui met
+      # les logs MTP sous coverage/ — mais il voyage dans la même liste d'arguments que
+      # `--coverage`, donc un projet sans Microsoft.Testing.Extensions.CodeCoverage se voit refuser
+      # LES DEUX, et son log retombe sous `<projet>/bin/<config>/<tfm>/TestResults/`. C'est
+      # précisément le cas où ce log est la SEULE explication de l'échec, et où la console n'en
+      # imprime que le chemin.
+      # Séparé, et non ajouté à l'artefact ci-dessus, pour ne pas déplacer sa racine (voir la note
+      # sur le plus petit ancêtre commun). `failure()` suffit ici : sur un run vert, ce chemin de
+      # repli est vide par construction. `if-no-files-found: ignore` parce qu'un échec ordinaire
+      # (un test qui casse) laisse ses logs sous coverage/ et rien ici — l'absence est le cas
+      # NORMAL, pas un incident à signaler.
+      # Le motif est ancré sur `*/bin/*` pour la même raison que le nettoyage plus haut : ne jamais
+      # ramasser un TestResults/ que le dépôt aurait committé dans ses sources.
+      # Ces logs sont UTF-16-LE, comme ceux de l'artefact précédent — voir la note d'encodage.
+      - name: Publier les logs MTP restés sous bin/ (diagnostic d'échec)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mtp-logs-bin-fallback
+          path: '**/bin/**/TestResults/*.log'
+          if-no-files-found: ignore
 
       # À N'ACTIVER que si ce dépôt COMMITTE un bundle front — un `dist/` suivi par git — que le
       # build .NET consomme (EmbeddedResource, Content, ou contenu statique servi tel quel).
