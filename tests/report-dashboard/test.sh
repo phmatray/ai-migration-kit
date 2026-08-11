@@ -102,6 +102,28 @@ assert_in "$multi" 'Repository : 4/6 lignes couvertes'
 assert_in "$multi" 'Global : 75 % lignes · 78 % branches'
 # L'exclusion s'applique à TOUS les rapports, pas seulement au premier.
 refuse_in "$multi" 'ExcludedWeb'
+
+# La tuile KPI et la légende rendent la MÊME quantité, donc elles doivent dire la même chose (#50).
+# C'est ce cas-ci qui les sépare : la fixture porte un KPI écrit à la main (70), et l'union des deux
+# coberturas vaut 75. Une page qui publie les deux rend invérifiable la promesse « couverture
+# mesurée, jamais estimée » — un lecteur ne peut pas dire laquelle des deux est la mesure. Assertion
+# en Python et pas en sed : les tuiles sont concaténées sur une seule ligne.
+python3 - "$multi" <<'PY'
+import re, sys
+html = open(sys.argv[1], encoding="utf-8").read()
+tiles = re.findall(r'<div class="tile"><div class="v">(.*?)</div><div class="l">(.*?)</div></div>', html)
+cov = [v for v, label in tiles if "couvertur" in label.lower()]
+assert cov, f"aucune tuile de couverture parmi {[l for _, l in tiles]}"
+# La valeur porte son unité dans un <small> imbriqué : on ne garde que le nombre.
+tile = re.match(r"\s*(\d+)", re.sub(r"<[^>]*>", "", cov[0]))
+assert tile, f"la tuile de couverture ne commence pas par un nombre : {cov[0]!r}"
+tile = tile.group(1)
+legende = re.search(r"Global : (\d+) % lignes", html)
+assert legende, "la légende de couverture est absente du HTML"
+assert tile == legende.group(1), (
+    f"la page publie DEUX chiffres de couverture : tuile {tile} %, légende {legende.group(1)} %. "
+    "Le KPI doit être la mesure, pas une transcription.")
+PY
 rm -rf "$multi_dir"
 
 # La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
