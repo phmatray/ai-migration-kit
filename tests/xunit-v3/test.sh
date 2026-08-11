@@ -1066,6 +1066,38 @@ def covers(glob, dep):
     return d.startswith(g.rstrip("*")) if g.endswith("*") else g == d
 
 
+def rule_applies(rule, path, datasource):
+    """Does this packageRule actually reach `path` at `datasource`?  -> (bool, [unevaluated…])
+
+    A rule that disables majors only protects what it MATCHES. `matchFileNames` and
+    `matchDatasources` both narrow that reach, and both were previously ignored — so scoping the
+    family rule to `samples/**` left this guard green while the transform's pins lost their hold
+    completely, which is precisely the "edit a glob and the protection quietly stops applying"
+    failure the comment above warns about (#67).
+
+    ABSENT means "applies everywhere". Getting that inversion backwards would make every rule look
+    inapplicable and fail the suite on a perfectly good config, so it is the first thing each branch
+    decides. As elsewhere here, a glob shape this cannot evaluate faithfully is reported rather than
+    guessed, and counts as NOT applying — an unreadable scope must never be mistaken for protection."""
+    unevaluated = []
+    datasources = rule.get("matchDatasources")
+    if datasources is not None and datasource not in datasources:
+        return False, unevaluated
+
+    globs = rule.get("matchFileNames")
+    if globs is None:
+        return True, unevaluated          # unscoped by path: reaches the whole repo
+    for g in globs:
+        if g == path:
+            return True, unevaluated
+        if g.endswith("/**"):
+            if path.startswith(g[:-2]):
+                return True, unevaluated
+        else:
+            unevaluated.append(g)
+    return False, unevaluated
+
+
 def selects(manager, path):
     """Does this manager's file-pattern list actually select `path`?  -> (bool, [unevaluated…])
 
@@ -1169,15 +1201,24 @@ def check(cfg):
             f"{dep}: the regex captured {found[dep]!r} but the module reports {version!r}"
         )
 
-    major_rules = [
-        r for r in cfg.get("packageRules", [])
-        if r.get("enabled") is False and "major" in (r.get("matchUpdateTypes") or [])
-    ]
+    # Every manager in `mine` was asserted to emit nuget deps above, so that is the datasource the
+    # holds have to cover.
+    major_rules, out_of_reach = [], []
+    for r in cfg.get("packageRules", []):
+        if r.get("enabled") is not False or "major" not in (r.get("matchUpdateTypes") or []):
+            continue
+        reaches, unknown = rule_applies(r, TRANSFORM_REL, "nuget")
+        out_of_reach.extend(unknown)
+        if reaches:
+            major_rules.append(r)
+
     for dep in found:
         assert any(any(covers(g, dep) for g in (r.get("matchPackageNames") or []))
                    for r in major_rules), (
             f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
             f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
+            + (f". Note: {out_of_reach} could not be evaluated as file scopes and were treated as "
+               f"not reaching {TRANSFORM_REL}" if out_of_reach else "")
         )
     return found
 
@@ -1326,6 +1367,36 @@ rejects("depNameTemplate shadowing a captured depName", _template_shadows_captur
         because="never matched xunit.v3")
 rejects("a matchString that matches more than once", _matches_more_than_once,
         because="expected exactly 1")
+
+
+def _family_rule(c):
+    """The packageRule that holds the MTP family's majors — found by shape, not by index."""
+    return next(r for r in c["packageRules"] if "major" in (r.get("matchUpdateTypes") or []))
+
+
+def _scope_the_hold_to_another_path(c):
+    # Still enabled:false, still matchUpdateTypes:[major], still the right package globs — but it
+    # no longer applies to the file the pins live in, so it protects nothing that matters.
+    _family_rule(c)["matchFileNames"] = ["samples/**"]
+
+
+def _scope_the_hold_to_another_datasource(c):
+    # Same, via the other axis: the managers emit nuget deps, this rule now only covers npm.
+    _family_rule(c)["matchDatasources"] = ["npm"]
+
+
+def _scope_the_hold_onto_the_transform(c):
+    # The other direction of the same inversion: a hold explicitly scoped to where the pins live is
+    # still a hold. Reading "absent"/"present" backwards would fail this perfectly good config, and
+    # whoever hit that would delete the assertion rather than narrow it.
+    _family_rule(c)["matchFileNames"] = ["tests/**"]
+
+
+rejects("a major-hold scoped away by matchFileNames", _scope_the_hold_to_another_path,
+        because="no rule disables its MAJOR updates")
+rejects("a major-hold scoped away by matchDatasources", _scope_the_hold_to_another_datasource,
+        because="no rule disables its MAJOR updates")
+accepts("a major-hold explicitly scoped to the transform's tree", _scope_the_hold_onto_the_transform)
 
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
