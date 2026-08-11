@@ -158,13 +158,20 @@ skills/implement-issue/ generic issue/PR lifecycle: plan → draft PR → ready
 skills/merge-pr/        generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
 skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
 skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main)
-scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator)
+scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a skills change must carry a title that cuts a release)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
-tests/                  golden tests of the report generator, followups aggregator and preflight (CI-run)
+tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
 docs/case-studies/      real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output
 ```
+
+**Hardening a destructive operation.** `tests/tick-plan/` and `tests/guarded-git/` are not feature
+tests — each one pins an incident post-mortem (a `gh api` pipeline that wiped live issue bodies; a
+commit that landed in another agent's PR), and between them they set the convention this repo
+follows: a guard script under `skills/<skill>/scripts/`, a golden test that exercises its **refusal**
+path and not just its happy one, and a CI step that runs that test. Adding a call that can destroy
+something? Follow that shape rather than calling the raw command.
 
 **Live proof:** [play the wave-1 migrated game](https://phmatray.github.io/winrt-sokoban/) — a 2014 WinRT app, dead since Windows 8.x, now a Blazor WASM PWA.
 

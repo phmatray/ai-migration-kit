@@ -84,7 +84,7 @@ to load the repo profile, verify authentication, and prepare the commit identity
 
 Throughout this skill, **`<commit-identity>`** stands for the author line from the profile's *Commit
 identity* — `-c user.email=<email> -c user.name="<name>"`. Substitute it in every commit/merge
-command. In the guarded calls of Steps 5, 6, 7 and 9 it goes **before** the branch name
+command. In the guarded calls of Steps 5–9 it goes **before** the branch name
 (`guarded-commit.sh -C "$WORKTREE" <commit-identity> "$BRANCH" -- …`), which is where the script
 forwards it to `git` itself; passed
 after `--` it would reach `git commit -c`, which means "reuse this commit's message" and which git
@@ -157,7 +157,7 @@ WORKTREE=<absolute path of this issue's worktree>
 GUARDS=<this skill's own scripts/ directory>       # skills/implement-issue/scripts from the kit root
 ```
 
-Carry `$BRANCH` forward — Steps 5, 6, 7 and 9 pass it to the guards **explicitly**, because a guard
+Carry `$BRANCH` forward — Steps 5–9 pass it to the guards **explicitly**, because a guard
 that read the branch from `HEAD` would be reading the very value it exists to check, and would agree
 with itself no matter which branch was checked out. Pass `-C "$WORKTREE"` just as explicitly: the
 guards default to the current directory, which is the ambient checkout this step just told you not
@@ -197,20 +197,18 @@ concise imperative **subject** that summarizes the fix rather than echoing the i
 wording — so the example issue becomes e.g.
 `fix(export): use invariant culture in CSV number formatting (#849)`.
 
-Every commit and push **in Steps 5, 6, 7 and 9** goes through the guards in `scripts/` — never a bare
+Every commit and push **in Steps 5–9** goes through the guards in `scripts/` — never a bare
 `git commit` or `git push`. They take `$BRANCH` explicitly, refuse (exit 2) when HEAD is anything else
 or detached, and prove afterwards that the commit landed on that branch (exit 3 if not) and that the
 remote really carries this HEAD (exit 4 if not). `-c user.email=… -c user.name="…"` is the profile's
 *Commit identity*; it goes **before** `$BRANCH`, because those are options to `git`, not to
 `git commit`.
 
-⚠️ **Step 8 is the exception, and knowingly so.** It delegates to
-[`../_shared/sync-with-main.md`](../_shared/sync-with-main.md), which `merge-pr` shares, and whose
-`git merge` / `git commit --no-edit` / `git push` are still unguarded — the merge commit is the
-largest single write in this flow and the one still exposed. Guarding it means changing a file two
-skills depend on, so it is tracked separately rather than done here. Until then, at Step 8:
-re-read `git -C "$WORKTREE" rev-parse --abbrev-ref HEAD` immediately before the merge **and**
-immediately before the push, and compare `HEAD` with `origin/$BRANCH` afterwards.
+Step 8 is no exception: it delegates to
+[`../_shared/sync-with-main.md`](../_shared/sync-with-main.md), whose merge, completing commit and
+push all go through the same three guards (#41) — `guarded-merge.sh` included, since a merge commit
+is the largest single write in this flow. That file reads `$BRANCH`, `$WORKTREE` and `$GUARDS`, which
+is why Step 4 records them.
 
 ```bash
 "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
@@ -382,7 +380,7 @@ files follow-ups, tears down the branch/worktree).
 ## Notes on quality
 
 - **The checkbox is a promise.** Ticking `- [x]` on the live issue says that task is done and tested. Only ever tick after a real green test run + commit — a checked box over a red bar lies.
-- **A zero exit is not a receipt.** `git commit` does not check you are still on the branch you created, and `git push -u` prints "branch … set up to track …" whether or not your commit reached your branch. Both are claims about *what git attempted*, not about *where the work is*. That is why Steps 5, 6, 7 and 9 go through the guards and why the guards re-read state instead of trusting the return code — the same reason `tick-plan.sh` reads the issue back after PATCHing it. Step 8's merge is the one write still unguarded; Step 5 says what to check by hand there.
+- **A zero exit is not a receipt.** `git commit` does not check you are still on the branch you created, and `git push -u` prints "branch … set up to track …" whether or not your commit reached your branch. Both are claims about *what git attempted*, not about *where the work is*. That is why Steps 5–9 go through the guards and why the guards re-read state instead of trusting the return code — the same reason `tick-plan.sh` reads the issue back after PATCHing it. Step 8's merge — the largest write in the flow, and the one with the widest window, since conflict resolution sits inside it — goes through `guarded-merge.sh` on the same terms (#41).
 - **One commit per task, message from the plan** (its final step) — verbatim, so git history mirrors the plan and the issue.
 - **Stay resumable.** Everything keys off the issue's checkbox state and the existing branch/PR, so a re-run picks up where it left off.
 - **Don't widen the blast radius.** Implement the plan, not your own ideas. Record adjacent work under a `## Follow-ups` heading in the **PR description** (and call it out in the report) — that's where `/merge-pr` harvests deferred work and files it as tracked issues; noting it only in the ephemeral report would lose it. Don't smuggle the work into this PR.
