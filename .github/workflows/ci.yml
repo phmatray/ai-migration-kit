@@ -62,6 +62,18 @@ jobs:
           fi
           ./scripts/release-title-gate.sh "$PR_TITLE" "${changed[@]}"
 
+      # The harness puts agent worktrees under .claude/worktrees/, and skills/_shared/sync-with-main.md
+      # finishes a merge with `git add -A`. Unignored, that stages the worktree (#43). Needs only
+      # the checkout, so it sits here and answers in milliseconds rather than after the toolchain.
+      #
+      # The check is a script with a golden test rather than inline yaml, for the reason written 40
+      # lines above: the last inline guard in this file failed open and nothing could test it. The
+      # three ways this one could quietly stop working — `-q` swapped for `-v`, the trailing slash
+      # dropped, the rule broadened to `.claude/` — are each driven to red in
+      # tests/worktrees-ignored/test.sh. The rationale lives in the script's header.
+      - name: Agent worktrees are gitignored (a stray git add -A must not commit the repo into itself)
+        run: ./scripts/worktrees-ignored.sh
+
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
@@ -197,6 +209,9 @@ jobs:
 
       - name: Release-title gate golden test (pass AND fail paths)
         run: ./tests/release-title-gate/test.sh
+
+      - name: Worktrees-ignored golden test (the gate above, driven to red)
+        run: ./tests/worktrees-ignored/test.sh
 
       - name: Contrast checker works (pass AND fail paths)
         run: |

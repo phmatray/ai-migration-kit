@@ -7,3 +7,20 @@ __pycache__/
 migration/
 # Les fixtures de tests sont versionnées même sous migration/ :
 !tests/**/migration/
+
+# Les worktrees d'agents (#43). Non ignorés, le `git add -A` que skills/_shared/sync-with-main.md
+# exécute pour clore un merge les met dans l'index — mesuré : sous la forme d'UN gitlink
+# (`160000 <sha> 0 .claude/worktrees/<branche>`), pas d'une copie de l'arbre. Ce n'est donc pas un
+# diff énorme qu'on cherche quand ça arrive, mais une entrée unique en forme de sous-module qui
+# pointe vers un commit qu'aucun clone ne saura récupérer.
+# Deux emplacements, parce que deux sont atteignables : `.claude/worktrees/` que crée ce harness
+# (et que merge-pr code en dur), et `.worktrees/` vers lequel superpowers:using-git-worktrees
+# retombe quand aucun outil natif n'existe.
+# On vise ces chemins précis, et surtout PAS tout `.claude/` : get-repo-profile écrit
+# `.claude/skills/repo-profile.md` et attend qu'il soit VERSIONNÉ chez les dépôts consommateurs
+# du kit. Ce dépôt-ci n'en a pas (la CI vérifie qu'il répond NO_PROFILE), mais il est la
+# référence qu'on recopie — élargir la règle ici contredirait le contrat qu'on documente.
+# scripts/worktrees-ignored.sh vérifie les deux moitiés de cette règle par `git check-ignore` sur
+# le chemin (jamais un grep de ce fichier), et tests/worktrees-ignored/test.sh l'exerce en échec.
+.claude/worktrees/
+.worktrees/
