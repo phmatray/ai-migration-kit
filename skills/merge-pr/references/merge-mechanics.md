@@ -68,9 +68,12 @@ cd "$WT"
 
 **Why the check comes first.** `.claude/worktrees/` is this kit's convention, and a convention is not
 a fact about *someone else's* repository. A worktree is a full checkout, so where the rule is absent
-the next `git add -A` stages it — measured shape (#43): one `160000 <sha> 0 .claude/worktrees/<branch>`
-gitlink pointing at a commit no clone can fetch, not a large diff anyone notices in review. This file
-used to state the guarantee as settled ("the repo's conventional (git-ignored) home") while nothing
+**any** `git add -A` run in that repo stages it — measured shape (#43): one
+`160000 <sha> 0 .claude/worktrees/<branch>` gitlink pointing at a commit no clone can fetch, not a
+large diff anyone notices in review. Not the kit's own command any more (#68 narrowed the only one it
+had), which changes *whose* mistake this catches, not whether it is worth catching — see
+[`../../_shared/worktree-ignore-check.md`](../../_shared/worktree-ignore-check.md). This file used to
+state the guarantee as settled ("the repo's conventional (git-ignored) home") while nothing
 established it; the lines above are what make it true rather than hopeful.
 
 The verdicts — including why `2` proceeds and `1` does not, and the rule against editing someone

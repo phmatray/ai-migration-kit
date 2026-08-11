@@ -18,6 +18,14 @@ not a large diff anyone notices in review, and pointing at a commit no clone can
 submodule URL and no remote). `git` prints `warning: adding embedded git repository`, and on a busy
 console that warning is the only thing between this and a silent commit.
 
+⚠️ **Whose `git add -A`?** Not this kit's, as of #68: `sync-with-main.md` now stages only the paths the
+merge actually conflicted on, and no skill here runs `add -A` any more. That removes the caller this
+check was originally written against, and it does **not** remove the reason for the check — it changes
+who the check is for. What remains is everything the kit does not govern: a human, another agent, or a
+different tool typing `git add -A` in a repository the kit just planted a worktree in. Leaving an
+unignored full checkout lying in someone's tree is the hazard; the kit merely stopped being the one
+most likely to trip over it.
+
 `superpowers:using-git-worktrees` states the precondition — *"MUST verify directory is ignored before
 creating worktree"* — and `implement-issue` Step 4 delegates creation to it. This is that verification,
 made mechanical.
