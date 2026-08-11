@@ -109,10 +109,52 @@ profile flags as CI-only).
 is nothing to commit, and a `commit` with an empty index fails — that failure would surface as git's
 own exit code and read like a real problem.
 
+Stage **only** the merge's own resolution. `git merge` has already staged every path it merged
+cleanly, so the sole thing left outstanding is the set of paths *you* just resolved:
+
 ```bash
-git -C "$WORKTREE" add -A
+# The conflicted paths, exactly — no globbing, no ARG_MAX split, no quoting surprises.
+git -C "$WORKTREE" diff --name-only --diff-filter=U -z \
+  | git -C "$WORKTREE" --literal-pathspecs add --pathspec-from-file=- --pathspec-file-nul
+
+# Did the resolution REGENERATE something? A fresh snapshot, a rebuilt lockfile, a new migration —
+# the *regenerate* rule-of-thumb above tells you to produce these, and a NEW file is not a
+# conflicted path, so nothing has staged it. Add those by name, deliberately:
+#   git -C "$WORKTREE" add <the file you regenerated>
+
+git -C "$WORKTREE" diff --cached --name-only   # read the index back — this is your only check
 "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- --no-edit
 ```
+
+⚠️ **Neither `git add -A` nor `git add -u` belongs here (#68).** The guards will not catch either:
+they assert which **branch** a write lands on, which is the only claim they make — *what* is in the
+commit is not their business, so an over-staged merge commit passes every check and lands under an
+auto-generated "Merge branch …" subject no reviewer opens.
+
+- `-A` stages every untracked file **git is not already ignoring** — the artifacts the build in this
+  very section leaves behind (`TestResults/`, coverage XML, scratch notes). A good `.gitignore` covers
+  much of that, which is exactly why it cannot be relied on: **this file is a skill, shipped to
+  consumer repos**, and none of them inherit this repo's ignore rules.
+- `-u` is the subtler one, and it is *not* a safe middle ground: it stages every modified **tracked**
+  file in the worktree. Measured — an unrelated uncommitted edit, and a lockfile the prescribed build
+  regenerated, both walk into the merge commit through `-u`. It is also redundant: git staged the
+  auto-merged paths itself, and the command above stages the conflicted ones.
+
+Two mechanical details worth keeping, both measured rather than assumed:
+
+- **`--literal-pathspecs` is load-bearing**, not belt-and-braces. `git add` reads its arguments as
+  *pathspecs*, so a real filename containing `[`, `]`, `*` or `?` — `app/[id].tsx`, an ordinary
+  dynamic route — is matched as a glob and drags in its siblings (`app/i.tsx` was staged in the
+  measurement). `--` stops option parsing; it does nothing about glob metacharacters.
+- **`--pathspec-from-file=-` with `--pathspec-file-nul`**, rather than `xargs`: no argument-length
+  split on a big conflict, no quoting rules to get wrong, and an empty list is a clean no-op.
+
+⚠️ On the *gitlink* hazard specifically (#43): `git add -A` from the **main checkout** stages an agent
+worktree as `160000 <sha> 0 .claude/worktrees/<branch>`, a submodule-shaped entry pointing at a commit
+no clone can fetch. Note it is **not** reachable through the `-C "$WORKTREE"` this procedure always
+uses — from inside a linked worktree the worktree home lives in the parent checkout and is invisible.
+It fires when `$WORKTREE` *is* the main checkout, which `merge-pr` permits when no dedicated worktree
+was created.
 
 Then, on **both** paths, build before pushing:
 

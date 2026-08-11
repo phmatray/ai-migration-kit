@@ -8,8 +8,8 @@ migration/
 # Les fixtures de tests sont versionnées même sous migration/ :
 !tests/**/migration/
 
-# Les worktrees d'agents (#43). Non ignorés, le `git add -A` que skills/_shared/sync-with-main.md
-# exécute pour clore un merge les met dans l'index — mesuré : sous la forme d'UN gitlink
+# Les worktrees d'agents (#43). Non ignorés, n'importe quel `git add -A` lancé dans ce dépôt les
+# met dans l'index — mesuré : sous la forme d'UN gitlink
 # (`160000 <sha> 0 .claude/worktrees/<branche>`), pas d'une copie de l'arbre. Ce n'est donc pas un
 # diff énorme qu'on cherche quand ça arrive, mais une entrée unique en forme de sous-module qui
 # pointe vers un commit qu'aucun clone ne saura récupérer.
