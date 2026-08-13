@@ -17,6 +17,17 @@ name: release-title
 # verdict; the trigger each job needs is now the trigger each job has.
 #
 # Everything the gate needs is a checkout and bash, so the split costs one extra checkout.
+#
+# Observed on the PR that introduced this file (#119), against one head sha, since no test can
+# assert a trigger — a workflow's trigger is only ever exercised by the real event:
+#
+#   push (synchronize)   ci ✅ 31711285103   release-title ✅ 31711285233
+#   PR *body* edit       ci — not triggered  release-title ✅ 31711515732
+#   PR *title* edit      ci — not triggered  release-title ✅ 31711605496
+#
+# `ci` ran exactly once for that sha, from the push; the two edits added no run to it. The title
+# edit's gate log echoes the NEW title in its env block, so it re-judged rather than replaying the
+# earlier verdict. That is the whole behaviour this split exists to produce.
 
 on:
   # `edited` is load-bearing HERE, and only here: this is the workflow that reads the title, so a
