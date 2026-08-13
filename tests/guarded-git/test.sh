@@ -106,6 +106,14 @@ unmerged() { git -C "$1" ls-files --unmerged; }
 # depends on the local remote-tracking ref the push under test is what updates.
 remote_tip() { git -C "$WORK/$1.git" rev-parse --quiet --verify "refs/heads/$2" || true; }
 
+# Installs a pre-push hook running one shell line, so a case can move HEAD — or the branch under
+# it — DURING the push, deterministically. Three push cases need that now, and #72's rule is one
+# home per shared mechanism rather than a copy per caller.
+with_prepush_hook() {
+  printf '#!/bin/sh\n%s\n' "$2" > "$1/.git/hooks/pre-push"
+  chmod +x "$1/.git/hooks/pre-push"
+}
+
 # Runs the guard without `set -e` aborting the test, capturing stdout+stderr and the code.
 # Sets RC and OUT (a file path).
 run() {
@@ -645,8 +653,7 @@ echo work >> "$R/seed.txt"
 git -C "$R" commit -q -am "work on a"
 git -C "$R" push -q origin a                     # origin/a already equals HEAD…
 git -C "$R" branch decoy a
-printf '#!/bin/sh\ngit symbolic-ref HEAD refs/heads/decoy\n' > "$R/.git/hooks/pre-push"
-chmod +x "$R/.git/hooks/pre-push"
+with_prepush_hook "$R" 'git symbolic-ref HEAD refs/heads/decoy'
 
 run push-head-moved "$PUSH" -C "$R" a
 
@@ -657,29 +664,27 @@ echo "  ok: push-head-moved — re-asserts HEAD after pushing; no certificate fo
 # ------------------------------------------------- 18b. …and the ALERT must not print a non-sha
 #
 # The same path as case 18, one line further in. The re-assert reads HEAD's sha for the message,
-# and it read it with `git rev-parse HEAD 2>/dev/null || true` — the one spelling
-# _assert-branch.sh:115-121 documents as unsafe, in the sibling that `.`-loads that very file. On
-# an unborn branch `git rev-parse HEAD` prints the literal string "HEAD" ON STDOUT and exits 128,
-# so `|| true` swallows the status and the ALERT renders `HEAD is now  wip @ HEAD`. That reads
-# like a sha the operator can go look up, printed at the exact moment they are deciding whether
-# their work reached the remote. There is no such commit.
+# and it read it with the spelling assert_branch() in _assert-branch.sh documents as unsafe — in
+# the sibling that `.`-loads that very file. The mechanism is written out there and not restated
+# here; the short of it is that an unborn HEAD yields the literal string "HEAD", so the ALERT
+# rendered `HEAD is now  wip @ HEAD`: a sha the operator can go look up, printed at the exact
+# moment they are deciding whether their work reached the remote. There is no such commit.
 #
-# The VERDICT was never wrong: `head_sha` comes from the safe form and so can never equal the
-# string "HEAD", the comparison still fails, and the guard still exits 4. A misleading diagnostic
-# and not a wrong exit code is precisely what an exit-code assertion cannot see — which is why
-# this case asserts the MESSAGE, and why the defect survived the refactor that created the shared
-# helper. Case 31's unborn coverage does not reach here either: it exercises the PRE-FLIGHT
-# refusal, which fires before the push and therefore before this line exists to be wrong.
+# The VERDICT was never wrong — `head_sha` comes from the safe form, so the comparison still fails
+# and the guard still exits 4. A misleading diagnostic and not a wrong exit code is precisely what
+# an exit-code assertion cannot see, which is why this case asserts the MESSAGE and why the defect
+# survived the refactor that created the shared helper (#92). Case 31's unborn coverage does not
+# reach here either: it exercises the PRE-FLIGHT refusal, which fires before the push.
 
 R=$(new_repo_with_origin push-head-unborn)
 echo work >> "$R/seed.txt"
 git -C "$R" commit -q -am "work on a"
-git -C "$R" push -q origin a                     # origin/a already equals HEAD, so the push is a no-op…
 head_sha=$(git -C "$R" rev-parse HEAD)
-# …and the hook fires anyway, leaving HEAD on a branch that has no commit. `--orphan` rather than
-# case 18's `symbolic-ref` because the point here is an UNREADABLE HEAD, not merely a moved one.
-printf '#!/bin/sh\ngit checkout --orphan wip\n' > "$R/.git/hooks/pre-push"
-chmod +x "$R/.git/hooks/pre-push"
+# Deliberately NOT pre-pushed: the guard's own push is the only thing that can carry this commit
+# to the remote, so the `remote_tip` assertion below actually witnesses the push happening rather
+# than restating a state the fixture had already arranged. `--orphan` rather than case 18's
+# `symbolic-ref` because the point here is an UNREADABLE HEAD, not merely a moved one.
+with_prepush_hook "$R" 'git checkout --orphan wip'
 
 run push-head-unborn "$PUSH" -C "$R" a
 
@@ -691,13 +696,19 @@ run push-head-unborn "$PUSH" -C "$R" a
 [ -z "$(git -C "$R" rev-parse --verify --quiet HEAD || true)" ] \
   || fail push-head-unborn "fixture broken: HEAD is not unborn, so the unsafe read is never exercised"
 [ "$(remote_tip push-head-unborn a)" = "$head_sha" ] \
-  || fail push-head-unborn "fixture broken: the push itself should have succeeded"
+  || fail push-head-unborn "the guard must have pushed before re-asserting — the remote never got the commit"
 
 [ "$RC" -eq 4 ] || fail push-head-unborn "expected exit 4 when HEAD moved mid-push, got $RC"
 grep -qi 'HEAD moved' "$OUT" || fail push-head-unborn "the alert must say HEAD moved"
 
 # The sha FIELD of the "HEAD is now" line, and only that field: a fixture that makes HEAD unborn
 # also changes the branch, so the line legitimately carries the word HEAD elsewhere (#92).
+#
+# Two assertions, deliberately, though the second subsumes the first as a condition: they pin two
+# different requirements. The first names the REGRESSION, so a reintroduction fails with the words
+# an operator would search for; the second pins the prescribed RENDERING, so changing `<unreadable>`
+# is a deliberate act rather than a silent one. Collapsing them would keep the coverage and lose
+# which of the two broke.
 now_line=$(grep 'HEAD is now' "$OUT" || true)
 [ -n "$now_line" ] || fail push-head-unborn "the ALERT must name where HEAD ended up"
 case "$now_line" in
@@ -708,6 +719,39 @@ case "$now_line" in
   *) fail push-head-unborn "an unreadable HEAD must be rendered explicitly, got: $now_line" ;;
 esac
 echo "  ok: push-head-unborn — an unreadable post-push HEAD is reported as such, never as a sha"
+
+# ------------------------------------------- 18c. …and the SHA half of that re-assert is load-bearing
+#
+# Cases 18 and 18b both move the BRANCH, so `now_branch != EXPECTED` alone satisfies them: delete
+# the `|| [ "$now_sha" != "$head_sha" ]` half of the condition and all of them still pass
+# (measured — this case exists because that mutation was survivable). The sha half answers a
+# different question: HEAD stays on `a` the whole time while `refs/heads/a` is repointed *under*
+# it — a concurrent `update-ref`, an `amend`, another worktree committing on the same branch. That
+# is the #26 shape with the branch name held constant, and the branch comparison is blind to it.
+#
+# It matters here specifically because #92 changed how `now_sha` is READ. A test that pins the
+# reading but not the comparison would let a later refactor drop the comparison and stay green.
+
+R=$(new_repo_with_origin push-sha-moved)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work on a"
+head_sha=$(git -C "$R" rev-parse HEAD)
+other_sha=$(tip "$R" b)
+# HEAD is left symbolic on `a` throughout — only what `a` POINTS AT changes, so `now_branch` still
+# equals the expected branch and the sha comparison is the only thing that can catch this.
+with_prepush_hook "$R" "git update-ref refs/heads/a $other_sha"
+
+run push-sha-moved "$PUSH" -C "$R" a
+
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail push-sha-moved "fixture broken: HEAD must stay on a — this case is about the sha alone"
+[ "$(git -C "$R" rev-parse HEAD)" = "$other_sha" ] \
+  || fail push-sha-moved "fixture broken: the hook did not repoint refs/heads/a under HEAD"
+
+[ "$RC" -eq 4 ] || fail push-sha-moved "expected exit 4 when the branch moved under a steady HEAD, got $RC"
+grep -qi 'HEAD moved' "$OUT" || fail push-sha-moved "the alert must say HEAD moved"
+grep -q "$head_sha" "$OUT" || fail push-sha-moved "the ALERT must name the sha the push was made from"
+echo "  ok: push-sha-moved — the sha half catches a branch repointed under an unmoved HEAD"
 
 # ---------------------------------------------------------------- 16. foreign working directory
 

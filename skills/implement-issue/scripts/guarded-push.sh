@@ -34,8 +34,11 @@
 #   0  pushed, and <remote>/<expected-branch> is verified equal to HEAD
 #   2  REFUSED before pushing — HEAD is another branch, or detached, or not a repo, or this script
 #      could not load the branch assertion it shares with guarded-commit.sh. Nothing sent.
-#   4  the push reported success but the remote does NOT carry this HEAD. This is the silent
-#      mis-push: the work is not where the exit code implied it was.
+#   4  the push reported success but this guard could NOT prove the work is where that implied —
+#      the silent mis-push. Three causes, and the message says which: HEAD moved out from under
+#      the push (caught before the remote is read at all, so this one is about your local
+#      checkout, not the remote), <remote> could not be listed, or <remote>/<expected-branch>
+#      does not carry this HEAD.
 #   *  git push's own exit code, if the push itself failed. Nothing else was done.
 #
 # That last line is why every path here also prints a line starting `guarded-push:` —
@@ -143,13 +146,12 @@ fi
 # finds the expected branch sitting at its old tip — which happens to equal the `head_sha` captured
 # earlier, so the guard would certify a push it never made.
 #
-# `--verify --quiet`, the spelling _assert-branch.sh:122 uses and documents, deliberately and not
-# by coincidence: a bare `rev-parse HEAD 2>/dev/null || true` prints the literal string "HEAD" ON
-# STDOUT and exits 128 when HEAD is unborn, so `|| true` swallows the status and hands back "HEAD"
-# where a sha belongs. This line carried that spelling (#92) and the ALERT below duly printed
-# `HEAD is now  wip @ HEAD` — a commit an operator could go look up, in the one message asking to
-# be believed. The verdict was never wrong ($head_sha comes from the safe form, so the comparison
-# still fails); the diagnostic was. One spelling in the kit, and the empty case rendered as such.
+# `--verify --quiet` for the sha, matching the tail of assert_branch() in _assert-branch.sh, which
+# is where the trap is written down in full: a bare `rev-parse HEAD 2>/dev/null || true` hands back
+# the literal string "HEAD" on an unborn branch. This line carried that spelling and the ALERT
+# below printed `HEAD is now  wip @ HEAD` — a commit an operator could go look up (#92). The
+# verdict was never wrong; the diagnostic was. Cited by function and not by line number, because
+# the file it points at rejects hardcoded line references for exactly the reason they rot.
 now_branch=$(head_branch_of "$REPO")
 now_sha=$(git -C "$REPO" rev-parse --verify --quiet HEAD 2>/dev/null || true)
 
@@ -263,5 +265,14 @@ fi
 # `$head_sha` and not a fresh `rev-parse HEAD`: the receipt must name the sha that was actually
 # compared against the remote. Re-reading HEAD here would let the message quote a commit that no
 # step ever verified.
+#
+# Abbreviated in its own statement, with a fallback, rather than substituted inline into printf: a
+# command substitution that FAILS inside a printf argument is neither caught by `set -e` nor
+# reported, so an unreadable repo by this point rendered the guard's strongest claim as
+# `origin/a == , verified on the remote` — exit 0, naming no commit at all (measured). That is the
+# defect #92 removed from the ALERT above, on the success path, which is the worse place for it.
+# The fallback is the full `$head_sha`, which the pre-flight witness check above already required
+# to be non-empty — named rather than cited by line, for the reason given at the re-assert.
+short_sha=$(git -C "$REPO" rev-parse --short "$head_sha" 2>/dev/null || true)
 printf 'guarded-push: %s/%s == %s, verified on the remote\n' \
-  "$REMOTE" "$EXPECTED" "$(git -C "$REPO" rev-parse --short "$head_sha")"
+  "$REMOTE" "$EXPECTED" "${short_sha:-$head_sha}"
