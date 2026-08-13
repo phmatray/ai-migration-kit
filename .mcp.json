@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "roseline": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": ["RoselineMCP", "--yes"],
+      "env": {}
+    }
+  }
+}

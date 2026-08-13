@@ -8,6 +8,44 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.10.0](https://github.com/phmatray/ai-migration-kit/compare/v1.9.1...v1.10.0) (2026-08-11)
+
+
+### Features
+
+* **audit:** report which manifest covers a vendored directory ([#100](https://github.com/phmatray/ai-migration-kit/issues/100)) ([eafbb10](https://github.com/phmatray/ai-migration-kit/commit/eafbb10e7511fe5dd8cce757f666d8fb65741e66))
+* **audit:** surface vendored front-end assets no manifest covers ([#32](https://github.com/phmatray/ai-migration-kit/issues/32)) ([#64](https://github.com/phmatray/ai-migration-kit/issues/64)) ([513a754](https://github.com/phmatray/ai-migration-kit/commit/513a754c8b5044e53d9baf0990218dfea42553be))
+* **ci:** gate skills changes on a releasable PR title ([#27](https://github.com/phmatray/ai-migration-kit/issues/27)) ([#29](https://github.com/phmatray/ai-migration-kit/issues/29)) ([5d6cd96](https://github.com/phmatray/ai-migration-kit/commit/5d6cd96f5472e377c9d167ea44eae53115896865))
+* **implement-issue:** guard git writes against a branch switched under the task ([#26](https://github.com/phmatray/ai-migration-kit/issues/26)) ([#30](https://github.com/phmatray/ai-migration-kit/issues/30)) ([ec53b99](https://github.com/phmatray/ai-migration-kit/commit/ec53b99ffdd59118bd1ec35171a3f0762e30756f))
+* **implement-issue:** guard the merge in the shared main-sync ([#41](https://github.com/phmatray/ai-migration-kit/issues/41)) ([#59](https://github.com/phmatray/ai-migration-kit/issues/59)) ([9e0dc81](https://github.com/phmatray/ai-migration-kit/commit/9e0dc81f1559083c248082b31ef1a2b3c106e45c))
+* **legacy-upgrade:** gate the xunit v2 to v3 move as an explicit phase-5 decision ([#12](https://github.com/phmatray/ai-migration-kit/issues/12)) ([#13](https://github.com/phmatray/ai-migration-kit/issues/13)) ([3269749](https://github.com/phmatray/ai-migration-kit/commit/326974934f47cabbac29f9eec72eba378b78dd50))
+* **merge-pr:** triage follow-ups by root cause instead of filing every finding ([#108](https://github.com/phmatray/ai-migration-kit/issues/108)) ([cab02af](https://github.com/phmatray/ai-migration-kit/commit/cab02af9c587fc9ea0a2b779639eeef6f2cd8bf1))
+* **renovate:** track the xunit.v3 and coverage pins in apply-transform.py ([#36](https://github.com/phmatray/ai-migration-kit/issues/36)) ([#54](https://github.com/phmatray/ai-migration-kit/issues/54)) ([b7babb7](https://github.com/phmatray/ai-migration-kit/commit/b7babb74ef3776dfcc69f84e57b3e66dd319f864))
+* **report:** aggregate several cobertura reports, or a whole coverage/ directory ([87caeba](https://github.com/phmatray/ai-migration-kit/commit/87caeba772a997a7b36d57748682185785996b06))
+* **templates:** ship the bundle-drift gate as if-gated live steps ([#70](https://github.com/phmatray/ai-migration-kit/issues/70)) ([#87](https://github.com/phmatray/ai-migration-kit/issues/87)) ([a4a0127](https://github.com/phmatray/ai-migration-kit/commit/a4a0127a60c795b6bcf8b0fe32a612224937b803))
+* **xunit-v3:** enforce the MTP/coverage version pairing ([#18](https://github.com/phmatray/ai-migration-kit/issues/18)) ([#22](https://github.com/phmatray/ai-migration-kit/issues/22)) ([d0316a3](https://github.com/phmatray/ai-migration-kit/commit/d0316a30e02da2c7ce868ce8c7c9db7274e7fbdd))
+* **xunit-v3:** model the whole Microsoft.Testing family in the pairing map ([#38](https://github.com/phmatray/ai-migration-kit/issues/38)) ([#53](https://github.com/phmatray/ai-migration-kit/issues/53)) ([3798ed0](https://github.com/phmatray/ai-migration-kit/commit/3798ed04c44538ea155bb512cff26c0eb3c623c3))
+
+
+### Bug Fixes
+
+* **audit:** one traversal rule for every inventory key ([#65](https://github.com/phmatray/ai-migration-kit/issues/65)) ([#80](https://github.com/phmatray/ai-migration-kit/issues/80)) ([0f03818](https://github.com/phmatray/ai-migration-kit/commit/0f03818fc3d4ff7f21e34373620de03e8a347dbb))
+* **guarded-push:** parse ls-remote stdout, not the warning on stderr ([#47](https://github.com/phmatray/ai-migration-kit/issues/47)) ([#88](https://github.com/phmatray/ai-migration-kit/issues/88)) ([79d63e0](https://github.com/phmatray/ai-migration-kit/commit/79d63e007a231670b9a5e74388b8fffc9c7b9bd5))
+* **implement-issue:** fold the merge guard into the shared branch assertion ([#44](https://github.com/phmatray/ai-migration-kit/issues/44)) ([#84](https://github.com/phmatray/ai-migration-kit/issues/84)) ([3b452ad](https://github.com/phmatray/ai-migration-kit/commit/3b452ad87485f7674bbcb2c763137c01fcc1a318))
+* **implement-issue:** give the branch assertion a single home ([#44](https://github.com/phmatray/ai-migration-kit/issues/44)) ([#62](https://github.com/phmatray/ai-migration-kit/issues/62)) ([27a8c73](https://github.com/phmatray/ai-migration-kit/commit/27a8c73f109482ab3f40dd509fbf6430765dcf1c))
+* **renovate:** block the frozen fixture without hiding it from vulnerability alerts ([#40](https://github.com/phmatray/ai-migration-kit/issues/40)) ([7573da1](https://github.com/phmatray/ai-migration-kit/commit/7573da168db1305540315158ebdc11019a0e3101))
+* **report:** make the coverage path in the template actually resolve ([#49](https://github.com/phmatray/ai-migration-kit/issues/49)) ([#95](https://github.com/phmatray/ai-migration-kit/issues/95)) ([ae83344](https://github.com/phmatray/ai-migration-kit/commit/ae833443bf886885f8d834a6023010cea63b1c57))
+* **skills:** drop the per-skill version that release-please does not maintain ([#16](https://github.com/phmatray/ai-migration-kit/issues/16)) ([#20](https://github.com/phmatray/ai-migration-kit/issues/20)) ([320971e](https://github.com/phmatray/ai-migration-kit/commit/320971e55d8f40955c3ef8faf2dd108d5a898c6a))
+* **skills:** stage only the merge resolution when completing a sync ([#68](https://github.com/phmatray/ai-migration-kit/issues/68)) ([#75](https://github.com/phmatray/ai-migration-kit/issues/75)) ([3dd0d70](https://github.com/phmatray/ai-migration-kit/commit/3dd0d70af511c262ae495fc3efbe7d03c21b2c28))
+* **skills:** verify the worktree home is ignored before creating one ([#71](https://github.com/phmatray/ai-migration-kit/issues/71)) ([#77](https://github.com/phmatray/ai-migration-kit/issues/77)) ([564fbab](https://github.com/phmatray/ai-migration-kit/commit/564fbabc2f086654b62b708964d23623299157b8))
+* **templates:** collect the MTP log that explains a coverage failure ([#74](https://github.com/phmatray/ai-migration-kit/issues/74)) ([#81](https://github.com/phmatray/ai-migration-kit/issues/81)) ([633750a](https://github.com/phmatray/ai-migration-kit/commit/633750a722e43d299071df98f365482a0fbc3ede))
+* **templates:** emit one cobertura per test project under MTP ([#17](https://github.com/phmatray/ai-migration-kit/issues/17)) ([#23](https://github.com/phmatray/ai-migration-kit/issues/23)) ([87caeba](https://github.com/phmatray/ai-migration-kit/commit/87caeba772a997a7b36d57748682185785996b06))
+* **templates:** keep cobertura coverage produced under the MTP test platform ([3269749](https://github.com/phmatray/ai-migration-kit/commit/326974934f47cabbac29f9eec72eba378b78dd50))
+* **templates:** manage and un-stale the workflow templates the kit ships ([#35](https://github.com/phmatray/ai-migration-kit/issues/35)) ([#46](https://github.com/phmatray/ai-migration-kit/issues/46)) ([54b5fbe](https://github.com/phmatray/ai-migration-kit/commit/54b5fbe294c5dde7e6bf734b59f8b3f09ec673f4))
+* **tests:** stop a SIGPIPE'd find from skipping the checks it feeds ([#48](https://github.com/phmatray/ai-migration-kit/issues/48)) ([#89](https://github.com/phmatray/ai-migration-kit/issues/89)) ([640c267](https://github.com/phmatray/ai-migration-kit/commit/640c26781057bd53904a29008387d0d9b39a6bc9))
+* **xunit-v3:** assert what Renovate does with the config, not what it says ([#67](https://github.com/phmatray/ai-migration-kit/issues/67)) ([#76](https://github.com/phmatray/ai-migration-kit/issues/76)) ([b0e0777](https://github.com/phmatray/ai-migration-kit/commit/b0e0777ea86c5414491cd9e8b5df7b8aa5dc64e9))
+* **xunit-v3:** derive the coverage literals and pin the reference to the transform ([#69](https://github.com/phmatray/ai-migration-kit/issues/69)) ([#85](https://github.com/phmatray/ai-migration-kit/issues/85)) ([a321d72](https://github.com/phmatray/ai-migration-kit/commit/a321d72603df4ba3812c3a2bd4de66b73f09787c))
+
 ## [1.9.1] — 2026-08-10
 
 Correctif de **propagation**, entré sur `main` par la PR #7 sans tag ni entrée de changelog — les

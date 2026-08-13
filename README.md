@@ -81,6 +81,52 @@ reads and verifies. In short: [Claude Code](https://code.claude.com) with **Rose
 (`claude mcp list` should show `roseline`), a .NET SDK (latest LTS recommended), git, python3 — and
 the target application in a git repository.
 
+### RoselineMCP is shipped *and* enforced
+
+You do not need to `claude mcp add roseline` — the kit ships the server itself in
+[`.mcp.json`](.mcp.json) (`dnx RoselineMCP --yes`), so installing the plugin installs the dependency.
+
+> `dnx` ships with the **.NET 10 SDK**. The pipeline itself only needs `dotnet >= 8`, so on a
+> .NET 8/9-only host the server will not launch — install the .NET 10 SDK, or set
+> `ROSELINE_GATE=off` (below) so the gate does not hold you to a server you cannot start.
+
+It also **enforces** it. Preflight only ever proved roseline was *connected*; nothing made it
+*used*, and in practice `Read`/`Grep` on a `.cs` file stayed the path of least resistance. So
+[`hooks/roseline-gate.sh`](hooks/roseline-gate.sh) runs as a `PreToolUse` hook and **denies** `Read`
+on a C# file, naming the roseline tool that replaces it (`search_symbols`, `get_symbol_info`,
+`find_references`, …). An advisory reminder was tried first and does not work — the reminder arrives
+together with the file content, so the model has already been paid by the time the advice lands.
+
+Three properties keep that safe to have switched on:
+
+- **Inert outside C# projects.** The gate walks *up* from the file looking for a
+  `*.sln`/`*.slnx`/`*.csproj`, and no-ops when it finds none — so a globally-installed plugin never
+  blocks reads in a repo that has no roseline.
+- **A one-shot escape.** Issuing the *identical* `Read` again straight away is allowed through. It
+  is consumed rather than latched (a third read denies again) and it expires, so a marker left
+  behind by a deny you complied with cannot silently open the file hours later.
+- **Fails open, always.** No `jq`, an unparseable payload, an unwritable `TMPDIR`, any internal
+  error — the gate exits silently and the `Read` proceeds. It never fails closed.
+
+`Grep` is deliberately left alone: roseline replaces whole-file reads, but `search_symbols` finds
+*symbols*, and grepping a string literal or a comment in `.cs` is a real need it cannot serve.
+
+**Editing a C# file.** `Edit` refuses a file the conversation has not `Read`, and roseline's
+`edit_member`/`rename_symbol` cover member bodies and renames but not `using` directives,
+file-scoped namespace conversion, attributes above a type, or top-level statements. For those, take
+the escape: the denied `Read`, then the identical `Read` again, then `Edit`. The deny message says
+so.
+
+**To turn the gate off**, set `ROSELINE_GATE=off` in your environment (also `0`, `false`, `no`,
+`disabled`). There is no `Read` matcher to remove from your own settings — the hook is supplied by
+the plugin in [`hooks/hooks.json`](hooks/hooks.json), so the other levers are uninstalling the
+plugin or Claude Code's global `disableAllHooks`.
+
+> **Permission prompts are a separate concern.** A Claude Code plugin cannot ship `permissions`
+> allow rules — only a settings file can. So if roseline's tool calls prompt you for Accept/Deny,
+> add them to your own `~/.claude/settings.json` (or an org `managed-settings.json`) as **per-tool**
+> entries, e.g. `mcp__roseline__search_symbols`. That is outside what this plugin can do for you.
+
 ## Install
 
 ```bash
@@ -126,7 +172,7 @@ The kit also ships four generic GitHub workflow skills — usable on any repo, n
 |---|---|
 | `create-issue` | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
 | `implement-issue` | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
-| `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, file follow-ups, tear down. |
+| `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
 | `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the three skills above consume. Run once per repo, commit the profile. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,

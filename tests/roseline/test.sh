@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# Golden test for the roseline integration — the shipped MCP server config and the PreToolUse gate.
+#
+# Written fail-path-first (like tests/worktrees-ignored/test.sh): a gate whose PASS path is the
+# only one exercised proves nothing. Every case drives the real script over a synthetic hook
+# payload, because that payload is the gate's entire input contract.
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+
+KIT="$PWD"
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT"
+WORK=$(kit_scratch)
+
+# The gate's one-shot escape keys off marker files under $TMPDIR. Point TMPDIR at the scratch so
+# every run starts with none: with the real TMPDIR they survive between runs, and the *second* run
+# of this suite would find Foo.cs already marked and watch "first read is denied" pass instead —
+# a suite that goes green off a stale file from the run before. Scratch is wiped by kit_cleanup.
+export TMPDIR="$WORK"
+
+# ------------------------------------------------------------------ 1. the shipped server config
+MCP="$KIT/.mcp.json"
+[ -f "$MCP" ] || { echo "FAIL: $MCP missing"; exit 1; }
+jq -e . "$MCP" >/dev/null 2>&1 || { echo "FAIL: .mcp.json is not valid JSON"; exit 1; }
+
+got=$(jq -r '.mcpServers.roseline | "\(.type)|\(.command)|\(.args | join(","))"' "$MCP")
+want='stdio|dnx|RoselineMCP,--yes'
+[ "$got" = "$want" ] || { echo "FAIL: .mcp.json roseline entry is '$got', want '$want'"; exit 1; }
+echo "ok: .mcp.json ships roseline as $want"
+
+# ------------------------------------------------------------------------------- 2. the gate
+GATE="$KIT/hooks/roseline-gate.sh"
+[ -x "$GATE" ] || { echo "FAIL: $GATE missing or not executable"; exit 1; }
+
+# find -print -quit is load-bearing in the gate's project detection; #48 is why this is asserted.
+kit_require_find_quit
+
+# Scratch repos. mktemp -d, NOT a counter: `n=$((n+1))` inside a $(...) helper increments a
+# subshell's copy and the caller's stays 0, so every "fresh" repo would be the same directory —
+# the trap tests/_lib.sh:65-70 documents, and one this suite tripped over before review caught it.
+csharp_repo() { local d; d=$(mktemp -d "$WORK/cs.XXXXXX"); : > "$d/App.csproj"; printf '%s' "$d"; }
+plain_repo()  { local d; d=$(mktemp -d "$WORK/plain.XXXXXX"); : > "$d/README.md"; printf '%s' "$d"; }
+# root/src/Company.Product/Api/Api.csproj — a mainstream layout that sits at depth 4, so a
+# downward `find -maxdepth 3` from the repo root never sees it and the gate goes silently off.
+nested_repo() {
+  local d; d=$(mktemp -d "$WORK/nest.XXXXXX")
+  mkdir -p "$d/src/Company.Product/Api"
+  : > "$d/src/Company.Product/Api/Api.csproj"
+  printf '%s' "$d"
+}
+
+# Drives the gate with a synthetic payload. Asserts the exit status, the decision, and — when
+# denying — the reason.
+# $1 name  $2 expected decision ("deny" or "pass")  $3 substring the reason must contain  $4 payload
+verdict() {
+  local name="$1" want="$2" want_msg="$3" payload="$4" out decision rc=0
+  out=$(printf '%s' "$payload" | bash "$GATE" 2>/dev/null) || rc=$?
+  # Exit status is half the PreToolUse contract — exit 2 blocks the tool regardless of stdout. If
+  # we only scored stdout, a regression that turned a fail-open path into `exit 2` would be
+  # reported here as "pass" while blocking every Read in production.
+  [ "$rc" -eq 0 ] || { echo "FAIL [$name]: gate exited $rc; its contract is always exit 0"; exit 1; }
+  if [ -z "$out" ]; then decision="pass"; else
+    decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "malformed"' 2>/dev/null || echo malformed)
+  fi
+  if [ "$decision" != "$want" ]; then
+    echo "FAIL [$name]: expected $want, got $decision"; echo "$out"; exit 1
+  fi
+  if [ -n "$want_msg" ]; then
+    printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' \
+      | grep -qF "$want_msg" || { echo "FAIL [$name]: reason lacks '$want_msg'"; echo "$out"; exit 1; }
+  fi
+  echo "ok: $name -> $decision"
+}
+
+pay() { # $1 tool  $2 file_path  $3 cwd  $4 session
+  jq -nc --arg t "$1" --arg f "$2" --arg c "$3" --arg s "$4" \
+    '{session_id:$s, cwd:$c, tool_name:$t, tool_input:{file_path:$f}}'
+}
+
+# The marker path the gate will use, so the staleness case can age it.
+marker_for() { # $1 file_path  $2 session
+  local k
+  k=$(printf '%s' "$1" | md5 -q 2>/dev/null || printf '%s' "$1" | md5sum 2>/dev/null | cut -d' ' -f1)
+  [ -n "$k" ] || k=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | tail -c 120)
+  printf '%s/roseline-gate-%s-%s' "$TMPDIR" "$(printf '%s' "$2" | tr -c 'A-Za-z0-9._-' '_')" "$k"
+}
+
+CS=$(csharp_repo); PL=$(plain_repo); NEST=$(nested_repo)
+[ "$CS" != "$PL" ] || { echo "FAIL: fixture helpers returned the same directory"; exit 1; }
+
+verdict "first .cs read in a C# repo"  deny "search_symbols" "$(pay Read "$CS/Foo.cs"    "$CS" s1)"
+verdict "csproj is not C# source"      pass ""               "$(pay Read "$CS/A.csproj"  "$CS" s1)"
+verdict "razor markup"                 pass ""               "$(pay Read "$CS/X.razor"   "$CS" s1)"
+verdict "markdown"                     pass ""               "$(pay Read "$CS/README.md" "$CS" s1)"
+verdict "no C# project discoverable"   pass ""               "$(pay Read "$PL/Foo.cs"    "$PL" s1)"
+verdict "a tool other than Read"       pass ""               "$(pay Grep "$CS/Foo.cs"    "$CS" s1)"
+verdict "NotebookRead is not Read"     pass ""               "$(pay NotebookRead "$CS/Foo.cs" "$CS" s1)"
+verdict "malformed payload fails open" pass ""               'not json at all'
+
+# The detection must walk UP from the file, not down from cwd: this project file is at depth 4.
+verdict "nested project at depth 4 is gated" deny "search_symbols" \
+  "$(pay Read "$NEST/src/Company.Product/Api/Foo.cs" "$NEST" s1)"
+
+# ------------------------------------------------------- 3. the one-shot "I really need it" escape
+ESC=$(csharp_repo)
+P=$(pay Read "$ESC/Bar.cs" "$ESC" escape-session)
+verdict "first read is denied"          deny "search_symbols" "$P"
+verdict "identical retry passes"        pass ""               "$P"
+verdict "third read denies again"       deny "search_symbols" "$P"
+
+# The escape is per-file, not per-session: a different file is still denied after one was let through.
+Q=$(pay Read "$ESC/Baz.cs" "$ESC" escape-session)
+verdict "a different file is denied"    deny "search_symbols" "$Q"
+
+# ...and per-session, not global: the same file under another session id is denied on ITS first read.
+S=$(pay Read "$ESC/Bar.cs" "$ESC" other-session)
+verdict "another session is denied"     deny "search_symbols" "$S"
+
+# A marker only ever gets cleared by the retry that consumes it, so the common path — model
+# complies, uses roseline, never retries — leaves one behind. It must NOT still open the gate
+# later: session ids survive --continue/--resume, so "one-shot" would silently become "latched".
+TTL=$(csharp_repo)
+TP=$(pay Read "$TTL/Old.cs" "$TTL" ttl-session)
+verdict "first read arms the marker"    deny "search_symbols" "$TP"
+mk=$(marker_for "$TTL/Old.cs" ttl-session)
+[ -f "$mk" ] || { echo "FAIL: expected a marker at $mk"; exit 1; }
+touch -t 202001010000 "$mk"
+verdict "a stale marker does not open the gate" deny "search_symbols" "$TP"
+
+# The documented off-switch has to actually exist.
+out=$(printf '%s' "$(pay Read "$CS/Kill.cs" "$CS" ks)" | ROSELINE_GATE=off bash "$GATE" 2>/dev/null || true)
+[ -z "$out" ] || { echo "FAIL: ROSELINE_GATE=off did not disable the gate"; exit 1; }
+echo "ok: ROSELINE_GATE=off disables the gate"
+
+# --------------------------------------------------------------------- 4. the hook registration
+HJ="$KIT/hooks/hooks.json"
+[ -f "$HJ" ] || { echo "FAIL: $HJ missing"; exit 1; }
+jq -e . "$HJ" >/dev/null 2>&1 || { echo "FAIL: hooks.json is not valid JSON"; exit 1; }
+
+got=$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Read") | .hooks[0].command' "$HJ")
+case "$got" in
+  *'${CLAUDE_PLUGIN_ROOT}'*roseline-gate.sh) echo "ok: hooks.json wires Read -> $got" ;;
+  *) echo "FAIL: Read matcher command is '$got'; must reference \${CLAUDE_PLUGIN_ROOT}/hooks/roseline-gate.sh"; exit 1 ;;
+esac
+
+# The path in hooks.json must name a file that actually ships — a typo here is a hook that never
+# fires, and a hook that never fires looks exactly like a hook that found nothing to block.
+resolved="${got/\$\{CLAUDE_PLUGIN_ROOT\}/$KIT}"
+[ -x "$resolved" ] || { echo "FAIL: hooks.json points at '$resolved', which is not an executable file"; exit 1; }
+echo "ok: the registered command resolves to a shipped executable"
+
+# ------------------------------------------------- 5. requirements.json stays the source of truth
+REQ="$KIT/requirements.json"
+hint=$(jq -r '.mcps[] | select(.match=="roseline") | .hint' "$REQ")
+printf '%s' "$hint" | grep -qF 'shipped by this plugin' \
+  || { echo "FAIL: roseline hint still tells the user to install it by hand: '$hint'"; exit 1; }
+echo "ok: requirements.json records that roseline ships with the plugin"
+
+# jq is a hard dependency of the gate: without it the hook exits at line 1 and enforcement is
+# silently off while preflight still reports roseline connected. It has to be declared.
+jq -e '.tools[] | select(.name | test("jq"))' "$REQ" >/dev/null \
+  || { echo "FAIL: requirements.json does not declare jq, which hooks/roseline-gate.sh requires"; exit 1; }
+echo "ok: requirements.json declares jq"
+
+grep -qF 'roseline-gate' "$KIT/README.md" \
+  || { echo "FAIL: README does not document the roseline gate"; exit 1; }
+grep -qF 'managed-settings.json' "$KIT/README.md" \
+  || { echo "FAIL: README does not say where permission rules must live instead"; exit 1; }
+grep -qF 'ROSELINE_GATE=off' "$KIT/README.md" \
+  || { echo "FAIL: README does not document the real off-switch"; exit 1; }
+echo "ok: README documents the gate, the off-switch and the out-of-scope permission rules"
+
+echo "roseline golden test OK"
