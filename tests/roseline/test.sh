@@ -90,4 +90,21 @@ verdict "a different file is denied"    deny "search_symbols" "$Q"
 S=$(pay Read "$ESC/Bar.cs" "$ESC" other-session)
 verdict "another session is denied"     deny "search_symbols" "$S"
 
+# --------------------------------------------------------------------- 4. the hook registration
+HJ="$KIT/hooks/hooks.json"
+[ -f "$HJ" ] || { echo "FAIL: $HJ missing"; exit 1; }
+jq -e . "$HJ" >/dev/null 2>&1 || { echo "FAIL: hooks.json is not valid JSON"; exit 1; }
+
+got=$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Read") | .hooks[0].command' "$HJ")
+case "$got" in
+  *'${CLAUDE_PLUGIN_ROOT}'*roseline-gate.sh) echo "ok: hooks.json wires Read -> $got" ;;
+  *) echo "FAIL: Read matcher command is '$got'; must reference \${CLAUDE_PLUGIN_ROOT}/hooks/roseline-gate.sh"; exit 1 ;;
+esac
+
+# The path in hooks.json must name a file that actually ships — a typo here is a hook that never
+# fires, and a hook that never fires looks exactly like a hook that found nothing to block.
+resolved="${got/\$\{CLAUDE_PLUGIN_ROOT\}/$KIT}"
+[ -x "$resolved" ] || { echo "FAIL: hooks.json points at '$resolved', which is not an executable file"; exit 1; }
+echo "ok: the registered command resolves to a shipped executable"
+
 echo "roseline golden test OK"
