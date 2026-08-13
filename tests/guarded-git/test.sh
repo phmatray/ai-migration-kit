@@ -654,6 +654,61 @@ run push-head-moved "$PUSH" -C "$R" a
 grep -qi 'HEAD moved' "$OUT" || fail push-head-moved "the alert must say HEAD moved"
 echo "  ok: push-head-moved — re-asserts HEAD after pushing; no certificate for an unmade push"
 
+# ------------------------------------------------- 18b. …and the ALERT must not print a non-sha
+#
+# The same path as case 18, one line further in. The re-assert reads HEAD's sha for the message,
+# and it read it with `git rev-parse HEAD 2>/dev/null || true` — the one spelling
+# _assert-branch.sh:115-121 documents as unsafe, in the sibling that `.`-loads that very file. On
+# an unborn branch `git rev-parse HEAD` prints the literal string "HEAD" ON STDOUT and exits 128,
+# so `|| true` swallows the status and the ALERT renders `HEAD is now  wip @ HEAD`. That reads
+# like a sha the operator can go look up, printed at the exact moment they are deciding whether
+# their work reached the remote. There is no such commit.
+#
+# The VERDICT was never wrong: `head_sha` comes from the safe form and so can never equal the
+# string "HEAD", the comparison still fails, and the guard still exits 4. A misleading diagnostic
+# and not a wrong exit code is precisely what an exit-code assertion cannot see — which is why
+# this case asserts the MESSAGE, and why the defect survived the refactor that created the shared
+# helper. Case 31's unborn coverage does not reach here either: it exercises the PRE-FLIGHT
+# refusal, which fires before the push and therefore before this line exists to be wrong.
+
+R=$(new_repo_with_origin push-head-unborn)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work on a"
+git -C "$R" push -q origin a                     # origin/a already equals HEAD, so the push is a no-op…
+head_sha=$(git -C "$R" rev-parse HEAD)
+# …and the hook fires anyway, leaving HEAD on a branch that has no commit. `--orphan` rather than
+# case 18's `symbolic-ref` because the point here is an UNREADABLE HEAD, not merely a moved one.
+printf '#!/bin/sh\ngit checkout --orphan wip\n' > "$R/.git/hooks/pre-push"
+chmod +x "$R/.git/hooks/pre-push"
+
+run push-head-unborn "$PUSH" -C "$R" a
+
+# The fixture, before the verdict: a `--orphan` that quietly failed would leave HEAD on `a` with a
+# perfectly readable sha, the re-assert would agree with itself, and every assertion below would
+# pass while testing nothing. An emptiness test is only a test if the empty case can be empty.
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = wip ] \
+  || fail push-head-unborn "fixture broken: the pre-push hook did not move HEAD to an orphan branch"
+[ -z "$(git -C "$R" rev-parse --verify --quiet HEAD || true)" ] \
+  || fail push-head-unborn "fixture broken: HEAD is not unborn, so the unsafe read is never exercised"
+[ "$(remote_tip push-head-unborn a)" = "$head_sha" ] \
+  || fail push-head-unborn "fixture broken: the push itself should have succeeded"
+
+[ "$RC" -eq 4 ] || fail push-head-unborn "expected exit 4 when HEAD moved mid-push, got $RC"
+grep -qi 'HEAD moved' "$OUT" || fail push-head-unborn "the alert must say HEAD moved"
+
+# The sha FIELD of the "HEAD is now" line, and only that field: a fixture that makes HEAD unborn
+# also changes the branch, so the line legitimately carries the word HEAD elsewhere (#92).
+now_line=$(grep 'HEAD is now' "$OUT" || true)
+[ -n "$now_line" ] || fail push-head-unborn "the ALERT must name where HEAD ended up"
+case "$now_line" in
+  *"@ HEAD"*) fail push-head-unborn "the ALERT rendered the literal string HEAD as a sha: $now_line" ;;
+esac
+case "$now_line" in
+  *"@ <unreadable>"*) : ;;
+  *) fail push-head-unborn "an unreadable HEAD must be rendered explicitly, got: $now_line" ;;
+esac
+echo "  ok: push-head-unborn — an unreadable post-push HEAD is reported as such, never as a sha"
+
 # ---------------------------------------------------------------- 16. foreign working directory
 
 R=$(new_repo_with_origin push-foreign)
