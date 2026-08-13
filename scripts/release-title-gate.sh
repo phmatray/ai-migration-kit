@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# release-title-gate.sh — a PR that changes skills/** must carry a PR title release-please
-# will actually release.
+# release-title-gate.sh — a PR that changes SHIPPED PLUGIN CONTENT must carry a PR title
+# release-please will actually release.
+#
+# "Shipped" is defined by exclusion, in the NON_SHIPPED list below: everything in this repo is
+# plugin content except the development-only paths named there. The gate originally asked the
+# narrower question "does this touch skills/**" (#27), but a consumer installs a whole-repo checkout
+# of the tagged commit and plugin.json declares no file allowlist, so scripts/, commands/,
+# templates/, hooks/ and requirements.json reach them just as directly. #55 widened the predicate to
+# match the invariant the header had claimed all along.
 #
 # Why this exists (#27). Consumers load an install-time cache keyed by plugin version, not a live
-# view of this repo (#6), so a skills fix that ships without a release reaches nobody while CI is
+# view of this repo (#6), so a fix that ships without a release reaches nobody while CI is
 # green and `main` looks correct. #7 enforced that with a per-PR version bump; #14 retired it when
 # release-please was installed, correctly — release-please inverts the rule, feature PRs never
 # bump, the release PR does. The replacement guarantee is "every merged fix lands in the next
@@ -19,8 +26,8 @@
 #   release-title-gate.sh <pr-title> <changed-file…>
 #
 # Exit codes:
-#   0  pass — either no changed path is under skills/**, or the title is releasable
-#   1  refuse — the title would land a skills change that cuts no release
+#   0  pass — either every changed path is non-shipped, or the title is releasable
+#   1  refuse — the title would land a change to shipped content that cuts no release
 #   2  usage / plumbing error — the caller did not supply what the gate needs to decide
 #
 # Takes everything as arguments and reads no files, so it runs from any working directory and
@@ -88,6 +95,10 @@ NON_SHIPPED="docs/ tests/ evals/ reviews/ samples/ .github/ .claude/
              CHANGELOG.md README.md ARCHITECTURE.md
              .release-please-manifest.json .claude-plugin/plugin.json"
 
+# The same list on one line, for the refusal message — the source layout above is for reading, and
+# its indentation would otherwise show up verbatim in the error a contributor sees.
+NON_SHIPPED_ONELINE=$(printf '%s' "$NON_SHIPPED" | tr -s '[:space:]' ' ')
+
 # True (0) when the path is shipped plugin content, i.e. NOT excluded above. Unknown paths are
 # shipped — that is the fail-closed direction.
 is_shipped() {
@@ -125,11 +136,11 @@ fi
 
 TITLE="$1"; shift
 
-# Zero paths is a broken caller, not an empty diff — refuse rather than silently conclude that
-# skills/** is untouched. A diff step that produces nothing is the class of hole this gate exists
-# to close, so it must not read as "not applicable".
+# Zero paths is a broken caller, not an empty diff — refuse rather than silently conclude that no
+# shipped content is touched. A diff step that produces nothing is the class of hole this gate
+# exists to close, so it must not read as "not applicable".
 [ $# -ge 1 ] || {
-  printf 'release-title-gate: no changed paths supplied — cannot tell whether skills/** is touched.\n' >&2
+  printf 'release-title-gate: no changed paths supplied — cannot tell whether shipped content is touched.\n' >&2
   printf '  The caller (CI) must pass the merge-base diff; an empty list is a plumbing failure.\n' >&2
   exit 2
 }
@@ -149,7 +160,7 @@ fi
 # --------------------------------------------------------------------- 2. parse the title
 # Conventional Commits header: <type>[(scope)][!]: <description>
 if [[ ! "$TITLE" =~ ^([A-Za-z]+)(\([^()]+\))?(!)?:\ +(.+)$ ]]; then
-  die "this PR changes skills/**, and its title is not a Conventional Commits header.
+  die "this PR changes shipped plugin content, and its title is not a Conventional Commits header.
 
   title:    $TITLE
   required: <type>[(scope)][!]: <description>   e.g. fix(merge-pr): stop dropping the follow-up list
@@ -184,13 +195,18 @@ case " $RELEASABLE_TYPES " in
     ;;
 esac
 
-die "this PR changes skills/**, but the type '$type' is not in the releasable set.
+die "this PR changes shipped plugin content, but the type '$type' is not in the releasable set.
 
   title: $TITLE
 
-  Consumers install a version-keyed cache of this plugin (#6), so a skills change only reaches
-  them once release-please cuts a release — and this repo squash-merges, so the PR title above is
-  the commit that release-please will read on main. A '$type:' commit cuts none: the change would
-  sit on main, released later by some unrelated feat/fix, silently backdated into its notes.
+  Consumers install a version-keyed cache of this plugin (#6) — a whole-repo checkout of the
+  tagged commit — so a change to anything they run only reaches them once release-please cuts a
+  release. That is not just skills/: scripts/, commands/, templates/, hooks/ and requirements.json
+  are equally install-time (#55). Everything in this repo is shipped except:
+    $NON_SHIPPED_ONELINE
+
+  This repo squash-merges, so the PR title above is the commit release-please will read on main.
+  A '$type:' commit cuts none: the change would sit on main, released later by some unrelated
+  feat/fix, silently backdated into its notes.
 
   Retitle with one of: $RELEASABLE_TYPES — or add '!' if it really is a breaking change."
