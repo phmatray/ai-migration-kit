@@ -33,7 +33,10 @@
 #      that exists but holds no tracked file likewise;
 #   5. as shipped all three are inert, by a condition that is false when the variable is unset —
 #      and nothing outside the gate references the variable;
-#  6-9. the coverage artifact step (pre-existing assertions, unrelated to the bundle gate).
+#  6-9. the coverage artifact step (pre-existing assertions, unrelated to the bundle gate);
+#   10. the coverage guard still reports on what it FOUND when the step runs under
+#       `set -euo pipefail` — the configuration in which the shipped `find … | grep -q .` idiom
+#       inverts and fails the build precisely when coverage WAS produced (#97).
 #
 # Needs PyYAML, which ci.yml installs before every test step.
 set -euo pipefail
@@ -689,5 +692,106 @@ fi
 [ -d "$hyg/coverage" ] && [ -z "$(ls -A "$hyg/coverage")" ] || {
   echo "FAIL: coverage/ was not reset to an empty directory by the prologue"; exit 1; }
 echo "  [9] stale bin/ logs are cleaned before the run; a committed TestResults/ is left alone"
+
+# ---------------------------------------------------------------------------
+# 10. The coverage guard reports on what it FOUND — under `pipefail` too (issue #97).
+#
+#     The shipped guard is the last `find … | grep -q .` in the kit. It is correct today only by
+#     ACCIDENT: GitHub's default step shell is `bash -e {0}`, which has no `pipefail`, so `find`'s
+#     status is discarded and the pipeline reports `grep`'s. Two ordinary edits arm it — adding
+#     `set -euo pipefail` to this step's body, which the sibling step "Tests + couverture" in the
+#     same file ALREADY does, or setting `defaults.run.shell: bash`, which GitHub maps to
+#     `bash -eo pipefail`.
+#
+#     Armed, the guard inverts: `grep -q` exits at the first match, `find` dies on the closed pipe,
+#     `pipefail` promotes that to the pipeline's status, and the NEGATED condition takes its
+#     then-branch — so the step fails with "Aucun rapport de couverture produit" precisely when
+#     coverage WAS produced. In every repo that took the template.
+#
+#     Two things make this case easy to write wrongly, and both are why it is shaped as it is:
+#
+#     * The fixture must OVERRUN the ~64 KiB pipe buffer. With less output `find` finishes writing
+#       before `grep` closes the pipe, never sees EPIPE, and the bug is simply not reachable — the
+#       test would pass against the broken guard and prove nothing. Hence the long path components:
+#       they buy the byte volume without tens of thousands of inodes, and the volume is MEASURED
+#       below rather than assumed.
+#     * The fixture's population is proven by COUNTING files, never by reading an exit status.
+#       Measured while fixing #48, the status is not even the same on both platforms: BSD find is
+#       killed by SIGPIPE (141), GNU find catches EPIPE and returns 1 — and 1 is also what an empty
+#       directory yields, so a status-reading test cannot tell "the bug fired" from "I built no
+#       fixture".
+# ---------------------------------------------------------------------------
+COV_GUARD=$(step_named "Garde — la couverture a bien été produite")
+[ -n "$COV_GUARD" ] || { echo "FAIL: the coverage guard step has an empty run: body"; exit 1; }
+bash -n <<<"$COV_GUARD" 2>/dev/null || {
+  echo "FAIL: the coverage guard body is not valid bash — the slice truncated it:"
+  echo "$COV_GUARD"; exit 1; }
+
+cov="$scratch/pipefail-coverage"
+rm -rf "$cov" && mkdir -p "$cov"
+# Two ~200-char components (well under the 255-byte per-component limit) put each printed path at
+# ~440 bytes, so a few hundred files clear 64 KiB several times over.
+long_a=$(printf 'a%.0s' $(seq 1 200))
+long_b=$(printf 'b%.0s' $(seq 1 200))
+mkdir -p "$cov/coverage/$long_a/$long_b"
+for i in $(seq 1 800); do
+  : > "$cov/coverage/$long_a/$long_b/report-$i.cobertura.xml"
+done
+
+# Measure the fixture the way the guard will see it — relative to the step's working directory,
+# and REDIRECTED TO A FILE so no pipe exists and nothing can SIGPIPE the measurement itself.
+( cd "$cov" && find coverage -name '*.cobertura.xml' ) > "$scratch/cov-listing.txt"
+cov_files=$(wc -l < "$scratch/cov-listing.txt" | tr -d ' ')
+cov_bytes=$(wc -c < "$scratch/cov-listing.txt" | tr -d ' ')
+[ "$cov_files" -gt 0 ] || {
+  echo "FAIL: the fixture holds no *.cobertura.xml — this case would then assert nothing."; exit 1; }
+[ "$cov_bytes" -gt 65536 ] || {
+  echo "FAIL: the fixture prints only $cov_bytes bytes ($cov_files files), which fits in the pipe"
+  echo "      buffer. \`find\` would finish writing before \`grep -q\` closes it, the broken guard"
+  echo "      would never see EPIPE, and this case would pass against the very bug it pins."
+  echo "      Lengthen the path components or add files until this exceeds 65536."; exit 1; }
+
+# The armed configuration, run for real: the step's own body under `set -euo pipefail`.
+if ( cd "$cov" && bash -c "set -euo pipefail
+$COV_GUARD" ) > "$scratch/cov-guard.log" 2>&1; then
+  cov_rc=0
+else
+  cov_rc=$?
+fi
+if grep -q 'Aucun rapport de couverture produit' "$scratch/cov-guard.log"; then
+  echo "FAIL: the coverage guard reported MISSING coverage over $cov_files cobertura reports"
+  echo "      ($cov_bytes bytes of paths). Under \`pipefail\` the \`find … | grep -q .\` idiom"
+  echo "      reports \`find\`'s death on the closed pipe, and the negated condition then takes"
+  echo "      its then-branch on success. Capture the first match instead:"
+  echo "          found=\$(find coverage -name '*.cobertura.xml' -print -quit 2>/dev/null || true)"
+  echo "          if [ -z \"\$found\" ]; then"
+  echo "      Guard output:"
+  sed 's/^/        /' "$scratch/cov-guard.log"
+  exit 1
+fi
+[ "$cov_rc" -eq 0 ] || {
+  echo "FAIL: the coverage guard exited $cov_rc over $cov_files reports — it must succeed when"
+  echo "      coverage was produced. Guard output:"
+  sed 's/^/        /' "$scratch/cov-guard.log"; exit 1; }
+
+# The inverse, under the SAME armed shell: a genuinely empty coverage/ must still FAIL. Section
+# [4e] of tests/xunit-v3/test.sh pins this under the default shell; it is re-pinned here because
+# the `|| true` that makes the fix pipefail-proof is also exactly what could swallow a real
+# emptiness — and because that sibling suite needs the .NET SDK, so this is the copy that runs
+# everywhere.
+rm -rf "$cov/coverage" && mkdir -p "$cov/coverage"
+if ( cd "$cov" && bash -c "set -euo pipefail
+$COV_GUARD" ) > "$scratch/cov-guard-empty.log" 2>&1; then
+  echo "FAIL: the coverage guard ACCEPTED an empty coverage/ — a silent collection failure would"
+  echo "      ship as a green run. Output:"
+  sed 's/^/        /' "$scratch/cov-guard-empty.log"
+  exit 1
+fi
+grep -q 'Aucun rapport de couverture produit' "$scratch/cov-guard-empty.log" || {
+  echo "FAIL: the guard refused an empty coverage/ without saying why — the message is the whole"
+  echo "      point of the step. Output:"
+  sed 's/^/        /' "$scratch/cov-guard-empty.log"; exit 1; }
+echo "  [10] the coverage guard holds under \`set -euo pipefail\` — $cov_files reports"\
+     "($cov_bytes bytes) accepted, empty coverage/ still refused"
 
 echo "ci-dotnet template opt-in bundle gate golden test OK"
