@@ -167,7 +167,7 @@ jobs:
           npx --yes --package "renovate@$RENOVATE_VALIDATOR_VERSION" -- \
             renovate-config-validator --no-global --strict renovate.json
 
-      - name: Renovate config golden test (accepts the real config, rejects an unknown key)
+      - name: Renovate config golden test (accepts the real config; rejects unknown, global-only and unmigrated keys)
         run: ./tests/renovate-config/test.sh
 
       # release-please stamps both files in the same release PR, so a mismatch means someone
