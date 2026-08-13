@@ -249,6 +249,9 @@ jobs:
       - name: Worktrees-ignored golden test (the gate above, driven to red)
         run: ./tests/worktrees-ignored/test.sh
 
+      - name: Roseline golden test (shipped MCP config + the gate, driven to red)
+        run: ./tests/roseline/test.sh
+
       - name: Contrast checker works (pass AND fail paths)
         run: |
           python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
