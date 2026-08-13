@@ -237,4 +237,69 @@ grep -qF 'note:' <<<"$out" \
   && { echo "FAIL [committed-rule]: a tracked .gitignore was flagged as undurable:"; echo "$out"; exit 1; }
 echo "  ok: committed-rule — a tracked rule carries no durability note"
 
+# ------------------------------------------------- the REUSE call site (#86)
+
+# 22. The guard is invoked when a worktree is ABOUT TO BE USED, not only when one is about to be
+#     created (#86) — and reuse is the steady state, not the edge case: implement-issue is
+#     resume-safe by contract and merge-pr calls an existing worktree its "usual case". Cases 11-12
+#     build a worktree and then judge the repo, which is already the reuse shape; what those cases
+#     do not pin down is the argument a REUSE caller has in its hand. At creation time the caller
+#     holds the repository it is creating in. At reuse time it holds `$WORKTREE` — the linked
+#     worktree — and the obvious `rev-parse --show-toplevel` on that answers with the worktree
+#     itself, not the checkout the hazard lives in.
+#
+#     Measured, and it fails OPEN, which is why this is a test and not a comment.
+reuse="$WORK/reuse"
+mkdir -p "$reuse"
+git -C "$reuse" init -q -b main
+git -C "$reuse" config user.email t@example.com
+git -C "$reuse" config user.name "Golden Test"
+printf 'x\n' > "$reuse/tracked.txt"
+printf '.claude/worktrees/\n.worktrees/\n' > "$reuse/.gitignore"
+git -C "$reuse" add -A
+git -C "$reuse" commit -qm base
+git -C "$reuse" worktree add -q .claude/worktrees/feat -b feat
+LINKED="$reuse/.claude/worktrees/feat"
+
+# 22a. A pre-existing worktree in a home that has stopped being ignored — the rule was committed and
+#      a later edit dropped it, so nothing about creation was ever wrong and no creation-time check
+#      would ever run again. Judged at the main checkout root, the guard refuses. This is the state
+#      today; moving the call site must keep it so.
+: > "$reuse/.gitignore"
+rc=0; bash "$KIT/$GUARD" -C "$reuse" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || { echo "FAIL [reuse-main-root]: expected exit 1 for a reused worktree in an unignored home, got $rc"; exit 1; }
+echo "  ok: reuse-main-root — a pre-existing worktree in an unignored home is refused"
+
+# 22b. THE trap the move creates. Point the same guard at the worktree being reused and it answers
+#      0 — the linked checkout still holds the committed .gitignore, so `.claude/worktrees/` is
+#      "ignored" relative to a directory the hazard is not in. The hazard is real: `git add -A` in
+#      the MAIN checkout stages the gitlink, asserted below so this cannot become folklore.
+rc=0; bash "$KIT/$GUARD" -C "$LINKED" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || {
+  echo "FAIL [reuse-wrong-root]: expected the linked worktree to answer 0 (fail-open), got $rc."
+  echo "  If this changed, git stopped resolving the anchored pattern per-directory and the"
+  echo "  main-root recipe in skills/_shared/worktree-ignore-check.md can be simplified."; exit 1; }
+git -C "$reuse" add -A 2>/dev/null
+git -C "$reuse" ls-files -s -- .claude/worktrees/feat | grep -q '^160000 ' || {
+  echo "FAIL [reuse-wrong-root]: the fail-open case is not actually hazardous — control invalid"; exit 1; }
+git -C "$reuse" rm -r -q --cached .claude
+echo "  ok: reuse-wrong-root — judging the reused worktree instead of its checkout fails OPEN"
+
+# 22c. The recipe that closes 22b, and the reason the shared reference spells it out: from anywhere
+#      inside a repo — main checkout or linked worktree — the first `worktree list --porcelain`
+#      entry is the main worktree. Idempotent, so one call serves the created and reused paths
+#      alike, which is the whole point of moving the check to where $WORKTREE is bound.
+#      Compared as PHYSICAL paths: git reports the resolved path, and on macOS the scratch dir
+#      arrives via the /var -> /private/var symlink, so a literal string compare fails on the
+#      symlink rather than on the recipe.
+reuse_phys=$(cd "$reuse" && pwd -P)
+main_root=$(git -C "$LINKED" worktree list --porcelain | head -1 | cut -d' ' -f2-)
+[ "$main_root" = "$reuse_phys" ] || {
+  echo "FAIL [reuse-main-root-recipe]: expected '$reuse_phys', got '$main_root'"; exit 1; }
+[ "$(git -C "$reuse" worktree list --porcelain | head -1 | cut -d' ' -f2-)" = "$reuse_phys" ] || {
+  echo "FAIL [reuse-main-root-recipe]: the recipe is not idempotent from the main checkout"; exit 1; }
+rc=0; bash "$KIT/$GUARD" -C "$main_root" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || { echo "FAIL [reuse-main-root-recipe]: the recipe's root did not reproduce the refusal, got $rc"; exit 1; }
+echo "  ok: reuse-main-root-recipe — worktree list --porcelain yields the checkout the hazard is in"
+
 echo "worktrees-ignored golden test OK"

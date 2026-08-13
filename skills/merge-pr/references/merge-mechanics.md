@@ -42,31 +42,50 @@ git worktree list --porcelain \
   | grep -E " ${HEAD_BRANCH}$"
 ```
 
-If a worktree is found, `cd` to its path and `git pull --ff-only` so it's current. If not, and Step 4
+If a worktree is found, record its path and `git pull --ff-only` so it's current. If not, and Step 4
 shows corrections are needed, create one tracking the remote branch (prefer
 `superpowers:using-git-worktrees`; this is the manual fallback):
 
 ```bash
-git fetch origin "$HEAD_BRANCH"
+# Found: the path column of the matching line above.
+WORKTREE=<absolute path of the matched worktree>
+git -C "$WORKTREE" pull --ff-only
 
-# Establish the precondition BEFORE creating anything, and BRANCH ON IT — the guard's refusal has to
-# stop the next line, or it is decoration. `<kit>` is the kit root (holds skills/ and scripts/),
-# resolved when the skill loads; the guard judges the repo at -C, so an installed plugin works.
-# -C takes the worktree ROOT: `.claude/worktrees/` is an anchored pattern, so a subdirectory would
-# make a correctly configured repo answer "NOT ignored".
-REPO_ROOT=$(git rev-parse --show-toplevel)
+# Or created:
+git fetch origin "$HEAD_BRANCH"
+WORKTREE="$(git rev-parse --show-toplevel)/.claude/worktrees/merge-$PR"
+git worktree add "$WORKTREE" "$HEAD_BRANCH"    # checks out the existing branch (tracks origin/$HEAD_BRANCH)
+```
+
+Then — on **both** branches of the above, the found one and the created one — establish the
+precondition before anything writes, and BRANCH ON IT; the guard's refusal has to stop the next step,
+or it is decoration:
+
+```bash
+# `<kit>` is the kit root (holds skills/ and scripts/), resolved when the skill loads; the guard
+# judges the repo at -C, so an installed plugin works.
+#
+# -C takes the MAIN CHECKOUT root. `.claude/worktrees/` is an anchored pattern, so a subdirectory
+# makes a correctly configured repo answer "NOT ignored" — and a linked worktree, which is what
+# $WORKTREE holds on the reuse path, is its own toplevel and answers for the wrong directory
+# entirely (it fails OPEN — see the shared reference). `worktree list --porcelain` prints the main
+# worktree first from anywhere, so one line serves both branches.
+REPO_ROOT=$(git -C "$WORKTREE" worktree list --porcelain | head -1 | cut -d' ' -f2-)
 rc=0; <kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT" || rc=$?
 case "$rc" in
   0|2) : ;;                                    # 2 = ignored but over-broad: no worktree hazard, proceed
-  *)   echo "worktree home not verified (exit $rc) — not creating one"; exit 1 ;;
+  *)   echo "worktree home not verified (exit $rc) — not working in it"; exit 1 ;;
 esac
-
-WT=".claude/worktrees/merge-$PR"               # ignored — asserted just above, not assumed
-git worktree add "$WT" "$HEAD_BRANCH"          # checks out the existing branch (tracks origin/$HEAD_BRANCH)
-cd "$WT"
 ```
 
-**Why the check comes first.** `.claude/worktrees/` is this kit's convention, and a convention is not
+**Why the check runs at the point of use, not of creation** (#86). Reuse is this skill's usual case —
+`implement-issue` normally left a worktree behind — so a check wired to `git worktree add` verifies
+only the runs that happen to build one, and never the repo that keeps getting worked in. A worktree
+that already exists is also the one with something to find: its home was ignored once, or nobody
+looked, and the rule can have been dropped or negated since. (No worktree at all — the already-`CLEAN`
+merge — means nothing to check; that stays true.)
+
+**Why it must be checked.** `.claude/worktrees/` is this kit's convention, and a convention is not
 a fact about *someone else's* repository. A worktree is a full checkout, so where the rule is absent
 **any** `git add -A` run in that repo stages it — measured shape (#43): one
 `160000 <sha> 0 .claude/worktrees/<branch>` gitlink pointing at a commit no clone can fetch, not a
@@ -82,7 +101,7 @@ else's `.gitignore` unasked — are in
 once, there, because the first version of this change spelled them out in four files and they had
 already drifted apart.
 
-Remember the exact path — Step 7 removes it.
+Keep `$WORKTREE` — Step 4's guarded writes take it, and Step 7 removes that path.
 
 ---
 

@@ -150,26 +150,30 @@ does not exist), then:
 git worktree list --porcelain | grep -Fxq "branch refs/heads/$BRANCH"
 ```
 
-Reuse what that finds; and **before creating one, prove its home is ignored** — the worktree directory
-is the kit's convention, not a fact about the repository you are pointed at:
+Reuse what that finds; otherwise create one. Either way, record the two names every later step needs
+and **prove the worktree's home is ignored at that moment** — the worktree directory is the kit's
+convention, not a fact about the repository you are pointed at:
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
+WORKTREE=<absolute path of this issue's worktree>   # the one just found, or the one just created
+GUARDS=<this skill's own scripts/ directory>        # skills/implement-issue/scripts from the kit root
+
+# The main checkout, NOT $WORKTREE: a linked worktree is its own toplevel, so asking the guard
+# about it answers for the wrong directory — and fails open (see the reference).
+REPO_ROOT=$(git -C "$WORKTREE" worktree list --porcelain | head -1 | cut -d' ' -f2-)
 <kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT"
 ```
 
-`0` create it · `1` a home is **not** ignored, so don't · `2` ignored but over-broad, so **do** create
-it and mention the profile cost · `3`/`127` no verdict was reached, which is not a pass. The verdicts,
+`0` use it · `1` a home is **not** ignored, so don't · `2` ignored but over-broad, so **do** use it
+and mention the profile cost · `3`/`127` no verdict was reached, which is not a pass. The verdicts,
 the reason `2` is not a stop, and the rule against editing someone's `.gitignore` unasked live in
 [`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md) — read it there, not from
 a copy here, which is how the four copies of this table drifted apart in the first place (#71).
 
-Then record the two names every later step needs:
-
-```bash
-WORKTREE=<absolute path of this issue's worktree>
-GUARDS=<this skill's own scripts/ directory>       # skills/implement-issue/scripts from the kit root
-```
+⚠️ **The check hangs off `$WORKTREE`, not off `git worktree add`** (#86). This skill is resume-safe by
+contract, so most runs *reuse* the worktree an earlier one left — a check attached to creation would
+never run again in exactly the repos that keep being worked in. On `1`, stop here: before the scaffold
+commit, not after it.
 
 Carry `$BRANCH` forward — Steps 5–9 pass it to the guards **explicitly**, because a guard
 that read the branch from `HEAD` would be reading the very value it exists to check, and would agree
