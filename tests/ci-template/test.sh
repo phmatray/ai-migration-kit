@@ -791,7 +791,26 @@ grep -q 'Aucun rapport de couverture produit' "$scratch/cov-guard-empty.log" || 
   echo "FAIL: the guard refused an empty coverage/ without saying why — the message is the whole"
   echo "      point of the step. Output:"
   sed 's/^/        /' "$scratch/cov-guard-empty.log"; exit 1; }
+
+# And when coverage/ is MISSING rather than empty — the shape a collection failure actually takes,
+# since the test step creates the directory only on its way to writing into it. This is the path
+# where `set -e` and the fix's `|| true` meet: `find` on a non-existent directory exits non-zero
+# and writes to stderr, so without the tolerance the step would die HERE, under errexit, on
+# find's own message instead of the diagnosis below it — a regression the empty-dir case above
+# cannot see, because there find exits 0.
+rm -rf "$cov/coverage"
+if ( cd "$cov" && bash -c "set -euo pipefail
+$COV_GUARD" ) > "$scratch/cov-guard-missing.log" 2>&1; then
+  echo "FAIL: the coverage guard ACCEPTED a missing coverage/ directory. Output:"
+  sed 's/^/        /' "$scratch/cov-guard-missing.log"
+  exit 1
+fi
+grep -q 'Aucun rapport de couverture produit' "$scratch/cov-guard-missing.log" || {
+  echo "FAIL: with coverage/ absent the guard failed without its diagnosis — it died on find's"
+  echo "      own error under errexit instead. Keep the \`2>/dev/null || true\` tolerance so the"
+  echo "      emptiness test, not find's exit status, decides. Output:"
+  sed 's/^/        /' "$scratch/cov-guard-missing.log"; exit 1; }
 echo "  [10] the coverage guard holds under \`set -euo pipefail\` — $cov_files reports"\
-     "($cov_bytes bytes) accepted, empty coverage/ still refused"
+     "($cov_bytes bytes) accepted; empty and missing coverage/ still refused"
 
 echo "ci-dotnet template opt-in bundle gate golden test OK"

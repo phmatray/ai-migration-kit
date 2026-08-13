@@ -112,7 +112,26 @@ jobs:
       #   la modification se verra si l'un des deux points cesse d'être vrai.
       - name: Garde — la couverture a bien été produite
         run: |
-          if ! find coverage -name '*.cobertura.xml' | grep -q . ; then
+          # `-print -quit` capturé dans une variable, et NON `find … | grep -q .` (#97).
+          #
+          # Le tuyau ne marchait que par accident : le shell d'étape par défaut de GitHub est
+          # `bash -e {0}`, sans `pipefail`, donc le statut de `find` est jeté et le pipeline rend
+          # celui de `grep`. Deux modifications ordinaires l'arment — ajouter `set -euo pipefail`
+          # à ce corps, ce que l'étape sœur « Tests + couverture » fait DÉJÀ, ou poser
+          # `defaults.run.shell: bash`, que GitHub mappe sur `bash -eo pipefail`.
+          #
+          # Armé, il s'inverse : `grep -q` sort au premier match, `find` meurt sur le tuyau fermé
+          # (SIGPIPE/141 en BSD, EPIPE/1 en GNU), `pipefail` remonte CE statut, et la condition
+          # niée prend donc sa branche « aucune couverture » précisément quand la couverture A été
+          # produite — sur tout dépôt ayant pris ce template. Mesuré dès #48 ; il faut assez de
+          # rapports pour dépasser le tampon de 64 Kio, sinon `find` a fini d'écrire avant que
+          # `grep` ne ferme, et le défaut reste invisible. Épinglé par tests/ci-template/test.sh [10].
+          #
+          # `2>/dev/null` + `|| true` : si `coverage/` n'existe pas du tout, `find` écrit sur
+          # stderr et sort non-zéro — sous `set -e` l'étape mourrait là, sur un message obscur, au
+          # lieu de rendre celui d'en dessous. La variable reste vide et la garde parle.
+          found=$(find coverage -name '*.cobertura.xml' -print -quit 2>/dev/null || true)
+          if [ -z "$found" ]; then
             echo "Aucun rapport de couverture produit — la collecte a été ignorée en silence."
             echo "Projet MTP sans Microsoft.Testing.Extensions.CodeCoverage ? Voir"
             echo "legacy-upgrade/references/xunit-v3-migration.md."
