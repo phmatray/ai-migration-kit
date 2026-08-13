@@ -14,6 +14,12 @@ kit_init "$KIT"
 WORK=$(kit_scratch)
 n=0
 
+# The gate's one-shot escape keys off marker files under $TMPDIR. Point TMPDIR at the scratch so
+# every run starts with none: with the real TMPDIR they survive between runs, and the *second* run
+# of this suite would find Foo.cs already marked and watch "first read is denied" pass instead —
+# a suite that goes green off a stale file from the run before. Scratch is wiped by kit_cleanup.
+export TMPDIR="$WORK"
+
 # ------------------------------------------------------------------ 1. the shipped server config
 MCP="$KIT/.mcp.json"
 [ -f "$MCP" ] || { echo "FAIL: $MCP missing"; exit 1; }
@@ -67,5 +73,21 @@ verdict "markdown"                     pass ""               "$(pay Read "$CS/RE
 verdict "no C# solution discoverable"  pass ""               "$(pay Read "$PL/Foo.cs"    "$PL" s1)"
 verdict "a tool other than Read"       pass ""               "$(pay Grep "$CS/Foo.cs"    "$CS" s1)"
 verdict "malformed payload fails open" pass ""               'not json at all'
+
+# ------------------------------------------------------- 3. the one-shot "I really need it" escape
+ESC=$(csharp_repo)
+P=$(pay Read "$ESC/Bar.cs" "$ESC" escape-session)
+verdict "first read is denied"          deny "search_symbols" "$P"
+verdict "identical retry passes"        pass ""               "$P"
+verdict "third read denies again"       deny "search_symbols" "$P"
+
+# The escape is per-file, not per-session: a different file is still denied after one was let through.
+Q=$(pay Read "$ESC/Baz.cs" "$ESC" escape-session)
+verdict "a different file is denied"    deny "search_symbols" "$Q"
+
+# ...and per-session, not global: the same file under another session id is denied on ITS first read,
+# even though the marker for the first session was just consumed.
+S=$(pay Read "$ESC/Bar.cs" "$ESC" other-session)
+verdict "another session is denied"     deny "search_symbols" "$S"
 
 echo "roseline golden test OK"

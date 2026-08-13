@@ -26,6 +26,19 @@ cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null)
 hit=$(find "$cwd" -maxdepth 3 \( -name '*.sln' -o -name '*.slnx' -o -name '*.csproj' \) -print -quit 2>/dev/null || true)
 [ -n "$hit" ] || exit 0
 
+# Second attempt at the same file wins: honour a deliberate override rather than deadlocking the
+# documented "I genuinely need the exact full text" case. One-shot — the marker is consumed, never
+# latched, so a third read denies again. Keyed by session AND path: another session, or another
+# file, is still denied on its own first read.
+sid=$(jq -r '.session_id // "nosession"' <<<"$payload" 2>/dev/null)
+key=$(printf '%s' "$fp" | md5 -q 2>/dev/null || printf '%s' "$fp" | md5sum 2>/dev/null | cut -d' ' -f1)
+marker="${TMPDIR:-/tmp}/roseline-gate-${sid}-${key}"
+if [ -f "$marker" ]; then
+  rm -f "$marker" 2>/dev/null
+  exit 0
+fi
+touch "$marker" 2>/dev/null
+
 base=$(basename "$fp")
 reason="Blocked by the roseline gate: ${base} is C#, and this kit routes all C# analysis through RoselineMCP. Use these instead of Read:
   - file shape / locate a member  -> mcp__roseline__search_symbols (file: \"${base}\")
@@ -33,7 +46,8 @@ reason="Blocked by the roseline gate: ${base} is C#, and this kit routes all C# 
   - usages / implementors / calls -> mcp__roseline__find_references, find_implementations, get_call_graph
   - resolve a file:line           -> mcp__roseline__get_symbol_at_position
   - change code                   -> mcp__roseline__edit_member, rename_symbol
-They return only the structure you need and cost far fewer tokens than the whole file."
+They return only the structure you need and cost far fewer tokens than the whole file.
+If you have already considered this and genuinely need the exact full text, issue the identical Read again -- the retry is allowed through."
 
 jq -n --arg r "$reason" \
   '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null
