@@ -12,7 +12,6 @@ KIT="$PWD"
   echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$KIT"
 WORK=$(kit_scratch)
-n=0
 
 # The gate's one-shot escape keys off marker files under $TMPDIR. Point TMPDIR at the scratch so
 # every run starts with none: with the real TMPDIR they survive between runs, and the *second* run
@@ -34,18 +33,33 @@ echo "ok: .mcp.json ships roseline as $want"
 GATE="$KIT/hooks/roseline-gate.sh"
 [ -x "$GATE" ] || { echo "FAIL: $GATE missing or not executable"; exit 1; }
 
-# find -print -quit is load-bearing in the gate's C# detection; #48 is why this is asserted.
+# find -print -quit is load-bearing in the gate's project detection; #48 is why this is asserted.
 kit_require_find_quit
 
-# A scratch repo that looks like a C# solution ($1=marker filename), or one that does not.
-csharp_repo() { n=$((n + 1)); local d="$WORK/cs$n"; mkdir -p "$d"; : > "$d/${1:-App.csproj}"; printf '%s' "$d"; }
-plain_repo()  { n=$((n + 1)); local d="$WORK/plain$n"; mkdir -p "$d"; : > "$d/README.md"; printf '%s' "$d"; }
+# Scratch repos. mktemp -d, NOT a counter: `n=$((n+1))` inside a $(...) helper increments a
+# subshell's copy and the caller's stays 0, so every "fresh" repo would be the same directory —
+# the trap tests/_lib.sh:65-70 documents, and one this suite tripped over before review caught it.
+csharp_repo() { local d; d=$(mktemp -d "$WORK/cs.XXXXXX"); : > "$d/App.csproj"; printf '%s' "$d"; }
+plain_repo()  { local d; d=$(mktemp -d "$WORK/plain.XXXXXX"); : > "$d/README.md"; printf '%s' "$d"; }
+# root/src/Company.Product/Api/Api.csproj — a mainstream layout that sits at depth 4, so a
+# downward `find -maxdepth 3` from the repo root never sees it and the gate goes silently off.
+nested_repo() {
+  local d; d=$(mktemp -d "$WORK/nest.XXXXXX")
+  mkdir -p "$d/src/Company.Product/Api"
+  : > "$d/src/Company.Product/Api/Api.csproj"
+  printf '%s' "$d"
+}
 
-# Drives the gate with a synthetic payload. Asserts the decision and, when denying, the reason.
+# Drives the gate with a synthetic payload. Asserts the exit status, the decision, and — when
+# denying — the reason.
 # $1 name  $2 expected decision ("deny" or "pass")  $3 substring the reason must contain  $4 payload
 verdict() {
-  local name="$1" want="$2" want_msg="$3" payload="$4" out decision
-  out=$(printf '%s' "$payload" | bash "$GATE" 2>/dev/null || true)
+  local name="$1" want="$2" want_msg="$3" payload="$4" out decision rc=0
+  out=$(printf '%s' "$payload" | bash "$GATE" 2>/dev/null) || rc=$?
+  # Exit status is half the PreToolUse contract — exit 2 blocks the tool regardless of stdout. If
+  # we only scored stdout, a regression that turned a fail-open path into `exit 2` would be
+  # reported here as "pass" while blocking every Read in production.
+  [ "$rc" -eq 0 ] || { echo "FAIL [$name]: gate exited $rc; its contract is always exit 0"; exit 1; }
   if [ -z "$out" ]; then decision="pass"; else
     decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "malformed"' 2>/dev/null || echo malformed)
   fi
@@ -64,15 +78,29 @@ pay() { # $1 tool  $2 file_path  $3 cwd  $4 session
     '{session_id:$s, cwd:$c, tool_name:$t, tool_input:{file_path:$f}}'
 }
 
-CS=$(csharp_repo); PL=$(plain_repo)
+# The marker path the gate will use, so the staleness case can age it.
+marker_for() { # $1 file_path  $2 session
+  local k
+  k=$(printf '%s' "$1" | md5 -q 2>/dev/null || printf '%s' "$1" | md5sum 2>/dev/null | cut -d' ' -f1)
+  [ -n "$k" ] || k=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | tail -c 120)
+  printf '%s/roseline-gate-%s-%s' "$TMPDIR" "$(printf '%s' "$2" | tr -c 'A-Za-z0-9._-' '_')" "$k"
+}
+
+CS=$(csharp_repo); PL=$(plain_repo); NEST=$(nested_repo)
+[ "$CS" != "$PL" ] || { echo "FAIL: fixture helpers returned the same directory"; exit 1; }
 
 verdict "first .cs read in a C# repo"  deny "search_symbols" "$(pay Read "$CS/Foo.cs"    "$CS" s1)"
 verdict "csproj is not C# source"      pass ""               "$(pay Read "$CS/A.csproj"  "$CS" s1)"
 verdict "razor markup"                 pass ""               "$(pay Read "$CS/X.razor"   "$CS" s1)"
 verdict "markdown"                     pass ""               "$(pay Read "$CS/README.md" "$CS" s1)"
-verdict "no C# solution discoverable"  pass ""               "$(pay Read "$PL/Foo.cs"    "$PL" s1)"
+verdict "no C# project discoverable"   pass ""               "$(pay Read "$PL/Foo.cs"    "$PL" s1)"
 verdict "a tool other than Read"       pass ""               "$(pay Grep "$CS/Foo.cs"    "$CS" s1)"
+verdict "NotebookRead is not Read"     pass ""               "$(pay NotebookRead "$CS/Foo.cs" "$CS" s1)"
 verdict "malformed payload fails open" pass ""               'not json at all'
+
+# The detection must walk UP from the file, not down from cwd: this project file is at depth 4.
+verdict "nested project at depth 4 is gated" deny "search_symbols" \
+  "$(pay Read "$NEST/src/Company.Product/Api/Foo.cs" "$NEST" s1)"
 
 # ------------------------------------------------------- 3. the one-shot "I really need it" escape
 ESC=$(csharp_repo)
@@ -85,10 +113,25 @@ verdict "third read denies again"       deny "search_symbols" "$P"
 Q=$(pay Read "$ESC/Baz.cs" "$ESC" escape-session)
 verdict "a different file is denied"    deny "search_symbols" "$Q"
 
-# ...and per-session, not global: the same file under another session id is denied on ITS first read,
-# even though the marker for the first session was just consumed.
+# ...and per-session, not global: the same file under another session id is denied on ITS first read.
 S=$(pay Read "$ESC/Bar.cs" "$ESC" other-session)
 verdict "another session is denied"     deny "search_symbols" "$S"
+
+# A marker only ever gets cleared by the retry that consumes it, so the common path — model
+# complies, uses roseline, never retries — leaves one behind. It must NOT still open the gate
+# later: session ids survive --continue/--resume, so "one-shot" would silently become "latched".
+TTL=$(csharp_repo)
+TP=$(pay Read "$TTL/Old.cs" "$TTL" ttl-session)
+verdict "first read arms the marker"    deny "search_symbols" "$TP"
+mk=$(marker_for "$TTL/Old.cs" ttl-session)
+[ -f "$mk" ] || { echo "FAIL: expected a marker at $mk"; exit 1; }
+touch -t 202001010000 "$mk"
+verdict "a stale marker does not open the gate" deny "search_symbols" "$TP"
+
+# The documented off-switch has to actually exist.
+out=$(printf '%s' "$(pay Read "$CS/Kill.cs" "$CS" ks)" | ROSELINE_GATE=off bash "$GATE" 2>/dev/null || true)
+[ -z "$out" ] || { echo "FAIL: ROSELINE_GATE=off did not disable the gate"; exit 1; }
+echo "ok: ROSELINE_GATE=off disables the gate"
 
 # --------------------------------------------------------------------- 4. the hook registration
 HJ="$KIT/hooks/hooks.json"
@@ -114,10 +157,18 @@ printf '%s' "$hint" | grep -qF 'shipped by this plugin' \
   || { echo "FAIL: roseline hint still tells the user to install it by hand: '$hint'"; exit 1; }
 echo "ok: requirements.json records that roseline ships with the plugin"
 
+# jq is a hard dependency of the gate: without it the hook exits at line 1 and enforcement is
+# silently off while preflight still reports roseline connected. It has to be declared.
+jq -e '.tools[] | select(.name | test("jq"))' "$REQ" >/dev/null \
+  || { echo "FAIL: requirements.json does not declare jq, which hooks/roseline-gate.sh requires"; exit 1; }
+echo "ok: requirements.json declares jq"
+
 grep -qF 'roseline-gate' "$KIT/README.md" \
   || { echo "FAIL: README does not document the roseline gate"; exit 1; }
 grep -qF 'managed-settings.json' "$KIT/README.md" \
   || { echo "FAIL: README does not say where permission rules must live instead"; exit 1; }
-echo "ok: README documents the gate and the out-of-scope permission rules"
+grep -qF 'ROSELINE_GATE=off' "$KIT/README.md" \
+  || { echo "FAIL: README does not document the real off-switch"; exit 1; }
+echo "ok: README documents the gate, the off-switch and the out-of-scope permission rules"
 
 echo "roseline golden test OK"
