@@ -219,6 +219,15 @@ if run_validator "$scratch/global-only.json" "$scratch/global-only.txt"; then
   cat "$scratch/global-only.txt"
   exit 1
 fi
+# Non-zero alone is not proof: npx exits non-zero when the registry is unreachable too, and that
+# would let an outage score as a passing rejection — "a validator that could not run has not
+# validated anything" applies to the negative cases as much as the positive one. Assert the REASON.
+if ! grep -q 'is a global option reserved' "$scratch/global-only.txt"; then
+  echo "FAIL: the validator rejected the global-only config, but not for being global-only."
+  echo "      Expected the \"is a global option reserved\" diagnostic; got:"
+  cat "$scratch/global-only.txt"
+  exit 1
+fi
 echo "  [6] it rejects a repo config carrying global-only options (--no-global is in effect)"
 
 # ---------------------------------------------------------------------------
@@ -247,6 +256,13 @@ if run_validator "$scratch/needs-migration.json" "$scratch/needs-migration.txt";
   echo "FAIL: the validator ACCEPTED a config still using the superseded 'fileMatch' spelling."
   echo "      --strict is what makes a needed migration fatal; without it the config is silently"
   echo "      migrated in-memory and scores as valid:"
+  cat "$scratch/needs-migration.txt"
+  exit 1
+fi
+# Same reasoning as [6]: prove it failed for the migration, not because npx could not reach npm.
+if ! grep -q 'Config migration necessary' "$scratch/needs-migration.txt"; then
+  echo "FAIL: the validator rejected the unmigrated config, but not for needing migration."
+  echo "      Expected the \"Config migration necessary\" diagnostic; got:"
   cat "$scratch/needs-migration.txt"
   exit 1
 fi
