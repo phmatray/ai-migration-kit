@@ -231,9 +231,16 @@ python3 - "$KIT/renovate.json" "$scratch/needs-migration.json" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 managers = cfg.get("customManagers") or []
-assert managers, "renovate.json has no customManagers to downgrade — rewrite this case"
-# Downgrade one manager to the superseded spelling; everything else stays valid.
-managers[0]["fileMatch"] = managers[0].pop("managerFilePatterns")
+# Pick the first manager that actually carries the modern spelling, rather than assuming [0] does —
+# a bare managers[0].pop() would raise KeyError and surface as an opaque crash instead of this
+# message the day someone reorders the list or hand-writes one with `fileMatch` already.
+target = next((m for m in managers if "managerFilePatterns" in m), None)
+assert target is not None, (
+    "no customManager in renovate.json uses 'managerFilePatterns', so there is nothing to downgrade "
+    "to the superseded 'fileMatch' spelling — rewrite this case against whatever migration is current"
+)
+# Downgrade that one manager; everything else stays valid, so the ONLY reason to fail is migration.
+target["fileMatch"] = target.pop("managerFilePatterns")
 json.dump(cfg, open(sys.argv[2], "w", encoding="utf-8"))
 PY
 if run_validator "$scratch/needs-migration.json" "$scratch/needs-migration.txt"; then
