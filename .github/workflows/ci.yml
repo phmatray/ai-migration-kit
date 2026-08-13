@@ -46,11 +46,15 @@ jobs:
       # the kit runs `add -A` now). The gate stays because a human typing it in the main checkout
       # was never governed by the kit anyway; see the script header before deleting anything.
       #
-      # The check is a script with a golden test rather than inline yaml, for the reason written 40
-      # lines above: the last inline guard in this file failed open and nothing could test it. The
-      # three ways this one could quietly stop working — `-q` swapped for `-v`, the trailing slash
-      # dropped, the rule broadened to `.claude/` — are each driven to red in
-      # tests/worktrees-ignored/test.sh. The rationale lives in the script's header.
+      # The check is a script with a golden test rather than inline yaml, for the reason the
+      # release-title gate learned the hard way: its first version WAS inline, its `mapfile` read a
+      # failed `git diff` as "nothing to gate", and it skipped itself while CI stayed green —
+      # a fail-open no test could reach, because an inline `run:` block cannot have one. (That
+      # rationale used to sit 40 lines above this one; the gate moved to release-title.yml in #57,
+      # so it is restated here rather than pointed at.) The three ways this one could quietly stop
+      # working — `-q` swapped for `-v`, the trailing slash dropped, the rule broadened to
+      # `.claude/` — are each driven to red in tests/worktrees-ignored/test.sh. The rationale lives
+      # in the script's header.
       - name: Agent worktrees are gitignored (a stray git add -A must not commit the repo into itself)
         run: ./scripts/worktrees-ignored.sh
 
