@@ -6,6 +6,17 @@ set -euo pipefail
 # se résolvent relativement au JSON, pas au répertoire courant.
 cd "$(dirname "$0")/../.."
 
+KIT="$PWD"
+# Le chargeur importlib du kit (#51). Cette suite en portait une copie — correcte, mais que rien
+# n'assertait : une édition qui aurait perdu son PYTHONDONTWRITEBYTECODE=1 laissait un
+# __pycache__ sous scripts/, et l'échec serait remonté dans la suite xunit-v3, en désignant un
+# fichier que celle-ci ne touche jamais. Une seule définition, assertée par la section 8 de
+# tests/xunit-v3/test.sh sur tests/ et scripts/.
+#
+# Chemin absolu via $KIT, car le `cd` ci-dessus a déjà eu lieu.
+. "$KIT/tests/_lib/py.sh" || {
+  echo "ÉCHEC : impossible de sourcer $KIT/tests/_lib/py.sh — refus de tourner sans garde"; exit 1; }
+
 out="$(mktemp -d)/report.html"
 python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json -o "$out" 2>/dev/null
 
@@ -106,19 +117,17 @@ rm -rf "$multi_dir"
 
 # La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
 # exactement le même objet. C'est la garantie de compatibilité des report.json déjà écrits.
-PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
-import importlib.util
-spec = importlib.util.spec_from_file_location("rd", "scripts/report-dashboard.py")
-rd = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(rd)
+# `mod` est le module déjà chargé par py_module ; le chemin passe en argument au lieu d'être une
+# chaîne littérale dans le corps.
+py_module scripts/report-dashboard.py <<'PY'
 a = "tests/report-dashboard/fixture-cobertura.xml"
 b = "tests/report-dashboard/fixture-cobertura-b.xml"
-seul, liste = rd.parse_cobertura(a, ["Fixture.Web"]), rd.parse_cobertura([a], ["Fixture.Web"])
+seul, liste = mod.parse_cobertura(a, ["Fixture.Web"]), mod.parse_cobertura([a], ["Fixture.Web"])
 assert seul == liste, f"chaîne nue et liste d'un élément divergent :\n  {seul}\n  {liste}"
 assert seul["line_pct"] == 70 and seul["branch_pct"] == 67, seul
 # L'union ne dépend pas de l'ordre des rapports : sinon « le dernier gagne » serait encore là,
 # juste déplacé de la collecte vers la lecture.
-assert rd.parse_cobertura([a, b], ["Fixture.Web"]) == rd.parse_cobertura([b, a], ["Fixture.Web"])
+assert mod.parse_cobertura([a, b], ["Fixture.Web"]) == mod.parse_cobertura([b, a], ["Fixture.Web"])
 PY
 
 # ---------------------------------------------------------------------------
