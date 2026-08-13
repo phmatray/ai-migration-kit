@@ -22,9 +22,11 @@
 #      managers are executed against the real file, and the holds are tested for REACH, so a config
 #      the engine would reject, or protection that has been scoped away from the pins, fails here
 #      instead of surfacing as PRs that silently never appear;
-#  10. the "did we find any?" probes cannot invert on a large result set — a SIGPIPE'd find under
-#      `pipefail` used to make two of this file's own checks skip themselves precisely when they
-#      had something to report.
+#  10. the find probes report what they FOUND — not how the reader exited, and not whether the
+#      starting path happened to exist. A SIGPIPE'd find under `pipefail` used to make two of this
+#      file's own checks skip themselves precisely when they had something to report (#48), and the
+#      first-match form used to abort the suite AT the assignment, before the diagnostic written
+#      directly beneath it could say what had gone wrong (#98).
 #
 # The committed fixture is never mutated: cleanup() asserts it on every exit path, and CI asserts it
 # stays "green AND legacy".
@@ -1734,24 +1736,30 @@ if any_match "$scratch/definitely-not-here" -name '*.cobertura.xml'; then
   exit 1
 fi
 
-# The FIRST-match half of the same idiom owes the same tolerance (#98). Two claims, kept apart
-# because they fail for different reasons and only one of them is visible from where it happens.
+# The FIRST-match half of the same idiom owes the same tolerance (#98). Both claims — that a
+# missing path does not abort the caller, and that what comes back is empty — are read off ONE
+# search: two searches can drift apart in their fixture path and then quietly stop describing the
+# same thing.
 #
-# 1. It must not abort its caller. Under this file's `set -euo pipefail` a bare
-#    `x=$(find missing …)` dies AT the assignment, so the
-#    `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written beneath both call sites never runs:
-#    the suite simply stops, on CI, with no message and no log tail — the one thing that makes such
-#    a failure diagnosable at a distance (#74). A subshell is what lets that abort be OBSERVED here
-#    rather than inherited; asserting it from the outer shell would take the suite down with it.
-#    `set -e` is restated inside so the case keeps testing what it names even if this file's own
-#    options are ever relaxed.
-if ! ( set -e; first_hit=$(first_match "$scratch/definitely-not-here" -name '*.cobertura.xml') ); then
-  echo "FAIL: first_match aborted the caller on a path that does not exist. The emptiness test"
-  echo "      written under each of its call sites is only a test if the empty case is reachable."
+# The condition of an `if` is the only place this can be asserted without taking the suite down
+# with it. Under this file's `set -euo pipefail` a bare `x=$(find missing …)` dies AT the
+# assignment, so the `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written beneath both call
+# sites never runs — and it is that FAIL line and its log tail, not find's own one-line error,
+# that make a CI-only failure diagnosable at a distance (#74). `if` suppresses errexit for its
+# condition, so the status is caught and reported here instead of inherited.
+#
+# NOT `if ! ( set -e; x=$(…) )`, which was the first spelling here: that `set -e` is INERT. Bash
+# ignores an errexit set inside a compound command already running where errexit is suppressed,
+# which the condition of an `if` is — so the subshell reported the failure only because the
+# assignment happened to be its last command. Measured on this host: `( set -e; x=$(false); : )`
+# exits 0. One appended statement and this case would have gone on passing against a probe with
+# its tolerance stripped back out — the regression it exists to catch.
+if ! first_hit=$(first_match "$scratch/definitely-not-here" -name '*.cobertura.xml'); then
+  echo "FAIL: first_match reported failure on a path that does not exist, so a bare assignment"
+  echo "      from it aborts its caller. The emptiness test written under each of its call sites"
+  echo "      is only a test if the empty case can actually be reached."
   exit 1
 fi
-# 2. …and what it yields there is empty, so that emptiness test means what it says.
-first_hit=$(first_match "$scratch/definitely-not-here" -name '*.cobertura.xml')
 if [ -n "$first_hit" ]; then
   echo "FAIL: first_match returned '$first_hit' under a directory that does not exist"
   exit 1

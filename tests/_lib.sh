@@ -132,34 +132,46 @@ first_match() {
   # pipe under it — the defect #48 pinned, where a SIGPIPE'd find returned 141 and `pipefail`
   # promoted that to the pipeline's status, making "found something" read as "found nothing".
   #
-  # `2>/dev/null || true` is load-bearing, not sloppiness: find exits non-zero on a path that
-  # legitimately does not exist, and a bare `x=$(find missing …)` under `set -e` aborts the caller
-  # AT the assignment. Two call sites in tests/xunit-v3/test.sh spelled the search out inline
-  # without it, so the `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written directly beneath
-  # each one — the log tail that makes a CI-only failure diagnosable at all (#74) — could never
-  # run: the suite just stopped at the assignment, silently (#98). For a probe called from a guard
-  # registered with kit_guard it is worse still, since the abort lands on EVERY exit path,
-  # including the successful one.
+  # `|| true` is load-bearing, not sloppiness: find exits non-zero on a path that legitimately does
+  # not exist, and a bare `x=$(find missing …)` under `set -e` aborts the caller AT the assignment.
+  # Two call sites in tests/xunit-v3/test.sh spelled the search out inline without it, so the
+  # `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written directly beneath each one could never
+  # run (#98). Precisely: find's own one-line error still reached the console there — command
+  # substitution captures stdout, not stderr — but the FAIL message and its `tail` of the step log
+  # did not, and that tail is what makes a CI-only failure diagnosable at a distance (#74). For a
+  # probe called from a guard registered with kit_guard it is worse still, since the abort lands on
+  # EVERY exit path, including the successful one.
+  #
+  # The cost, and the reason the contract above promises "or nothing" rather than "or no match":
+  # `2>/dev/null || true` swallows every failure mode, not just the missing start path. A typo'd
+  # predicate or an unreadable directory also comes back empty and quiet, and the caller's
+  # diagnostic then accuses whatever it was written to accuse. The redirect stays because
+  # any_match is registered from kit_guard, where find's complaint about a legitimately-absent
+  # path would print on every clean run; a caller that must tell the modes apart tests the path
+  # itself rather than reading it out of this probe.
   find "$@" -print -quit 2>/dev/null || true
 }
 
 any_match() {
   # "Is there at least one?" is the same search read as a yes/no, so it is the same code rather
   # than a second copy of the tolerance above — the one-home argument of #48 applied to its own
-  # other half (#98). The substitution also keeps the status describing the SEARCH rather than
-  # find's own, which is what #48 was about.
+  # other half (#98). The answer comes from the OUTPUT being non-empty and never from an exit
+  # status: first_match discards find's status deliberately, which is exactly what stops a reader's
+  # early exit — the SIGPIPE 141 of #48 — from ever being read back as "found nothing".
   [ -n "$(first_match "$@")" ]
 }
 
 kit_require_find_quit() {
-  # `-print -quit` is what makes any_match safe, so prove this host's find HAS it — once, loudly.
+  # `-print -quit` is what makes first_match safe, so prove this host's find HAS it — once, loudly.
   # Otherwise the `|| true` above cuts both ways: on a find without `-quit` (busybox, some minimal
-  # containers) every call answers "nothing found" with the error discarded, and a guard leaning on
-  # any_match reports clean from the very first exit path. A silent "clean" is what lets a stray
-  # .pyc reach the tree.
+  # containers) every call answers "nothing found" with the error discarded. A guard leaning on
+  # any_match then reports clean from the very first exit path, which is what lets a stray .pyc
+  # reach the tree; and a direct first_match caller is handed an empty string, so ITS diagnostic
+  # goes on to accuse the step that was supposed to produce the file.
   if ! find "${KIT_LIB_ROOT:-.}" -maxdepth 0 -print -quit >/dev/null 2>&1; then
-    echo "FAIL: this host's find does not support '-print -quit', which any_match depends on."
-    echo "      Every any_match() call would answer 'nothing found' regardless of what is there."
+    echo "FAIL: this host's find does not support '-print -quit', which first_match depends on."
+    echo "      Every first_match() call — and so every any_match() call — would answer 'nothing"
+    echo "      found' regardless of what is there."
     exit 1
   fi
 }
