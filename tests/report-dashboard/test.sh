@@ -102,15 +102,57 @@ assert_in "$multi" 'Repository : 4/6 lignes couvertes'
 assert_in "$multi" 'Global : 75 % lignes · 78 % branches'
 # L'exclusion s'applique à TOUS les rapports, pas seulement au premier.
 refuse_in "$multi" 'ExcludedWeb'
+
+# La tuile KPI et la légende rendent la MÊME quantité, donc elles doivent dire la même chose (#50).
+# C'est ce cas-ci qui les sépare : la fixture porte un KPI écrit à la main (70), et l'union des deux
+# coberturas vaut 75. Une page qui publie les deux rend invérifiable la promesse « couverture
+# mesurée, jamais estimée » — un lecteur ne peut pas dire laquelle des deux est la mesure. Assertion
+# en Python et pas en sed : les tuiles sont concaténées sur une seule ligne.
+python3 - "$multi" <<'PY'
+import re, sys
+html = open(sys.argv[1], encoding="utf-8").read()
+tiles = re.findall(r'<div class="tile"><div class="v">(.*?)</div><div class="l">(.*?)</div></div>', html)
+# Le LIBELLÉ EXACT de la fixture, pas une re-implémentation du sélecteur de production. Chercher
+# ici « couvertur » comme le fait kpi_source() ferait bouger le test avec le code : les deux
+# seraient d'accord par construction, et le test ne prouverait plus QUELLE tuile aurait dû être
+# choisie. La tuile « tests verts » est là pour la contrepartie : le remplacement ne doit pas
+# déborder sur une tuile qui n'est pas une couverture.
+par_libelle = {label: v for v, label in tiles}
+assert "couverture mesurée (lignes)" in par_libelle, f"tuiles rendues : {list(par_libelle)}"
+assert par_libelle.get("tests verts", "").strip() == "42", (
+    f"la tuile « tests verts » a été réécrite : {par_libelle.get('tests verts')!r} — le "
+    "remplacement doit viser la seule tuile de couverture")
+# La valeur porte son unité dans un <small> imbriqué : on ne garde que le nombre.
+tile = re.match(r"\s*(\d+)", re.sub(r"<[^>]*>", "", par_libelle["couverture mesurée (lignes)"]))
+assert tile, "la tuile de couverture ne commence pas par un nombre"
+tile = tile.group(1)
+legende = re.search(r"Global : (\d+) % lignes", html)
+assert legende, "la légende de couverture est absente du HTML"
+assert tile == legende.group(1), (
+    f"la page publie DEUX chiffres de couverture : tuile {tile} %, légende {legende.group(1)} %. "
+    "Le KPI doit être la mesure, pas une transcription.")
+PY
 rm -rf "$multi_dir"
 
-# La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
-# exactement le même objet. C'est la garantie de compatibilité des report.json déjà écrits.
-PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
-import importlib.util
+# Charge report-dashboard.py comme module et exécute le script Python passé sur stdin, `rd` déjà
+# lié. UN SEUL chargeur dans ce fichier : le préfixe PYTHONDONTWRITEBYTECODE=1 est porteur — sans
+# lui, importlib compile le script et dépose un `__pycache__` à côté, dans le kit — et il est
+# invisible au point d'appel, donc c'est exactement la forme qui se perd au copier-coller.
+# tests/xunit-v3/test.sh §8 assure cet invariant pour lui-même et nomme CE fichier comme non
+# couvert ; il portait deux copies avant #50, il n'en porte plus qu'une.
+rd_python() {
+  PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import importlib.util, sys
 spec = importlib.util.spec_from_file_location("rd", "scripts/report-dashboard.py")
 rd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rd)
+exec(sys.stdin.read(), {"rd": rd, "sys": sys})
+'
+}
+
+# La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
+# exactement le même objet. C'est la garantie de compatibilité des report.json déjà écrits.
+rd_python <<'PY'
 a = "tests/report-dashboard/fixture-cobertura.xml"
 b = "tests/report-dashboard/fixture-cobertura-b.xml"
 seul, liste = rd.parse_cobertura(a, ["Fixture.Web"]), rd.parse_cobertura([a], ["Fixture.Web"])
@@ -231,5 +273,50 @@ if [ -z "$pct" ] || [ "$pct" -le 0 ]; then
   exit 1
 fi
 rm -rf "$doc_case"
+
+# ---------------------------------------------------------------------------
+# Une absence de donnée de branche n'est pas une mesure de 0 % (issue #50).
+#
+# `branch_pct` se dérivait uniquement des `condition-coverage` par ligne, avec un repli sur 0.
+# Un producteur qui exprime ses branches à la RACINE — forme courante de la chaîne VSTest/coverlet
+# que `templates/ci-dotnet.yml` supporte encore — rendait donc un « 0 % branches » péremptoire sur
+# une application bien couverte, alors que le `branch-rate` racine portait le vrai chiffre. Seul le
+# chemin MTP était protégé (tests/xunit-v3 assert branch_pct > 0), pas celui-ci.
+# ---------------------------------------------------------------------------
+rd_python <<'PY'
+# 1. branch-rate racine, aucun condition-coverage -> on lit la racine, pas 0.
+racine = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura-rootbranch.xml", [])
+assert racine["branch_pct"] == 60, (
+    f"branch-rate racine 0.6 doit rendre 60 %, pas {racine['branch_pct']} % — "
+    "une absence de condition-coverage n'est pas une absence de branches")
+
+# 2. Ni l'un ni l'autre -> None, que le rendu affichera « n/d ». Surtout pas 0, qui est un chiffre
+#    et se lit comme une mesure.
+muet = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura-nobranch.xml", [])
+assert muet["branch_pct"] is None, (
+    f"sans aucune donnée de branche, branch_pct doit être None, pas {muet['branch_pct']!r}")
+
+# 3. Le chemin par condition-coverage ne bouge pas.
+conds = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura.xml", ["Fixture.Web"])
+assert conds["branch_pct"] == 67, conds["branch_pct"]
+PY
+
+# …et le rendu dit « n/d » plutôt que « 0 % ».
+nd_dir="$(mktemp -d)"
+python3 - "$nd_dir" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura-nobranch.xml"}
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+cp tests/report-dashboard/fixture-cobertura-nobranch.xml "$nd_dir/"
+python3 scripts/report-dashboard.py "$nd_dir/report.json" -o "$nd_dir/report.html" 2>/dev/null
+assert_in "$nd_dir/report.html" 'branches n/d'
+# La légende ENTIÈRE, pas le sous-texte « 0 % branches » : `grep -F` sur celui-ci matche aussi
+# « 50 % branches », « 30 % branches »… Le jour où ce cas basculerait à tort sur le repli racine et
+# rendrait « 60 % branches », l'assertion serait restée verte ; et si elle échouait, son message
+# aurait désigné l'inverse du comportement réel.
+assert_in "$nd_dir/report.html" 'Global : 50 % lignes · branches n/d'
+rm -rf "$nd_dir"
 
 echo "OK test golden report-dashboard ($out)"

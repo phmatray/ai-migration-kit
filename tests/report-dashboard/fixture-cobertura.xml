@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Les taux affichés sont RECALCULÉS sur les lignes, pas lus dans line-rate/branch-rate :
-     ces attributs racine sont laissés ici parce qu'un vrai cobertura les porte, mais rien ne
-     les lit (voir parse_cobertura). Les lignes portent leur condition-coverage, comme celles
-     que produisent coverlet et Microsoft.Testing.Extensions.CodeCoverage. -->
+<!-- Les taux affichés sont RECALCULÉS sur les lignes, pas lus dans line-rate : cet attribut
+     racine est laissé ici parce qu'un vrai cobertura le porte, mais rien ne le lit.
+     ⚠ `branch-rate` FAIT exception depuis #50 : il est lu, en REPLI, quand aucune ligne ne porte
+     de condition-coverage (et pour un rapport unique, non filtré). Ici les lignes en portent,
+     donc le repli ne sert pas — mais retirer un condition-coverage de ce fichier ferait
+     silencieusement basculer le chiffre sur 0.7. Voir parse_cobertura.
+     Les lignes portent leur condition-coverage, comme celles que produisent coverlet et
+     Microsoft.Testing.Extensions.CodeCoverage. -->
 <coverage line-rate="0.85" branch-rate="0.7" version="1.9" timestamp="0" lines-covered="4" lines-valid="6" branches-covered="7" branches-valid="10">
   <packages>
     <package name="Fixture.Core" line-rate="0.85" branch-rate="0.7">
