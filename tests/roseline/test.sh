@@ -24,4 +24,48 @@ want='stdio|dnx|RoselineMCP,--yes'
 [ "$got" = "$want" ] || { echo "FAIL: .mcp.json roseline entry is '$got', want '$want'"; exit 1; }
 echo "ok: .mcp.json ships roseline as $want"
 
+# ------------------------------------------------------------------------------- 2. the gate
+GATE="$KIT/hooks/roseline-gate.sh"
+[ -x "$GATE" ] || { echo "FAIL: $GATE missing or not executable"; exit 1; }
+
+# find -print -quit is load-bearing in the gate's C# detection; #48 is why this is asserted.
+kit_require_find_quit
+
+# A scratch repo that looks like a C# solution ($1=marker filename), or one that does not.
+csharp_repo() { n=$((n + 1)); local d="$WORK/cs$n"; mkdir -p "$d"; : > "$d/${1:-App.csproj}"; printf '%s' "$d"; }
+plain_repo()  { n=$((n + 1)); local d="$WORK/plain$n"; mkdir -p "$d"; : > "$d/README.md"; printf '%s' "$d"; }
+
+# Drives the gate with a synthetic payload. Asserts the decision and, when denying, the reason.
+# $1 name  $2 expected decision ("deny" or "pass")  $3 substring the reason must contain  $4 payload
+verdict() {
+  local name="$1" want="$2" want_msg="$3" payload="$4" out decision
+  out=$(printf '%s' "$payload" | bash "$GATE" 2>/dev/null || true)
+  if [ -z "$out" ]; then decision="pass"; else
+    decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "malformed"' 2>/dev/null || echo malformed)
+  fi
+  if [ "$decision" != "$want" ]; then
+    echo "FAIL [$name]: expected $want, got $decision"; echo "$out"; exit 1
+  fi
+  if [ -n "$want_msg" ]; then
+    printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' \
+      | grep -qF "$want_msg" || { echo "FAIL [$name]: reason lacks '$want_msg'"; echo "$out"; exit 1; }
+  fi
+  echo "ok: $name -> $decision"
+}
+
+pay() { # $1 tool  $2 file_path  $3 cwd  $4 session
+  jq -nc --arg t "$1" --arg f "$2" --arg c "$3" --arg s "$4" \
+    '{session_id:$s, cwd:$c, tool_name:$t, tool_input:{file_path:$f}}'
+}
+
+CS=$(csharp_repo); PL=$(plain_repo)
+
+verdict "first .cs read in a C# repo"  deny "search_symbols" "$(pay Read "$CS/Foo.cs"    "$CS" s1)"
+verdict "csproj is not C# source"      pass ""               "$(pay Read "$CS/A.csproj"  "$CS" s1)"
+verdict "razor markup"                 pass ""               "$(pay Read "$CS/X.razor"   "$CS" s1)"
+verdict "markdown"                     pass ""               "$(pay Read "$CS/README.md" "$CS" s1)"
+verdict "no C# solution discoverable"  pass ""               "$(pay Read "$PL/Foo.cs"    "$PL" s1)"
+verdict "a tool other than Read"       pass ""               "$(pay Grep "$CS/Foo.cs"    "$CS" s1)"
+verdict "malformed payload fails open" pass ""               'not json at all'
+
 echo "roseline golden test OK"
