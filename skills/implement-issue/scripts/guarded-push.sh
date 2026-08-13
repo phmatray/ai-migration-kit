@@ -142,8 +142,16 @@ fi
 # the OTHER branch (push.default=simple pushes the current one), while the read-back below still
 # finds the expected branch sitting at its old tip — which happens to equal the `head_sha` captured
 # earlier, so the guard would certify a push it never made.
+#
+# `--verify --quiet`, the spelling _assert-branch.sh:122 uses and documents, deliberately and not
+# by coincidence: a bare `rev-parse HEAD 2>/dev/null || true` prints the literal string "HEAD" ON
+# STDOUT and exits 128 when HEAD is unborn, so `|| true` swallows the status and hands back "HEAD"
+# where a sha belongs. This line carried that spelling (#92) and the ALERT below duly printed
+# `HEAD is now  wip @ HEAD` — a commit an operator could go look up, in the one message asking to
+# be believed. The verdict was never wrong ($head_sha comes from the safe form, so the comparison
+# still fails); the diagnostic was. One spelling in the kit, and the empty case rendered as such.
 now_branch=$(head_branch_of "$REPO")
-now_sha=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
+now_sha=$(git -C "$REPO" rev-parse --verify --quiet HEAD 2>/dev/null || true)
 
 if [ "$now_branch" != "$EXPECTED" ] || [ "$now_sha" != "$head_sha" ]; then
   {
