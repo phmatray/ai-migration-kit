@@ -314,9 +314,10 @@ if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/mtp-cov.log" 2>&1; then
   echo "FAIL: the template's coverage step failed outright:"
   tail -25 "$scratch/mtp-cov.log"; exit 1
 fi
-# `-print -quit` rather than `| head -1`: under `pipefail` a SIGPIPE'd find returns 141 and
-# aborts the script before the diagnostic below can run.
-mtp_file=$(find coverage -name '*.cobertura.xml' -print -quit)
+# first_match rather than `find … | head -1`: under `pipefail` a SIGPIPE'd find returns 141, and a
+# find over a `coverage/` the step never created exits non-zero too — either one aborts the script
+# AT this assignment, before the diagnostic below can run (#48, #98).
+mtp_file=$(first_match coverage -name '*.cobertura.xml')
 [ -n "$mtp_file" ] || {
   echo "FAIL: the MTP coverage path produced no cobertura:"; tail -20 "$scratch/mtp-cov.log"; exit 1
 }
@@ -497,7 +498,7 @@ if SOLUTION='' bash -c "$MTP_STEP" > "$scratch/nocov.log" 2>&1; then
   tail -20 "$scratch/nocov.log"; exit 1
 fi
 # The console names the log but not the reason; MTP writes the reason there, in UTF-16.
-nocov_detail=$(find "$scratch/nocov" -name 'LegacyShop.Catalog.Tests_*.log' -print -quit)
+nocov_detail=$(first_match "$scratch/nocov" -name 'LegacyShop.Catalog.Tests_*.log')
 [ -n "$nocov_detail" ] || {
   echo "FAIL: the run failed but MTP wrote no per-project log, so the reason cannot be checked:"
   tail -20 "$scratch/nocov.log"; exit 1; }
@@ -1730,6 +1731,29 @@ fi
 # path, so an aborting probe there would replace the real exit status with its own.
 if any_match "$scratch/definitely-not-here" -name '*.cobertura.xml'; then
   echo "FAIL: any_match reported a match under a directory that does not exist"
+  exit 1
+fi
+
+# The FIRST-match half of the same idiom owes the same tolerance (#98). Two claims, kept apart
+# because they fail for different reasons and only one of them is visible from where it happens.
+#
+# 1. It must not abort its caller. Under this file's `set -euo pipefail` a bare
+#    `x=$(find missing …)` dies AT the assignment, so the
+#    `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written beneath both call sites never runs:
+#    the suite simply stops, on CI, with no message and no log tail — the one thing that makes such
+#    a failure diagnosable at a distance (#74). A subshell is what lets that abort be OBSERVED here
+#    rather than inherited; asserting it from the outer shell would take the suite down with it.
+#    `set -e` is restated inside so the case keeps testing what it names even if this file's own
+#    options are ever relaxed.
+if ! ( set -e; first_hit=$(first_match "$scratch/definitely-not-here" -name '*.cobertura.xml') ); then
+  echo "FAIL: first_match aborted the caller on a path that does not exist. The emptiness test"
+  echo "      written under each of its call sites is only a test if the empty case is reachable."
+  exit 1
+fi
+# 2. …and what it yields there is empty, so that emptiness test means what it says.
+first_hit=$(first_match "$scratch/definitely-not-here" -name '*.cobertura.xml')
+if [ -n "$first_hit" ]; then
+  echo "FAIL: first_match returned '$first_hit' under a directory that does not exist"
   exit 1
 fi
 
