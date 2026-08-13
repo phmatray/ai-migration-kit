@@ -83,6 +83,17 @@ refuses refactor-skills "'refactor'" "refactor(skills): extract the helper"   sk
 #    drops it and it cuts no release — despite looking like a synonym for `feat`.
 refuses feature-skills "'feature'" "feature(skills): add a harvester" skills/merge-pr/SKILL.md
 
+# 8b. skills/** was only ever a proxy (#55). A consumer installs a version-keyed cache that is a
+#     whole-repo checkout of the tagged commit, so these are every bit as install-time as skills/:
+#     scripts/ (legacy-upgrade mandates them by name), commands/ (the five slash commands the
+#     plugin exposes), templates/ (the workflows the kit hands to migrated repos) and
+#     requirements.json (the single source preflight reads). A chore: fix to any of them cut no
+#     release and reached nobody, while the gate printed "not applicable" and exited 0.
+refuses chore-scripts      "'chore'" "chore(ci): tidy the inventory script"   scripts/audit-inventory.sh
+refuses chore-commands     "'chore'" "chore: reword the migrate command"     commands/migrate.md
+refuses chore-templates    "'chore'" "chore: bump the workflow action"       templates/ci-dotnet.yml
+refuses chore-requirements "'chore'" "chore: add a prerequisite"             requirements.json
+
 # ---------------------------------------------------------------- passes
 
 # 9. The releasable types — the four VISIBLE sections of DEFAULT_CHANGELOG_SECTIONS. perf and
@@ -107,6 +118,39 @@ passes nested-skills-dir "docs: rewrite the walkthrough" docs/skills/guide.md .c
 
 # 12. A releasable title is fine even with no skills path — the gate never *requires* a type.
 passes fix-no-skills "fix(ci): pin the runner image" .github/workflows/ci.yml
+
+# ------------------------------------------------- the deny-list boundaries (#55)
+# The exclusions really do exclude: a change confined to them cuts no release and should not.
+passes docs-only  "chore: fix a typo in the walkthrough" docs/legacy-upgrade.md
+passes tests-only "chore: tighten a golden assertion"    tests/preflight/test.sh
+passes evals-reviews-samples-only "chore: refresh the fixtures" \
+  evals/skills/case.md reviews/pr-29.md samples/LegacyShop/README.md
+passes root-markdown-only "docs: rewrite the intro" README.md ARCHITECTURE.md CHANGELOG.md
+
+# One shipped path is enough — a mixed changeset gates on the shipped half, exactly as the old
+# anchor gated a skills/+README changeset.
+refuses mixed-shipped-and-docs "'chore'" \
+  "chore: tidy up" scripts/audit-inventory.sh docs/legacy-upgrade.md
+
+# Anchored at the repo root, in BOTH directions. `docs/skills/…` is excluded because it is under
+# docs/, not because it contains `skills`; and `.claude/` must not swallow `.claude-plugin/`, whose
+# marketplace.json is shipped metadata.
+passes docs-skills-nested "docs: rewrite the walkthrough" docs/skills/guide.md
+refuses marketplace-is-shipped "'chore'" \
+  "chore: register a command" .claude-plugin/marketplace.json
+
+# FAIL CLOSED: an unrecognised top-level path is shipped until the list says otherwise. This is the
+# whole point of inverting the anchor — a new shipped directory inherits the gate automatically
+# instead of escaping it silently until someone remembers.
+refuses unknown-toplevel "'chore'" "chore: add a thing" newthing/x.md
+refuses hooks-are-shipped "'chore'" "chore: adjust the hook" hooks/hooks.json
+
+# LOAD-BEARING BYPASS: release-please's own release PR is titled `chore(main): release X.Y.Z` by
+# construction and touches exactly these three files. If they gate, `chore` is refused and no
+# release can ever merge — the gate would deadlock the mechanism it exists to protect. Drive the
+# real shape, not a paraphrase.
+passes release-please-pr "chore(main): release 1.11.0" \
+  .claude-plugin/plugin.json .release-please-manifest.json CHANGELOG.md
 
 # ---------------------------------------------------------------- plumbing must fail closed
 
