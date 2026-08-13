@@ -81,6 +81,38 @@ reads and verifies. In short: [Claude Code](https://code.claude.com) with **Rose
 (`claude mcp list` should show `roseline`), a .NET SDK (latest LTS recommended), git, python3 — and
 the target application in a git repository.
 
+### RoselineMCP is shipped *and* enforced
+
+You do not need to `claude mcp add roseline` — the kit ships the server itself in
+[`.mcp.json`](.mcp.json) (`dnx RoselineMCP --yes`), so installing the plugin installs the dependency.
+
+It also **enforces** it. Preflight only ever proved roseline was *connected*; nothing made it
+*used*, and in practice `Read`/`Grep` on a `.cs` file stayed the path of least resistance. So
+[`hooks/roseline-gate.sh`](hooks/roseline-gate.sh) runs as a `PreToolUse` hook and **denies** `Read`
+on a C# file, naming the roseline tool that replaces it (`search_symbols`, `get_symbol_info`,
+`find_references`, …). An advisory reminder was tried first and does not work — the reminder arrives
+together with the file content, so the model has already been paid by the time the advice lands.
+
+Three properties keep that safe to have switched on:
+
+- **Inert outside C# solutions.** The gate no-ops unless a `*.sln`/`*.slnx`/`*.csproj` is
+  discoverable, so a globally-installed plugin never blocks reads in a repo that has no roseline.
+- **A one-shot escape.** Issuing the *identical* `Read` a second time is allowed through, for the
+  rare case where you genuinely need the exact full text. It is consumed, not latched — a third read
+  denies again.
+- **Fails open.** No `jq`, an unparseable payload, any internal error — the gate exits silently and
+  the `Read` proceeds.
+
+`Grep` is deliberately left alone: roseline replaces whole-file reads, but `search_symbols` finds
+*symbols*, and grepping a string literal or a comment in `.cs` is a real need it cannot serve.
+
+To turn the gate off, disable the plugin or drop the `Read` matcher from your settings.
+
+> **Permission prompts are a separate concern.** A Claude Code plugin cannot ship `permissions`
+> allow rules — only a settings file can. So if roseline's tool calls prompt you for Accept/Deny,
+> add them to your own `~/.claude/settings.json` (or an org `managed-settings.json`) as **per-tool**
+> entries, e.g. `mcp__roseline__search_symbols`. That is outside what this plugin can do for you.
+
 ## Install
 
 ```bash

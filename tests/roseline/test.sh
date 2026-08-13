@@ -107,4 +107,17 @@ resolved="${got/\$\{CLAUDE_PLUGIN_ROOT\}/$KIT}"
 [ -x "$resolved" ] || { echo "FAIL: hooks.json points at '$resolved', which is not an executable file"; exit 1; }
 echo "ok: the registered command resolves to a shipped executable"
 
+# ------------------------------------------------- 5. requirements.json stays the source of truth
+REQ="$KIT/requirements.json"
+hint=$(jq -r '.mcps[] | select(.match=="roseline") | .hint' "$REQ")
+printf '%s' "$hint" | grep -qF 'shipped by this plugin' \
+  || { echo "FAIL: roseline hint still tells the user to install it by hand: '$hint'"; exit 1; }
+echo "ok: requirements.json records that roseline ships with the plugin"
+
+grep -qF 'roseline-gate' "$KIT/README.md" \
+  || { echo "FAIL: README does not document the roseline gate"; exit 1; }
+grep -qF 'managed-settings.json' "$KIT/README.md" \
+  || { echo "FAIL: README does not say where permission rules must live instead"; exit 1; }
+echo "ok: README documents the gate and the out-of-scope permission rules"
+
 echo "roseline golden test OK"

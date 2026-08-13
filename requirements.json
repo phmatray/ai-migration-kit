@@ -9,7 +9,7 @@
     { "name": "Chrome headless", "level": "recommended", "test": "command -v google-chrome || command -v chromium || test -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'", "hint": "visual verification of rendered output" }
   ],
   "mcps": [
-    { "name": "RoselineMCP connected", "match": "roseline", "level": "required", "hint": "claude mcp add roseline … (mandatory for all C# analysis)" },
+    { "name": "RoselineMCP connected", "match": "roseline", "level": "required", "hint": "shipped by this plugin via .mcp.json; usage is enforced by hooks/roseline-gate.sh (mandatory for all C# analysis)" },
     { "name": "context7 MCP connected", "match": "context7", "level": "recommended", "hint": "recommended: up-to-date docs for the target frameworks" }
   ],
   "sessionSkills": [
