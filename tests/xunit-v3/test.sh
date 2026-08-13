@@ -327,10 +327,18 @@ py_module "$KIT/scripts/report-dashboard.py" "$PWD/$mtp_file" <<'PY'
 cov = mod.parse_cobertura(sys.argv[2], [])
 covered = sum(c["covered"] for c in cov["classes"])
 assert covered > 0, "parse_cobertura read zero covered lines — the dashboard would show nothing"
-assert cov["line_pct"] > 0, f"line_pct is {cov['line_pct']}"
+assert cov["line_pct"] is not None and cov["line_pct"] > 0, f"line_pct is {cov['line_pct']}"
 # Branch coverage is read from `condition-coverage`, an attribute this collector happens to
-# emit. Asserting it on a REAL report is what would catch the day it stops: without this, a
-# silent 0 % branches would ship looking like a measurement rather than an absence of data.
+# emit. Asserting it on a REAL report is what would catch the day it stops.
+#
+# The `is not None` half is load-bearing, not defensive noise: since #50 `branch_pct` is
+# Optional[int] — None means "no branch data at all", rendered `n/d` instead of a fabricated 0 %.
+# A bare `> 0` would raise TypeError on None and the diagnostic below would never print, which is
+# the one moment it is wanted. Checked SEPARATELY from the value so the two failures read
+# differently: absent data and zero coverage are not the same event.
+assert cov["branch_pct"] is not None, \
+    "branch_pct is None on a real MTP report — condition-coverage went missing, and the root " \
+    "branch-rate fallback did not cover it either"
 assert cov["branch_pct"] > 0, \
     f"branch_pct is {cov['branch_pct']} on a real MTP report — condition-coverage went missing?"
 print(f"  [4b] MTP coverage -> cobertura -> parse_cobertura: "
