@@ -6,6 +6,7 @@
     "The same invariant is encoded in three other places with no shared identifier; change one and check the rest: samples/LegacyShop/README.md, tests/xunit-v3/test.sh (asserts these exact versions), and repo-audit/net10_blacklist.json portfolio-side.",
     "This deviates from the portfolio's canonical two-line renovate.json on purpose. Do not 'tidy' it back."
   ],
+  "autodiscover": true,
   "extends": [
     "local>phmatray/.github:renovate-ci"
   ],
