@@ -47,6 +47,74 @@ def sous_vendor(parts):
 ID_VERSION = re.compile(r'\.\d+(\.\d+)*$')
 PROJET_EXT = ('.csproj', '.fsproj', '.vbproj')
 
+# La sonde ci-dessous s'arrête aux PETITS-ENFANTS de l'enfant de `packages/` — un cran, pas une
+# récursion. Le chiffre n'est pas un réglage de coût, c'est le DISCRIMINANT (#107) :
+#
+#   - un paquet NuGet extrait n'a jamais de projet à cette profondeur. Sa disposition interpose
+#     toujours un répertoire de framework — `lib/<tfm>/`, `contentFiles/<lang>/<tfm>/`,
+#     `build/<tfm>/` — donc ce que la restauration écrit tombe au moins un cran plus bas ;
+#   - un paquet de première main, lui, range son projet exactement là : `<Pkg>/src/X.csproj`,
+#     `<Pkg>/lib/X.csproj`, `<Pkg>/<version>/X.csproj`.
+#
+# Descendre plus bas ne gagnerait donc rien et coûterait le cas (b) de tests/audit-inventory :
+# `packages/somelib/lib/net45/Third.csproj`, un `packages/` committé dont le code tiers doit rester
+# dehors, deviendrait « source ». Remonter à 1 ne fait que retrouver le bug : c'est la profondeur
+# que les marques source lisaient déjà, pendant que les signaux de restauration en lisaient deux.
+PROFONDEUR_SONDE = 2
+
+
+def _lecture(chemin):
+    """(noms des FICHIERS, chemins des sous-répertoires retenus) — un seul `scandir`.
+
+    Les deux moitiés sortent du même passage parce que la sonde ci-dessous a besoin des deux à
+    chaque niveau : les fichiers pour décider, les répertoires pour descendre. `PRUNE` est appliqué
+    ici aussi — sonder `node_modules/` ou `obj/` coûterait cher pour ne rien apprendre.
+    """
+    fichiers, dossiers = set(), []
+    try:
+        with os.scandir(chemin) as sous:
+            for e in sous:
+                if e.is_dir(follow_symlinks=False):
+                    if e.name not in PRUNE:
+                        dossiers.append(e.path)
+                else:
+                    fichiers.add(e.name)
+    except OSError:
+        pass
+    return fichiers, dossiers
+
+
+def projet_sous_l_enfant(chemin):
+    """Un projet (ou un `package.json`) dans un SOUS-RÉPERTOIRE immédiat de cet enfant ?
+
+    `paquet_restaure()` cherchait les marques « source » sur les seuls enfants immédiats du
+    répertoire, alors qu'il appliquait ses signaux de restauration sur DEUX niveaux (`lib/`,
+    `content/`, un petit-enfant en forme de version). Un paquet de première main dont le projet vit
+    un cran plus bas perdait donc sur les deux tableaux — mesuré sur `main` avant #107 :
+
+        packages/MyLib/lib/MyLib.csproj + Svc.cs -> projects=['App'], csFiles=1 (2 attendus)
+        packages/api/1.0/Api.csproj              -> projects=['App']
+
+    …avec le répertoire NOMMÉ dans `excludedFromWalk` dans les deux cas, ce qui borne la gravité
+    (#65 a ajouté cette clé pour ça) mais ne rend ni les fichiers ni les lignes comptés.
+
+    La sonde est bornée à `PROFONDEUR_SONDE` niveaux — voir le commentaire de cette constante : la
+    borne est ce qui distingue « projet de première main sous `lib/` » de « code tiers sous
+    `lib/<tfm>/` », pas seulement une limite de coût.
+    """
+    niveau = _lecture(chemin)[1]          # profondeur 2 : l'appelant a déjà lu la profondeur 1
+    for _ in range(PROFONDEUR_SONDE - 1):
+        if not niveau:
+            return False
+        suivant = []
+        for d in niveau:
+            fichiers, dossiers = _lecture(d)
+            if 'package.json' in fichiers or any(n.endswith(PROJET_EXT) for n in fichiers):
+                return True
+            suivant.extend(dossiers)
+        niveau = suivant
+    return False
+
 
 def paquet_restaure(nom, chemin):
     """Cet enfant de `packages/` est-il un paquet NuGet restauré plutôt qu'un projet du dépôt ?
@@ -84,6 +152,12 @@ def paquet_restaure(nom, chemin):
     qui garde la règle honnête au quotidien n'est pas ce tableau mais `tests/audit-inventory` :
     chaque branche ci-dessous a son propre cas, et chacune est mutation-testée — on la casse, la
     suite tombe. Le tableau explique le choix ; la suite l'empêche de dériver.
+
+    #107 a ajouté une branche à cette liste, et c'était une correction de PROFONDEUR : les marques
+    « source » n'étaient lues que sur les enfants immédiats, quand les signaux de restauration en
+    lisaient deux — un paquet de première main dont le projet vit un cran plus bas perdait donc sur
+    les deux tableaux. `projet_sous_l_enfant()` comble l'écart, borné à `PROFONDEUR_SONDE`, et
+    passe APRÈS `<Id>.<Version>` : voir son commentaire à cet endroit.
     """
     noms, dossiers = set(), set()
     try:
@@ -101,6 +175,14 @@ def paquet_restaure(nom, chemin):
         return False
     if ID_VERSION.search(nom):
         return True                       # packages/Newtonsoft.Json.13.0.1
+    # …et le NOM passe AVANT la sonde en profondeur, contrairement aux marques immédiates
+    # ci-dessus. L'asymétrie est mesurée, pas esthétique : un paquet NuGet extrait n'a jamais de
+    # projet à sa racine, donc une marque immédiate lève l'ambiguïté à elle seule — alors qu'un
+    # cran plus bas, `content/`, `contentFiles/` et `tools/` en livrent parfois un pour de vrai.
+    # À cette profondeur-là, `<Id>.<Version>` — une forme qu'un paquet de première main n'a pas —
+    # est le signal le plus fiable des deux, et il tranche.
+    if projet_sous_l_enfant(chemin):
+        return False                      # packages/MyLib/lib/MyLib.csproj — #107
     if 'lib' in noms or 'content' in noms:
         return True                       # la disposition extraite, même sans .nupkg committé
     if any(n.endswith('.nupkg') for n in noms):

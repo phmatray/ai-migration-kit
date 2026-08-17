@@ -28,6 +28,8 @@
 #   7. ONE traversal rule — a nested checkout inflates no key, not just `vendoredAssets`;
 #   8. `packages/` is judged per child by shape (name, lib/, .nupkg, v3 layout), and every child
 #      dropped by that decision is NAMED in `excludedFromWalk`;
+#  8b. DEPTH decides nothing: a first-party package is walked whether its project sits in the
+#      child, under `lib/`, or under a version-shaped directory (#107);
 #   9. a loose file is a finding only when it is an asset — `.gitkeep` and `README.md` are not;
 #   6. the output is still valid JSON, including from a foreign working directory.
 #
@@ -457,6 +459,20 @@ mk_host() {
   echo 'namespace App { public class Real { } }' > "$1/src/App/Real.cs"
 }
 
+# A NAMED library project plus one source file, for the fixtures where the project's own name is
+# the assertion — `projects` reports csproj stems, so "MyLib" appearing there is the proof that
+# this exact directory was walked rather than some other one.
+mk_lib() {
+  local dir="$1" name="$2"
+  mkdir -p "$dir"
+  cat > "$dir/$name.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+</Project>
+XML
+  echo "namespace $name { public class Svc { } }" > "$dir/Svc.cs"
+}
+
 assert_restore_skipped() {
   python3 - "$($INV "$1")" "$2" "$3" <<'PY'
 import json, sys
@@ -470,6 +486,24 @@ assert inv["testStack"] == [], f"[{name}] a foreign test project leaked in: {inv
 got = {e["path"]: e["reason"] for e in inv["excludedFromWalk"]}
 assert f"packages/{child}" in got, \
     f"[{name}] the restored package was skipped WITHOUT being named: {got}"
+PY
+}
+
+# The mirror image: a FIRST-PARTY package under `packages/` must be walked, and must not appear in
+# `excludedFromWalk` at all — "named" is the consolation prize for a directory that was dropped,
+# not a substitute for counting one that should not have been.
+assert_package_walked() {
+  python3 - "$($INV "$1")" "$2" "$3" "$4" <<'PY'
+import json, sys
+inv, name, child, projet = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+assert inv["projects"] == sorted(["App", projet]), \
+    f"[{name}] the first-party project was dropped: projects={inv['projects']}"
+assert inv["csFiles"] == 2, \
+    f"[{name}] its sources were not counted: csFiles={inv['csFiles']} (want 2)"
+assert inv["locTotal"] == 2, f"[{name}] its lines were not counted: locTotal={inv['locTotal']}"
+got = {e["path"] for e in inv["excludedFromWalk"]}
+assert f"packages/{child}" not in got, \
+    f"[{name}] a first-party package was excluded from the walk: {sorted(got)}"
 PY
 }
 
@@ -530,6 +564,39 @@ assert not any(e["path"] == "packages" for e in inv["excludedFromWalk"]), \
     f"a source packages/ was reported as excluded: {inv['excludedFromWalk']}"
 PY
 echo "  [8] packages/ decided by structure — 3 restore shapes skipped and named, source walked"
+
+# ---------------------------------------------------------------------------
+# 8b. DEPTH must not decide whether a first-party package is visible (#107).
+#
+#     The (Q) control above puts its project in the child's own directory, which is the only
+#     depth the source markers were ever read at — while the restore signals (`lib/`, a
+#     version-shaped grandchild) are read one level deeper. A package whose project sits one
+#     level down therefore lost on both counts. Measured on `main` before the fix, and the
+#     reason this is a bug report rather than a preference:
+#
+#         packages/MyLib/lib/MyLib.csproj + Svc.cs -> projects=['App'], csFiles=1 (want 2),
+#                                                     excludedFromWalk=['packages/MyLib']
+#         packages/api/1.0/Api.csproj              -> projects=['App'],
+#                                                     excludedFromWalk=['packages/api']
+#
+#     Neither layout is exotic: `packages/<Name>/lib/` and `packages/<Name>/src/` are ordinary,
+#     and `packages/<name>/<version>/` is what a monorepo that versions its own packages looks
+#     like. Both were dropped by the rules meant for NuGet's restore output.
+# ---------------------------------------------------------------------------
+# (e) the project sits under `lib/` — the very directory name the detector reads as proof of a
+#     restored package. Source has to win over that signal, exactly as an immediate `.csproj`
+#     already wins over a stray `.nupkg` in (Q).
+D1="$scratch/pkg-deep-lib"; mk_host "$D1"
+mk_lib "$D1/packages/MyLib/lib" MyLib
+assert_package_walked "$D1" deep-lib MyLib MyLib
+
+# (f) the project sits under a version-shaped directory, so the child is caught by the v3
+#     "every child is a version" rule — which only ever inspected directory NAMES and never
+#     checked that the leaf holds no project. Contrast with (d), whose leaf holds none.
+D2="$scratch/pkg-deep-version"; mk_host "$D2"
+mk_lib "$D2/packages/api/1.0" Api
+assert_package_walked "$D2" deep-version api Api
+echo "  [8b] a first-party package is walked however deep its project sits"
 
 # ---------------------------------------------------------------------------
 # 9. A loose file is only a finding when it IS an asset.
