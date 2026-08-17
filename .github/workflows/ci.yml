@@ -34,6 +34,18 @@ on:
 #
 # Fork PRs already receive a read-only token; nothing declared here is something a fork cannot be
 # granted, so they keep running this workflow.
+#
+# Observed on the PR that added this block (#146, for #132) on 2026-08-17, from the "Set up job"
+# group of the `kit` run — a point-in-time record, since no test can read a runner's token scope and
+# Actions logs are pruned after 90 days. The two runs differ only in this block:
+#
+#   cdb6059 (scaffold, inherited default)   Contents: read · Metadata: read · Packages: read
+#   84bd241 (this block)                    Contents: read · Metadata: read
+#
+# So it is not a formality: the declaration measurably narrowed the grant (`Packages: read` is gone),
+# and `Metadata: read` stays because GitHub always grants it. What the record is really for is the
+# other direction — it fixes what "the default" was on this date, so a later run showing more than
+# `contents` means this block was removed rather than that the default drifted.
 permissions:
   contents: read
 
