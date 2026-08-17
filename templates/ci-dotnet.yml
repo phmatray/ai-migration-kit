@@ -427,6 +427,12 @@ jobs:
           git ls-files --error-unmatch -- "$cfg" > /dev/null 2>&1 \
             || refuse "n'est pas suivi par git. La configuration de la garde doit être committée."
 
+          # `jq` AVANT de s'en servir. Sans ce test, un runner sans jq échouerait sur la ligne
+          # suivante et le message accuserait le JSON — parfaitement valide — au lieu du runner :
+          # on irait éditer un fichier qui n'a rien. Les images `ubuntu-*` de GitHub le fournissent.
+          command -v jq > /dev/null 2>&1 \
+            || refuse "lire cette configuration demande jq, absent de ce runner."
+
           jq -e 'type == "object"' "$cfg" > /dev/null 2>&1 \
             || refuse 'doit être un objet JSON : { "src": "...", "dist": "..." }.'
 
@@ -578,18 +584,30 @@ jobs:
           # dans bash 3.2 — celui de macOS, où ce modèle est relu — l'analyseur voit le `)` d'un
           # motif comme la fin de la substitution `$(` qui l'englobe, et le fichier ne PARSE pas.
           # `tests/ci-template/test.sh` passe ce corps à `bash -n`, donc l'oubli est rouge.
+          #
+          # `core.quotepath=false` : sinon git rend les chemins non-ASCII échappés en octal ET
+          # entre guillemets (`"src/Créé/package.json"`), le chemin lu n'existe pas, et la
+          # détection reste muette sur un dépôt francophone — soit exactement la population de ce
+          # modèle.
           report=$(
-            git ls-files -- '*package.json' | while IFS= read -r pkg; do
-              case "$pkg" in (*/node_modules/*) continue ;; esac
-              dir=${pkg%/package.json}
-              if [ "$dir" = "$pkg" ]; then dir=.; fi
+            git -c core.quotepath=false ls-files -- '*package.json' | while IFS= read -r pkg; do
+              # Le motif `*package.json` de git est un glob sur le chemin ENTIER : il attrape
+              # aussi `mypackage.json`. Sans ce filtre, un tel fichier ferait tomber `dir` sur la
+              # racine et la détection irait chercher un `dist/` racine sans rapport — un
+              # avertissement sur un dépôt qui n'a rien demandé.
+              case "$pkg" in
+                (*/node_modules/*) continue ;;
+                (package.json) dir=. ;;
+                (*/package.json) dir=${pkg%/package.json} ;;
+                (*) continue ;;
+              esac
               for out in dist build out wwwroot/dist; do
                 if [ "$dir" = . ]; then cand="$out"; else cand="$dir/$out"; fi
                 git ls-files --error-unmatch -- "$cand" > /dev/null 2>&1 || continue
                 # Consommé par un projet .NET ? MSBuild écrit ses chemins relativement au .csproj
                 # et avec des ANTISLASHS : ne chercher que la forme '/' ne trouverait rien sur le
                 # dépôt même pour lequel cette détection existe.
-                git ls-files -- '*.csproj' | while IFS= read -r proj; do
+                git -c core.quotepath=false ls-files -- '*.csproj' | while IFS= read -r proj; do
                   pd=${proj%/*}
                   if [ "$pd" = "$proj" ]; then pd=.; fi
                   rel="$cand"

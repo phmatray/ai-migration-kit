@@ -295,7 +295,9 @@ config_refuses() {   # $1 = case label · $2 = config contents · $3 = "untracke
     cat "$scratch/out-config.txt"
     exit 1
   fi
-  grep -q "$CONFIG" "$scratch/out-config.txt" || {
+  # -F: the path is a literal, and its dots would otherwise be regex wildcards — a message naming
+  # some OTHER `Xgithub/bundle-gateXjson` would satisfy a regex match and prove nothing.
+  grep -qF "$CONFIG" "$scratch/out-config.txt" || {
     echo "FAIL: refused $label but never named $CONFIG, so nobody knows what to fix:"
     cat "$scratch/out-config.txt"; exit 1; }
   # A refusal must publish nothing: a half-written output file is an empty path by another name.
@@ -409,9 +411,9 @@ grep -q '::warning::' "$scratch/out-detect.txt" || {
   echo "FAIL: a committed bundle consumed by a csproj, and no gate config, passed in SILENCE."
   echo "      That repo is indistinguishable from one that never wanted the gate — the whole"
   echo "      point of #96:"; cat "$scratch/out-detect.txt"; exit 1; }
-grep -q 'WebUI/dist' "$scratch/out-detect.txt" || {
+grep -qF 'WebUI/dist' "$scratch/out-detect.txt" || {
   echo "FAIL: warned but never named the bundle it found:"; cat "$scratch/out-detect.txt"; exit 1; }
-grep -q "$CONFIG" "$scratch/out-detect.txt" || {
+grep -qF "$CONFIG" "$scratch/out-detect.txt" || {
   echo "FAIL: warned but never named the file that would fix it:"
   cat "$scratch/out-detect.txt"; exit 1; }
 echo "  [1d] a committed bundle consumed by a project, with no config, is reported"
@@ -433,6 +435,30 @@ for kind in bare orphan; do
   fi
 done
 echo "  [1d] silent on a repo with no bundle, and on one whose bundle no project consumes"
+
+# The third way to be wrong, and the one a reader would not predict: git's `*package.json`
+# pathspec is a glob over the WHOLE path, so it also matches `mypackage.json`. Read as "a
+# front-end project at the repository root", that sends the detector hunting for a root `dist/`
+# with nothing to do with it — and warns a repo that has no bundle at all.
+DECOY="$scratch/detect-decoy"
+mkdir -p "$DECOY/dist"
+git init -q "$DECOY"
+printf '{ "name": "not-a-project" }\n' > "$DECOY/mypackage.json"
+printf 'x\n' > "$DECOY/dist/thing.txt"
+printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <Content Include="dist\\**" />\n  </ItemGroup>\n</Project>\n' \
+  > "$DECOY/App.csproj"
+git -C "$DECOY" add -A
+git -C "$DECOY" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm "a decoy"
+run_detect "$DECOY"
+if [ "$detect_rc" -ne 0 ]; then
+  echo "FAIL: the detection step failed on the decoy repo:"; cat "$scratch/out-detect.txt"; exit 1
+fi
+if grep -qE '::(warning|error)::' "$scratch/out-detect.txt"; then
+  echo "FAIL: 'mypackage.json' was read as a front-end project at the repository root, so the"
+  echo "      detector warned a repo that never had a bundle:"
+  cat "$scratch/out-detect.txt"; exit 1
+fi
+echo "  [1d] 'mypackage.json' is not a project — git's *package.json glob is not the filter"
 
 # ---------------------------------------------------------------------------
 # 2. The content-hash rename: the old asset disappears and a differently-named one
