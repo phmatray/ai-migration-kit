@@ -113,7 +113,9 @@ Four properties keep that safe to have switched on:
   error — the gate exits silently and the `Read` proceeds. It never fails closed.
 - **It never enforces a tool that cannot be there.** No `dnx` on `PATH` means the shipped launcher
   cannot have started the server, so the `mcp__roseline__*` tools the deny message names do not
-  exist — and the gate lets the `Read` through rather than pointing you at them.
+  exist — and the gate lets the `Read` through rather than pointing you at them. That probe is a
+  proxy, and it errs in one direction only: it cannot see roseline started by any *other* route, so
+  `ROSELINE_GATE=on` is there to say "it is running, enforce anyway" (see below).
 
 `Grep` is deliberately left alone: roseline replaces whole-file reads, but `search_symbols` finds
 *symbols*, and grepping a string literal or a comment in `.cs` is a real need it cannot serve.
@@ -128,6 +130,15 @@ so.
 `disabled`). There is no `Read` matcher to remove from your own settings — the hook is supplied by
 the plugin in [`hooks/hooks.json`](hooks/hooks.json), so the other levers are uninstalling the
 plugin or Claude Code's global `disableAllHooks`.
+
+**To turn it *on* regardless**, set `ROSELINE_GATE=on` (also `1`, `true`, `yes`, `enabled`). This is
+for the case the `dnx` probe cannot settle: you are running roseline by some route other than the
+shipped launcher — a hand-added MCP server, a locally built binary, a wrapper script — or `dnx` is
+on your login shell's `PATH` but not on the narrower one Claude Code hands its hooks. Left alone,
+the gate would fail open for you permanently and silently; `on` is your word that the server is
+there, and enforcement resumes. `off` is still checked first and still wins, so a stale `on`
+somewhere in your environment can never override an `off` you have set. Any other value is neither
+switch and leaves the probe to decide.
 
 > **Permission prompts are a separate concern.** A Claude Code plugin cannot ship `permissions`
 > allow rules — only a settings file can. So if roseline's tool calls prompt you for Accept/Deny,

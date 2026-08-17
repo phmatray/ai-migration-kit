@@ -11,9 +11,23 @@
 # deadlock repositories it was never meant to touch. Set ROSELINE_GATE=off to disable it outright.
 #
 # "Cannot enforce" is one of those failure paths, not an exception to them: the gate only blocks
-# where roseline's shipped launcher exists to have started the server (see the `dnx` probe below).
+# where roseline's shipped launcher exists to have started the server (see the `dnx` probe below)
+# — UNLESS the user declares otherwise with ROSELINE_GATE=on. The probe answers "can the shipped
+# launcher have started it?", which is not the same question as "is it running?", and the gap
+# between them belongs to whoever runs roseline by some other route. `off` is still checked first
+# and still wins; `on` only overrides the probe, never the off-switch.
 
 case "${ROSELINE_GATE:-}" in off|0|false|no|disabled) exit 0 ;; esac
+
+# `on` is the counterpart, and it is deliberately checked SECOND: `off` stays the master switch, so
+# a stale `on` in a shell rc can never override the `off` a user just typed. It forces enforcement
+# past the `dnx` probe below — the user's testimony that roseline IS running here, by whatever route
+# (a hand-added MCP server, a locally built binary, a wrapper script) — and it is the only kind of
+# evidence available: preflight settles this class by observing a live server, and a PreToolUse hook
+# is handed nothing but the tool payload (#155). Any other value, `maybe` included, is neither
+# switch and falls through to the probe exactly as an unset variable does.
+FORCE=0
+case "${ROSELINE_GATE:-}" in on|1|true|yes|enabled) FORCE=1 ;; esac
 
 payload=$(cat) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -46,7 +60,12 @@ case "$fp" in *.cs) ;; *) exit 0 ;; esac
 #
 # Placed above the marker write on purpose — a fail-open path must not arm a one-shot escape that
 # nothing will ever consume, which would then let the NEXT read of that file through for free.
-command -v dnx >/dev/null 2>&1 || exit 0
+#
+# ROSELINE_GATE=on short-circuits the probe rather than replacing it: a proxy this coarse is wrong
+# in exactly one direction — it cannot see a server started by any route other than the shipped
+# launcher — and the user is the only authority this hook can consult about that. The declaration
+# therefore has to be able to beat the probe, never merely agree with it.
+[ "$FORCE" = 1 ] || command -v dnx >/dev/null 2>&1 || exit 0
 
 # ---------------------------------------------------------------- is this .cs inside a project?
 # Walk UP from the file's own directory. Upward is the direction that answers the question; a
