@@ -334,8 +334,8 @@ jobs:
       #     un bundle parfaitement correct, et vous aurez construit le faux rouge que le point
       #     précédent cherche à éviter.
       #
-      #     Les trois étapes ci-dessous sont donc LIVE, et inertes par défaut : elles ne
-      #     s'exécutent que si les variables de dépôt sont renseignées. Sur les 190 dépôts sur 193
+      #     Les quatre étapes ci-dessous sont donc LIVE, et inertes par défaut : elles ne
+      #     s'exécutent que si le fichier de configuration est committé. Sur les 190 dépôts sur 193
       #     qui ne committent aucune sortie de build — 192 si l'on compte ceux dont le build .NET
       #     ne la consomme pas — elles apparaissent « skipped » et ne font rien. Les deux
       #     dénominateurs répondent à deux questions différentes ; ne pas les confondre.
@@ -347,18 +347,39 @@ jobs:
       #     ainsi c'est Renovate qui le maintient au lieu d'un commentaire qui vieillit — la
       #     facture déjà payée en #35, où les workflows LIVRÉS avaient trois majeures de retard.
       #
-      # POUR ACTIVER — deux variables de dépôt (Settings → Secrets and variables → Actions →
-      # Variables), et rien à éditer dans ce fichier :
+      # POUR ACTIVER — committez UN fichier, `.github/bundle-gate.json`, et rien à éditer ici :
       #
-      #     BUNDLE_SRC   le répertoire qui porte package.json   ex. src/App/WebUI
-      #     BUNDLE_DIST  le bundle committé, sous BUNDLE_SRC    ex. src/App/WebUI/dist
+      #     { "src": "src/App/WebUI", "dist": "src/App/WebUI/dist" }
       #
-      # Deux, et pas une seule, parce que le chemin de sortie n'est pas déductible de l'entrée
-      # (`dist`, `build`, `wwwroot/dist`…). Mais deux réglages indépendants seraient pires qu'un :
-      # s'ils désignaient des arbres différents, npm reconstruirait l'un pendant que la garde
-      # examine l'autre, elle ne verrait aucune dérive, et l'étape passerait au VERT sur un bundle
-      # périmé — la fausse remédiation même que tout ceci existe pour empêcher, produite par la
-      # garde. La garde vérifie donc que `BUNDLE_DIST` est bien SOUS `BUNDLE_SRC` et refuse sinon.
+      #     src   le répertoire qui porte package.json
+      #     dist  le bundle committé, SOUS src
+      #
+      # Deux chemins, et pas un seul, parce que la sortie n'est pas déductible de l'entrée (`dist`,
+      # `build`, `wwwroot/dist`…). Mais deux réglages INDÉPENDANTS seraient pires qu'un : s'ils
+      # désignaient des arbres différents, npm reconstruirait l'un pendant que la garde examine
+      # l'autre, elle ne verrait aucune dérive, et l'étape passerait au VERT sur un bundle périmé —
+      # la fausse remédiation même que tout ceci existe pour empêcher, produite par la garde. D'où
+      # un seul fichier, validé d'un bloc AVANT que npm ne tourne : `dist` doit être sous `src`.
+      #
+      # POURQUOI UN FICHIER, et non deux variables de dépôt comme en #70 (#96) : une variable est un
+      # état de RÉGLAGES, invisible. Un ménage dans les settings, un transfert de dépôt (les
+      # variables ne suivent pas le code), une politique d'organisation, un renommage — et les
+      # étapes évaluent `'' != ''`, apparaissent « skipped », et le job reste VERT à jamais sans
+      # rien mesurer. Une PR issue d'un fork ne voit pas non plus les variables de dépôt. Un dépôt
+      # qui n'a jamais voulu la garde et un dépôt qui l'a PERDUE étaient alors indiscernables — et
+      # c'est le second qui se croit protégé. Avec un fichier committé, activer et désactiver
+      # redeviennent des diffs relus, la configuration voyage avec le code, et un fork la voit.
+      #
+      # Le fichier ARME la garde par sa seule présence : `hashFiles()` rend une chaîne VIDE quand
+      # rien ne correspond (référence des expressions GitHub), donc `!= ''` est faux — et non une
+      # erreur — sur les 192 dépôts qui n'ont pas opté. Le chemin est écrit relatif à la racine
+      # parce que la même référence impose « can only include files inside of the
+      # `GITHUB_WORKSPACE` » ; ces étapes tournent après `actions/checkout`, la condition est donc
+      # évaluable.
+      #
+      # `if:` et `working-directory:` sont évalués AVANT l'exécution d'une étape et ne peuvent pas
+      # lire un fichier : c'est pourquoi une étape de configuration publie les deux chemins en
+      # sorties, et pourquoi elle vient en PREMIER.
       #
       # ⚠ La précondition 2 demande d'épingler la plateforme ENTIÈRE, pas seulement Node : ce
       # modèle tourne sur `runs-on: ubuntu-latest`, qui FLOTTE. Le jour où GitHub bascule l'image,
@@ -372,9 +393,130 @@ jobs:
       # périmé alors que c'est la chaîne d'outils qui a bougé. Reconstruisez et committez le
       # bundle DANS la même PR que le bump.
       #
-      # Pour désactiver : supprimez les variables — le code reste en place, sous test, inerte.
+      # Pour désactiver : supprimez le fichier — le code reste en place, sous test, inerte. La
+      # suppression apparaît dans un diff, ce qui est tout l'objet de #96.
+      - name: Configuration de la garde bundle
+        id: bundle_gate
+        if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
+        env:
+          # Le MÊME chemin que dans la condition ci-dessus. `tests/ci-template/test.sh` vérifie
+          # qu'ils ne divergent pas : une condition qui arme la garde sur un fichier pendant que
+          # l'étape en lit un autre, c'est le piège des deux sources de vérité, un cran plus haut.
+          BUNDLE_GATE_CONFIG: .github/bundle-gate.json
+        run: |
+          set -euo pipefail
+          cfg="$BUNDLE_GATE_CONFIG"
+
+          # Tout refus nomme le fichier à corriger, et n'écrit AUCUNE sortie. C'est le point : une
+          # configuration à moitié lue publierait des chemins vides, `working-directory:`
+          # retomberait sur la racine du dépôt et la garde examinerait '' — or
+          # `git status --porcelain -- ''` sort en 0 sans rien afficher. L'étape serait verte à
+          # chaque run en ne mesurant rien, exactement le défaut que cette garde combat.
+          refuse() {
+            echo "::error::$cfg : $1"
+            exit 1
+          }
+
+          # `hashFiles()` a déjà vu le fichier ; on le redit parce qu'une étape qui suppose ses
+          # propres préconditions est une étape qui les perd le jour où la condition change.
+          [ -f "$cfg" ] || refuse "fichier introuvable alors que la garde a été armée."
+
+          # La garde ne vaut que pour une configuration COMMITTÉE : c'est ce qui rend l'activation
+          # et la désactivation relisibles dans un diff. Un fichier produit par une étape
+          # précédente ré-introduirait l'état invisible qu'on vient de supprimer.
+          git ls-files --error-unmatch -- "$cfg" > /dev/null 2>&1 \
+            || refuse "n'est pas suivi par git. La configuration de la garde doit être committée."
+
+          # `jq` AVANT de s'en servir. Sans ce test, un runner sans jq échouerait sur la ligne
+          # suivante et le message accuserait le JSON — parfaitement valide — au lieu du runner :
+          # on irait éditer un fichier qui n'a rien. Les images `ubuntu-*` de GitHub le fournissent.
+          command -v jq > /dev/null 2>&1 \
+            || refuse "lire cette configuration demande jq, absent de ce runner."
+
+          jq -e 'type == "object"' "$cfg" > /dev/null 2>&1 \
+            || refuse 'doit être un objet JSON : { "src": "...", "dist": "..." }.'
+
+          src=$(jq -r '.src // ""' "$cfg")
+          dist=$(jq -r '.dist // ""' "$cfg")
+
+          # Les deux chemins finissent dans `working-directory:` et dans `$GITHUB_OUTPUT`. Le jeu
+          # de caractères est donc volontairement étroit : il couvre tout chemin de projet front
+          # réel et ferme d'un coup l'injection de sortie (un saut de ligne dans une valeur
+          # ajouterait une ligne `clé=valeur` de son choix au fichier de sorties).
+          for pair in "src:$src" "dist:$dist"; do
+            key=${pair%%:*}
+            val=${pair#*:}
+            [ -n "$val" ] || refuse "la clé \"$key\" est absente ou vide."
+            case "$val" in
+              /*) refuse "\"$key\" ('$val') doit être RELATIF à la racine du dépôt." ;;
+              *[!A-Za-z0-9._/-]*)
+                refuse "\"$key\" ('$val') contient un caractère interdit (autorisés : A-Z a-z 0-9 . _ / -)." ;;
+            esac
+            case "/$val/" in
+              */../*) refuse "\"$key\" ('$val') remonte hors de son arborescence." ;;
+            esac
+          done
+
+          # Normaliser APRÈS les refus ci-dessus, jamais avant : ceux-ci portent sur la forme
+          # ÉCRITE dans le fichier (chemin absolu, `..`, caractère interdit), donc ils doivent voir
+          # la valeur telle que l'auteur l'a tapée, et la nommer telle quelle dans le message.
+          # Ici, au contraire, on compare deux chemins : `./web`, `web` et `web/` désignent le même
+          # répertoire, et sans normalisation le test d'égalité juste en dessous se contournerait
+          # par une simple orthographe (`src: "web"`, `dist: "web/"`).
+          # Le `./` compte : le message de remédiation de l'étape de détection propose
+          # `{ "src": "<le répertoire qui porte package.json>", "dist": "<le bundle, sous src>" }`,
+          # ce qui pour un front à la RACINE se lit `"."` et `"dist"`. Suivre à la lettre la
+          # remédiation livrée et se faire refuser par le validateur livré est pire que l'un ou
+          # l'autre séparément.
+          src=${src#./}; dist=${dist#./}
+          while [ "$src" != "${src%/}" ]; do src=${src%/}; done
+          while [ "$dist" != "${dist%/}" ]; do dist=${dist%/}; done
+          # `.` et `./` s'effondrent sur la racine, qui est un `src` légitime (front à la racine) —
+          # mais jamais un `dist` : un bundle qui EST le dépôt n'est pas un bundle.
+          [ -n "$src" ] || src=.
+          [ -n "$dist" ] || refuse "\"dist\" désigne la racine du dépôt : le bundle doit être un sous-répertoire de ses sources."
+
+          # La corrélation, vérifiée sur le FICHIER et avant que npm n'ait reconstruit quoi que ce
+          # soit. La garde elle-même la revérifie sur ses propres entrées : valider ici évite de
+          # payer une installation Node pour rien, revérifier là-bas garde l'invariant vrai même
+          # si un jour les chemins arrivaient d'ailleurs.
+          #
+          # L'ÉGALITÉ est dite à part, et en premier. `case "$dist/" in "$src"/*)` l'acceptait —
+          # `*` matche la chaîne VIDE, donc `web/` matche `web/*` — et c'est le seul contrôle entre
+          # une configuration absurde et une garde armée. Le coût n'est pas théorique : la
+          # reconstruction lance `npm ci` dans `web/`, ce qui y crée `web/node_modules` ; la garde
+          # fait ensuite `git status --porcelain --ignored -- web`, et comme `--ignored` est
+          # délibérément là, elle liste tout l'arbre ignoré et rougit à CHAQUE run en conseillant
+          # « reconstruire, puis committer » — un conseil qui ne peut jamais la faire verdir.
+          [ "$dist" != "$src" ] || refuse "\"dist\" et \"src\" désignent le même répertoire ('$src'). Le bundle doit être un SOUS-répertoire de ses sources : sinon 'npm ci' crée node_modules dans l'arbre même que la garde inspecte (elle liste les fichiers ignorés, volontairement), et l'étape rougit à chaque run sans remédiation possible."
+          # `.` est le seul `src` dont TOUT chemin relatif est un sous-arbre — l'absolu et le `..`
+          # ayant déjà été refusés plus haut, il n'y a rien de plus à vérifier pour lui.
+          if [ "$src" != "." ]; then
+            # `?*` et non `*`, par ceinture et bretelles : le refus d'égalité ci-dessus dit
+            # l'invariant, ce motif fait qu'aucune réécriture future ne puisse le reperdre ici.
+            case "$dist/" in
+              "$src"/?*) : ;;
+              *) refuse "\"dist\" ('$dist') n'est pas sous \"src\" ('$src'). npm reconstruirait un arbre pendant que la garde en examine un autre : aucune dérive vue, vert sur un bundle périmé." ;;
+            esac
+          fi
+
+          # `src` est le répertoire où tourne 'npm ci'. Sans package.json suivi, la reconstruction
+          # échouerait plus tard avec un message qui accuse npm, alors que la faute est ici.
+          # `$src/package.json` s'écrirait `./package.json` à la racine : git l'accepte, mais la
+          # forme sans préfixe est celle que `ls-files` rend, donc celle qu'un lecteur reconnaîtra
+          # dans un message d'erreur. Même idiome que l'étape de détection plus bas.
+          if [ "$src" = "." ]; then src_pkg=package.json; else src_pkg="$src/package.json"; fi
+          git ls-files --error-unmatch -- "$src_pkg" > /dev/null 2>&1 \
+            || refuse "\"src\" ('$src') ne porte pas de package.json suivi par git : la reconstruction n'aurait pas lieu là où vit le bundle."
+
+          {
+            printf 'src=%s\n' "$src"
+            printf 'dist=%s\n' "$dist"
+          } >> "$GITHUB_OUTPUT"
+          echo "Garde bundle armée par $cfg — src=$src, dist=$dist"
+
       - name: Setup Node (bundle front committé)
-        if: ${{ vars.BUNDLE_DIST != '' }}
+        if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
         uses: actions/setup-node@v5
         with:
           # Version EXACTE, jamais `26.x` ni `26.5.x` : la précondition 2 tombe si Node flotte,
@@ -383,33 +525,52 @@ jobs:
           node-version: 26.7.0
 
       - name: Reconstruire le bundle front committé
-        if: ${{ vars.BUNDLE_DIST != '' }}
-        working-directory: ${{ vars.BUNDLE_SRC }}
+        if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
+        working-directory: ${{ steps.bundle_gate.outputs.src }}
         run: |
           npm ci
           npm run build
 
       - name: Garde — le bundle front committé correspond toujours à ses sources
-        if: ${{ vars.BUNDLE_DIST != '' }}
+        if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
         env:
-          BUNDLE_DIST: ${{ vars.BUNDLE_DIST }}
-          BUNDLE_SRC: ${{ vars.BUNDLE_SRC }}
+          BUNDLE_DIST: ${{ steps.bundle_gate.outputs.dist }}
+          BUNDLE_SRC: ${{ steps.bundle_gate.outputs.src }}
         run: |
-          # Les deux variables doivent désigner le MÊME arbre. Si `BUNDLE_SRC` pointe ailleurs,
+          # Les deux chemins doivent désigner le MÊME arbre. Si `BUNDLE_SRC` pointe ailleurs,
           # l'étape précédente a reconstruit un autre répertoire, celui-ci n'a pas bougé, et la
-          # garde certifierait « à jour » un bundle que rien n'a régénéré.
+          # garde certifierait « à jour » un bundle que rien n'a régénéré. L'étape de
+          # configuration a déjà refusé ce cas ; la garde le revérifie sur SES propres entrées,
+          # parce qu'un invariant délégué à l'appelant est un invariant perdu au premier
+          # changement d'appelant.
           if [ -z "${BUNDLE_SRC:-}" ]; then
-            echo "::error::BUNDLE_SRC n'est pas renseignée alors que BUNDLE_DIST l'est."
+            echo "::error::BUNDLE_SRC est vide alors que BUNDLE_DIST est renseignée."
             echo "La reconstruction n'a donc pas eu lieu là où vit le bundle."
             exit 1
           fi
-          case "$BUNDLE_DIST/" in
-            "$BUNDLE_SRC"/*) : ;;
-            *) echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')."
-               echo "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :"
-               echo "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé."
-               exit 1 ;;
-          esac
+          # L'égalité d'abord, et nommée. `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` l'acceptait
+          # (`*` matche la chaîne vide, donc `web/` matche `web/*`) : `npm ci` vient de créer
+          # node_modules DANS l'arbre que cette garde inspecte, et comme elle liste volontairement
+          # les fichiers ignorés (voir plus bas), elle rougirait à chaque run avec un conseil —
+          # « reconstruire, puis committer » — qui ne peut pas la faire verdir.
+          if [ "$BUNDLE_DIST" = "$BUNDLE_SRC" ]; then
+            echo "::error::BUNDLE_DIST et BUNDLE_SRC désignent le même répertoire ('$BUNDLE_SRC')."
+            echo "Le bundle doit être un SOUS-répertoire de ses sources : 'npm ci' vient d'y créer"
+            echo "node_modules, que cette garde liste (--ignored), et elle rougirait à chaque run"
+            echo "en réclamant une reconstruction qui ne peut rien y changer."
+            exit 1
+          fi
+          # `.` — un front à la racine du dépôt — est le seul BUNDLE_SRC dont tout chemin relatif
+          # est un sous-arbre. L'étape de configuration a déjà écarté l'absolu et le `..`.
+          if [ "$BUNDLE_SRC" != "." ]; then
+            case "$BUNDLE_DIST/" in
+              "$BUNDLE_SRC"/?*) : ;;
+              *) echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')."
+                 echo "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :"
+                 echo "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé."
+                 exit 1 ;;
+            esac
+          fi
           # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
           # inexistant>` sort en 0 avec une sortie VIDE : un chemin mal renseigné, ou un répertoire
           # renommé six mois plus tard, donnerait donc une étape verte à chaque run qui ne vérifie
@@ -418,7 +579,8 @@ jobs:
           # couleur attendue, donc rien ne le signalerait jamais.
           if [ -z "${BUNDLE_DIST:-}" ] || [ ! -d "$BUNDLE_DIST" ]; then
             echo "::error::BUNDLE_DIST ('${BUNDLE_DIST:-}') n'est pas un répertoire de ce dépôt."
-            echo "Corrigez la variable de dépôt, ou supprimez-la pour désactiver la garde."
+            echo "Corrigez \"dist\" dans la configuration committée, ou supprimez le fichier"
+            echo "pour désactiver la garde."
             exit 1
           fi
           if ! git ls-files --error-unmatch -- "$BUNDLE_DIST" > /dev/null 2>&1; then
@@ -444,3 +606,89 @@ jobs:
             exit 1
           fi
           echo "$BUNDLE_DIST est à jour."
+
+      # Le COMPLÉMENT de la garde : aucune configuration committée.
+      #
+      # Déplacer l'interrupteur dans le dépôt rend sa perte visible dans un diff, et c'est
+      # l'essentiel de #96 — mais pas la totalité : la suppression passe quand même au VERT,
+      # puisque tout le bloc s'éteint. « Ça a l'air entretenu, ça ne mesure rien », d'un cran plus
+      # haut. Cette étape sépare donc les deux états qui se ressemblaient : un dépôt qui n'a JAMAIS
+      # voulu la garde, et un dépôt qui l'a PERDUE.
+      #
+      # Elle SIGNALE, elle ne bloque pas, et c'est délibéré. Détecter un bundle committé consommé
+      # par le build est exactement l'heuristique que #70 a refusée comme mécanisme d'ARMEMENT
+      # (approche C) : une condition d'activation qui peut se tromper est pire que pas de garde du
+      # tout. En revanche, se tromper dans un AVERTISSEMENT ne coûte qu'une ligne à ignorer — alors
+      # que faire rougir un des 192 dépôts sans bundle apprendrait à ignorer une étape rouge, ce
+      # que toute la conception opt-in existe pour éviter (#32).
+      - name: Détection — un bundle front committé sans configuration de garde
+        if: ${{ hashFiles('.github/bundle-gate.json') == '' }}
+        env:
+          BUNDLE_GATE_CONFIG: .github/bundle-gate.json
+        run: |
+          # Le shell par défaut de GitHub est `bash -e` : sans ce `set +e`, un `grep` sans
+          # correspondance — le cas NORMAL sur 192 dépôts sur 193 — ferait échouer une étape qui
+          # ne garde rien.
+          set +e
+          cfg="$BUNDLE_GATE_CONFIG"
+
+          # Uniquement ce que git SUIT : un dist/ non committé n'est pas un bundle committé, et
+          # c'est précisément la population que cette garde ne concerne pas.
+          # Les motifs de `case` portent une parenthèse OUVRANTE. Elle n'est pas décorative :
+          # dans bash 3.2 — celui de macOS, où ce modèle est relu — l'analyseur voit le `)` d'un
+          # motif comme la fin de la substitution `$(` qui l'englobe, et le fichier ne PARSE pas.
+          # `tests/ci-template/test.sh` passe ce corps à `bash -n`, donc l'oubli est rouge.
+          #
+          # `core.quotepath=false` : sinon git rend les chemins non-ASCII échappés en octal ET
+          # entre guillemets (`"src/Créé/package.json"`), le chemin lu n'existe pas, et la
+          # détection reste muette sur un dépôt francophone — soit exactement la population de ce
+          # modèle.
+          report=$(
+            git -c core.quotepath=false ls-files -- '*package.json' | while IFS= read -r pkg; do
+              # Le motif `*package.json` de git est un glob sur le chemin ENTIER : il attrape
+              # aussi `mypackage.json`. Sans ce filtre, un tel fichier ferait tomber `dir` sur la
+              # racine et la détection irait chercher un `dist/` racine sans rapport — un
+              # avertissement sur un dépôt qui n'a rien demandé.
+              # Les DEUX branches de l'alternative sont nécessaires : `*/node_modules/*` exige un
+              # `/` AVANT `node_modules`, donc un `node_modules/` à la RACINE du dépôt lui
+              # échappait. Un `node_modules` vendoré à la racine est une forme réelle dans les
+              # dépôts .NET hérités que ce kit vise, et le csproj qui l'embarque suffisait alors à
+              # produire un avertissement sur un dépôt qui n'a pas de bundle à lui.
+              case "$pkg" in
+                (node_modules/*|*/node_modules/*) continue ;;
+                (package.json) dir=. ;;
+                (*/package.json) dir=${pkg%/package.json} ;;
+                (*) continue ;;
+              esac
+              for out in dist build out wwwroot/dist; do
+                if [ "$dir" = . ]; then cand="$out"; else cand="$dir/$out"; fi
+                git ls-files --error-unmatch -- "$cand" > /dev/null 2>&1 || continue
+                # Consommé par un projet .NET ? MSBuild écrit ses chemins relativement au .csproj
+                # et avec des ANTISLASHS : ne chercher que la forme '/' ne trouverait rien sur le
+                # dépôt même pour lequel cette détection existe.
+                git -c core.quotepath=false ls-files -- '*.csproj' | while IFS= read -r proj; do
+                  pd=${proj%/*}
+                  if [ "$pd" = "$proj" ]; then pd=.; fi
+                  rel="$cand"
+                  case "$cand" in ("$pd"/*) rel=${cand#"$pd"/} ;; esac
+                  win=$(printf '%s' "$rel" | tr '/' '\\')
+                  if grep -qF -- "$rel" "$proj" 2>/dev/null \
+                     || grep -qF -- "$win" "$proj" 2>/dev/null; then
+                    printf '%s (consommé par %s)\n' "$cand" "$proj"
+                  fi
+                done
+              done
+            done
+          )
+
+          if [ -n "$report" ]; then
+            echo "::warning::Ce dépôt committe un bundle front consommé par un projet .NET, et ne porte pas $cfg : la garde de dérive est DÉSARMÉE."
+            echo "$report"
+            echo "Si la garde a été perdue (fichier supprimé, dépôt transféré), recommittez $cfg :"
+            echo '    { "src": "<le répertoire qui porte package.json>", "dist": "<le bundle committé, sous src>" }'
+            echo "Si ce dépôt n'a jamais voulu la garde, il n'y a rien à faire : ceci n'est pas une erreur."
+          fi
+
+          # Cette étape rapporte ; elle ne juge pas. Sortir en 0 explicitement, plutôt que
+          # `continue-on-error`, qui masquerait AUSSI un vrai défaut de l'étape elle-même.
+          exit 0

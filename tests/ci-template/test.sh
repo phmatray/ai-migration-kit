@@ -12,18 +12,31 @@
 # that RAN by default on the other 192 would be deleted or `continue-on-error`'d, which teaches a
 # team to ignore a red step — strictly worse than absent.
 #
-# Inert used to mean "commented out". Since #70 it means `if: ${{ vars.BUNDLE_DIST != '' }}` on
-# live YAML, because a comment cost more than it saved: Renovate's github-actions manager cannot
-# see a commented action reference. Measured with its own extractor — 5 dependencies from this
-# file with the block as text, 7 with it live, the two extra being `actions/setup-node` and
-# `node 26.5.0`. The gate's second precondition is a PINNED toolchain (Tailwind v4 and
-# lightningcss ship per-platform native binaries), so leaving that pin unmaintainable undercut the
-# very guarantee the step exists to provide. Going live also deleted this file's sentinel slicer
-# and un-commenter: the steps are now read the way GitHub reads them.
+# Inert used to mean "commented out". Since #70 it means an `if:` on live YAML, because a comment
+# cost more than it saved: Renovate's github-actions manager cannot see a commented action
+# reference. Measured with its own extractor — 5 dependencies from this file with the block as
+# text, 7 with it live, the two extra being `actions/setup-node` and `node 26.5.0`. The gate's
+# second precondition is a PINNED toolchain (Tailwind v4 and lightningcss ship per-platform native
+# binaries), so leaving that pin unmaintainable undercut the very guarantee the step exists to
+# provide. Going live also deleted this file's sentinel slicer and un-commenter: the steps are now
+# read the way GitHub reads them.
+#
+# What arms it moved once more, in #96. It was `vars.BUNDLE_DIST != ''` — two repo variables, which
+# is *invisible settings state*: a settings tidy-up, a repo transfer (variables do not travel with
+# the code), an org policy change or a fork PR makes all three steps evaluate `'' != ''`, they show
+# as skipped, and the job is green forever measuring nothing. A repo that never wanted the gate and
+# one that LOST it were indistinguishable, and the second is the repo that thinks it is protected.
+# So the arming condition is now a COMMITTED file, `.github/bundle-gate.json`, carrying both paths:
+# enabling and disabling are diffs again, the config travels with the code, and a fork PR sees it.
 #
 # What is asserted:
-#   1. three live steps — setup-node, rebuild, guard — in that order, each gated on the variable,
-#      with Node pinned to an EXACT version;
+#   1. four live steps — config, setup-node, rebuild, guard — in that order, each gated on the
+#      committed config file, with Node pinned to an EXACT version;
+#  1c. the config step REFUSES a malformed, untracked, absent or self-inconsistent config rather
+#      than exporting nothing and letting the rest of the block run on empty paths;
+#  1d. a fifth step runs on the ABSENCE of the config and reports a repo that carries a committed
+#      bundle consumed by a project — so losing the config stops looking like never wanting it —
+#      while staying silent, and green, on the 192 repos that have no such bundle;
 #   2. the guard FAILS on a bundle that no longer matches its sources;
 #   3. it fails on the content-hash rename (delete + UNTRACKED add), and 3b on the real-world
 #      shape where the bundle dir is gitignored and force-added — both invisible to plain
@@ -31,8 +44,8 @@
 #   4. the guard PASSES on a bundle that does match — a gate that always fails is not a gate;
 #  5b. a misconfigured path is REFUSED rather than passing quietly on nothing, and 5c a directory
 #      that exists but holds no tracked file likewise;
-#   5. as shipped all three are inert, by a condition that is false when the variable is unset —
-#      and nothing outside the gate references the variable;
+#   5. as shipped all four are inert, by a condition that is false when the config file is absent —
+#      and nothing outside the gate references the config or the paths it exports;
 #  6-9. the coverage artifact step (pre-existing assertions, unrelated to the bundle gate);
 #   10. the coverage guard still reports on what it FOUND when the step runs under
 #       `set -euo pipefail` — the configuration in which the shipped `find … | grep -q .` idiom
@@ -67,7 +80,11 @@ kit_guard template_unchanged
 
 scratch=$(kit_scratch)
 
-# The three opt-in steps are LIVE YAML now, so they are read the way GitHub reads them — no
+# The path of the committed file that ARMS the gate. Spelled once, here, because both the shell
+# sections and the embedded python assert against it and a drifted copy would assert nothing.
+CONFIG=".github/bundle-gate.json"
+
+# The opt-in steps are LIVE YAML now, so they are read the way GitHub reads them — no
 # sentinel slicer, no un-commenter, no "every line inside the markers must be a comment" check.
 # #70 measured why the text form had to go: a commented action reference is INVISIBLE to
 # Renovate's github-actions manager. Running its own extractor over this file found 5 dependencies
@@ -86,18 +103,23 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# 1. The three steps are present, ordered, and inert by default.
+# 1. The four steps are present, ordered, and inert by default.
 #
-#    Order is load-bearing: setup-node, then rebuild, then guard. A guard that ran before the
-#    rebuild would measure a tree nothing regenerated and pass on a stale bundle — the exact
-#    failure it exists to catch.
+#    Order is load-bearing: config, then setup-node, then rebuild, then guard. A guard that ran
+#    before the rebuild would measure a tree nothing regenerated and pass on a stale bundle — the
+#    exact failure it exists to catch. And the config step must come FIRST, because it is what
+#    publishes the two paths the rebuild and the guard consume: `if:` and `working-directory:` are
+#    evaluated before a step runs and cannot read a file, so the paths have to reach them as step
+#    outputs or not at all.
 # ---------------------------------------------------------------------------
-python3 - "$TEMPLATE" <<'PY'
+python3 - "$TEMPLATE" "$CONFIG" <<'PY'
 import re, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+config = sys.argv[2]
 steps = doc["jobs"]["test"]["steps"]
 names = [s.get("name") for s in steps]
-want = ["Setup Node (bundle front committé)",
+want = ["Configuration de la garde bundle",
+        "Setup Node (bundle front committé)",
         "Reconstruire le bundle front committé",
         "Garde — le bundle front committé correspond toujours à ses sources"]
 # Index by POSITION, never by name: a duplicated step name would silently collapse in a
@@ -109,13 +131,30 @@ assert len(named) == len(set(named)), \
 for w in want:
     assert w in names, f"missing step {w!r}: {names}"
 idx = [names.index(w) for w in want]
-assert idx == sorted(idx), f"setup-node -> rebuild -> guard is out of order: {idx}"
+assert idx == sorted(idx), f"config -> setup-node -> rebuild -> guard is out of order: {idx}"
 by = {names[i]: steps[i] for i in idx}
 for w in want:
     cond = str(by[w].get("if", ""))
-    assert "vars.BUNDLE_DIST" in cond, (
-        f"step {w!r} is not gated on the repo variable — it would RUN on every repo that takes "
-        f"this template, including the ones with no bundle at all: if={cond!r}")
+    assert f"hashFiles('{config}')" in cond, (
+        f"step {w!r} is not gated on the committed config {config!r} — it would RUN on every repo "
+        f"that takes this template, including the ones with no bundle at all: if={cond!r}")
+# The config step is the only source of the two paths, so it needs an id the others can name.
+cfg_step = by["Configuration de la garde bundle"]
+assert cfg_step.get("id"), f"the config step carries no id, so nothing can read its outputs: {cfg_step}"
+CFG_ID = str(cfg_step["id"])
+# A hyphen in a step id is legal but cannot be dereferenced as `steps.<id>.outputs.x` — it would
+# have to be `steps['a-b']`, which nothing here writes. Refuse the id shape that silently yields
+# an empty path, because an empty path is how this gate goes green over a stale bundle.
+assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", CFG_ID), (
+    f"step id {CFG_ID!r} is not dot-dereferenceable in an expression; `steps.{CFG_ID}.outputs.src` "
+    f"would not resolve and the rebuild would run in the repository root")
+# The condition arms the gate on one path and the body reads another variable for it. They must be
+# the SAME string — the two-sources-of-truth trap of section 5d, one level up: armed by a file the
+# step never opens, the step would refuse forever or, worse, read a different file.
+cfg_env = str((cfg_step.get("env") or {}).get("BUNDLE_GATE_CONFIG", ""))
+assert cfg_env == config, (
+    f"the config step's BUNDLE_GATE_CONFIG ({cfg_env!r}) is not the path the gate is armed on "
+    f"({config!r}): the condition and the body would disagree about which file configures this")
 # The pinned action and the exact Node version are precisely what Renovate can now maintain.
 node = by["Setup Node (bundle front committé)"]
 assert str(node.get("uses", "")).startswith("actions/setup-node@"), node
@@ -131,30 +170,36 @@ assert re.fullmatch(r"\d+\.\d+\.\d+", ver), (
 # different trees and npm rebuilds one while the guard inspects the other, so the step goes
 # GREEN over a stale bundle — the false remediation this whole gate exists to prevent.
 wd = str(by["Reconstruire le bundle front committé"].get("working-directory", ""))
-assert "vars.BUNDLE_SRC" in wd, (
-    f"the rebuild's working-directory must come from the same repo configuration as the guard, "
-    f"not be hardcoded in the template: {wd!r}")
+assert f"steps.{CFG_ID}.outputs.src" in wd, (
+    f"the rebuild's working-directory must come from the same committed configuration as the "
+    f"guard, not be hardcoded in the template and not read a second source: {wd!r}")
 PY
-echo "  [1] three live steps, ordered, gated, Node pinned N.N.N, rebuild driven by the variable"
+echo "  [1] four live steps, ordered, gated on the committed config, Node pinned N.N.N"
 
 # ---------------------------------------------------------------------------
-# 1b. The plumbing itself — `env: BUNDLE_DIST: ${{ vars.BUNDLE_DIST }}` — is the SUBJECT of this
-#     design, and every other section injects the variable itself, so nothing would notice if the
+# 1b. The plumbing itself — `env: BUNDLE_DIST: ${{ steps.<cfg>.outputs.dist }}` — is the SUBJECT of
+#     this design, and every other section injects the values itself, so nothing would notice if the
 #     wiring were deleted or misspelled. Then the one repo that opted in gets a guard that either
 #     reds out on every run or silently measures the wrong directory.
+#
+#     The guard's own env NAMES do not move (`BUNDLE_DIST`, `BUNDLE_SRC`): what #96 changes is where
+#     the two paths COME FROM, not the contract between the template and the guard body. Keeping the
+#     names is what lets every behavioural section below drive the shipped body unchanged.
 # ---------------------------------------------------------------------------
 python3 - "$TEMPLATE" <<'PY'
 import sys, yaml
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
-guard = next(s for s in doc["jobs"]["test"]["steps"]
+steps = doc["jobs"]["test"]["steps"]
+cfg_id = next(s for s in steps if s.get("name") == "Configuration de la garde bundle")["id"]
+guard = next(s for s in steps
              if s.get("name") == "Garde — le bundle front committé correspond toujours à ses sources")
 env = guard.get("env") or {}
-for var in ("BUNDLE_DIST", "BUNDLE_SRC"):
-    assert var in env, f"the guard does not receive {var} from the repo variables: env={env}"
-    assert f"vars.{var}" in str(env[var]), \
-        f"{var} is not wired to the repo variable: {env[var]!r}"
+for var, out in (("BUNDLE_DIST", "dist"), ("BUNDLE_SRC", "src")):
+    assert var in env, f"the guard does not receive {var} from the committed config: env={env}"
+    assert f"steps.{cfg_id}.outputs.{out}" in str(env[var]), \
+        f"{var} is not wired to the config step's {out!r} output: {env[var]!r}"
 PY
-echo "  [1b] the guard receives both paths from the repo variables, by name"
+echo "  [1b] the guard receives both paths from the committed config, by name"
 
 step_named "Garde — le bundle front committé correspond toujours à ses sources" > "$scratch/guard.sh"
 [ -s "$scratch/guard.sh" ] || { echo "FAIL: the guard step has an empty run: body"; exit 1; }
@@ -175,6 +220,331 @@ mk_repo() {
   git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
       commit -qm "commit the bundle"
 }
+
+# ---------------------------------------------------------------------------
+# 1c. The config step is the whole point of #96, so it is driven, not merely read.
+#
+#     It is the one step that turns a committed FILE into the two paths every other step consumes.
+#     If it ever exported empty strings instead of refusing, `working-directory:` would fall back
+#     to the repository root and the guard would inspect `''` — `git status --porcelain -- ''`
+#     exits 0 with empty output, so the block would be green forever while measuring nothing. That
+#     is the failure this issue exists to remove, so every way the config can be wrong is refused
+#     here rather than exported.
+#
+#     Driven by executing the shipped `run:` body against scratch repositories, exactly as the
+#     guard body is below — the template is the subject, not a description of one.
+# ---------------------------------------------------------------------------
+step_named "Configuration de la garde bundle" > "$scratch/config.sh"
+[ -s "$scratch/config.sh" ] || { echo "FAIL: the config step has an empty run: body"; exit 1; }
+bash -n "$scratch/config.sh" || { echo "FAIL: the config body is not valid bash"; exit 1; }
+
+# A scratch repo shaped like the one consumer that has a bundle: a front-end project carrying
+# package.json and a committed `dist/`, plus the committed config that arms the gate.
+#   $1 = repo path · $2 = raw contents of the config file · $3 = "untracked" to leave it uncommitted
+mk_config_repo() {
+  local root="$1" cfg_text="$2" tracked="${3:-tracked}"
+  mk_repo "$root" "index-KKKKKKKK.js"
+  printf '{ "name": "web", "private": true }\n' > "$root/web/package.json"
+  mkdir -p "$root/$(dirname "$CONFIG")"
+  printf '%s\n' "$cfg_text" > "$root/$CONFIG"
+  if [ "$tracked" = tracked ]; then
+    git -C "$root" add -A
+  else
+    git -C "$root" add -A -- web
+  fi
+  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+      commit -qm "commit the front-end project and its gate config"
+}
+
+# Runs the shipped config body in `$1`, leaving the exit status in $config_rc, the console output
+# in $scratch/out-config.txt and whatever it published in $1/gh-output.txt. Not `return $rc`: the
+# callers run under `set -e`, where a non-zero return would abort the suite on the refusal cases
+# that are supposed to be non-zero.
+config_rc=0
+run_config() {
+  set +e
+  ( cd "$1" && GITHUB_OUTPUT="$1/gh-output.txt" BUNDLE_GATE_CONFIG="$CONFIG" \
+      bash "$scratch/config.sh" ) > "$scratch/out-config.txt" 2>&1
+  config_rc=$?
+  set -e
+}
+
+# The happy path first — without it, "always refuses" would score as a pass.
+CGOOD="$scratch/config-valid"
+mk_config_repo "$CGOOD" '{ "src": "web", "dist": "web/dist" }'
+run_config "$CGOOD"
+if [ "$config_rc" -ne 0 ]; then
+  echo "FAIL: the config step refused a valid $CONFIG:"; cat "$scratch/out-config.txt"; exit 1
+fi
+grep -qx 'src=web' "$CGOOD/gh-output.txt" || {
+  echo "FAIL: the config step did not publish src=web:"; cat "$CGOOD/gh-output.txt"; exit 1; }
+grep -qx 'dist=web/dist' "$CGOOD/gh-output.txt" || {
+  echo "FAIL: the config step did not publish dist=web/dist:"; cat "$CGOOD/gh-output.txt"; exit 1; }
+echo "  [1c] a valid committed config publishes both paths as step outputs"
+
+# Every way the file can be wrong. Each must be REFUSED — a skipped-looking green is the defect.
+# `dist` outside `src` is the correlation #87 had to check at runtime; it is checked on the file
+# now, BEFORE npm has rebuilt anything, and the guard body keeps its own copy of the check (5d).
+config_refuses() {   # $1 = case label · $2 = config contents · $3 = "untracked" (optional)
+  local label="$1" text="$2" tracked="${3:-tracked}"
+  local root="$scratch/config-bad-$(printf '%s' "$label" | tr -c 'a-z0-9' '-')"
+  mk_config_repo "$root" "$text" "$tracked"
+  run_config "$root"
+  if [ "$config_rc" -eq 0 ]; then
+    echo "FAIL: the config step ACCEPTED $label — it would arm the gate on a configuration that"
+    echo "      cannot describe a bundle, and the run would be green while measuring nothing:"
+    cat "$scratch/out-config.txt"
+    exit 1
+  fi
+  # -F: the path is a literal, and its dots would otherwise be regex wildcards — a message naming
+  # some OTHER `Xgithub/bundle-gateXjson` would satisfy a regex match and prove nothing.
+  grep -qF "$CONFIG" "$scratch/out-config.txt" || {
+    echo "FAIL: refused $label but never named $CONFIG, so nobody knows what to fix:"
+    cat "$scratch/out-config.txt"; exit 1; }
+  # A refusal must publish nothing: a half-written output file is an empty path by another name.
+  if [ -s "$root/gh-output.txt" ]; then
+    echo "FAIL: the config step refused $label yet still published outputs:"
+    cat "$root/gh-output.txt"; exit 1
+  fi
+}
+
+config_refuses "malformed json"     '{ "src": "web", '
+config_refuses "a json array"       '["web", "web/dist"]'
+config_refuses "a missing dist key" '{ "src": "web" }'
+config_refuses "a missing src key"  '{ "dist": "web/dist" }'
+config_refuses "an empty dist"      '{ "src": "web", "dist": "" }'
+config_refuses "dist outside src"   '{ "src": "docs-site", "dist": "web/dist" }'
+config_refuses "an absolute dist"   '{ "src": "/web", "dist": "/web/dist" }'
+config_refuses "a dot-dot escape"   '{ "src": "web", "dist": "web/../../etc" }'
+# `web/dist/assets`, not `web/dist`, so this case exercises the missing-package.json path and only
+# that: spelled with dist == src it is now refused one check earlier, by the equality rule below,
+# and would have stopped covering the check its label names.
+config_refuses "a src with no package.json" '{ "src": "web/dist", "dist": "web/dist/assets" }'
+config_refuses "an untracked config" '{ "src": "web", "dist": "web/dist" }' untracked
+# dist == src is the one nonsense configuration that used to ARM the gate: the containment test
+# was `case "$dist/" in "$src"/*)`, and `*` matches the empty string, so `web/` matched `web/*`.
+# It is not a harmless typo. The rebuild runs `npm ci` in `web/`, creating `web/node_modules`; the
+# guard then runs `git status --porcelain --ignored -- web`, and because `--ignored` is
+# deliberately on it lists that whole ignored tree. The step goes red on EVERY run advising
+# "reconstruire, puis committer" — advice that can never make it green. Refusing the config is the
+# only place this can be caught before Node has been installed for nothing.
+config_refuses "dist equal to src"  '{ "src": "web", "dist": "web" }'
+# …and the same tree spelled differently, which is why the values are normalised before comparing.
+config_refuses "dist equal to src by a trailing slash" '{ "src": "web", "dist": "web/" }'
+config_refuses "dist equal to src by a ./ prefix"      '{ "src": "web", "dist": "./web" }'
+# A bundle that IS the repository is not a bundle — and `.` is the one value the root-project
+# support below makes acceptable for `src`, so it must stay refused for `dist`.
+config_refuses "a dist that is the repository root"    '{ "src": "web", "dist": "." }'
+echo "  [1c] refuses every malformed, self-inconsistent or uncommitted config instead of arming"
+
+# A front-end project at the REPOSITORY ROOT. Until now it had no spelling the template's own
+# guidance accepted: the detection step's remediation text prints
+#   { "src": "<le répertoire qui porte package.json>", "dist": "<le bundle committé, sous src>" }
+# which for such a repo reads `"."` and `"dist"` — and the validator refused exactly that, because
+# `dist/` is not under `./`. Shipped guidance contradicting the shipped validator is worse than
+# either alone, so both spellings must arm the gate and both must publish the SAME normalised
+# pair: `working-directory:` and the guard consume that pair, and two spellings reaching them
+# would be the two-sources-of-truth trap again, one layer down.
+root_n=0
+for cfg_text in '{ "src": ".", "dist": "dist" }' '{ "src": "./", "dist": "./dist/" }'; do
+  root_n=$((root_n + 1))
+  CROOT="$scratch/config-root-$root_n"
+  mkdir -p "$CROOT/dist/assets"
+  git init -q "$CROOT"
+  printf '{ "name": "root-app", "private": true }\n' > "$CROOT/package.json"
+  printf 'console.log(1)\n' > "$CROOT/dist/assets/index-MMMMMMMM.js"
+  mkdir -p "$CROOT/$(dirname "$CONFIG")"
+  printf '%s\n' "$cfg_text" > "$CROOT/$CONFIG"
+  git -C "$CROOT" add -A
+  git -C "$CROOT" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+      commit -qm "a front-end project at the repository root"
+  run_config "$CROOT"
+  if [ "$config_rc" -ne 0 ]; then
+    echo "FAIL: the config step refused $cfg_text — a front-end project at the repository root,"
+    echo "      which is the exact pair its own detection step tells an adopter to commit:"
+    cat "$scratch/out-config.txt"; exit 1
+  fi
+  # -F throughout: `src=.` as a regex would match `src=web` and prove nothing.
+  grep -qxF 'src=.' "$CROOT/gh-output.txt" || {
+    echo "FAIL: $cfg_text did not publish the normalised src=. :"
+    cat "$CROOT/gh-output.txt"; exit 1; }
+  grep -qxF 'dist=dist' "$CROOT/gh-output.txt" || {
+    echo "FAIL: $cfg_text did not publish the normalised dist=dist :"
+    cat "$CROOT/gh-output.txt"; exit 1; }
+done
+echo "  [1c] a front-end project at the repository root arms the gate, './' or not"
+
+# ---------------------------------------------------------------------------
+# 1d. A repo that never wanted the gate and one that LOST its config must stop being the same
+#     observable run.
+#
+#     Moving the switch into the repository (1c) makes losing it a DIFF, which is most of the fix.
+#     It is not all of it: the deletion still lands green, because the whole block simply turns
+#     off — the "looks tended, measures nothing" shape one level up, which is what #96 is about.
+#
+#     So a fifth step runs on the COMPLEMENT of the gate: no config file. It reports a repo that
+#     carries a committed bundle consumed by a .NET project and yet has no config — the exact
+#     1-in-193 shape from #32 — and says nothing at all on the other 192. It WARNS rather than
+#     fails, and that is deliberate: a detection heuristic that can be wrong must not be able to
+#     red a repo that never opted in, which is the reason #70's brainstorm rejected auto-arming
+#     (approach C) outright. Reporting is the part of C that is safe to keep.
+#
+#     Both halves are asserted: it speaks when it should, and — the one that keeps it deletable —
+#     it is silent on a repo with no bundle at all.
+# ---------------------------------------------------------------------------
+python3 - "$TEMPLATE" "$CONFIG" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+config = sys.argv[2]
+steps = doc["jobs"]["test"]["steps"]
+disarmed = [s for s in steps
+            if f"hashFiles('{config}')" in str(s.get("if", ""))
+            and ("== ''" in str(s["if"]) or '== ""' in str(s["if"]))]
+assert len(disarmed) == 1, (
+    f"expected exactly one step running on the ABSENCE of {config} — the one that tells a repo "
+    f"that lost its config from a repo that never wanted one apart; got {len(disarmed)}")
+det = disarmed[0]
+assert "always()" not in str(det["if"]), f"an always() gate would run it on armed repos too: {det['if']}"
+assert str((det.get("env") or {}).get("BUNDLE_GATE_CONFIG", "")) == config, (
+    f"the detection step names a different config than the one it is gated on: {det.get('env')}")
+# It must not be able to fail the job on its own terms: `continue-on-error` would be the wrong
+# spelling of that (it hides real failures too), so what is asserted is that the body never exits
+# non-zero — driven below, not declared here.
+assert "continue-on-error" not in det, (
+    "the detection step must be harmless because its body is, not because failures are swallowed: "
+    "continue-on-error would also swallow a genuine bug in it")
+PY
+echo "  [1d] one step runs on the absence of the config, and cannot be armed at the same time"
+
+step_named "Détection — un bundle front committé sans configuration de garde" > "$scratch/detect.sh"
+[ -s "$scratch/detect.sh" ] || { echo "FAIL: the detection step has an empty run: body"; exit 1; }
+bash -n "$scratch/detect.sh" || { echo "FAIL: the detection body is not valid bash"; exit 1; }
+
+# The shape measured on Ninjadog (2026-07-26): a csproj that embeds a SIBLING front-end bundle,
+# committed, with no MSBuild target calling npm. Written with the csproj's own separator, because
+# that is how MSBuild spells it and a detector that only looks for '/' finds nothing on the one
+# repo it exists for.
+mk_consumer_repo() {   # $1 = root · $2 = "consumed" | "orphan" | "bare"
+  local root="$1" kind="$2"
+  mkdir -p "$root/src/tools/App"
+  git init -q "$root"
+  if [ "$kind" != bare ]; then
+    mkdir -p "$root/src/tools/App/WebUI/dist/assets"
+    printf '{ "name": "webui", "private": true }\n' > "$root/src/tools/App/WebUI/package.json"
+    printf 'console.log(1)\n' > "$root/src/tools/App/WebUI/dist/assets/index-LLLLLLLL.js"
+  fi
+  {
+    printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n'
+    if [ "$kind" = consumed ]; then
+      printf '    <EmbeddedResource Include="WebUI\\dist\\**" />\n'
+    fi
+    printf '  </ItemGroup>\n</Project>\n'
+  } > "$root/src/tools/App/App.csproj"
+  git -C "$root" add -A
+  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+      commit -qm "a repo shaped like the one consumer"
+}
+
+detect_rc=0
+run_detect() {   # $1 = repo root
+  set +e
+  ( cd "$1" && BUNDLE_GATE_CONFIG="$CONFIG" bash "$scratch/detect.sh" ) \
+    > "$scratch/out-detect.txt" 2>&1
+  detect_rc=$?
+  set -e
+}
+
+DCONSUMED="$scratch/detect-consumed"
+mk_consumer_repo "$DCONSUMED" consumed
+run_detect "$DCONSUMED"
+if [ "$detect_rc" -ne 0 ]; then
+  echo "FAIL: the detection step failed the job. It reports, it does not gate — a heuristic that"
+  echo "      can red a repo that never opted in is the auto-arming design #70 rejected:"
+  cat "$scratch/out-detect.txt"; exit 1
+fi
+grep -q '::warning::' "$scratch/out-detect.txt" || {
+  echo "FAIL: a committed bundle consumed by a csproj, and no gate config, passed in SILENCE."
+  echo "      That repo is indistinguishable from one that never wanted the gate — the whole"
+  echo "      point of #96:"; cat "$scratch/out-detect.txt"; exit 1; }
+grep -qF 'WebUI/dist' "$scratch/out-detect.txt" || {
+  echo "FAIL: warned but never named the bundle it found:"; cat "$scratch/out-detect.txt"; exit 1; }
+grep -qF "$CONFIG" "$scratch/out-detect.txt" || {
+  echo "FAIL: warned but never named the file that would fix it:"
+  cat "$scratch/out-detect.txt"; exit 1; }
+echo "  [1d] a committed bundle consumed by a project, with no config, is reported"
+
+# The other side, and the one that decides whether this step is shippable at all: 192 of 193 repos
+# must see nothing. A detector that cries on them teaches its own dismissal, which is strictly
+# worse than absent — the measurement behind the whole opt-in design (#32).
+for kind in bare orphan; do
+  DQ="$scratch/detect-$kind"
+  mk_consumer_repo "$DQ" "$kind"
+  run_detect "$DQ"
+  if [ "$detect_rc" -ne 0 ]; then
+    echo "FAIL: the detection step failed on a '$kind' repo:"; cat "$scratch/out-detect.txt"; exit 1
+  fi
+  if grep -qE '::(warning|error)::' "$scratch/out-detect.txt"; then
+    echo "FAIL: the detection step annotated a '$kind' repo — one with no committed bundle"
+    echo "      consumed by any project. It must leave those 192 completely untouched:"
+    cat "$scratch/out-detect.txt"; exit 1
+  fi
+done
+echo "  [1d] silent on a repo with no bundle, and on one whose bundle no project consumes"
+
+# The third way to be wrong, and the one a reader would not predict: git's `*package.json`
+# pathspec is a glob over the WHOLE path, so it also matches `mypackage.json`. Read as "a
+# front-end project at the repository root", that sends the detector hunting for a root `dist/`
+# with nothing to do with it — and warns a repo that has no bundle at all.
+DECOY="$scratch/detect-decoy"
+mkdir -p "$DECOY/dist"
+git init -q "$DECOY"
+printf '{ "name": "not-a-project" }\n' > "$DECOY/mypackage.json"
+printf 'x\n' > "$DECOY/dist/thing.txt"
+printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <Content Include="dist\\**" />\n  </ItemGroup>\n</Project>\n' \
+  > "$DECOY/App.csproj"
+git -C "$DECOY" add -A
+git -C "$DECOY" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm "a decoy"
+run_detect "$DECOY"
+if [ "$detect_rc" -ne 0 ]; then
+  echo "FAIL: the detection step failed on the decoy repo:"; cat "$scratch/out-detect.txt"; exit 1
+fi
+if grep -qE '::(warning|error)::' "$scratch/out-detect.txt"; then
+  echo "FAIL: 'mypackage.json' was read as a front-end project at the repository root, so the"
+  echo "      detector warned a repo that never had a bundle:"
+  cat "$scratch/out-detect.txt"; exit 1
+fi
+echo "  [1d] 'mypackage.json' is not a project — git's *package.json glob is not the filter"
+
+# The fourth way, and one the node_modules filter introduced itself: `*/node_modules/*` requires a
+# `/` BEFORE node_modules, so a vendored `node_modules/` at the repository ROOT slipped past it. A
+# vendored root node_modules is a real shape in the legacy .NET repos this template targets, and a
+# csproj that embeds one of its packages' `dist/` was enough to have the detector report a
+# dependency's bundle as this repository's own.
+DNM="$scratch/detect-root-node-modules"
+mkdir -p "$DNM/node_modules/pkg/dist"
+git init -q "$DNM"
+printf '{ "name": "pkg" }\n' > "$DNM/node_modules/pkg/package.json"
+printf 'console.log(1)\n' > "$DNM/node_modules/pkg/dist/bundle.js"
+printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <Content Include="node_modules\\pkg\\dist\\**" />\n  </ItemGroup>\n</Project>\n' \
+  > "$DNM/App.csproj"
+# `-f`: a global core.excludesFile ignoring node_modules is common on a developer machine, and
+# without it this repo would commit nothing under node_modules — the suite would then pass here
+# for the wrong reason, on every machine that has such a file and no other.
+git -C "$DNM" add -A -f
+git -C "$DNM" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+    commit -qm "a vendored node_modules at the repository root"
+run_detect "$DNM"
+if [ "$detect_rc" -ne 0 ]; then
+  echo "FAIL: the detection step failed on a repo with a vendored root node_modules:"
+  cat "$scratch/out-detect.txt"; exit 1
+fi
+if grep -qE '::(warning|error)::' "$scratch/out-detect.txt"; then
+  echo "FAIL: a dependency's own bundle under a ROOT node_modules/ was reported as this repo's"
+  echo "      committed front-end bundle — '*/node_modules/*' needs a slash before it, so the"
+  echo "      root-level case needs its own alternative:"
+  cat "$scratch/out-detect.txt"; exit 1
+fi
+echo "  [1d] a vendored node_modules at the repository root is not a front-end project"
 
 # ---------------------------------------------------------------------------
 # 2. The content-hash rename: the old asset disappears and a differently-named one
@@ -373,46 +743,104 @@ grep -q "BUNDLE_SRC" "$scratch/out-mismatch.txt" || {
   echo "FAIL: refused, but never named the mismatch:"; cat "$scratch/out-mismatch.txt"; exit 1; }
 echo "  [5d] refuses when BUNDLE_DIST is not under BUNDLE_SRC — the two-sources-of-truth trap"
 
+# The same hole in the guard's own copy of the check, and the reason "not under" has to be said as
+# "not under AND not equal": `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` accepted equality, because
+# `*` matches the empty string. Equality is the case with teeth — npm has just created
+# node_modules inside the very tree this guard inspects, and it lists ignored files on purpose, so
+# the step would be permanently red while telling the reader to rebuild and commit.
+EQ="$scratch/dist-equals-src"
+mk_repo "$EQ" "index-EEEEEEEE.js"
+set +e
+( cd "$EQ" && BUNDLE_SRC=web BUNDLE_DIST=web bash "$scratch/guard.sh" ) \
+  > "$scratch/out-equal.txt" 2>&1
+rc=$?
+set -e
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: the guard accepted BUNDLE_DIST == BUNDLE_SRC. 'npm ci' creates node_modules in that"
+  echo "      tree and this guard lists ignored files deliberately, so the step would go red on"
+  echo "      every run with advice that cannot make it green:"
+  cat "$scratch/out-equal.txt"
+  exit 1
+fi
+grep -q "BUNDLE_SRC" "$scratch/out-equal.txt" || {
+  echo "FAIL: refused, but never named the two variables:"; cat "$scratch/out-equal.txt"; exit 1; }
+echo "  [5d] refuses BUNDLE_DIST == BUNDLE_SRC — '*' used to match the empty string"
+
+# And the positive control that keeps the fix from being "refuse a bit more": a front-end project
+# at the repository ROOT (src '.') is a legitimate arming, so the guard must fall through to the
+# real drift measurement rather than reject its own configuration step's output.
+RT="$scratch/root-src-guard"
+mk_repo "$RT" "index-RRRRRRRR.js"
+set +e
+( cd "$RT" && BUNDLE_SRC=. BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) \
+  > "$scratch/out-rootsrc.txt" 2>&1
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "FAIL: the guard rejected BUNDLE_SRC='.', a front-end project at the repository root — the"
+  echo "      very shape the config step now accepts, so the two would disagree:"
+  cat "$scratch/out-rootsrc.txt"
+  exit 1
+fi
+echo "  [5d] BUNDLE_SRC='.' — a root-level front-end — still reaches the drift measurement"
+
 # ---------------------------------------------------------------------------
-# 5. As shipped the three steps are PRESENT but INERT — and inert by the one mechanism GitHub
+# 5. As shipped the four steps are PRESENT but INERT — and inert by the one mechanism GitHub
 #    actually evaluates, not by being text.
 #
 #    The measurement that forces this: of 193 local .NET repos, 3 commit build output and 1 has it
 #    consumed by the build. A step that RAN by default on the other 192 would be deleted or
 #    `continue-on-error`'d, which teaches a team to ignore a red step — worse than absent.
 #
-#    So "inert" is now checked as: every one of the three carries a condition that is false when
-#    the repo variable is unset, and none of them is `if: always()`-style unconditional. This is
-#    the assertion that replaces "the step must not appear in the parsed YAML", which was only
-#    ever a proxy for it.
+#    So "inert" is checked as: every one of the four carries a condition that is false when the
+#    config file is absent, and none of them is `if: always()`-style unconditional. GitHub's
+#    expression reference is what makes `hashFiles` usable here — "If the `path` pattern does not
+#    match any files, this returns an empty string" — so the 192 get a false condition, never an
+#    error. The same page is why the path is written repo-relative: "The `path` is relative to the
+#    `GITHUB_WORKSPACE` directory and can only include files inside of the `GITHUB_WORKSPACE`."
 # ---------------------------------------------------------------------------
-python3 - "$TEMPLATE" <<'PY'
+python3 - "$TEMPLATE" "$CONFIG" <<'PY'
 import sys, yaml
 raw = open(sys.argv[1], encoding="utf-8").read()
+config = sys.argv[2]
 doc = yaml.safe_load(raw)
 steps = doc["jobs"]["test"]["steps"]
-gated = [i for i, s in enumerate(steps) if "BUNDLE_DIST" in str(s.get("if", ""))]
-assert len(gated) == 3, f"expected exactly 3 bundle steps gated on the variable, got {len(gated)}"
-for i in gated:
+def cmp_empty(cond, op):
+    return f"{op} ''" in cond or f'{op} ""' in cond
+
+# Every step the gate owns, armed (four) or disarmed (the detection one). Each must compare the
+# hash to the empty string EXPLICITLY: `if: ${{ hashFiles(...) }}` would also work in GitHub for
+# the armed half, but `!= ''` says the intent out loud, cannot be misread as a boolean flag, and
+# leaves the disarmed half with a spelling — `== ''` — that has no truthy equivalent at all.
+own = [i for i, s in enumerate(steps) if f"hashFiles('{config}')" in str(s.get("if", ""))]
+armed = [i for i in own if cmp_empty(str(steps[i]["if"]), "!=")]
+assert len(armed) == 4, f"expected exactly 4 bundle steps ARMED by {config}, got {len(armed)}"
+assert len(own) == len(armed) + 1, (
+    f"expected the four armed steps plus exactly one running on the config's absence, "
+    f"got {len(own)} steps keyed on {config}")
+for i in own:
     cond = str(steps[i]["if"])
-    # The gate must test the variable for emptiness. `if: ${{ vars.BUNDLE_DIST }}` would also work
-    # in GitHub, but `!= ''` says the intent out loud and cannot be misread as a boolean flag.
-    assert "!= ''" in cond or '!= ""' in cond, \
-        f"the gate must compare BUNDLE_DIST to empty, so an unset variable is plainly false: {cond}"
+    assert cmp_empty(cond, "!=") or cmp_empty(cond, "=="), \
+        f"the gate must compare hashFiles to empty, so its state is never a guess: {cond}"
     assert "always()" not in cond, f"an always() gate would defeat the opt-in entirely: {cond}"
-# Nothing OUTSIDE those three steps may depend on the variables — a repo that never sets them must
-# get exactly the run it gets today. Checked against the whole document, not just `steps`: the
-# workflow already keeps `SOLUTION` in a top-level `env:`, and `jobs.test.env`, `defaults.run` and
-# a second job are all places a reference could hide from a steps-only scan.
+# Nothing OUTSIDE those steps may depend on the config or on the paths it publishes — a repo that
+# never commits it must get exactly the run it gets today. Checked against the whole document, not
+# just `steps`: the workflow already keeps `SOLUTION` in a top-level `env:`, and `jobs.test.env`,
+# `defaults.run` and a second job are all places a reference could hide from a steps-only scan.
+cfg_id = next(s for s in steps if s.get("name") == "Configuration de la garde bundle")["id"]
+# `own` (above) is keyed off the `if:` naming the config rather than off step names, so a renamed
+# step cannot slip out of this check — and the detection step, gated on the same config by its
+# ABSENCE, is excluded here for the same reason the four armed ones are.
 rest = dict(doc)
-rest["jobs"] = {k: (dict(v, steps=[s for i, s in enumerate(v["steps"]) if i not in gated])
+rest["jobs"] = {k: (dict(v, steps=[s for i, s in enumerate(v["steps"]) if i not in own])
                     if k == "test" else v)
                for k, v in doc["jobs"].items()}
 leaked = [ln for ln in yaml.safe_dump(rest, allow_unicode=True).splitlines()
-          if "BUNDLE_DIST" in ln or "BUNDLE_SRC" in ln]
-assert not leaked, f"a bundle variable is referenced outside the three gated steps: {leaked}"
+          if config in ln or f"steps.{cfg_id}" in ln
+          or "BUNDLE_DIST" in ln or "BUNDLE_SRC" in ln]
+assert not leaked, f"the bundle gate is referenced outside its own steps: {leaked}"
 PY
-echo "  [5] shipped inert — three gated steps, and nothing outside them references the variables"
+echo "  [5] shipped inert — four gated steps, and nothing outside them references the config"
 
 # ---------------------------------------------------------------------------
 # 6. The coverage artifact is uploaded on the FAILURE path too (issue #74).
