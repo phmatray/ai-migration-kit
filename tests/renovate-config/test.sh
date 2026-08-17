@@ -135,11 +135,17 @@ echo "  [4] the pin is claimed by a customManager whose matchStrings actually ma
 # bash 3.2 (still /bin/bash on macOS) mis-parses, so this deliberately does not add a third.
 # It joins backslash continuations into logical lines first — the flags may sit on either side of
 # the break — then picks the line that invokes the validator.
+#
+# Comment lines are dropped before the match, and that is not fussiness: the step in ci.yml is
+# wrapped in prose explaining why each flag is load-bearing, and prose in this repo names the tool
+# it is about. Without the filter the first `#` line mentioning renovate-config-validator wins the
+# `head -1`, and this assertion starts grading a comment instead of the command — passing while the
+# real invocation has lost a flag, which is precisely the failure it exists to prevent.
 validator_invocation=$(awk '
   { line = buf $0
     if (line ~ /\\[[:space:]]*$/) { sub(/\\[[:space:]]*$/, "", line); buf = line; next }
     buf = ""; print line }
-' "$CI" | grep -F 'renovate-config-validator' | head -1)
+' "$CI" | grep -v '^[[:space:]]*#' | grep -F 'renovate-config-validator' | head -1)
 if [ -z "$validator_invocation" ]; then
   echo "FAIL: ci.yml no longer invokes renovate-config-validator at all."
   exit 1
