@@ -8,9 +8,17 @@ portes, next steps…). La couverture est lue depuis un ou plusieurs cobertura.x
 — jamais déclarée à la main. `coverage.cobertura` accepte un fichier, une liste de
 fichiers, un RÉPERTOIRE, ou un motif glob ; sous Microsoft Testing Platform chaque
 projet de test écrit son propre rapport sous un nom généré, donc **pointer sur le
-répertoire `coverage/`** est la forme durable — un chemin littéral serait périmé au
+répertoire de couverture** est la forme durable — un chemin littéral serait périmé au
 run suivant. Les rapports sont agrégés (cf. parse_cobertura), jamais concaténés.
 La capture est embarquée en data URI.
+
+⚠ TOUT chemin relatif du report.json — `coverage.cobertura` comme `screenshot.path` — se résout
+contre LE RÉPERTOIRE DU REPORT.JSON, jamais contre le cwd ni contre la racine du repo. Dans la
+disposition que `skills/legacy-upgrade/references/report-template.md` impose, le rapport vit dans
+`migration/` alors que `templates/ci-dotnet.yml` écrit ses coberturas dans le `coverage/` de la
+RACINE : la valeur correcte remonte donc d'un cran, `"../coverage"`. Écrire `"coverage"`
+désignerait `migration/coverage`, où rien n'écrit jamais — c'est #49, que ce module documentait
+lui-même de travers (#102). Les diagnostics nomment désormais cette base (cf. resolution_hint).
 Sortie : document HTML autonome (double-cliquable, envoyable), thème clair/sombre,
 palette validée (cf. dashboard d'audit du kit).
 """
@@ -202,15 +210,27 @@ def resolution_hint(item, base):
 def resolve_cobertura(entry, base):
     """Résout le champ `coverage.cobertura` en liste de fichiers, relatifs au report.json.
 
+    `base` est LE RÉPERTOIRE DU REPORT.JSON — pas le cwd, pas la racine du repo. Les exemples
+    ci-dessous sont donc écrits pour la disposition que
+    `skills/legacy-upgrade/references/report-template.md` impose : `migration/report.json`, et des
+    coberturas dans le `coverage/` de la RACINE, là où `templates/ci-dotnet.yml` les écrit. D'où le
+    `../` : « coverage » tout court désignerait `migration/coverage`, où rien n'écrit jamais. Ce
+    tableau montrait précisément cette valeur-là, ce qui reproduisait #49 pour quiconque lisait le
+    script plutôt que la référence (#102).
+
     Quatre formes, toutes acceptées — la première pour les rapports déjà écrits, les trois
     autres parce que sous MTP c'est le collecteur qui NOMME les fichiers, avec un GUID neuf à
     chaque run : un chemin littéral écrit dans un report.json versionné serait mort au run
     suivant. Le répertoire est donc la forme à privilégier.
 
-      "coverage/coverage.cobertura.xml"        un fichier
-      ["a.cobertura.xml", "b.cobertura.xml"]   plusieurs fichiers
-      "coverage"                               un répertoire → tous ses *.cobertura.xml
-      "coverage/*.cobertura.xml"               un motif glob
+      "../coverage/coverage.cobertura.xml"      un fichier
+      ["../coverage/a.cobertura.xml",
+       "../coverage/b.cobertura.xml"]           plusieurs fichiers
+      "../coverage"                             un répertoire → tous ses *.cobertura.xml
+      "../coverage/*.cobertura.xml"             un motif glob
+
+    Un chemin ABSOLU est pris tel quel, sans résolution. Quand une des quatre formes ne désigne
+    rien, l'erreur nomme la base contre laquelle le chemin relatif a été résolu (resolution_hint).
     """
     entries = [entry] if isinstance(entry, str) else list(entry)
     files = []
