@@ -217,6 +217,50 @@ jq -e '.tools[] | select(.name | test("jq"))' "$REQ" >/dev/null \
   || { echo "FAIL: requirements.json does not declare jq, which hooks/roseline-gate.sh requires"; exit 1; }
 echo "ok: requirements.json declares jq"
 
+# The manifest declares WHAT starts the server (`launcher`), and preflight probes exactly that. The
+# gate reaches the same conclusion by hand, with the name hardcoded, because a PreToolUse hook on
+# the hot path of every C# Read cannot afford a file read plus a `jq` to look it up — requirements
+# .json says so in its own description. The duplication is necessary; unpinned, it is #155: two
+# components answering one question from two facts, free to disagree with nothing red anywhere.
+# So it is pinned here, the shape scripts/ci-wiring-check.py and tests/skills/check-frontmatter.py
+# already use for the duplications they cannot remove either.
+launcher=$(python3 - "$REQ" <<'PY'
+import json, sys
+req = json.load(open(sys.argv[1]))
+print(next((m.get("launcher", "") for m in req["mcps"] if m["match"] == "roseline"), ""))
+PY
+)
+[ -n "$launcher" ] || {
+  echo "FAIL: requirements.json declares no launcher for the roseline mcps entry — preflight has nothing to probe"
+  exit 1; }
+
+# `command -v` on a name containing a slash tests that literal path instead of searching PATH, so a
+# manifest value with one in it would quietly stop being the same question the gate asks.
+case "$launcher" in
+  */*) echo "FAIL: launcher '$launcher' is a path, not a bare command name"; exit 1 ;;
+esac
+
+# Comment lines are stripped before matching: a gate that merely MENTIONS the probe in prose while
+# testing something else would satisfy a plain grep, which is precisely the drift being guarded.
+gate_probes() { # $1 gate file  $2 launcher name
+  grep -v '^[[:space:]]*#' "$1" | grep -qF "command -v $2"
+}
+gate_probes "$GATE" "$launcher" || {
+  echo "FAIL: hooks/roseline-gate.sh does not probe 'command -v $launcher', the launcher requirements.json declares"
+  exit 1; }
+
+# ...and the pin measures something. A scratch gate that probes a different name must fail the same
+# check, or a green above would be saying nothing at all about the real pair. Written into the
+# suite's scratch, so kit_cleanup discards it however this run ends.
+DRIFT="$WORK/drifted-gate.sh"
+sed "s/command -v $launcher/command -v kit-drifted-launcher/" "$GATE" > "$DRIFT"
+grep -qF 'command -v kit-drifted-launcher' "$DRIFT" \
+  || { echo "FAIL: the drift fixture did not actually change the probe"; exit 1; }
+if gate_probes "$DRIFT" "$launcher"; then
+  echo "FAIL: the launcher pin passes a gate that probes something else — it measures nothing"; exit 1
+fi
+echo "ok: the gate's hardcoded probe is pinned to requirements.json's launcher ($launcher)"
+
 grep -qF 'roseline-gate' "$KIT/README.md" \
   || { echo "FAIL: README does not document the roseline gate"; exit 1; }
 grep -qF 'managed-settings.json' "$KIT/README.md" \
