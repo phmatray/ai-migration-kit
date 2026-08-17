@@ -130,7 +130,36 @@ jobs:
           # `2>/dev/null` + `|| true` : si `coverage/` n'existe pas du tout, `find` écrit sur
           # stderr et sort non-zéro — sous `set -e` l'étape mourrait là, sur un message obscur, au
           # lieu de rendre celui d'en dessous. La variable reste vide et la garde parle.
-          found=$(find coverage -name '*.cobertura.xml' -print -quit 2>/dev/null || true)
+          #
+          # `-L` ET `-type f`, les deux (#126). `find` matche par NOM et n'a aucun avis sur le TYPE
+          # de l'entrée : sans `-type f`, n'importe quelle entrée nommée `*.cobertura.xml` passait
+          # la garde — un dossier laissé par un collecteur, un lien symbolique cassé sur un runner
+          # auto-hébergé qui réutilise son espace de travail (la raison même du
+          # `rm -rf coverage && mkdir -p coverage` de l'étape sœur). L'étape passait au vert en
+          # n'ayant prouvé que l'existence d'un NOM, et l'artefact partait sans rien d'analysable
+          # dedans : exactement le faux vert que cette garde existe pour empêcher.
+          #
+          # Mais `-type f` SEUL serait un autre défaut, et pas un moindre : `find` ne suit pas les
+          # liens symboliques par défaut, donc il se mettrait à refuser un rapport LÉGITIME atteint
+          # par un lien. On échangerait un fail-open contre un fail-closed — pire, parce que la
+          # nouvelle panne est bruyante, trompeuse, et frappe des dépôts qui marchent. Mesuré
+          # (GNU findutils et BSD find, mêmes résultats) :
+          #
+          #     entrée sous coverage/            sans -type   -type f    -L … -type f
+          #     dossier bogus.cobertura.xml      matche       refusé     refusé
+          #     lien → un vrai rapport           matche       REFUSÉ     matche
+          #     lien cassé                       matche       refusé     refusé
+          #
+          # `-L` restaure la ligne du milieu. Les trois lignes sont épinglées par
+          # tests/ci-template/test.sh [10] — dont celle du milieu, qui est la régression qu'une
+          # « simplification » ultérieure vers un `-type f` nu introduirait.
+          #
+          # ⚠ Ceci ne change PAS la sémantique de présence : #31 a tranché que cette garde teste la
+          # PRÉSENCE et non le COMPTE (voir les ~30 lignes ci-dessus). On ne change ici que ce qui
+          # compte comme UN match. Un `-L` sur une boucle de liens fait râler `find` et sortir en
+          # non-zéro ; le `2>/dev/null || true` l'absorbe déjà en « aucun match », direction sûre et
+          # déjà celle de tout autre échec de find.
+          found=$(find -L coverage -name '*.cobertura.xml' -type f -print -quit 2>/dev/null || true)
           if [ -z "$found" ]; then
             # Le `|| true` ci-dessus coupe dans les deux sens : un find SANS `-quit` (busybox,
             # images minimales) échoue, son erreur part à /dev/null, et « aucun rapport » devient
