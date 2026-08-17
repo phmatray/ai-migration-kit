@@ -159,10 +159,28 @@ jobs:
           # Bumped by the customManager in renovate.json; tests/renovate-config asserts both.
           RENOVATE_VALIDATOR_VERSION: 44.29.4
         run: |
+          # Both flags are load-bearing and both were MEASURED against this pin in #79, not read
+          # off the docs. Dropping either one re-opens a hole that leaves CI green.
+          #
+          # --no-global: passing a filename positionally makes the validator judge it as a GLOBAL
+          #   self-hosted config — it even says so, "Validating renovate.json as global config".
+          #   This file is a REPO config. Measured: `autodiscover` and `baseDir`, which Renovate
+          #   ignores outright in a repo config, PASS without this flag and fail with it. That is
+          #   the silent-ignore failure this gate exists to catch, sitting inside the gate itself.
+          #
+          # --strict: NOT what catches an unknown key — a mistyped key inside customManagers
+          #   already exits 1 unflagged, because renovate 44 sets returnVal=1 on warnings too.
+          #   `strict` is consulted in exactly one branch, `if (isMigrated)`. So it means "fail if
+          #   the config needs migration", and it is the only thing that catches a stale spelling
+          #   such as `fileMatch` for `managerFilePatterns` — measured: exit 0 without, 1 with.
+          #
+          # Known limit (follow-up): RE2 is an OPTIONAL native module. When it fails to load the
+          # validator falls back to JS RegExp and logs "RE2 not usable" as a bare warning that does
+          # not affect the exit code — so an RE2-only-invalid regex can still pass here.
           npx --yes --package "renovate@$RENOVATE_VALIDATOR_VERSION" -- \
-            renovate-config-validator renovate.json
+            renovate-config-validator --no-global --strict renovate.json
 
-      - name: Renovate config golden test (accepts the real config, rejects an unknown key)
+      - name: Renovate config golden test (accepts the real config; rejects unknown, global-only and unmigrated keys)
         run: ./tests/renovate-config/test.sh
 
       # release-please stamps both files in the same release PR, so a mismatch means someone
