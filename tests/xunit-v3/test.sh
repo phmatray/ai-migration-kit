@@ -1225,15 +1225,89 @@ def to_python(pattern):
     return pattern.replace("(?<", "(?P<")
 
 
+def re2_regex(pattern, ignore_case=False):
+    """Compile an RE2 pattern for use here, or return None when this guard cannot read it.
+
+    `to_python` has exactly the right shape for a matchString, where an untranslatable pattern must
+    RAISE — the raise IS the verdict, and three negative cases below pin it. In a FILE or PACKAGE
+    pattern the same raise killed the whole suite with a traceback instead of returning a verdict:
+    `re.search` was handed Renovate's own `(?<name>…)` spelling untranslated and died on
+    `unknown extension ?<d` (#99). Here the answer wanted is "this guard could not read it", which
+    the callers record in `unevaluated` and `check` refuses on — reported, never raised."""
+    try:
+        return re.compile(to_python(pattern), re.IGNORECASE if ignore_case else 0)
+    except (AssertionError, re.error):
+        return None
+
+
 # Exposing these pins is only SAFE because majors are disabled for the family: a lone CodeCoverage
 # 18.x would restore clean, build clean and die at run time. So the rule that makes it safe must
 # actually cover the depNames these managers emit — edit a glob and the managers keep working while
 # the protection quietly stops applying.
-def covers(glob, dep):
-    """Renovate's matchPackageNames globbing, reduced to what these rules use: a trailing `*`/`**`
-    is a prefix match, anything else is an exact (case-insensitive) name."""
-    g, d = glob.lower(), dep.lower()
-    return d.startswith(g.rstrip("*")) if g.endswith("*") else g == d
+def _name_matches(pattern, dep):
+    """One un-negated matchPackageNames / matchDepNames entry against one dependency.
+    -> True | False | None (None = a dialect this guard cannot read)
+
+    Renovate resolves a `/…/`-delimited entry as a regex (trailing `i` allowed) and anything else as
+    a minimatch glob, of which a bare package id is the degenerate case. A package id carries no
+    `/`, so minimatch's segment rules collapse and that glob subset is precisely the one `path_glob`
+    already compiles for file scopes — reused here rather than hand-rolled a second time."""
+    delimited = re.fullmatch(r"/(.*)/([a-z]*)", pattern, re.DOTALL)
+    if delimited:
+        if set(delimited.group(2)) - {"i"}:
+            return None
+        rx = re2_regex(delimited.group(1), "i" in delimited.group(2))
+        return None if rx is None else bool(rx.search(dep))
+    rx = path_glob(pattern.lower())
+    return None if rx is None else bool(rx.match(dep.lower()))
+
+
+def covers(patterns, dep):
+    """Does this matchPackageNames / matchDepNames list select `dep`?  -> (bool, [unevaluated…])
+
+    Renovate's own resolution rather than a simplification of it: any entry may be NEGATED with a
+    leading `!`, a negated entry that matches excludes the package outright, and a list made only of
+    negations selects everything those negations do not exclude.
+
+    The previous spelling understood a trailing `*` and an exact name and nothing else, so a
+    `/regex/` entry and a `!`-negation both read as "this rule says nothing about this package". On
+    the rule that HOLDS the majors that mistake is loud — the suite goes red on a valid config, and
+    somebody narrows it. On a rule that RE-ENABLES them it is silent, and silence there is a pin
+    whose majors are open while this section prints "majors held" (#99)."""
+    # The whole list is walked even once an exclusion has decided the answer, for the reason
+    # `selects` gives: an entry this guard cannot read is worth reporting whatever the verdict, and
+    # returning early would report it only for whichever dependency happened to reach it first.
+    unevaluated, excluded, matched, has_positive = [], False, False, False
+    for p in patterns:
+        negated = p.startswith("!")
+        verdict = _name_matches(p[1:] if negated else p, dep)
+        if verdict is None:
+            unevaluated.append(p)
+        elif negated:
+            excluded = excluded or verdict     # an explicit exclusion outranks any inclusion
+        else:
+            has_positive = True
+            matched = matched or verdict
+    return (not excluded and (matched or not has_positive)), unevaluated
+
+
+def names_reach(rule, dep):
+    """The two keys that narrow a packageRule to particular packages, ANDed as Renovate ANDs them.
+    -> (bool, [unevaluated…])
+
+    `matchDepNames` is `matchPackageNames`' sibling, not an exotic key. Reading only the latter left
+    a rule scoped by depName looking unscoped — so an unrelated `{matchDepNames: ["Newtonsoft.Json"],
+    matchUpdateTypes: ["major"], enabled: true}` re-opened the family's majors as far as this guard
+    could see, and turned a correct config red (#99)."""
+    unevaluated, reach = [], True
+    for key in ("matchPackageNames", "matchDepNames"):
+        patterns = rule.get(key)
+        if patterns is None:
+            continue
+        hit, unknown = covers(patterns, dep)
+        unevaluated.extend(unknown)
+        reach = reach and hit
+    return reach, unevaluated
 
 
 def path_glob(glob):
@@ -1246,7 +1320,12 @@ def path_glob(glob):
     The first version of this understood only an exact path and a `dir/**` prefix, which rejected
     two of the most ordinary valid scopes — `["**"]` and `["tests/xunit-v3/*.py"]` both reach the
     transform, and both failed the suite on a correct config. That direction of error matters: a
-    guard that refuses valid input gets deleted by whoever hits it, not narrowed."""
+    guard that refuses valid input gets deleted by whoever hits it, not narrowed.
+
+    PACKAGE-name globs come through here too (`_name_matches`), and so do bare `managerFilePatterns`
+    entries (`selects`). Both are the same minimatch subset, and until #99 each caller either
+    hand-rolled its own version of it or refused the dialect outright while this compiler sat
+    seventy lines away, unused by two of the three."""
     if any(ch in glob for ch in "{}[]!"):
         return None
     out, i = [], 0
@@ -1269,6 +1348,16 @@ def path_glob(glob):
     return re.compile("".join(out) + r"\Z")
 
 
+# The `match*` keys this section models, between `rule_applies` and its caller. Renovate has a great
+# many more (matchCurrentVersion, matchBaseBranches, matchDepTypes, matchCurrentAge, …) and every one
+# of them NARROWS the rule that carries it — so a key missing from this set is a rule whose reach
+# this guard cannot compute, not a rule that reaches everything.
+MODELLED_MATCH_KEYS = frozenset({
+    "matchDatasources", "matchManagers", "matchFileNames",
+    "matchPackageNames", "matchDepNames", "matchUpdateTypes",
+})
+
+
 def rule_applies(rule, path, datasource):
     """Does this packageRule actually reach `path` at `datasource`?  -> (bool, [unevaluated…])
 
@@ -1278,10 +1367,21 @@ def rule_applies(rule, path, datasource):
     while the transform's pins lost their hold completely. That is exactly the "edit a glob and the
     protection quietly stops applying" failure the comment above warns about (#67).
 
+    Three keys were also all it read, which is the same hole one level up: a family hold narrowed by
+    `matchCurrentVersion: "<3"`, `matchBaseBranches` or `matchDepTypes` reaches nothing this suite
+    cares about, and every one of them scored as FULL protection (#99). Any `match*` key outside
+    MODELLED_MATCH_KEYS therefore makes the rule count as not-reaching AND gets reported: on a hold
+    the first half is the safe answer, on a re-enabling rule it is the second, and only reporting is
+    safe in both directions.
+
     ABSENT means "applies everywhere". Getting that inversion backwards would make every rule look
     inapplicable and fail the suite on a perfectly good config, so it is the first thing each branch
     decides. As elsewhere here, a glob this cannot evaluate faithfully is reported rather than
     guessed, and counts as NOT applying — an unreadable scope must never be mistaken for protection."""
+    unmodelled = [k for k in sorted(rule) if k.startswith("match") and k not in MODELLED_MATCH_KEYS]
+    if unmodelled:
+        return False, unmodelled
+
     unevaluated = []
     datasources = rule.get("matchDatasources")
     if datasources is not None and datasource not in datasources:
@@ -1318,30 +1418,67 @@ def selects(manager, path):
       * `managerFilePatterns` — a `/…/`-delimited entry is a regex; a bare entry is a minimatch glob.
       * `fileMatch` (legacy)  — always a bare regex, never a glob.
 
-    A pattern this helper cannot evaluate faithfully (a minimatch glob — which is NOT Python's
-    fnmatch — or a `!`-negation, which inverts meaning) counts as NOT selecting, and is returned in
-    the second element rather than raised. That combination is deliberate: guessing "yes" would
-    restore the blindness this exists to catch, while raising would let an unrelated manager
-    somewhere else in the repo fail the xunit suite. Reported as not-ours and surfaced by the
-    caller if the set comes out empty, it fails closed either way."""
+    A bare entry is a minimatch GLOB, and glob is the dialect most people reach for: `["tests/**"]`
+    and even the plain path itself select the transform, and both were REFUSED here while
+    `path_glob` — which compiles exactly that subset — sat seventy lines above, unused (#99). They
+    go through it now, and only what IT cannot compile (brace expansion, character classes) plus
+    `!`-negation, which inverts meaning, is reported as unevaluatable.
+
+    A pattern this helper cannot evaluate faithfully is returned in the second element rather than
+    raised — including one whose regex RE2 accepts and Python does not, which used to escape
+    `re.search` as a traceback and abort the run (#99). `check` refuses on a non-empty list, so an
+    unreadable pattern is never mistaken for a manager that does not match."""
     unevaluated = []
     pats = manager.get("managerFilePatterns")
     if pats:
         hit = False
         for p in pats:
+            if p.startswith("!"):
+                unevaluated.append(p)          # negation inverts the meaning; not modelled here
+                continue
             # `/body/flags` — Renovate allows trailing flags, and `/…/i` is ordinary valid config
             # that an earlier revision here rejected outright. Only `i` is understood; any other
             # flag is reported rather than silently dropped, since dropping one changes what matches.
-            delimited = None if p.startswith("!") else re.fullmatch(r"/(.*)/([a-z]*)", p, re.DOTALL)
-            if not delimited or set(delimited.group(2)) - {"i"}:
+            delimited = re.fullmatch(r"/(.*)/([a-z]*)", p, re.DOTALL)
+            if delimited:
+                if set(delimited.group(2)) - {"i"}:
+                    unevaluated.append(p)
+                    continue
+                rx = re2_regex(delimited.group(1), "i" in delimited.group(2))
+                search = rx.search if rx else None
+            else:
+                rx = path_glob(p)
+                search = rx.match if rx else None    # a glob is anchored; a regex is not
+            if search is None:
                 unevaluated.append(p)
-                continue
-            body, flags = delimited.group(1), delimited.group(2)
-            if re.search(body, path, re.IGNORECASE if "i" in flags else 0):
+            elif search(path):
                 hit = True
         return hit, unevaluated
-    # Legacy key: bare regex by definition, so no delimiters to strip.
-    return any(re.search(p, path) for p in (manager.get("fileMatch") or [])), unevaluated
+    # Legacy key: bare regex by definition, so no delimiters to strip. Every entry is still walked
+    # after a hit — an unreadable one later in the list is worth reporting even once something has
+    # matched, since `check` refuses on it.
+    hit = False
+    for p in manager.get("fileMatch") or []:
+        rx = re2_regex(p)
+        if rx is None:
+            unevaluated.append(p)
+        elif rx.search(path):
+            hit = True
+    return hit, unevaluated
+
+
+def ignored(entry, path):
+    """Does this ignorePaths entry suppress extraction from `path`?  -> True | False | None
+
+    Renovate's `filterIgnoredFiles` ignores a file when the entry is a plain SUBSTRING of the path
+    (`file.includes(ignorePath)`) OR a minimatch glob that matches it. Only the second question was
+    asked here, and only in its fully anchored form, so `["tests"]` and `["tests/xunit-v3"]` were
+    ACCEPTED — both of them stop Renovate reading the transform. Brace and character-class globs
+    were accepted too, by the None branch the caller read as harmless (#99)."""
+    if entry in path:
+        return True
+    rx = path_glob(entry)
+    return None if rx is None else bool(rx.match(path))
 
 
 def check(cfg):
@@ -1351,7 +1488,28 @@ def check(cfg):
     Takes the config as an argument rather than closing over the real one so the negative cases at
     the bottom can drive it with deliberately broken copies. That is the whole point: every hole
     #67 records was a assertion that had never once been executed against a config it should
-    refuse, so it was impossible to tell a working guard from a decorative one."""
+    refuse, so it was impossible to tell a working guard from a decorative one.
+
+    `unevaluated` is the other half of that contract, and it is one list rather than four: every
+    helper that meets a spelling it cannot resolve puts it here, and the assertion at the bottom
+    refuses on a non-empty list no matter how well the rest of the config reads. #99 measured what
+    the alternative costs — six spellings Renovate honours that this guard accepted, because each
+    site decided locally that what it could not read was harmless.
+
+    THE BOUNDARY THIS SECTION DOES NOT CROSS: `cfg` is the UNRESOLVED renovate.json, read straight
+    off disk. Renovate resolves `extends` first and merges the preset underneath the local keys, so
+    everything a preset contributes is invisible here — `cfg.get("ignorePaths")` is empty today
+    because the file declares none, not because nothing ignores the transform, and a preset setting
+    `enabledManagers` would disable the custom managers repo-wide while every assertion below still
+    passed. This repo extends `local>phmatray/.github:renovate-ci` (#99, hole 4).
+
+    Resolving a preset means fetching another repository, which is exactly what this section must
+    not do — it is the offline, always-runnable half of the pair. The engine-backed half is
+    `tests/renovate-config/`, where the real renovate-config-validator judges this file instead of a
+    model of it. Note the honest limit even there: the validator is handed the file, so it does not
+    fetch `local>` presets either. Nothing in the kit asserts the RESOLVED config today; that is the
+    engine-backed follow-through #99 records, not a claim this docstring may make."""
+    unevaluated = []
     managers = cfg.get("customManagers", [])
     assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
 
@@ -1360,8 +1518,11 @@ def check(cfg):
     # frozen fixture is disabled rather than ignored), which makes it a plausible edit — and one
     # that would leave every other assertion here green.
     for g in cfg.get("ignorePaths") or []:
-        rx = path_glob(g)
-        assert rx is None or not rx.match(TRANSFORM_REL), (
+        suppresses = ignored(g, TRANSFORM_REL)
+        if suppresses is None:
+            unevaluated.append(g)
+            continue
+        assert not suppresses, (
             f"ignorePaths entry {g!r} suppresses extraction from {TRANSFORM_REL} — Renovate never "
             f"reads the file, so the custom managers below are dead no matter how they are written"
         )
@@ -1369,7 +1530,7 @@ def check(cfg):
     # Only the managers that actually select the transform are this section's business. Asserting
     # over ALL of them meant an unrelated custom manager added elsewhere in the repo would fail the
     # xunit suite, with a message about a transform it has nothing to do with (#67).
-    mine, unevaluated = [], []
+    mine = []
     for m in managers:
         hit, unknown = selects(m, TRANSFORM_REL)
         unevaluated.extend(unknown)
@@ -1378,9 +1539,9 @@ def check(cfg):
     assert mine, (
         f"no customManager selects {TRANSFORM_REL}, so Renovate extracts nothing from it and the "
         f"pins go unwatched"
-        + (f" — note that {unevaluated} could not be evaluated by this guard and were treated as "
-           f"non-matching; if one of those is meant to select the transform, teach `selects` its "
-           f"dialect" if unevaluated else "")
+        + (f" — note that {sorted(set(unevaluated))} could not be evaluated by this guard and were "
+           f"treated as non-matching; if one of those is meant to select the transform, teach "
+           f"`selects` its dialect" if unevaluated else "")
     )
 
     found = {}
@@ -1417,9 +1578,15 @@ def check(cfg):
             found[dep] = g["currentValue"]
 
     for dep, version in want.items():
+        # The unreadable-pattern note belongs HERE too, not only on the `mine`-is-empty branch: when
+        # one manager of two selects, this is the assertion that fires, and on its own it accuses
+        # apply-transform.py of a renamed constant when the actual edit was in renovate.json (#99).
         assert dep in found, (
             f"the custom manager never matched {dep} — a constant was renamed and the regex went "
             f"quietly blind. Matched: {found}"
+            + (f". Note: {sorted(set(unevaluated))} could not be evaluated by this guard and were "
+               f"treated as non-matching, so look at renovate.json before the transform"
+               if unevaluated else "")
         )
         assert found[dep] == version, (
             f"{dep}: the regex captured {found[dep]!r} but the module reports {version!r}"
@@ -1433,16 +1600,17 @@ def check(cfg):
     # silently restored them while this guard still printed "majors held" (#67). So walk the rules
     # in order and keep the last verdict, exactly as Renovate would.
     for dep in found:
-        held, out_of_reach = False, []
+        held = False
         for r in cfg.get("packageRules", []):
             types = r.get("matchUpdateTypes")
             if types is not None and "major" not in types:
                 continue                       # this rule has nothing to say about majors
-            names = r.get("matchPackageNames")
-            if names is not None and not any(covers(g, dep) for g in names):
+            named, unknown = names_reach(r, dep)
+            unevaluated.extend(unknown)
+            if not named:
                 continue                       # …nor about this package
             reaches, unknown = rule_applies(r, TRANSFORM_REL, "nuget")
-            out_of_reach.extend(unknown)
+            unevaluated.extend(unknown)
             if not reaches:
                 continue
             if r.get("enabled") is False:
@@ -1452,9 +1620,22 @@ def check(cfg):
         assert held, (
             f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
             f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
-            + (f". Note: {out_of_reach} could not be evaluated as file scopes and were treated as "
-               f"not reaching {TRANSFORM_REL}" if out_of_reach else "")
+            + (f". Note: {sorted(set(unevaluated))} could not be evaluated by this guard, so one of "
+               f"them may be the hold — check those before concluding the rule is missing"
+               if unevaluated else "")
         )
+
+    # Last, so that it fires even when every check above passed. An entry reaches this list only
+    # because some helper met a spelling Renovate resolves and this guard does not, which means the
+    # green it would otherwise print is a verdict on a config it only partly read. Until #99 the
+    # list was mentioned in one branch of one assertion — the one that runs least often.
+    assert not unevaluated, (
+        f"{sorted(set(unevaluated))} could not be evaluated by this guard — Renovate resolves these "
+        f"spellings and section 9 does not model them, so it cannot say whether the pins stay watched "
+        f"and their majors held. It refuses rather than guessing: an unreadable scope must never be "
+        f"mistaken for protection. Teach `path_glob`/`covers`/`rule_applies` the form, or write the "
+        f"config in one they already read"
+    )
     return found
 
 
@@ -1523,15 +1704,21 @@ rejects("no manager selecting the transform at all", _typo_every_path,
         because="no customManager selects")
 
 
-def _transform_manager_as_a_glob(c):
-    # The transform's OWN manager written in a dialect this guard cannot evaluate: it must fail
-    # closed and say so, never quietly treat the pins as watched.
+def _transform_manager_in_a_dialect_this_cannot_read(c):
+    # The transform's OWN manager written in a dialect this guard cannot evaluate — brace expansion,
+    # which minimatch performs and `path_glob` deliberately does not attempt. It must fail closed and
+    # say so, never quietly treat the pins as watched.
+    #
+    # This case used to be spelled `tests/xunit-v3/**`, an ORDINARY minimatch glob that Renovate
+    # honours — the suite codified a false red (#99, hole 6). That spelling is now an `accepts` case
+    # further down; the fail-closed contract it was really testing lives here, on a form `path_glob`
+    # genuinely cannot compile.
     for m in c["customManagers"]:
-        m["managerFilePatterns"] = ["tests/xunit-v3/**"]
+        m["managerFilePatterns"] = ["tests/{xunit-v3,x}/**"]
 
 
-rejects("the transform's manager written as an unevaluatable glob", _transform_manager_as_a_glob,
-        because="could not be evaluated")
+rejects("the transform's manager written as an unevaluatable glob",
+        _transform_manager_in_a_dialect_this_cannot_read, because="could not be evaluated")
 
 
 def _lookahead(c):
@@ -1663,6 +1850,121 @@ rejects("ignorePaths suppressing extraction from the transform", _ignore_the_who
         because="suppresses extraction")
 
 
+# --- ignorePaths: every form Renovate honours, not only the one this guard could read (#99) -----
+#
+# `filterIgnoredFiles` ignores a file when an entry is a plain SUBSTRING of the path
+# (`file.includes(ignorePath)`) OR a minimatch glob that matches it — and minimatch expands braces
+# and character classes. Four spellings that all suppress extraction from the transform were
+# ACCEPTED here: two because this guard only ever asked its anchored-glob question, and two because
+# `path_glob` returns None for the dialect while the caller read None as "harmless" — the one
+# unevaluatable form in the file that was not even collected into `unevaluated`, contradicting the
+# principle its own neighbours state: an unreadable scope must never be mistaken for protection.
+def _ignore_by_bare_directory(c):
+    c["ignorePaths"] = ["tests"]
+
+
+def _ignore_by_directory_prefix(c):
+    c["ignorePaths"] = ["tests/xunit-v3"]
+
+
+def _ignore_by_brace_expansion(c):
+    c["ignorePaths"] = ["tests/{xunit-v3,x}/**"]
+
+
+def _ignore_by_character_class(c):
+    c["ignorePaths"] = ["tests/[xy]unit-v3/**"]
+
+
+rejects("ignorePaths naming an ancestor directory", _ignore_by_bare_directory,
+        because="suppresses extraction")
+rejects("ignorePaths naming the transform's own directory", _ignore_by_directory_prefix,
+        because="suppresses extraction")
+rejects("ignorePaths written with brace expansion", _ignore_by_brace_expansion,
+        because="could not be evaluated")
+rejects("ignorePaths written with a character class", _ignore_by_character_class,
+        because="could not be evaluated")
+
+
+# --- packageRules: keys that narrow a rule, and keys that merely look like they do (#99) --------
+#
+# A hold only protects what it MATCHES, and `rule_applies` read three of the keys that narrow that
+# reach. Any OTHER `match*` key was invisible, so a hold Renovate would not apply to xunit.v3 3.2.2
+# was scored as full protection. The three below are the ones measured on the issue.
+def _narrow_the_hold_by_current_version(c):
+    _family_rule(c)["matchCurrentVersion"] = "<3"
+
+
+def _narrow_the_hold_by_base_branch(c):
+    _family_rule(c)["matchBaseBranches"] = ["release"]
+
+
+def _narrow_the_hold_by_dep_type(c):
+    _family_rule(c)["matchDepTypes"] = ["devDependencies"]
+
+
+rejects("a major-hold narrowed by matchCurrentVersion", _narrow_the_hold_by_current_version,
+        because="no rule disables its MAJOR updates")
+rejects("a major-hold narrowed by matchBaseBranches", _narrow_the_hold_by_base_branch,
+        because="no rule disables its MAJOR updates")
+rejects("a major-hold narrowed by matchDepTypes", _narrow_the_hold_by_dep_type,
+        because="no rule disables its MAJOR updates")
+
+
+# --- packageRules: the two matchPackageNames dialects a RE-ENABLING rule can hide behind (#99) --
+#
+# `covers` understood a trailing `*` and an exact name. Renovate also resolves a `/…/` regex entry
+# and a `!`-negated one, and a list of negations alone matches everything they do not exclude. On
+# the rule that HOLDS the majors that blindness is loud (the suite goes red on a valid config); on a
+# rule that RE-ENABLES them it is silent, which is the direction that ships an unwatched pin.
+def _reopen_majors_with_a_regex(c):
+    c["packageRules"].append({"matchPackageNames": ["/^xunit\\.v3/"], "enabled": True})
+
+
+def _reopen_majors_with_a_negation(c):
+    c["packageRules"].append({"matchPackageNames": ["!Newtonsoft.Json"], "enabled": True})
+
+
+rejects("a later rule re-enabling the majors by regex", _reopen_majors_with_a_regex,
+        because="no rule disables its MAJOR updates")
+rejects("a later rule re-enabling the majors by negation", _reopen_majors_with_a_negation,
+        because="no rule disables its MAJOR updates")
+
+
+def _an_unreadable_pattern_on_an_otherwise_healthy_config(c):
+    # Nothing here touches the pins: both managers still select the transform and both holds still
+    # hold. The only defect is one file pattern in a dialect this guard cannot read — and that list
+    # was surfaced ONLY when `mine` came out completely empty, so a partially-unreadable config
+    # passed with a confident green and, when it did fail, blamed the wrong file.
+    #
+    # Refusing here is deliberate even though the manager is unrelated to the transform: since
+    # `selects` falls back to `path_glob`, ordinary globs evaluate fine — `templates/**` is an
+    # `accepts` case a hundred lines above — so what reaches this branch is a form nobody has taught
+    # the guard yet. Loud is the correct failure mode for that; green is not.
+    c["customManagers"].append({
+        "customType": "regex",
+        "managerFilePatterns": ["templates/{ci-dotnet,ci-node}.yml"],
+        "matchStrings": ["irrelevant"],
+        "datasourceTemplate": "github-tags",
+    })
+
+
+rejects("one unreadable file pattern on an otherwise healthy config",
+        _an_unreadable_pattern_on_an_otherwise_healthy_config, because="could not be evaluated")
+
+
+def _file_pattern_re2_itself_would_refuse(c):
+    # The pattern is translatable in the sense that Python compiles it happily — and that is the
+    # problem: RE2 cannot, so Renovate would reject the whole config. Reported as unevaluatable and
+    # refused, never raised out of `selects` as a traceback.
+    for m in c["customManagers"]:
+        if selects(m, TRANSFORM_REL)[0]:
+            m["managerFilePatterns"] = ["/^(?=tests)tests\\/xunit-v3\\/apply-transform\\.py$/"]
+
+
+rejects("a file pattern RE2 itself would refuse", _file_pattern_re2_itself_would_refuse,
+        because="could not be evaluated")
+
+
 # --- valid config this guard must NOT refuse ---------------------------------------------------
 def _hold_scoped_with_a_segment_glob(c):
     _family_rule(c)["matchFileNames"] = ["tests/xunit-v3/*.py"]
@@ -1694,10 +1996,67 @@ def _unrelated_major_hold_first(c):
     })
 
 
+def _ignore_somewhere_else(c):
+    # The mirror of the ignorePaths cases above. `ignorePaths` is a real key with real legitimate
+    # uses, and the substring rule that catches `["tests"]` must not turn every entry into a
+    # refusal — or the guard becomes one nobody can satisfy and somebody deletes it.
+    c["ignorePaths"] = ["samples/LegacyShop/**"]
+
+
+def _unrelated_major_rule_by_dep_name(c):
+    # matchDepNames is matchPackageNames' sibling, not an unmodelled narrowing key: this rule
+    # re-enables majors for Newtonsoft.Json and says nothing whatever about the family. Reading it
+    # as "applies to everything" made the suite red on a correct config (#99, hole 2, mirrored).
+    c["packageRules"].append({
+        "matchDepNames": ["Newtonsoft.Json"],
+        "matchUpdateTypes": ["major"],
+        "enabled": True,
+    })
+
+
+def _hold_whose_packages_are_named_by_regex(c):
+    # The family hold spelled with `/…/` entries is a perfectly good hold — and the mirror of the
+    # re-enabling cases above, which is what keeps `covers`' new dialects honest in both directions.
+    _family_rule(c)["matchPackageNames"] = ["/^xunit\\.v3/", "/^Microsoft\\.Testing\\./"]
+
+
+def _transform_manager_as_a_glob(c):
+    # An ORDINARY minimatch glob. `managerFilePatterns` takes one wherever it takes a `/…/` regex,
+    # and `path_glob` — seventy lines above, and unused by `selects` until #99 — reads it correctly.
+    # Only the managers that ALREADY select the transform are rewritten, for the reason
+    # _case_insensitive_file_pattern gives below.
+    for m in c["customManagers"]:
+        if selects(m, TRANSFORM_REL)[0]:
+            m["managerFilePatterns"] = ["tests/xunit-v3/**"]
+
+
+def _transform_manager_as_a_bare_path(c):
+    # The simplest valid spelling of all: the path itself, no delimiters, no metacharacters.
+    for m in c["customManagers"]:
+        if selects(m, TRANSFORM_REL)[0]:
+            m["managerFilePatterns"] = ["tests/xunit-v3/apply-transform.py"]
+
+
+def _file_pattern_with_an_re2_named_group(c):
+    # RE2 spells a named group `(?<name>…)`, Python spells it `(?P<name>…)` — the whole reason
+    # `to_python` exists. `selects` handed the raw pattern to `re.search`, which raised
+    # `unknown extension ?<d` and killed the suite with a traceback instead of returning a verdict
+    # (#99, hole 5). Translated, it selects the transform: this is ordinary valid config.
+    for m in c["customManagers"]:
+        if selects(m, TRANSFORM_REL)[0]:
+            m["managerFilePatterns"] = ["/^(?<dir>tests)\\/xunit-v3\\/apply-transform\\.py$/"]
+
+
 accepts("a hold scoped with a single-segment glob", _hold_scoped_with_a_segment_glob)
 accepts("a hold scoped to the whole repo with **", _hold_scoped_to_everything)
 accepts("a case-insensitive /…/i file pattern", _case_insensitive_file_pattern)
 accepts("an unrelated major-hold ahead of the family rule", _unrelated_major_hold_first)
+accepts("ignorePaths scoped to an unrelated tree", _ignore_somewhere_else)
+accepts("an unrelated major rule selected by matchDepNames", _unrelated_major_rule_by_dep_name)
+accepts("a major-hold whose packages are named by regex", _hold_whose_packages_are_named_by_regex)
+accepts("the transform's manager written as a minimatch glob", _transform_manager_as_a_glob)
+accepts("the transform's manager written as a bare path", _transform_manager_as_a_bare_path)
+accepts("a file pattern using RE2's named-group spelling", _file_pattern_with_an_re2_named_group)
 
 print(f"  [9] Renovate's custom manager sees {len(found)} pin(s), majors held: "
       + ", ".join(f"{d} {v}" for d, v in sorted(found.items())))
