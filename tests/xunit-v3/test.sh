@@ -23,9 +23,11 @@
 #      managers are executed against the real file, and the holds are tested for REACH, so a config
 #      the engine would reject, or protection that has been scoped away from the pins, fails here
 #      instead of surfacing as PRs that silently never appear;
-#  10. the "did we find any?" probes cannot invert on a large result set — a SIGPIPE'd find under
-#      `pipefail` used to make two of this file's own checks skip themselves precisely when they
-#      had something to report.
+#  10. the find probes report what they FOUND — not how the reader exited, and not whether the
+#      starting path happened to exist. A SIGPIPE'd find under `pipefail` used to make two of this
+#      file's own checks skip themselves precisely when they had something to report (#48), and the
+#      first-match form used to abort the suite AT the assignment, before the diagnostic written
+#      directly beneath it could say what had gone wrong (#98).
 #
 # The committed fixture is never mutated: cleanup() asserts it on every exit path, and CI asserts it
 # stays "green AND legacy".
@@ -309,9 +311,10 @@ if ! SOLUTION='' bash -c "$MTP_STEP" > "$scratch/mtp-cov.log" 2>&1; then
   echo "FAIL: the template's coverage step failed outright:"
   tail -25 "$scratch/mtp-cov.log"; exit 1
 fi
-# `-print -quit` rather than `| head -1`: under `pipefail` a SIGPIPE'd find returns 141 and
-# aborts the script before the diagnostic below can run.
-mtp_file=$(find coverage -name '*.cobertura.xml' -print -quit)
+# first_match rather than `find … | head -1`: under `pipefail` a SIGPIPE'd find returns 141, and a
+# find over a `coverage/` the step never created exits non-zero too — either one aborts the script
+# AT this assignment, before the diagnostic below can run (#48, #98).
+mtp_file=$(first_match coverage -name '*.cobertura.xml')
 [ -n "$mtp_file" ] || {
   echo "FAIL: the MTP coverage path produced no cobertura:"; tail -20 "$scratch/mtp-cov.log"; exit 1
 }
@@ -500,7 +503,7 @@ if SOLUTION='' bash -c "$MTP_STEP" > "$scratch/nocov.log" 2>&1; then
   tail -20 "$scratch/nocov.log"; exit 1
 fi
 # The console names the log but not the reason; MTP writes the reason there, in UTF-16.
-nocov_detail=$(find "$scratch/nocov" -name 'LegacyShop.Catalog.Tests_*.log' -print -quit)
+nocov_detail=$(first_match "$scratch/nocov" -name 'LegacyShop.Catalog.Tests_*.log')
 [ -n "$nocov_detail" ] || {
   echo "FAIL: the run failed but MTP wrote no per-project log, so the reason cannot be checked:"
   tail -20 "$scratch/nocov.log"; exit 1; }
@@ -1760,6 +1763,35 @@ fi
 # path, so an aborting probe there would replace the real exit status with its own.
 if any_match "$scratch/definitely-not-here" -name '*.cobertura.xml'; then
   echo "FAIL: any_match reported a match under a directory that does not exist"
+  exit 1
+fi
+
+# The FIRST-match half of the same idiom owes the same tolerance (#98). Both claims — that a
+# missing path does not abort the caller, and that what comes back is empty — are read off ONE
+# search: two searches can drift apart in their fixture path and then quietly stop describing the
+# same thing.
+#
+# The condition of an `if` is the only place this can be asserted without taking the suite down
+# with it. Under this file's `set -euo pipefail` a bare `x=$(find missing …)` dies AT the
+# assignment, so the `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written beneath both call
+# sites never runs — and it is that FAIL line and its log tail, not find's own one-line error,
+# that make a CI-only failure diagnosable at a distance (#74). `if` suppresses errexit for its
+# condition, so the status is caught and reported here instead of inherited.
+#
+# NOT `if ! ( set -e; x=$(…) )`, which was the first spelling here: that `set -e` is INERT. Bash
+# ignores an errexit set inside a compound command already running where errexit is suppressed,
+# which the condition of an `if` is — so the subshell reported the failure only because the
+# assignment happened to be its last command. Measured on this host: `( set -e; x=$(false); : )`
+# exits 0. One appended statement and this case would have gone on passing against a probe with
+# its tolerance stripped back out — the regression it exists to catch.
+if ! first_hit=$(first_match "$scratch/definitely-not-here" -name '*.cobertura.xml'); then
+  echo "FAIL: first_match reported failure on a path that does not exist, so a bare assignment"
+  echo "      from it aborts its caller. The emptiness test written under each of its call sites"
+  echo "      is only a test if the empty case can actually be reached."
+  exit 1
+fi
+if [ -n "$first_hit" ]; then
+  echo "FAIL: first_match returned '$first_hit' under a directory that does not exist"
   exit 1
 fi
 
