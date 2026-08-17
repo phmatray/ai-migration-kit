@@ -1,8 +1,37 @@
-# Before creating a worktree: prove its home is ignored
+# Before using a worktree: prove its home is ignored
 
 Shared by `implement-issue` (Step 4) and `merge-pr` (Steps 2 and 4). One home for the verdicts,
 because the first draft of this check spelled them out in four places and they had already drifted
 apart by the time anyone read two of them.
+
+## When: before you **use** a worktree — created this run or inherited
+
+Run the check **once, before the create-or-reuse decision**: before `git worktree add` on the create
+path, and before the first read or write in an inherited worktree on the reuse path. One call, both
+paths (#86).
+
+What changed in #86 is the word *only*. The check was attached to creation, so it verified exactly the
+repositories where this particular run happened to create something — and reuse is the steady state,
+not the edge case: `implement-issue` is resume-safe by contract, so re-runs adopt the worktree an
+earlier run left, and `merge-pr` calls an existing worktree its "usual case". A worktree made by an
+earlier run, a bare `git worktree add`, or a harness therefore sat in an unverified home for the rest
+of its life.
+
+⛔ **Moving it must not mean running it later.** The precondition is worth having only if a refusal
+still prevents something. Deriving the check's argument from `$WORKTREE` looks natural — that is the
+variable in hand — but it forces the worktree to exist first, which on the create path means planting
+a full checkout in an unignored home and *then* refusing, leaving it on disk with nothing prescribed
+to clean it up. The recipe below deliberately takes no worktree path, so the same call works before
+one exists.
+
+⚠️ **The inherited worktree is the case with something to find.** Its home was ignored when it was
+created, or nobody looked; either way the rule can have been dropped, broadened, or negated since.
+Stop **before** the first write — a refusal that arrives after the commit is a report, not a guard.
+
+The redundant re-check on a worktree this run just created costs one `worktree list` plus the guard's
+own handful of `git` invocations (it runs up to eight — two homes × `check-ignore -q`, `check-ignore
+-v` and `ls-files`, plus `rev-parse` and the profile-path probe). Still cheaper than the second prose
+reminder the alternative needs in every skill.
 
 ## Why
 
@@ -28,33 +57,62 @@ most likely to trip over it.
 
 `superpowers:using-git-worktrees` states the precondition — *"MUST verify directory is ignored before
 creating worktree"* — and `implement-issue` Step 4 delegates creation to it. This is that verification,
-made mechanical.
+made mechanical, and #86 **widened** it rather than moving it off creation: still before the worktree
+is made, and now also before one that already exists is used.
 
 ## The check
 
-Run it against the **worktree root** of the repo you are about to create a worktree in:
+Run it against the **main checkout** — the repository the worktree home lives in, and the one whose
+`git add -A` can stage it:
 
 ```bash
-REPO_ROOT=$(git -C <repo> rev-parse --show-toplevel)
-<kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT"
+# Ask from anywhere in the repository — the main checkout, or a linked worktree the session happens
+# to be sitting in. The FIRST `worktree list --porcelain` entry is always the main worktree, so this
+# resolves the same path either way, and it needs no worktree path of its own: it works before the
+# one you are about to create exists.
+WT_LIST=$(git -C <anywhere-in-the-repo> worktree list --porcelain)
+REPO_ROOT=$(printf '%s\n' "$WT_LIST" | sed -n '1s/^worktree //p')
+
+# A BARE repository has no main working tree — `worktree list` marks it `bare`. `git add -A` cannot
+# run there, so no worktree home is reachable, and `check-ignore` refuses ("must be run in a work
+# tree") — which the guard would otherwise report as a false "NOT ignored". Nothing to verify.
+printf '%s\n' "$WT_LIST" | sed -n '2p' | grep -qx bare && REPO_ROOT=''
+
+[ -n "$REPO_ROOT" ] && <kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT"
 ```
+
+`sed -n '1s/^worktree //p'` and not `awk '{print $2}'`: a checkout under a path containing a space
+(`/Users/x/my repo`) is truncated at the space by the awk spelling — measured.
+
+⚠️ **Do not derive it from the worktree you are about to use.** `git -C "$WORKTREE" rev-parse
+--show-toplevel` answers with the *linked worktree*, not the checkout the hazard is in — a linked
+worktree is its own toplevel. That fails **open**, measured (`tests/worktrees-ignored/test.sh`, case
+22): where the ignore rule was committed and later dropped from the main working tree, the guard says
+`1` at the main checkout — correctly, `git add -A` there really does stage the `160000` gitlink — and
+`0` when asked at the reused worktree, whose checked-out `.gitignore` still carries the rule. Same
+guard, same repo, opposite verdicts; only the main-checkout answer is about the directory that can be
+committed. It is also the reason this recipe takes no `$WORKTREE`: the argument that would tempt you
+is the wrong one.
 
 `<kit>` is the kit root — the directory holding `skills/` and `scripts/` — resolved when the skill
 loads, the same placeholder `legacy-upgrade` and `followups` use for `<kit>/scripts/…`. Do **not**
 write it as a shell variable: an unset `$KIT` expands to `/scripts/worktrees-ignored.sh`, i.e. exit
-`127`, and a caller that treats every non-zero as "stop" then refuses to create any worktree at all.
+`127`, and a caller that treats every non-zero as "stop" then refuses to use any worktree at all.
 
 **The root matters.** `.claude/worktrees/` contains a slash, so git anchors it and resolves it relative
 to the directory it is asked about. Point the guard at a subdirectory and a correctly configured repo
-answers "NOT ignored".
+answers "NOT ignored" — and point it at a *linked worktree*, which is the reuse-time reflex, and the
+same anchoring quietly answers the wrong question (above).
 
 ## The verdicts
 
+Unchanged by #86 — only the moment they are asked for moved. "Use" below means create **or** reuse.
+
 | Exit | Meaning | What to do |
 |---:|---|---|
-| `0` | both worktree homes are ignored | Create the worktree. |
-| `1` | **a worktree home is NOT ignored** | Do not create it. Surface the one-line `.gitignore` addition the guard names, and let the owner take it. |
-| `2` | homes are ignored, but the rule is broad enough to hide `.claude/skills/repo-profile.md` | **Create the worktree — there is no worktree hazard here.** Mention that this repo cannot carry a committed profile until the rule is narrowed. |
+| `0` | both worktree homes are ignored | Use the worktree. |
+| `1` | **a worktree home is NOT ignored** | Do not use it — and on the reuse path, stop before the first guarded write. Surface the one-line `.gitignore` addition the guard names, and let the owner take it. |
+| `2` | homes are ignored, but the rule is broad enough to hide `.claude/skills/repo-profile.md` | **Use the worktree — there is no worktree hazard here.** Mention that this repo cannot carry a committed profile until the rule is narrowed. |
 | `3` | usage error, or not a git repository | No verdict was reached. That is not a pass — fix the invocation. |
 | `126`/`127` | the guard is missing or not executable | Same: no verdict. Check `<kit>` resolved. |
 
@@ -67,8 +125,8 @@ condition unrelated to the hazard being guarded.
 
 `get-repo-profile` documents a skills-only adoption path ("drop the four skills into a new repo"), and
 the guard lives at the kit root, so it can legitimately be absent. That is a missing *tool*, not a
-failed *verdict* — don't refuse the worktree over it. Check both homes by hand instead, from the
-worktree root:
+failed *verdict* — don't refuse the worktree over it. Check both homes by hand instead, against the
+same `$REPO_ROOT` derived above — the main checkout, never the worktree being used:
 
 ```bash
 git -C "$REPO_ROOT" check-ignore -q .claude/worktrees/ && git -C "$REPO_ROOT" check-ignore -q .worktrees/

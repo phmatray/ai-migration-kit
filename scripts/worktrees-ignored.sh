@@ -69,9 +69,18 @@
 #      is a different finding, NOT a worse one: do not collapse "non-zero" into "stop".
 #   3  usage error, or <repo-path> is not a git repository — no verdict was reached, so not a pass
 #
-# The repo path must be the WORKTREE ROOT. `.claude/worktrees/` is an anchored pattern (it contains
-# a slash), so git resolves it relative to the directory it is asked about: run against a subdirectory
-# and a correctly configured repo answers "NOT ignored". Callers pass `git rev-parse --show-toplevel`.
+# The repo path must be the MAIN WORKING TREE's root. `.claude/worktrees/` is an anchored pattern (it
+# contains a slash), so git resolves it relative to the directory it is asked about: run against a
+# subdirectory and a correctly configured repo answers "NOT ignored".
+#
+# Do NOT pass `git rev-parse --show-toplevel` (this line used to say callers should). Run from inside
+# a LINKED worktree that names the worktree itself, not the checkout the hazard is in, and the answer
+# can be 0 while the main checkout is genuinely unignored — a fail-open, measured in
+# tests/worktrees-ignored/test.sh case 22. Resolve the main working tree instead:
+#     git worktree list --porcelain | sed -n '1s/^worktree //p'
+# and skip the check entirely when that first entry is marked `bare` — a bare repo has no working
+# tree, so nothing there can stage a worktree and `check-ignore` cannot run in it at all.
+# skills/_shared/worktree-ignore-check.md states this once, for every caller.
 
 set -euo pipefail
 

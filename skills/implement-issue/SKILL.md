@@ -150,25 +150,29 @@ does not exist), then:
 git worktree list --porcelain | grep -Fxq "branch refs/heads/$BRANCH"
 ```
 
-Reuse what that finds; and **before creating one, prove its home is ignored** — the worktree directory
-is the kit's convention, not a fact about the repository you are pointed at:
+**Before you either reuse what that finds or create one, prove the worktree's home is ignored** — the
+worktree directory is the kit's convention, not a fact about the repository you are pointed at. Run
+the check **now**, while both outcomes are still ahead of you: it takes no worktree path, so the one
+call covers the branch that creates and the branch that inherits (#86).
+
+Do not defer it until `$WORKTREE` is bound and then derive its argument from that variable — the
+recipe is deliberately shaped to prevent it. `git -C "$WORKTREE" rev-parse --show-toplevel` names the
+linked worktree rather than the checkout the hazard lives in (it fails **open**), and waiting until
+the worktree exists means creating one in an unignored home before refusing, which leaves it on disk.
+The recipe, the bare-repository case, the verdicts, the reason `2` is not a stop, and the rule against
+editing someone's `.gitignore` unasked all live in
+[`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md) — run it from there, not
+from a copy here, which is how the four copies of this table drifted apart in the first place (#71).
+
+`0` go ahead · `1` a home is **not** ignored, so stop here — before the worktree and before the
+scaffold commit · `2` ignored but over-broad, so **do** go ahead and mention the profile cost ·
+`3`/`127` no verdict was reached, which is not a pass.
+
+Then reuse or create, and record the two names every later step needs:
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-<kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT"
-```
-
-`0` create it · `1` a home is **not** ignored, so don't · `2` ignored but over-broad, so **do** create
-it and mention the profile cost · `3`/`127` no verdict was reached, which is not a pass. The verdicts,
-the reason `2` is not a stop, and the rule against editing someone's `.gitignore` unasked live in
-[`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md) — read it there, not from
-a copy here, which is how the four copies of this table drifted apart in the first place (#71).
-
-Then record the two names every later step needs:
-
-```bash
-WORKTREE=<absolute path of this issue's worktree>
-GUARDS=<this skill's own scripts/ directory>       # skills/implement-issue/scripts from the kit root
+WORKTREE=<absolute path of this issue's worktree>   # the one just found, or the one just created
+GUARDS=<this skill's own scripts/ directory>        # skills/implement-issue/scripts from the kit root
 ```
 
 Carry `$BRANCH` forward — Steps 5–9 pass it to the guards **explicitly**, because a guard
