@@ -939,16 +939,48 @@ done
 # check itself.
 grep -q -- '-print -quit' templates/ci-dotnet.yml || {
   echo "FAIL: the coverage guard no longer uses '-print -quit'"; exit 1; }
-grep -q 'maxdepth 0 -print -quit' templates/ci-dotnet.yml || {
+
+cov_expr=$(grep -m1 -F 'found=$(find ' templates/ci-dotnet.yml)
+cov_probe=$(grep -m1 -F 'maxdepth 0' templates/ci-dotnet.yml)
+[ -n "$cov_expr" ] || {
+  echo "FAIL: could not locate the coverage guard's find expression in templates/ci-dotnet.yml, so"
+  echo "      the probe assertion below would silently prove nothing. Re-point this extraction."
+  exit 1; }
+[ -n "$cov_probe" ] || {
   echo "FAIL: the guard depends on '-print -quit' but never proves this runner's find supports it."
   echo "      Without that probe an unsupported predicate is indistinguishable from absent"
   echo "      coverage, and the step blames the collector for the runner's find — see"
   echo "      tests/_lib.sh:kit_require_find_quit, which exists for that exact failure."; exit 1; }
+
+# The probe must cover EVERY predicate the expression it guards leans on, not just the last one to
+# be added (#126). A probe NARROWER than its expression guards nothing: on a find that rejects `-L`
+# or `-type`, the expression exits non-zero, the `2>/dev/null || true` swallows the error, `$found`
+# comes back empty — and the probe still SUCCEEDS, so the step skips its "your find lacks the
+# predicate" branch and tells a repo with perfectly good coverage that its collector was silently
+# skipped. That is the exact misdiagnosis the probe exists to prevent, reopened by widening the
+# expression without widening the probe. Derived from the shipped expression rather than a hardcoded
+# list, so a future predicate is covered the day it is added.
+for pred in '-L' '-type' '-print -quit'; do
+  case " $cov_expr " in *" $pred"*) ;; *) continue ;; esac
+  case " $cov_probe " in
+    *" $pred"*) ;;
+    *)
+      echo "FAIL: the coverage guard's expression uses '$pred' but its capability probe does not."
+      echo "      A find rejecting '$pred' fails the expression, the '2>/dev/null || true' hides it,"
+      echo "      and the probe still passes — so the step prints its missing-coverage diagnosis at"
+      echo "      a repo whose coverage WAS produced. Widen the probe with every predicate the"
+      echo "      expression depends on."
+      echo "      expression: $cov_expr"
+      echo "      probe:      $cov_probe"; exit 1 ;;
+  esac
+done
 echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
      "— $cov_files reports ($cov_bytes bytes, naive pipeline confirmed inverting) accepted;"\
      "empty and missing coverage/ still refused, with their diagnosis"
 echo "  [10b] and it asks what KIND of entry it found: a directory and a dangling symlink named"\
      "*.cobertura.xml are refused, a symlink to a real report is accepted — the row that keeps"\
      "the -L on the -type f"
+echo "  [10c] and its capability probe tests every predicate that expression depends on"\
+     "(-L, -type, -print -quit), so an unsupported one cannot masquerade as absent coverage"
 
 echo "ci-dotnet template opt-in bundle gate golden test OK"

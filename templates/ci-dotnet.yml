@@ -157,9 +157,33 @@ jobs:
           #
           # ⚠ Ceci ne change PAS la sémantique de présence : #31 a tranché que cette garde teste la
           # PRÉSENCE et non le COMPTE (voir les ~30 lignes ci-dessus). On ne change ici que ce qui
-          # compte comme UN match. Un `-L` sur une boucle de liens fait râler `find` et sortir en
-          # non-zéro ; le `2>/dev/null || true` l'absorbe déjà en « aucun match », direction sûre et
-          # déjà celle de tout autre échec de find.
+          # compte comme UN match.
+          #
+          # Et le verdict se lit sur la SORTIE STANDARD, jamais sur le statut : `2>/dev/null || true`
+          # jette le statut de `find`, c'est `[ -z "$found" ]` juste en dessous qui tranche. Sur une
+          # boucle de liens, `-L` fait donc râler `find` sur stderr (jeté) et sortir en non-zéro
+          # (absorbé) — mais s'il a DÉJÀ imprimé un rapport avant d'y arriver, `$found` est NON VIDE
+          # et la garde PASSE, ce qui est le bon résultat : un rapport a bien été trouvé. Elle ne
+          # rend « aucun match » que si rien n'a été imprimé. Ne pas lire ce `|| true` comme un
+          # fail-closed : il ne convertit pas une erreur de `find` en refus, il l'empêche seulement
+          # de tuer l'étape sous `set -e` avant que le message d'en dessous ne soit rendu.
+          #
+          # ⚠ Ce que `-L` COÛTE, assumé et écrit ici plutôt que corrigé : suivre les liens ÉLARGIT le
+          # parcours. Sans match, `find` descend désormais dans la cible d'un lien comme
+          # `coverage/results -> /mnt/shared` et parcourt l'arbre lié en entier ; sur un runner
+          # auto-hébergé pointant vers un partage, le chemin d'échec peut devenir lent, voire mourir
+          # sur le timeout du job SANS avoir rendu son diagnostic. Deux façons de l'éviter ont été
+          # pesées et écartées (#126) :
+          #   • `-maxdepth N` bornerait le parcours, mais N serait une DEVINETTE sur l'endroit où
+          #     `--results-directory` dépose ses rapports — MTP et VSTest n'imbriquent pas pareil
+          #     (`coverage/<guid>/…` côté VSTest) — et trop court il refuserait un rapport LÉGITIME :
+          #     exactement le fail-closed que ce correctif refuse de créer.
+          #   • `-xtype f` rendrait les trois lignes du tableau sans élargir le parcours, mais il est
+          #     GNU-only et coûterait la ligne BSD/macOS mesurée ci-dessus.
+          # Le parcours reste donc non borné : la lenteur ne frappe que le chemin où l'étape allait
+          # de toute façon échouer, là où un `-maxdepth` trop court frapperait les dépôts qui
+          # marchent. À revoir si un `coverage/` contenant un lien vers un grand arbre est réellement
+          # observé.
           found=$(find -L coverage -name '*.cobertura.xml' -type f -print -quit 2>/dev/null || true)
           if [ -z "$found" ]; then
             # Le `|| true` ci-dessus coupe dans les deux sens : un find SANS `-quit` (busybox,
@@ -169,10 +193,25 @@ jobs:
             # couverture au lieu du find du runner. Même raison d'être que
             # tests/_lib.sh:kit_require_find_quit côté kit ; ici la vérification est portée par
             # l'étape elle-même, et elle ne coûte rien : on n'y arrive que sur le chemin d'échec.
-            if ! find . -maxdepth 0 -print -quit >/dev/null 2>&1; then
-              echo "Le find de ce runner ne supporte pas '-print -quit' : la garde ne peut pas"
-              echo "distinguer « aucun rapport de couverture » de « find a échoué ». Utilisez une"
-              echo "image avec GNU findutils (ou BSD find) plutôt qu'un busybox."
+            #
+            # La sonde teste TOUS les prédicats dont l'expression ci-dessus dépend — `-L`, `-type`
+            # et `-print -quit` — et pas seulement le dernier (#126). Une sonde plus étroite que
+            # l'expression qu'elle garde ne garde rien : sur un find refusant `-L` ou `-type`,
+            # l'expression sortirait non-zéro, le `2>/dev/null || true` avalerait l'erreur, `$found`
+            # serait vide — et la sonde, elle, réussirait encore, donc la garde sauterait cette
+            # branche et accuserait la collecte de couverture d'un dépôt parfaitement sain. C'est la
+            # méprise même que cette sonde existe pour empêcher, rouverte en élargissant l'expression
+            # sans élargir la sonde.
+            #
+            # `-type d` et non `-type f` : `.` est un dossier, donc la sonde MATCHE et `-quit` est
+            # réellement exercé, comme dans sa forme d'origine. Avec `-type f` rien ne matcherait,
+            # `-quit` ne se déclencherait jamais, et on ne prouverait plus que la partie de
+            # l'expression qui se parse — pas celle qui s'exécute. La lettre passée à `-type` n'est
+            # pas ce qui varie d'une implémentation à l'autre ; c'est le prédicat lui-même.
+            if ! find -L . -maxdepth 0 -type d -print -quit >/dev/null 2>&1; then
+              echo "Le find de ce runner ne supporte pas '-L', '-type' ou '-print -quit' : la garde"
+              echo "ne peut pas distinguer « aucun rapport de couverture » de « find a échoué »."
+              echo "Utilisez une image avec GNU findutils (ou BSD find) plutôt qu'un busybox."
               exit 1
             fi
             echo "Aucun rapport de couverture produit — la collecte a été ignorée en silence."
