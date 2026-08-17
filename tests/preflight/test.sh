@@ -4,6 +4,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+KIT="$PWD"
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT"
+
 # 1. The --json output is valid JSON (the preflight may exit 0 or 1 depending on the machine).
 out=$(./scripts/preflight.sh --json || true)
 echo "$out" | python3 -m json.tool >/dev/null
@@ -30,12 +35,14 @@ PY
 
 # 4. A missing REQUIRED item ⇒ exit 1 and status "missing". PATH reduced to the bare minimum
 #    needed to read the manifest (bash + python3 + dirname): git/dotnet become unfindable.
-tmp=$(mktemp -d)
+#    The scratch comes from the shared helper, so it is removed on EVERY exit path (#128). The
+#    inline `rm -rf` this replaced ran only if the two assertions below passed — a suite that
+#    failed here left its directory behind, which is the half of the cost #72 measured away.
+tmp=$(kit_scratch)
 for c in bash python3 dirname; do ln -s "$(command -v "$c")" "$tmp/$c"; done
 if PATH="$tmp" bash ./scripts/preflight.sh --json > "$tmp/out.json" 2>/dev/null; then
   echo "the preflight should have failed without the required tooling"; exit 1
 fi
 grep -q '"status": "missing"' "$tmp/out.json"
-rm -rf "$tmp"
 
 echo "preflight golden test OK"

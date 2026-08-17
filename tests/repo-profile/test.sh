@@ -4,12 +4,22 @@
 # every field a probe cannot answer prints a TODO line instead of silent emptiness.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+KIT="$PWD"
 SCRIPT="skills/get-repo-profile/scripts/repo-profile.sh"
+
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT"
 
 fail() { echo "FAIL: $1"; exit 1; }
 
+# Every scratch directory below comes from the shared helper, so all five are removed on EVERY exit
+# path (#128). They used to be freed by one `rm -rf` on the last line, which the `fail()` above
+# skips past — so any red run of this suite stranded up to five directories, and the assertion that
+# fired earliest stranded the most.
+
 # 1. show without a profile → prints NO_PROFILE, exits 3.
-tmp=$(mktemp -d)
+tmp=$(kit_scratch)
 rc=0; out=$(bash "$SCRIPT" show "$tmp") || rc=$?
 [ "$rc" -eq 3 ] || fail "show without profile: expected exit 3, got $rc"
 [ "$out" = "NO_PROFILE" ] || fail "show without profile: expected NO_PROFILE, got '$out'"
@@ -21,14 +31,14 @@ printf '# Repo profile\n- fixture\n' > "$tmp/.claude/skills/repo-profile.md"
   || fail "show with profile: output differs from the committed file"
 
 # 3. detect outside a git repository → exits 4.
-tmp2=$(mktemp -d)
+tmp2=$(kit_scratch)
 rc=0; bash "$SCRIPT" detect "$tmp2" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 4 ] || fail "detect outside git: expected exit 4, got $rc"
 
 # 4. detect in a bare-bones git repo (no CLAUDE.md, no README, no remote, no workflows):
 #    all sections present AND the TODO fallbacks actually fire — this is the regression
 #    guard for the `pipeline || echo TODO` dead-fallback bug.
-repo=$(mktemp -d)
+repo=$(kit_scratch)
 git -C "$repo" init -q
 git -C "$repo" -c user.email=t@test -c user.name=T commit -q --allow-empty -m "init"
 out=$(bash "$SCRIPT" detect "$repo")
@@ -56,7 +66,7 @@ grep -qF "T <t@test>" <<<"$out" || fail "detect: recent-authors probe lost the r
 #    substring of "NOT ignored", so a bare grep for it is true in both states and tests nothing.
 wt_section() { awk '/^## Worktree home/{f=1;next} /^## /{f=0} f' <<<"$1"; }
 
-wt=$(mktemp -d)
+wt=$(kit_scratch)
 git -C "$wt" init -q
 git -C "$wt" -c user.email=t@test -c user.name=T commit -q --allow-empty -m "init"
 mkdir -p "$wt/.claude/worktrees"
@@ -97,7 +107,7 @@ $sec"
 # 5d. A rule that is in EFFECT but not committed (.git/info/exclude) must not become a durable claim
 #     about the repo. check-ignore is satisfied by machine-local rules, so exit 0 alone would record
 #     "verified ignored" for a repo whose teammates and CI stage the worktree regardless.
-wt2=$(mktemp -d)
+wt2=$(kit_scratch)
 git -C "$wt2" init -q
 git -C "$wt2" -c user.email=t@test -c user.name=T commit -q --allow-empty -m "init"
 printf '.claude/worktrees/\n.worktrees/\n' >> "$wt2/.git/info/exclude"
@@ -106,5 +116,4 @@ grep -qF 'ignored on this machine only' <<<"$sec" \
   || fail "detect: a machine-local rule was recorded as a property of the repo:
 $sec"
 
-rm -rf "$tmp" "$tmp2" "$repo" "$wt" "$wt2"
 echo "repo-profile golden test OK"
