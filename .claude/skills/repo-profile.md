@@ -44,6 +44,12 @@
   `samples/LegacyShop` fixture only, and `gh` authenticated for anything issue/PR shaped.
   `samples/` is a **frozen fixture** — several suites assert its immutability, so a change there
   fails tests by design.
+- **The fixture needs the .NET 6 *runtime*, not just an SDK.** `samples/LegacyShop` targets `net6.0`
+  on purpose (it is the legacy specimen), and CI's `setup-dotnet` installs `6.0.x` alongside `10.0.x`
+  for exactly that. A machine with only newer runtimes **builds** it fine and then aborts the test
+  run with `framework_version=6.0.0 … app-launch-failed`. That is a missing local prerequisite, not a
+  regression: when it happens, run `dotnet build samples/LegacyShop --nologo` plus the bash suites,
+  and say in the report that `dotnet test` was not executed locally.
 
 ## CI gates (the exact commands CI fails on — satisfy these locally before ready/merge)
 `.github/workflows/ci.yml`, job `kit` — one step per line, in file order:
