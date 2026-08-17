@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Test golden du générateur de rapport (règle 7 : outil obligatoire → test obligatoire).
 # Fixture report.json + cobertura → HTML, puis assertions sur le contenu produit.
+#
+# Nécessite PyYAML : le cas « disposition documentée » (#104) lit templates/ci-dotnet.yml plutôt
+# que d'en recopier la disposition. .github/workflows/ci.yml l'installe une fois pour tout le job,
+# bien avant cette étape — comme pour tests/ci-template/test.sh, qui a la même dépendance.
 set -euo pipefail
 # Lancé depuis la racine du repo : prouve que les chemins du JSON (cobertura, capture)
 # se résolvent relativement au JSON, pas au répertoire courant.
@@ -350,15 +354,24 @@ esac
 #
 # La valeur n'est donc PAS écrite en dur ici : elle est EXTRAITE du fichier de référence. Une
 # référence qu'on se contente de lire dérive — c'est exactement comme ça qu'on en est arrivé là.
+#
+# Et la DISPOSITION non plus (#104). Le `coverage/` que ce cas construisait était écrit en dur,
+# alors que son nom vient de l'autre moitié du couplage : le `--results-directory` de l'étape
+# « Tests + couverture » de templates/ci-dotnet.yml. Renommer ce répertoire dans le template — ou
+# poser un `working-directory:` sur cette étape — rendait « ../coverage » faux pour TOUS les
+# consommateurs pendant que ce cas restait vert, en épinglant la référence contre une disposition
+# que plus rien ne produisait. Les deux moitiés sont donc dérivées, jamais recopiées, et le bloc
+# ci-dessous est le seul endroit qui les rapproche.
 # ---------------------------------------------------------------------------
 doc_case="$(kit_scratch)"
-mkdir -p "$doc_case/migration" "$doc_case/coverage"
-cp tests/report-dashboard/fixture-cobertura.xml   "$doc_case/coverage/projet-un.cobertura.xml"
-cp tests/report-dashboard/fixture-cobertura-b.xml "$doc_case/coverage/projet-deux.cobertura.xml"
 
-python3 - "$doc_case" <<'PY'
-import json, pathlib, re, sys
+# Le nom du répertoire de couverture est RENDU par le bloc python (seule chose qu'il écrit sur sa
+# sortie standard) et la disposition est construite à partir de lui, plus bas. Écrire ici
+# `mkdir -p "$doc_case/coverage"` remettrait la copie que ce cas existe pour supprimer.
+ci_cov_dir=$(python3 - "$doc_case" <<'PY'
+import json, pathlib, re, sys, yaml
 
+# --- moitié « valeur » : le snippet documenté ------------------------------------------------
 # Le bloc ```json de report-template.md qui porte "cobertura". C'est un FRAGMENT d'objet, donc on
 # l'enveloppe avant de le parser — si le fragment cesse d'être du JSON valide, ça casse ici, ce qui
 # est le bon endroit.
@@ -372,19 +385,102 @@ assert len(blocks) == 1, (
     "ce test ne peut en épingler qu'un — adapter l'extraction avant d'en ajouter un second")
 documented = json.loads("{" + blocks[0].strip().rstrip(",") + "}")["coverage"]
 
+# --- moitié « disposition » : le répertoire où la CI écrit -------------------------------------
+ETAPE = "Tests + couverture"
+tpl = yaml.safe_load(pathlib.Path("templates/ci-dotnet.yml").read_text(encoding="utf-8"))
+etape = next((s for s in tpl["jobs"]["test"]["steps"] if s.get("name") == ETAPE), None)
+assert etape is not None, (
+    f"templates/ci-dotnet.yml n'a plus d'étape nommée {ETAPE!r} — c'est elle qui produit la "
+    "couverture que le snippet documenté prétend lire ; renommer ici ET dans "
+    "skills/legacy-upgrade/references/report-template.md")
+
+# Un `working-directory:` déplace la racine d'exécution : `coverage/` cesse alors d'être à la
+# racine du repo et « ../coverage » depuis migration/ ne le désigne plus. C'est le second
+# demi-mouvement que #104 nomme, et il est INVISIBLE au `--results-directory` ci-dessous — d'où
+# une assertion à part. Les trois portées possibles sont couvertes : GitHub applique
+# `defaults.run.working-directory` du workflow, puis du job, puis celui de l'étape.
+for ou, valeur in (
+    ("l'étape " + ETAPE, etape.get("working-directory")),
+    ("le job test", ((tpl["jobs"]["test"].get("defaults") or {}).get("run") or {}).get("working-directory")),
+    ("le workflow", ((tpl.get("defaults") or {}).get("run") or {}).get("working-directory")),
+):
+    assert valeur is None, (
+        f"{ou} porte working-directory: {valeur!r} — la couverture n'est plus écrite à la racine "
+        "du repo, donc le chemin relatif documenté ne la désigne plus. Corriger "
+        "skills/legacy-upgrade/references/report-template.md avant ce test.")
+
+# Les DEUX branches de l'étape (MTP et VSTest) passent un `--results-directory` ; un unique chemin
+# relatif documenté ne peut être correct que si elles écrivent au même endroit.
+bruts = re.findall(r'--results-directory\s+"?([^"\s]+)"?', etape.get("run") or "")
+assert bruts, (
+    f"l'étape {ETAPE!r} ne passe plus de --results-directory : ce test ne peut plus dériver la "
+    "disposition que la CI produit, et le cas documenté ne pinnerait plus que lui-même")
+
+def segment(valeur):
+    # `"$PWD/coverage"` (branche MTP) et `coverage` (branche VSTest) désignent le même répertoire à
+    # la racine du repo : on n'en garde que le nom. Toute autre forme — imbriquée, ou construite à
+    # partir d'une variable — est REFUSÉE plutôt que devinée, sinon ce test construirait une
+    # disposition que la CI ne produit pas, c'est-à-dire exactement le silence qu'il rompt.
+    nom = re.sub(r"^\$\{?PWD\}?/", "", valeur)
+    nom = re.sub(r"^\./", "", nom)
+    assert re.fullmatch(r"[A-Za-z0-9._-]+", nom), (
+        f"--results-directory {valeur!r} n'est plus un simple répertoire à la racine du repo ; "
+        "ce test ne peut plus en dériver la disposition documentée — l'adapter, et adapter "
+        "skills/legacy-upgrade/references/report-template.md avec lui")
+    return nom
+
+repertoires = sorted({segment(v) for v in bruts})
+assert len(repertoires) == 1, (
+    f"les branches de l'étape {ETAPE!r} écrivent la couverture dans des répertoires différents "
+    f"({repertoires}) ; un seul chemin relatif documenté ne peut pas désigner les deux")
+ci_dir = repertoires[0]
+
+# --- le couplage lui-même ----------------------------------------------------------------------
+# Asserté sur les deux moitiés DÉRIVÉES, jamais contre un littéral : un littéral serait une
+# troisième copie du même fait, et c'est la copie qui dérive.
+cobertura = documented["cobertura"]
+assert isinstance(cobertura, str) and not cobertura.startswith("/"), (
+    f"le snippet documenté porte {cobertura!r} ; ce cas teste la résolution d'un chemin RELATIF "
+    "depuis migration/, qui est ce que la référence prescrit")
+segments = []
+for part in pathlib.PurePosixPath("migration", cobertura).parts:
+    if part == "..":
+        assert segments, (
+            f"le snippet documenté ({cobertura!r}) remonte au-dessus de la racine du repo depuis "
+            "migration/ ; aucune disposition produite par la CI ne peut y répondre")
+        segments.pop()
+    elif part != ".":
+        segments.append(part)
+assert segments == [ci_dir], (
+    f"le snippet documenté ({cobertura!r}) désigne {'/'.join(segments) or '.'} depuis la racine du "
+    f"repo, alors que templates/ci-dotnet.yml y écrit la couverture dans {ci_dir}/. Les deux "
+    "moitiés du couplage ont divergé — corriger "
+    "skills/legacy-upgrade/references/report-template.md, ou le template.")
+
+# --- montage ------------------------------------------------------------------------------------
 # encoding= explicite comme au-dessus : la fixture porte « démonstration », « Vérifié », « Leçon ».
 # Sous un interpréteur dont locale.getpreferredencoding() n'est pas UTF-8, la lecture par défaut
 # lève UnicodeDecodeError et le test meurt sur son propre montage plutôt que sur ce qu'il mesure.
 r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
 r["coverage"] = documented          # tel quel, sans retouche : c'est le sujet du test
-pathlib.Path(sys.argv[1], "migration", "report.json").write_text(json.dumps(r))
+migration = pathlib.Path(sys.argv[1], "migration")
+migration.mkdir(parents=True, exist_ok=True)
+(migration / "report.json").write_text(json.dumps(r))
+
+print(ci_dir)
 PY
+)
+
+mkdir -p "$doc_case/$ci_cov_dir"
+cp tests/report-dashboard/fixture-cobertura.xml   "$doc_case/$ci_cov_dir/projet-un.cobertura.xml"
+cp tests/report-dashboard/fixture-cobertura-b.xml "$doc_case/$ci_cov_dir/projet-deux.cobertura.xml"
 
 if ! err=$(python3 scripts/report-dashboard.py "$doc_case/migration/report.json" \
              -o "$doc_case/migration/report.html" 2>&1); then
   echo "ÉCHEC : le snippet documenté ne résout pas depuis la disposition documentée."
-  echo "        migration/report.json + coverage/ à la racine, recopié depuis"
-  echo "        skills/legacy-upgrade/references/report-template.md :"
+  echo "        migration/report.json + $ci_cov_dir/ à la racine — le premier recopié depuis"
+  echo "        skills/legacy-upgrade/references/report-template.md, le second dérivé du"
+  echo "        --results-directory de templates/ci-dotnet.yml :"
   echo "        $err"
   exit 1
 fi
