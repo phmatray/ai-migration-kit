@@ -1580,7 +1580,10 @@ R=$(new_repo unreadable-commit)
 git -C "$R" checkout -q a
 LINK="$WORK/unreadable-commit-link"
 ln -s "$R" "$LINK"
-printf '#!/bin/sh\nrm -f %s\n' "$LINK" > "$R/.git/hooks/post-commit"
+# Quoted inside the generated hook: $WORK comes from mktemp, and a TMPDIR with a space in it
+# would otherwise turn `rm -f <path>` into two arguments — the hook would no-op, the repo would
+# stay readable, and the case would pass while testing nothing.
+printf "#!/bin/sh\nrm -f '%s'\n" "$LINK" > "$R/.git/hooks/post-commit"
 chmod +x "$R/.git/hooks/post-commit"
 before_a=$(tip "$R" a)
 echo "task work" >> "$R/seed.txt"
@@ -1606,7 +1609,7 @@ echo "  ok: unreadable-commit — a vanished worktree is reported as unreadable,
 R=$(new_merge_repo unreadable-merge)
 LINK="$WORK/unreadable-merge-link"
 ln -s "$R" "$LINK"
-printf '#!/bin/sh\nrm -f %s\n' "$LINK" > "$R/.git/hooks/post-merge"
+printf "#!/bin/sh\nrm -f '%s'\n" "$LINK" > "$R/.git/hooks/post-merge"
 chmod +x "$R/.git/hooks/post-merge"
 before_a=$(tip "$R" a)
 
@@ -1636,7 +1639,7 @@ echo work >> "$R/seed.txt"
 git -C "$R" commit -q -am "work on a"
 LINK="$WORK/unreadable-push-link"
 ln -s "$R" "$LINK"
-with_prepush_hook "$R" "rm -f $LINK"
+with_prepush_hook "$R" "rm -f '$LINK'"
 
 run unreadable-push "$PUSH" -C "$LINK" a
 

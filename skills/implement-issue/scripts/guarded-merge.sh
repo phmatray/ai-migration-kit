@@ -197,14 +197,12 @@ now_branch=$(head_branch_of "$REPO")
 # …and how to NAME that answer. An empty $now_branch means "detached" OR "this path can no longer
 # be read as a repository at all", and after a write nothing here has ruled the second one out;
 # rendering `${now_branch:-detached}` stated the first as a fact (#129). head_state measures which;
-# the raw $now_branch stays the value the comparison below is made on.
-#
-# Both halves of the $unreadable test matter: head_state only ever answers `<unreadable>` for an
-# EMPTY branch, so pairing them means a branch literally NAMED `<unreadable>` (git permits it)
-# cannot make this guard describe a healthy repo as gone.
+# the raw $now_branch stays the value the comparison below is made on, and head_state_unreadable
+# is the shared decision the ALERT branches on — one home for it rather than a copy per guard,
+# which is the mistake this issue exists to undo.
 now_state=$(head_state "$REPO" "$now_branch")
 unreadable=0
-if [ -z "$now_branch" ] && [ "$now_state" = '<unreadable>' ]; then unreadable=1; fi
+if head_state_unreadable "$now_branch" "$now_state"; then unreadable=1; fi
 
 conflicts=$(git -C "$REPO" ls-files --unmerged 2>/dev/null || true)
 

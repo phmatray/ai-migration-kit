@@ -158,16 +158,16 @@ now_branch=$(head_branch_of "$REPO")
 # head_state measures which; the raw $now_branch stays the thing the comparisons are made on.
 now_state=$(head_state "$REPO" "$now_branch")
 
-# The one fact the messages below have to branch on, derived from what was already read rather
-# than probed a second time. Both halves of the test matter: head_state only ever answers
-# `<unreadable>` for an EMPTY branch, so pairing them means a branch literally NAMED `<unreadable>`
-# (git permits it) cannot make this guard describe a healthy repo as gone.
+# The one fact the ALERT below has to branch on, decided by the shared predicate rather than by a
+# copy of its test in each guard — see head_state_unreadable in _assert-branch.sh for why it reads
+# both values.
 unreadable=0
-if [ -z "$now_branch" ] && [ "$now_state" = '<unreadable>' ]; then unreadable=1; fi
+if head_state_unreadable "$now_branch" "$now_state"; then unreadable=1; fi
 
 # Reads as "the branch does not exist / is at no commit" — but on an unreadable repo it reads that
-# way because the READ failed, which is a different fact. Every use of it below is gated on
-# $unreadable for that reason.
+# way because the READ failed, which is a different fact, so the ALERT's use of it below is gated
+# on $unreadable. The check AFTER the ALERT needs no such gate: it only runs when HEAD still reads
+# as '$EXPECTED', which is already proof this repo can be read.
 expected_now=$(git -C "$REPO" rev-parse --quiet --verify "refs/heads/$EXPECTED" 2>/dev/null || true)
 
 if [ "$now_branch" != "$EXPECTED" ]; then

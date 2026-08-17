@@ -161,12 +161,11 @@ now_sha=$(git -C "$REPO" rev-parse --verify --quiet HEAD 2>/dev/null || true)
 # after the push nothing here has ruled the second one out — so the line read
 # `HEAD is now  detached @ <unreadable>`, one measured field and one invented (#129).
 #
-# Both halves of the $unreadable test matter: head_state only ever answers `<unreadable>` for an
-# EMPTY branch, so pairing them means a branch literally NAMED `<unreadable>` (git permits it)
-# cannot make this guard describe a healthy repo as gone.
+# head_state renders it; head_state_unreadable is the shared decision the correction below
+# branches on, kept in _assert-branch.sh rather than written out again here.
 now_state=$(head_state "$REPO" "$now_branch")
 unreadable=0
-if [ -z "$now_branch" ] && [ "$now_state" = '<unreadable>' ]; then unreadable=1; fi
+if head_state_unreadable "$now_branch" "$now_state"; then unreadable=1; fi
 
 if [ "$now_branch" != "$EXPECTED" ] || [ "$now_sha" != "$head_sha" ]; then
   {

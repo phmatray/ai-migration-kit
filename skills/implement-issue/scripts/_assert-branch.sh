@@ -90,6 +90,17 @@
 #       is deliberately unchanged: widening it would relax a reading three guards depend on in
 #       order to fix a rendering in one of their paths.
 #
+#   head_state_unreadable <branch-as-read> <state>
+#       True when head_state's answer means "this path could not be read", as opposed to a branch
+#       name or a genuine detachment. Pure string logic over two values the caller already holds
+#       — no second probe — and a FUNCTION rather than the same two-line test written out in each
+#       guard, because the same small test written out in each guard is the whole subject of #129.
+#
+#       BOTH arguments are consulted, and that is the point: head_state only ever answers
+#       `<unreadable>` for an EMPTY branch, so pairing them means a branch literally NAMED
+#       `<unreadable>` — git's ref rules permit it — cannot make a guard describe a healthy
+#       repository as gone.
+#
 #   assert_branch <tool-name> <detached-message> <mismatch-message>
 #       Reads   $REPO      the worktree to inspect
 #               $EXPECTED  the branch the caller says this task owns
@@ -146,8 +157,12 @@ head_sha_of() { git -C "$1" rev-parse --verify --quiet --short "${2:-HEAD}" 2>/d
 # a small read at every call site costs.
 repo_readable() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }
 
+# `${2:-}` and not a bare `$2`: every caller runs under `set -u`, where a function reached with
+# one argument dies on "unbound variable" with exit 1 — the ambiguous "git's own failure" code
+# this whole file exists to avoid, produced by a helper whose job is to explain what went wrong.
+# An absent branch and an empty one mean the same thing here, so the default costs nothing.
 head_state() {
-  if [ -n "$2" ]; then
+  if [ -n "${2:-}" ]; then
     # `printf '%s'` and not `echo`: a branch name is data from outside this process, and this
     # file already refuses to let one reach a format string (see {found}, below).
     printf '%s' "$2"
@@ -158,6 +173,13 @@ head_state() {
   fi
 }
 
+head_state_unreadable() { [ -z "${1:-}" ] && [ "${2:-}" = '<unreadable>' ]; }
+
+# assert_branch is defined LAST on purpose, and each guard's bootstrap leans on it: that check
+# tests for `assert_branch` and `refuse`, the last and the first function here, so a helper
+# truncated anywhere in between still fails the check instead of surviving to a `command not
+# found` (exit 127) at the first call. Adding a function BELOW this one would quietly break that
+# — put new helpers above it.
 assert_branch() {
   local tool="$1" detached_message="$2" mismatch_message="$3"
   local head_branch
