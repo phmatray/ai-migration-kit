@@ -43,9 +43,37 @@ parmi plusieurs republierait la couverture d'un seul projet comme celle de l'app
 le défaut que la collecte par projet corrige. `report-dashboard.py` agrège les rapports qu'il
 trouve (union des lignes, jamais une somme de pourcentages).
 
-⚠ **La tuile KPI de couverture recopie le chiffre que le graphe calcule.** Le dashboard affiche
-`Global : N % lignes` sous le graphe ; si la tuile KPI dit autre chose, la page se contredit.
-Relire le HTML généré et aligner le KPI, ou le laisser à un autre indicateur.
+⚠ **La tuile KPI de couverture est CALCULÉE, pas recopiée.** `report-dashboard.py` remplace la valeur
+écrite dans `kpis` par la mesure — la même que celle du `Global : N %` sous le graphe. Écrire un
+chiffre à la main dans cette tuile est donc sans effet : la page ne peut plus publier deux couvertures
+contradictoires.
+
+La tuile peut déclarer ce qu'elle rend, et c'est la forme à préférer :
+
+```json
+{ "v": "0", "unit": "%", "label": "couverture mesurée (lignes)", "source": "line_pct" }
+```
+
+`source` vaut `line_pct` ou `branch_pct`. Sans lui — le cas de tous les `report.json` écrits avant —
+la tuile est reconnue à son libellé : unité `%` et un libellé parlant de *couverture*, qui rend les
+lignes, ou les branches si le libellé parle de branches. Une tuile qui n'est pas une couverture
+(`tests verts`, un chiffre métier) n'est jamais touchée.
+
+⚠ **Une grandeur non mesurée s'affiche `n/d`, jamais `0 %`.** Un zéro est un chiffre, et sur cette
+page un chiffre se lit comme une mesure. Deux cas :
+
+- **Branches.** Le taux vient des `condition-coverage` par ligne quand tous les rapports en portent ;
+  à défaut du `branch-rate` racine, mais seulement pour un rapport **unique et non filtré** — c'est
+  un taux global, il ignore `exclude`/`include`, et le moyenner sur plusieurs rapports n'aurait pas
+  de sens. Hors de là : `branches n/d`.
+- **Lignes.** Si `exclude`/`include` filtrent jusqu'à ne plus rien laisser — un `include` portant un
+  nom de classe périmé après un renommage, typiquement — la légende dit `lignes n/d` au lieu de
+  `0 %`. La tuile garde alors la valeur écrite, faute de mesure : c'est le signe qu'il faut corriger
+  le filtre.
+
+⚠ Le champ `coverage` reste **obligatoire** : le rapport est généré depuis un cobertura, et un
+`report.json` sans lui ne se génère pas du tout. La tuile écrite à la main n'est pas une porte de
+sortie pour publier une couverture non mesurée.
 
 Les « Prochaines étapes » sont une **checklist actionnable** avec effort estimé — c'est la
 passation : la personne qui reprend le repo sait quoi faire sans lire l'historique.

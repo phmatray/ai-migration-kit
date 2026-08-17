@@ -30,12 +30,17 @@ jobs:
           # never fires and the step reports a wrong date instead of failing. Keep the full history.
           fetch-depth: 0
 
-      # Consumers install a version-keyed cache of this plugin (#6), so a skills change reaches
-      # nobody until release-please cuts a release — and this repo squash-merges, so the PR title
-      # is the commit release-please will read on main. #7 enforced that with a per-PR version
-      # bump; #14 rightly retired it when release-please landed, leaving the guarantee resting on
-      # an unchecked precondition (#27). This step is that check. Fail-fast, before the builds.
-      - name: Skills changes carry a releasable PR title
+      # Consumers install a version-keyed cache of this plugin (#6) — a whole-repo checkout of the
+      # tagged commit — so a change to anything they run reaches nobody until release-please cuts a
+      # release, and this repo squash-merges, so the PR title is the commit release-please will read
+      # on main. #7 enforced that with a per-PR version bump; #14 rightly retired it when
+      # release-please landed, leaving the guarantee resting on an unchecked precondition (#27).
+      # This step is that check. Fail-fast, before the builds.
+      #
+      # It covers all shipped content, not just skills/ (#55): the gate defines "shipped" by
+      # exclusion, so scripts/, commands/, templates/, hooks/ and requirements.json are gated too.
+      # Keep this step NAME accurate — it is the label on the red check a contributor sees.
+      - name: Shipped-content changes carry a releasable PR title
         if: github.event_name == 'pull_request'
         env:
           # Never interpolate ${{ … }} into a run: block — a PR title is attacker-controlled on
@@ -144,7 +149,7 @@ jobs:
           # against a config the real Renovate accepts. An unpinned gate is red on correct input,
           # and its obvious "fix" would silently downgrade the config. Floor is major 40.
           # Bumped by the customManager in renovate.json; tests/renovate-config asserts both.
-          RENOVATE_VALIDATOR_VERSION: 44.23.3
+          RENOVATE_VALIDATOR_VERSION: 44.29.4
         run: |
           npx --yes --package "renovate@$RENOVATE_VALIDATOR_VERSION" -- \
             renovate-config-validator renovate.json

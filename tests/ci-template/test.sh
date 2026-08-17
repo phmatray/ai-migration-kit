@@ -673,12 +673,13 @@ echo tracked > "$hyg/tests/Proj.Tests/TestResults/committed.log"
 ( cd "$hyg" && bash -c "$CLEAN_STEP" ) > /dev/null 2>&1 || {
   echo "FAIL: the hygiene prologue of 'Tests + couverture' exited non-zero"; exit 1; }
 
-# `-print -quit`, not `| grep -q .`: this file runs under `set -euo pipefail` (line 29), where grep's
-# exit-at-first-match SIGPIPEs find into a 141 that pipefail promotes to the pipeline's status — so
-# the `if` takes its else-branch precisely when stale logs DID survive, skipping the very failure it
-# exists to report (#48). Found by grepping the whole repo for the idiom rather than only the file
-# where it was first seen; the sibling suite tests/xunit-v3/test.sh carries the same fix.
-stale_bin_log=$(find "$hyg" -path '*/bin/*' -name '*.log' -print -quit 2>/dev/null || true)
+# first_match, not `find … | grep -q .`: this file runs under `set -euo pipefail` (line 29), where
+# grep's exit-at-first-match SIGPIPEs find into a 141 that pipefail promotes to the pipeline's
+# status — so the `if` takes its else-branch precisely when stale logs DID survive, skipping the
+# very failure it exists to report (#48). This was the third site to spell the same four tokens out
+# inline; the probe and its tolerance now live once in tests/_lib.sh, which this suite already
+# sources (#98) — so there is no longer a copy here that can drift from the other two.
+stale_bin_log=$(first_match "$hyg" -path '*/bin/*' -name '*.log')
 if [ -n "$stale_bin_log" ]; then
   echo "FAIL: a stale MTP log under bin/ survived the cleanup. Since that location is now"
   echo "      published as an artifact, a green run would ship the previous run's failure log"
