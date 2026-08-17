@@ -35,12 +35,15 @@
 #   2  REFUSED before pushing — HEAD is another branch, or detached, or not a repo, or this script
 #      could not load the branch assertion it shares with guarded-commit.sh. Nothing sent.
 #   4  the push reported success but this guard could NOT prove the work is where that implied.
-#      THREE conditions return it and they are not the same answer — two disprove the delivery,
-#      one only fails to establish it — so read the message, not only the code:
+#      THREE conditions return it and they are NOT the same answer. Only (c) is the remote
+#      contradicting the push; (a) and (b) are this guard reporting that it could not certify,
+#      for two different reasons and with two different next actions. So read the message, not
+#      only the code:
 #
 #        a. HEAD moved out from under the push. `git push` sends the CURRENT branch, so what
-#           reached <remote> may not be your work. Caught before the remote is read at all, so
-#           this one is about your local checkout, not the remote.
+#           reached <remote> may not be your work. Caught before the remote is read at all — so
+#           this one is about your local checkout, and it says nothing about what the remote now
+#           holds. Go and look before pushing again.
 #           ALERT: `HEAD moved while it ran`.
 #        b. <remote> could not be listed — VERIFICATION DID NOT RUN. Nothing about the remote was
 #           read, so nothing here disproves anything: the push itself exited 0 and the work is

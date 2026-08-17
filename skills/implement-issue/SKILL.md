@@ -305,14 +305,15 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
    ```
    Exit **4** means git reported success but the guard could not prove the work is where that
    implied — and three different conditions return it, so **read the message, not only the code**
-   (#93). `… is NOT this HEAD` / `… has no '<branch>' to show for it` is the silent mis-push, and
-   `HEAD moved while it ran` is its local twin: for those, treat the work as unpushed and find out
-   where it went before doing anything else. `… could not be listed` / `push is UNVERIFIED` is a
-   different answer — verification never ran, so nothing disproves the push, which itself exited
-   0; the work is very likely already on the remote. **Re-verify, don't re-push**: fix what broke
-   the listing (a `--remote` naming a remote the push never wrote to, connectivity, credentials)
-   and run the guard again. Per-condition recovery: `references/github-mechanics.md`
-   § Troubleshooting.
+   (#93). `… is NOT this HEAD` / `… has no '<branch>' to show for it` is the silent mis-push, the
+   remote contradicting the delivery; `HEAD moved while it ran` means the push may have carried
+   another branch instead. For those two, go and look at what the remote actually holds before
+   pushing again. `… could not be listed` / `push is UNVERIFIED` is a different answer —
+   verification never ran, so nothing here disproves the push, which itself exited 0, and the work
+   is very likely already on the remote. **Re-verify, don't re-push**: fix what broke the listing
+   (a `--remote` naming a remote the push never wrote to, connectivity, credentials) and run the
+   guard again. Per-condition recovery: the Troubleshooting table in
+   `references/github-mechanics.md`.
 
 Continue until no task has an unchecked box. The issue's plan now reads all-`- [x]`.
 
