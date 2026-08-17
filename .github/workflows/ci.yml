@@ -114,6 +114,14 @@ jobs:
       - name: Shared test preamble golden test (the rc invariant every suite now leans on)
         run: ./tests/lib/test.sh
 
+      # Same argument, one file over (#51): tests/_lib/py.sh is now the kit's ONLY importlib
+      # loader, sourced by the xunit-v3 and report-dashboard suites, so a regression there weakens
+      # both at once — and its worst failure mode is silent. A `py_module` call whose heredoc went
+      # missing used to exit 0 having asserted nothing, and this step's suite drives that refusal.
+      # Ahead of both tenants, for the reason the step above gives.
+      - name: Shared module-loader golden test (refusal paths, and the no-__pycache__ invariant)
+        run: ./tests/py-module/test.sh
+
       # …and the wiring guard gets the same treatment it exists to enforce: a golden test over its
       # refusal path. An inline `run:` block could not have one, which is exactly how the first
       # version of scripts/release-title-gate.sh managed to fail open.

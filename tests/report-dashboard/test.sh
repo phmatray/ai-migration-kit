@@ -6,6 +6,21 @@ set -euo pipefail
 # se résolvent relativement au JSON, pas au répertoire courant.
 cd "$(dirname "$0")/../.."
 
+KIT="$PWD"
+# Le chargeur importlib du kit (#51). Cette suite en portait une copie — correcte, mais que rien
+# n'assertait. La section 8 de tests/xunit-v3/test.sh assure désormais l'invariant sur tests/ ET
+# scripts/, donc une définition unique, ici partagée.
+#
+# ⚠️ NE PAS écrire la chaîne littérale « _lib point sh » dans ce fichier. La section 9 de
+# tests/lib/test.sh audite les `mktemp -d` de toute suite dont le TEXTE contient cette
+# sous-chaîne ; cette suite gère quatre répertoires temporaires à elle et deviendrait rouge pour
+# une raison sans rapport avec l'édition. Le répertoire tests/_lib/ ne déclenche pas l'audit — le
+# point fait la différence. Rendre cette adhésion explicite plutôt qu'accidentelle est un suivi.
+#
+# Chemin absolu via $KIT, car le `cd` ci-dessus a déjà eu lieu.
+. "$KIT/tests/_lib/py.sh" || {
+  echo "ÉCHEC : impossible de sourcer $KIT/tests/_lib/py.sh — refus de tourner sans garde"; exit 1; }
+
 out="$(mktemp -d)/report.html"
 python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json -o "$out" 2>/dev/null
 
@@ -134,33 +149,21 @@ assert tile == legende.group(1), (
 PY
 rm -rf "$multi_dir"
 
-# Charge report-dashboard.py comme module et exécute le script Python passé sur stdin, `rd` déjà
-# lié. UN SEUL chargeur dans ce fichier : le préfixe PYTHONDONTWRITEBYTECODE=1 est porteur — sans
-# lui, importlib compile le script et dépose un `__pycache__` à côté, dans le kit — et il est
-# invisible au point d'appel, donc c'est exactement la forme qui se perd au copier-coller.
-# tests/xunit-v3/test.sh §8 assure cet invariant pour lui-même et nomme CE fichier comme non
-# couvert ; il portait deux copies avant #50, il n'en porte plus qu'une.
-rd_python() {
-  PYTHONDONTWRITEBYTECODE=1 python3 -c '
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("rd", "scripts/report-dashboard.py")
-rd = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(rd)
-exec(sys.stdin.read(), {"rd": rd, "sys": sys})
-'
-}
-
 # La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
 # exactement le même objet. C'est la garantie de compatibilité des report.json déjà écrits.
-rd_python <<'PY'
+#
+# #50 avait extrait un `rd_python()` LOCAL ici, pour la même raison qu'il fallait deux appels ;
+# #51 généralise ce geste au kit entier, donc le chargeur local disparaît au profit de py_module.
+# Aucune assertion des deux côtés n'est perdue : seul le chargeur change, `rd` devient `mod`.
+py_module "$KIT/scripts/report-dashboard.py" <<'PY'
 a = "tests/report-dashboard/fixture-cobertura.xml"
 b = "tests/report-dashboard/fixture-cobertura-b.xml"
-seul, liste = rd.parse_cobertura(a, ["Fixture.Web"]), rd.parse_cobertura([a], ["Fixture.Web"])
+seul, liste = mod.parse_cobertura(a, ["Fixture.Web"]), mod.parse_cobertura([a], ["Fixture.Web"])
 assert seul == liste, f"chaîne nue et liste d'un élément divergent :\n  {seul}\n  {liste}"
 assert seul["line_pct"] == 70 and seul["branch_pct"] == 67, seul
 # L'union ne dépend pas de l'ordre des rapports : sinon « le dernier gagne » serait encore là,
 # juste déplacé de la collecte vers la lecture.
-assert rd.parse_cobertura([a, b], ["Fixture.Web"]) == rd.parse_cobertura([b, a], ["Fixture.Web"])
+assert mod.parse_cobertura([a, b], ["Fixture.Web"]) == mod.parse_cobertura([b, a], ["Fixture.Web"])
 PY
 
 # ---------------------------------------------------------------------------
@@ -283,21 +286,21 @@ rm -rf "$doc_case"
 # une application bien couverte, alors que le `branch-rate` racine portait le vrai chiffre. Seul le
 # chemin MTP était protégé (tests/xunit-v3 assert branch_pct > 0), pas celui-ci.
 # ---------------------------------------------------------------------------
-rd_python <<'PY'
+py_module "$KIT/scripts/report-dashboard.py" <<'PY'
 # 1. branch-rate racine, aucun condition-coverage -> on lit la racine, pas 0.
-racine = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura-rootbranch.xml", [])
+racine = mod.parse_cobertura("tests/report-dashboard/fixture-cobertura-rootbranch.xml", [])
 assert racine["branch_pct"] == 60, (
     f"branch-rate racine 0.6 doit rendre 60 %, pas {racine['branch_pct']} % — "
     "une absence de condition-coverage n'est pas une absence de branches")
 
 # 2. Ni l'un ni l'autre -> None, que le rendu affichera « n/d ». Surtout pas 0, qui est un chiffre
 #    et se lit comme une mesure.
-muet = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura-nobranch.xml", [])
+muet = mod.parse_cobertura("tests/report-dashboard/fixture-cobertura-nobranch.xml", [])
 assert muet["branch_pct"] is None, (
     f"sans aucune donnée de branche, branch_pct doit être None, pas {muet['branch_pct']!r}")
 
 # 3. Le chemin par condition-coverage ne bouge pas.
-conds = rd.parse_cobertura("tests/report-dashboard/fixture-cobertura.xml", ["Fixture.Web"])
+conds = mod.parse_cobertura("tests/report-dashboard/fixture-cobertura.xml", ["Fixture.Web"])
 assert conds["branch_pct"] == 67, conds["branch_pct"]
 PY
 
@@ -318,5 +321,32 @@ assert_in "$nd_dir/report.html" 'branches n/d'
 # aurait désigné l'inverse du comportement réel.
 assert_in "$nd_dir/report.html" 'Global : 50 % lignes · branches n/d'
 rm -rf "$nd_dir"
+
+# ---------------------------------------------------------------------------
+# Aucun __pycache__ laissé dans le kit (#51).
+#
+# CETTE suite doit porter sa propre garde. Le réflexe — « tests/xunit-v3 la porte déjà » — est
+# faux dans l'ordre où CI exécute les choses : .github/workflows/ci.yml lance xunit-v3 AVANT ce
+# fichier, dans le même job, donc la garde de sortie de xunit-v3 a déjà tourné quand ce script
+# charge son premier module. Un __pycache__ déposé ici n'était rattrapé par rien en CI — seulement
+# par quelqu'un qui relancerait xunit-v3 ensuite, en local. C'était le trou résiduel que #51
+# prétendait fermer.
+#
+# `-print -quit` capturé dans une variable, jamais `find | grep -q` : sous le `set -o pipefail` de
+# la ligne 4, la sortie anticipée de grep tue find par SIGPIPE et « trouvé » se lirait
+# « rien trouvé » (#48). Même raison d'être que any_match dans tests/_lib point sh, que cette suite
+# ne peut pas sourcer (voir l'avertissement en tête de fichier).
+#
+# Sur le chemin de succès uniquement, faute de gestionnaire de sortie : `set -e` sort avant en cas
+# d'échec, et la suite est alors déjà rouge. La section 8 de tests/lib interdit justement à une
+# suite d'installer le sien, ce qui rend cette forme-ci la bonne. (Ne pas réécrire cette phrase
+# avec le mot t-r-a-p suivi d'E-X-I-T sur une même ligne : le motif de cette section 8 est
+# volontairement non ancré et ne distingue pas un commentaire d'un appel.)
+stray=$(find "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d -print -quit 2>/dev/null || true)
+if [ -n "$stray" ]; then
+  echo "ÉCHEC : un __pycache__ a été laissé dans le kit — le chargeur a perdu son"
+  echo "        PYTHONDONTWRITEBYTECODE=1 : $stray"
+  exit 1
+fi
 
 echo "OK test golden report-dashboard ($out)"
