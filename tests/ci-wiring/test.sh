@@ -201,10 +201,15 @@ if [ $rc -eq 0 ]; then
 else bad "expected acceptance for a push:main + pull_request workflow; got rc=$rc: $out"; fi
 
 # --------------------------------------------------------------- 10. the branch filter is read
-# "Runs on a push to main" is not "has a push: key": the branch filter decides it, and each shape
-# below is a way for a push trigger to exist and still never fire on `main`. Table-driven, because
-# the interesting part is the filter rather than the fixture — one section apiece would be eight
-# near-identical copies of the block above.
+# "Runs on a push to main" is not "has a push: key": the branch filter decides it, and most of the
+# shapes below are a way for a push trigger to exist and still never fire on `main`. Table-driven,
+# because the interesting part is the filter rather than the fixture — one section apiece would be a
+# dozen near-identical copies of the block above.
+#
+# The `!` rows are the subtle ones. `!` is filter syntax, not part of a branch name, and GitHub lets
+# the LAST matching pattern in the list decide — so `["**", "!main"]` does NOT run on main and
+# `["!main", "**"]` does. Read as an unordered "does any pattern match", the first of those two
+# reads as enforced: the same fail-open this whole issue is about, one level down inside the fix.
 #
 # Each case is asserted parsed before its verdict is read, for the reason at the top of this file:
 # a mangled `on:` block would be refused too, by accident, and every want=1 row would then pass
@@ -242,8 +247,22 @@ trigger_case ignoremain $'on:\n  push:\n    branches-ignore: [main]' 1 \
   "push trigger does not reach main"
 trigger_case ignoreother $'on:\n  push:\n    branches-ignore: [docs/**]' 0 \
   "branches-ignore that spares main still counts"
+trigger_case negated $'on:\n  push:\n    branches: ["**", "!main"]' 1 \
+  "a negated pattern AFTER a match takes main back out" \
+  "push trigger does not reach main"
+trigger_case renegated $'on:\n  push:\n    branches: ["!main", "**"]' 0 \
+  "a positive pattern after a negation puts main back in"
+trigger_case nullbranches $'on:\n  push:\n    branches:' 1 \
+  "a branches: key whose every entry is commented out selects nothing" \
+  "push trigger does not reach main"
+trigger_case emptybranches $'on:\n  push:\n    branches: []' 1 \
+  "an empty branches list selects nothing" \
+  "push trigger does not reach main"
 trigger_case bothfilters $'on:\n  push:\n    branches: [main]\n    branches-ignore: [docs/**]' 1 \
   "branches and branches-ignore together is an invalid trigger, not a passing one" \
+  "both branches and branches-ignore"
+trigger_case bothfiltersnull $'on:\n  push:\n    branches:\n    branches-ignore: [docs/**]' 1 \
+  "a null branches: still counts as set, so the invalid combination is still caught" \
   "both branches and branches-ignore"
 trigger_case tagsonly $'on:\n  push:\n    tags: ["v*"]' 1 \
   "a tags-only push trigger never fires on a branch push" \

@@ -95,17 +95,34 @@ def workflow_triggers(doc):
 
 
 def selects_main(patterns):
-    """True when any of GitHub's branch-filter patterns selects `main`.
+    """True when GitHub's branch-filter patterns select `main`.
 
-    `fnmatch` is a good enough stand-in for GitHub's filter syntax here, and only here: GitHub's
-    `*` does not cross `/` while fnmatch's does, but the sole branch name ever matched against
-    these patterns is `main`, which contains no `/`. On that input the two agree.
+    Order matters, and `!` is real filter syntax rather than part of a branch name: `branches:
+    ['**', '!main']` means "every branch except main", and GitHub resolves such a list by walking
+    it and letting the LAST matching pattern decide. Read as a bare `any(...)` that list says
+    "runs on main" — a fail-open of exactly the kind this script exists to close, inside the guard
+    closing it (#133). So the list is walked in order, and a negated match un-selects.
+
+    `fnmatch` is a good enough stand-in for the pattern syntax itself here, and only here:
+    GitHub's `*` does not cross `/` while fnmatch's does, but the sole branch name ever matched
+    against these patterns is `main`, which contains no `/`. On that input the two agree.
+
+    A non-list, non-string filter (`branches:` with every entry commented out parses to None)
+    selects nothing — the same verdict as the `branches: []` it is a spelling of, and the
+    fail-closed direction either way.
     """
     if isinstance(patterns, str):
         patterns = [patterns]
     if not isinstance(patterns, list):
         return False
-    return any(isinstance(p, str) and fnmatch.fnmatchcase(MAIN_BRANCH, p) for p in patterns)
+    selected = False
+    for pattern in patterns:
+        if not isinstance(pattern, str):
+            continue
+        negated = pattern.startswith("!")
+        if fnmatch.fnmatchcase(MAIN_BRANCH, pattern[1:] if negated else pattern):
+            selected = not negated
+    return selected
 
 
 def main_push_verdict(doc):
@@ -129,27 +146,32 @@ def main_push_verdict(doc):
     triggers = workflow_triggers(doc)
     push = triggers.get("push", _ABSENT)
 
+    never = f"never on a push to {MAIN_BRANCH}"
     if push is _ABSENT:
         if "pull_request" in triggers or "pull_request_target" in triggers:
-            return False, "workflow runs on pull requests only, never on a push to main"
+            return False, f"workflow runs on pull requests only, {never}"
         if "schedule" in triggers:
-            return False, "workflow runs on a schedule only, never on a push to main"
+            return False, f"workflow runs on a schedule only, {never}"
         return False, "workflow has no automatic trigger"
 
-    unreached = f"workflow's push trigger does not reach {MAIN_BRANCH}"
     if not isinstance(push, dict):
         # `push:` with nothing under it — every branch and every tag, so `main` among them.
         return True, None
 
-    include, exclude = push.get("branches"), push.get("branches-ignore")
-    if include is not None and exclude is not None:
+    unreached = f"workflow's push trigger does not reach {MAIN_BRANCH}"
+    # Presence of the KEY, not truthiness of its value: `branches:` with every entry commented out
+    # parses to None, and reading that as "no branch filter at all" would accept a workflow whose
+    # filter selects nothing — while the `branches: []` it is a spelling of gets refused. Same
+    # question, same answer, and the answer is the fail-closed one.
+    has_include, has_exclude = "branches" in push, "branches-ignore" in push
+    if has_include and has_exclude:
         # GitHub rejects the two together, so this workflow runs on nothing at all. Refusing with
         # a reason that says so beats guessing which half would have won.
         return False, "workflow sets both branches and branches-ignore, so its push trigger is invalid"
-    if include is not None:
-        return (True, None) if selects_main(include) else (False, unreached)
-    if exclude is not None:
-        return (False, unreached) if selects_main(exclude) else (True, None)
+    if has_include:
+        return (True, None) if selects_main(push["branches"]) else (False, unreached)
+    if has_exclude:
+        return (False, unreached) if selects_main(push["branches-ignore"]) else (True, None)
     if "tags" in push or "tags-ignore" in push:
         # A tag filter with no branch filter narrows the trigger to tag pushes only, so nothing
         # here fires when a commit lands on a branch.
