@@ -87,8 +87,12 @@ You do not need to `claude mcp add roseline` — the kit ships the server itself
 [`.mcp.json`](.mcp.json) (`dnx RoselineMCP --yes`), so installing the plugin installs the dependency.
 
 > `dnx` ships with the **.NET 10 SDK**. The pipeline itself only needs `dotnet >= 8`, so on a
-> .NET 8/9-only host the server will not launch — install the .NET 10 SDK, or set
-> `ROSELINE_GATE=off` (below) so the gate does not hold you to a server you cannot start.
+> .NET 8/9-only host the server does not launch — and the kit now says so instead of leaving you to
+> deduce it. [`requirements.json`](requirements.json) records the server's own floor
+> (`"requiresSdk": "10"`, higher than the pipeline's), phase 0 reports it as a **named degradation**
+> rather than a green tick, and the gate below **fails open** whenever `dnx` is absent. So you are
+> told what is missing and nothing is blocked in the meantime; install the .NET 10 SDK to get
+> roseline itself.
 
 It also **enforces** it. Preflight only ever proved roseline was *connected*; nothing made it
 *used*, and in practice `Read`/`Grep` on a `.cs` file stayed the path of least resistance. So
@@ -105,8 +109,10 @@ Three properties keep that safe to have switched on:
 - **A one-shot escape.** Issuing the *identical* `Read` again straight away is allowed through. It
   is consumed rather than latched (a third read denies again) and it expires, so a marker left
   behind by a deny you complied with cannot silently open the file hours later.
-- **Fails open, always.** No `jq`, an unparseable payload, an unwritable `TMPDIR`, any internal
-  error — the gate exits silently and the `Read` proceeds. It never fails closed.
+- **Fails open, always.** No `dnx` on `PATH` — so the shipped launcher cannot have started the
+  server, and the tools the deny message names do not exist — no `jq`, an unparseable payload, an
+  unwritable `TMPDIR`, any internal error: the gate exits silently and the `Read` proceeds. It never
+  fails closed, and it never enforces a tool it cannot confirm is there.
 
 `Grep` is deliberately left alone: roseline replaces whole-file reads, but `search_symbols` finds
 *symbols*, and grepping a string literal or a comment in `.cs` is a real need it cannot serve.

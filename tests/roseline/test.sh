@@ -19,6 +19,17 @@ WORK=$(kit_scratch)
 # a suite that goes green off a stale file from the run before. Scratch is wiped by kit_cleanup.
 export TMPDIR="$WORK"
 
+# The gate probes for `dnx` before it denies anything (#112): that is the launcher .mcp.json starts
+# roseline with, it ships only in the .NET 10 SDK, and without it the server cannot be running — so
+# enforcing a tool the session cannot call would be worse than letting the Read through. Every DENY
+# case below therefore needs one on PATH. Stubbed rather than assumed, because otherwise this
+# suite's expectations would silently depend on whether the machine running it has .NET 10.
+STUB="$WORK/stub-bin"
+mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 0\n' > "$STUB/dnx"
+chmod +x "$STUB/dnx"
+export PATH="$STUB:$PATH"
+
 # ------------------------------------------------------------------ 1. the shipped server config
 MCP="$KIT/.mcp.json"
 [ -f "$MCP" ] || { echo "FAIL: $MCP missing"; exit 1; }
@@ -50,12 +61,31 @@ nested_repo() {
   printf '%s' "$d"
 }
 
+# A PATH holding exactly what the gate shells out to, plus whichever stubs are named. Built by
+# NAMING the tools rather than by subtracting `dnx` from $PATH, because dnx can live anywhere and a
+# .NET 10 dev box has a real one — the "absent" case has to hold on that box too.
+# Every extra argument becomes an empty executable, so a case can add `dnx` back without adding a
+# real .NET SDK.
+shim_path() { # $1 destination dir; $2… stub names
+  local d="$1" c p; shift
+  mkdir -p "$d"
+  for c in bash cat jq dirname basename find touch rm tr cut md5 md5sum; do
+    p=$(command -v "$c" 2>/dev/null) || continue
+    ln -s "$p" "$d/$c" 2>/dev/null || true
+  done
+  for c in "$@"; do printf '#!/bin/sh\nexit 0\n' > "$d/$c"; chmod +x "$d/$c"; done
+  printf '%s' "$d"
+}
+
 # Drives the gate with a synthetic payload. Asserts the exit status, the decision, and — when
 # denying — the reason.
 # $1 name  $2 expected decision ("deny" or "pass")  $3 substring the reason must contain  $4 payload
+# $5 optional PATH the gate runs under (default: this suite's, which carries the dnx stub above).
+# `env` rather than a `PATH=… bash …` prefix so the lookup of `bash` itself is unambiguously done
+# against the PATH the case is testing, not the one it is replacing.
 verdict() {
-  local name="$1" want="$2" want_msg="$3" payload="$4" out decision rc=0
-  out=$(printf '%s' "$payload" | bash "$GATE" 2>/dev/null) || rc=$?
+  local name="$1" want="$2" want_msg="$3" payload="$4" gate_path="${5:-$PATH}" out decision rc=0
+  out=$(printf '%s' "$payload" | env PATH="$gate_path" bash "$GATE" 2>/dev/null) || rc=$?
   # Exit status is half the PreToolUse contract — exit 2 blocks the tool regardless of stdout. If
   # we only scored stdout, a regression that turned a fail-open path into `exit 2` would be
   # reported here as "pass" while blocking every Read in production.
@@ -127,6 +157,30 @@ mk=$(marker_for "$TTL/Old.cs" ttl-session)
 [ -f "$mk" ] || { echo "FAIL: expected a marker at $mk"; exit 1; }
 touch -t 202001010000 "$mk"
 verdict "a stale marker does not open the gate" deny "search_symbols" "$TP"
+
+# ------------------------------------------------------- 3b. the capability probe (fail open, #112)
+# preflight green + `dnx` absent + the gate denying anyway is the composed failure this closes: the
+# reader is told to use `mcp__roseline__*` by a hook whose own precondition nobody checked. `dnx`
+# ships only with the .NET 10 SDK, so its absence proves the shipped launcher cannot have started
+# the server — and a gate that cannot confirm the tool it redirects to must let the Read through.
+NODNX=$(shim_path "$WORK/nodnx")
+WITHDNX=$(shim_path "$WORK/withdnx" dnx)
+PROBE=$(csharp_repo)
+NP=$(pay Read "$PROBE/Probe.cs" "$PROBE" probe-session)
+
+verdict "no dnx on PATH fails open" pass "" "$NP" "$NODNX"
+
+# The control, and the reason the case above is a measurement rather than a coincidence: the same
+# stripped PATH with one empty `dnx` added must still DENY. Without it a "pass" would be equally
+# well explained by the shim missing `jq` or `find` — the gate's other fail-open paths — and the
+# suite would stay green while the probe was never written at all.
+verdict "the same PATH with dnx still denies" deny "search_symbols" "$NP" "$WITHDNX"
+
+# ...and the probe runs BEFORE the marker is armed, so a fail-open Read never consumes the one-shot
+# escape it was not going to use. The deny above is therefore this file's FIRST armed read, and the
+# retry that follows it is the escape — proving no marker was left behind by the pass.
+verdict "the fail-open read armed nothing"  pass ""               "$NP" "$WITHDNX"
+verdict "so the next read denies again"     deny "search_symbols" "$NP" "$WITHDNX"
 
 # The documented off-switch has to actually exist.
 out=$(printf '%s' "$(pay Read "$CS/Kill.cs" "$CS" ks)" | ROSELINE_GATE=off bash "$GATE" 2>/dev/null || true)
