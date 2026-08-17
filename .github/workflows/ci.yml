@@ -16,6 +16,44 @@ on:
   # it is what #57 asks for, but it is a real edge — docs/backlog.md carries it with its trigger.
   pull_request:
 
+# The token this job runs with is declared here rather than inherited, so it is a property of the
+# tree. The repository's default workflow permissions are a settings-page toggle: they live outside
+# this repository, they move with no commit and leave no diff here, and CI stays green either way —
+# so without this block the answer to "what can `kit`'s token do?" is in no file at all.
+# release-title.yml declares its own for the same reason (#119); this is the workflow where it
+# matters more, because `kit` is the one that executes third-party code — an npm dependency tree
+# via `npx`, a NuGet restore — and it runs on `pull_request`, so it runs for forks.
+#
+# `contents: read` is what actions/checkout needs and the whole of what this job needs: every step
+# reports through its exit status, and nothing it runs reaches the GitHub API. Deliberately NOT a
+# list of which steps those are — `kit` grows most months, and this repo has already learned that a
+# hand-maintained inventory of it goes stale (the reason scripts/ci-wiring-check.py exists). Ask the
+# file. What this block asks of a future step is only this: if one ever needs to write — post a
+# comment, push, create a check-run — add the scope here, in the same diff. Adding the step alone
+# fails with a loud 403 on its first run, which is why declaring too little is the safe direction to
+# be wrong in.
+#
+# WORKFLOW level, not on the `kit` job: a job added later inherits this block. A per-job grant is
+# identical today and silently reintroduces the gap tomorrow, with no diff to notice.
+#
+# Fork PRs already receive a read-only token whatever the default is, and nothing declared here is
+# something a fork cannot be granted — so they keep running this workflow.
+#
+# Observed when this block landed (#146, for #132) on 2026-08-17, in the "Set up job" group of two
+# `kit` runs on that PR that differ only in this block. A point-in-time record, because no test can
+# read a runner's token scope and Actions logs are pruned after 90 days. Keyed by run id, not only
+# by sha: the squash-merge collapses the branch, so neither sha below resolves from `main`.
+#
+#   run 32024138942  cdb6059  no block, inherited default   Contents + Metadata + Packages: read
+#   run 32024559134  84bd241  this block                    Contents + Metadata: read
+#
+# So it narrows the grant rather than restating a default: `Packages: read` is gone (nothing here
+# reads a GitHub Packages feed), while `Metadata: read` stays because GitHub always grants it. The
+# record's real use is the other direction — it fixes what the default WAS on this date, so a later
+# run showing more than `contents` means this block was dropped, not that the default drifted.
+permissions:
+  contents: read
+
 # Without a group, a second push while a run is still going leaves two runs against the same
 # branch, both publishing a check named `kit` — which verdict the PR settles on then depends on
 # run ordering rather than on the code that is actually there. Still the right call now that
