@@ -274,6 +274,13 @@ if err=$(python3 scripts/report-dashboard.py "$base_case/migration/report.json" 
            -o "$base_case/migration/report.html" 2>&1); then
   echo "ÉCHEC : un chemin absolu manquant doit faire échouer la génération"; exit 1
 fi
+# D'abord prouver que l'échec est bien CELUI-LÀ : sans cette assertion, n'importe quel plantage
+# (une trace Python, un JSON invalide) satisferait « la clause est absente » et le cas resterait
+# vert en n'ayant rien mesuré.
+case "$err" in
+  *"rapport de couverture introuvable : $base_case/absent/rien.cobertura.xml"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le rapport absolu manquant : $err"; exit 1 ;;
+esac
 case "$err" in
   *"chemin relatif résolu depuis"*)
     echo "ÉCHEC : un chemin absolu n'est résolu contre aucune base : $err"; exit 1 ;;
@@ -428,9 +435,12 @@ fi
 case "$err" in
   *Traceback*) echo "ÉCHEC : une capture manquante crache une trace Python : $err"; exit 1 ;;
 esac
+# Le libellé EXACT, pas un `*capture*` : le chemin résolu contient déjà « captures/app.png », donc
+# un motif large serait satisfait par le chemin lui-même et resterait vert quel que soit ce que la
+# phrase raconte — une assertion qui ne peut pas échouer.
 case "$err" in
-  *capture*) : ;;
-  *) echo "ÉCHEC : l'erreur ne dit pas qu'il s'agit de la capture : $err"; exit 1 ;;
+  *"capture introuvable :"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la capture comme telle : $err"; exit 1 ;;
 esac
 case "$err" in
   *"$shot_dir/migration/captures/app.png"*) : ;;
