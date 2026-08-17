@@ -120,4 +120,76 @@ grep -qF 'ignored on this machine only' <<<"$sec" \
   || fail "detect: a machine-local rule was recorded as a property of the repo:
 $sec"
 
+# 6. THIS repository's own profile must be TRACKED (#157). Every case above fixtures a profile into
+#    a scratch repo, so all of them passed while the kit itself carried none: the file existed in
+#    exactly one checkout and reached no clone, no CI job and — the common case — no linked worktree,
+#    where a lifecycle skill then read empty output and inferred the repo's facts instead.
+#
+#    The kit tells consumer repos to version it (get-repo-profile: "Run once per repo, commit the
+#    profile"), .gitignore says so in its own comment, and scripts/worktrees-ignored.sh reserves this
+#    exact path as MUST_STAY_VISIBLE — a guard with a dedicated exit code for "your ignore rule is
+#    too broad to carry a committed profile", shipped by a repo that never committed one.
+#
+#    `ls-files --error-unmatch` and not `[ -f ]`: on disk is not the property under test — the file
+#    was on disk in the generating checkout the whole time. Tracked is what makes it travel.
+PROFILE=".claude/skills/repo-profile.md"
+
+# "Tracked" is only a question a git repository can answer, and `ls-files` outside one exits 128
+# with the same empty stdout as an untracked file — which the assertion below would report as "the
+# profile is not tracked", stating as measured fact something never measured (#129). Separate the
+# two, so an unrunnable case reads as unrunnable.
+git -C "$KIT" rev-parse --git-dir >/dev/null 2>&1 \
+  || fail "the kit root $KIT is not a git repository, so whether $PROFILE is TRACKED cannot be
+      measured from here. That is a missing precondition, not a passing case"
+
+git -C "$KIT" ls-files --error-unmatch -- "$PROFILE" >/dev/null 2>&1 \
+  || fail "the kit's own $PROFILE is not tracked. get-repo-profile tells consumer repos to commit
+      it and worktrees-ignored.sh keeps the path visible for exactly that; generate it with
+      \`skills/get-repo-profile/scripts/repo-profile.sh detect\` FROM THE MAIN WORKING TREE (#125:
+      a linked worktree records a false ignore verdict) and commit the result"
+
+# Tracked but empty would satisfy the line above and still leave every skill inferring, so assert the
+# content the lifecycle skills actually open the file for. One section, named in the template's
+# schema — enough to prove a filled profile, few enough not to re-test get-repo-profile's own output.
+grep -qF '## Commit identity' "$KIT/$PROFILE" \
+  || fail "$PROFILE is tracked but carries no '## Commit identity' section — the lifecycle skills
+      read it there; fill the schema in skills/get-repo-profile/references/profile-template.md"
+
+# 7. No skill reads the profile with a bare `cat` (#157). The helper's whole reason to exist is that
+#    it distinguishes "absent" from "empty": `show` prints NO_PROFILE and exits 3 (case 1 above),
+#    while a bare cat writes one line to STDERR, nothing to stdout, and returns a status the reading
+#    agent never sees — so a repo with no profile looks exactly like a repo whose profile is silent,
+#    and the skill infers the facts it was supposed to read. Case 6 makes THIS repo's profile
+#    present; this case keeps every consumer repo's absence audible.
+#
+#    Matched on `cat` immediately followed by the path (an optional prefix such as `"$KIT/` allowed),
+#    so the surrounding prose may keep saying the word — the defect is the command, not the noun.
+#    It deliberately does NOT try to catch every spelling a determined author could reach for
+#    (`cat -- <path>`, a shell variable holding the path); this is a lint against the reflex, and a
+#    pattern loose enough to catch those would start matching the paragraphs that explain them.
+PROFILE_CAT_RE='cat[[:space:]]+[^[:space:]|]*\.claude/skills/repo-profile\.md'
+
+# grep exits 1 for "searched, found nothing" and 2 for "could not search" — a missing directory, an
+# unreadable file — and only the first is a pass. `|| true` collapsed them, so a scan that never ran
+# looked exactly like a clean one: the fail-open shape release-title-diff.sh was split out to remove.
+[ -d "$KIT/skills" ] || fail "$KIT/skills does not exist, so the bare-cat scan below has nothing to
+      search. Refusing to report that as a clean scan"
+grep_rc=0
+offenders=$(grep -rnE "$PROFILE_CAT_RE" --include='*.md' "$KIT/skills") || grep_rc=$?
+[ "$grep_rc" -le 1 ] || fail "the bare-cat scan could not run (grep exit $grep_rc) — that is not a
+      verdict, and must not be read as one"
+[ -z "$offenders" ] || fail "a skill still reads the profile with a bare cat — use
+      \`<kit>/skills/get-repo-profile/scripts/repo-profile.sh show\`, which reports NO_PROFILE/exit 3
+      instead of empty output:
+$offenders"
+
+# The pattern IS the assertion, so prove it still sees what it looks for: a regex that has stopped
+# matching anything would pass the case above forever, silently. Fixture, never the real tree.
+probe=$(kit_scratch)
+mkdir -p "$probe/skills"
+printf 'Read it directly:\n\n```bash\ncat .claude/skills/repo-profile.md\n```\n' \
+  > "$probe/skills/decoy.md"
+grep -rqE "$PROFILE_CAT_RE" --include='*.md' "$probe/skills" \
+  || fail "the bare-cat pattern no longer matches a bare cat — the case above passes vacuously"
+
 echo "repo-profile golden test OK"
