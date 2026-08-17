@@ -1390,4 +1390,91 @@ run unborn-merge "$MERGE" -C "$MUNBORN" a -- m
 grep -q "^guarded-merge: a@" "$OUT" || fail unborn-merge "the receipt must name the branch and its new tip"
 echo "  ok: unborn merge — the first sync into a fresh branch still lands (0), not refused"
 
+# ------------------------------------------- 32. the SUCCESS RECEIPT, with an unreadable HEAD
+#
+# The receipt is the strongest claim a guard makes — the sentence a caller is asked to believe
+# INSTEAD of git's exit code. It was built by interpolating a bare `$(git … rev-parse --short
+# HEAD)` straight into a `printf` argument, and a command substitution that FAILS there is
+# neither aborted by `set -e` nor reflected in the statement's status. Measured on main at
+# 02bbfb6, under the `set -euo pipefail` every guard sets:
+#
+#     $ printf 'receipt: %s@%s\n' "a" "$(git -C /nonexistent rev-parse --short HEAD 2>/dev/null)"
+#     receipt: a@
+#     $ echo $?
+#     0
+#
+# So `guarded-commit: a@` — a receipt with the amount left blank, and a zero exit saying it is
+# fine. #116 removed exactly this from guarded-push.sh's receipt; its two siblings were outside
+# that issue's Area and kept it (#129).
+#
+# Nothing caught it because no case had ever reached a guard's SUCCESS path with an unreadable
+# HEAD: case 31's unborn coverage sits on the REFUSAL paths, which return long before any
+# receipt is printed. That gap is what this case closes, for both guards that print one.
+#
+# The fixture, and why it is shaped this way: a `post-commit` hook runs
+# `git update-ref -d refs/heads/a`. HEAD stays SYMBOLIC on `a`, so the post-write re-assert
+# agrees and the guard walks all the way to its receipt; `a` no longer exists, so HEAD is
+# UNBORN and `rev-parse --short HEAD` exits 128 with nothing on stdout (measured — and the
+# reason the abbreviating form is the one used here: the BARE form prints the literal string
+# "HEAD" instead, which is #92's separate trap).
+
+R=$(new_repo receipt-unreadable)
+git -C "$R" checkout -q a
+printf '#!/bin/sh\ngit update-ref -d refs/heads/a\n' > "$R/.git/hooks/post-commit"
+chmod +x "$R/.git/hooks/post-commit"
+echo "task work" >> "$R/seed.txt"
+
+run receipt-unreadable "$COMMIT" -C "$R" a -- -am "feat: work whose receipt cannot name it"
+
+# The fixture, before the verdict: a hook that quietly did nothing would leave `a` readable, the
+# receipt would render a real sha, and every assertion below would pass while testing nothing.
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail receipt-unreadable "fixture broken: HEAD must still be symbolic on a, or the re-assert diverts the guard before its receipt"
+[ -z "$(git -C "$R" rev-parse --quiet --verify refs/heads/a || true)" ] \
+  || fail receipt-unreadable "fixture broken: refs/heads/a survived, so HEAD is readable and the blank is never exercised"
+
+[ "$RC" -eq 0 ] || fail receipt-unreadable "the commit was made and the re-assert passed, so this is the SUCCESS path — got $RC"
+receipt=$(grep '^guarded-commit: ' "$OUT" || true)
+[ -n "$receipt" ] || fail receipt-unreadable "the guard printed no receipt at all"
+# Two assertions on purpose, as at case 18b: the first names the REGRESSION in the words an
+# operator would search for, the second pins the prescribed RENDERING so changing `<unreadable>`
+# is a deliberate act. Collapsing them keeps the coverage and loses which of the two broke.
+case "$receipt" in
+  *@) fail receipt-unreadable "the receipt names no commit: $receipt" ;;
+esac
+case "$receipt" in
+  *"a@<unreadable>"*) : ;;
+  *) fail receipt-unreadable "an unreadable HEAD must be rendered explicitly in the receipt, got: $receipt" ;;
+esac
+echo "  ok: receipt-unreadable — guarded-commit's success receipt never leaves the sha field blank"
+
+# 32b. …and the same for guarded-merge.sh's receipt, which carries the identical defect.
+#
+# `post-merge` and not `post-commit`: measured, `git merge` does not run the post-commit hook for
+# the merge commit it writes, so the sibling fixture would silently no-op — leaving `a` readable
+# and this case green for the wrong reason.
+
+R=$(new_merge_repo receipt-unreadable-merge)
+printf '#!/bin/sh\ngit update-ref -d refs/heads/a\n' > "$R/.git/hooks/post-merge"
+chmod +x "$R/.git/hooks/post-merge"
+
+run receipt-unreadable-merge "$MERGE" -C "$R" a -- m
+
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail receipt-unreadable-merge "fixture broken: HEAD must still be symbolic on a"
+[ -z "$(git -C "$R" rev-parse --quiet --verify refs/heads/a || true)" ] \
+  || fail receipt-unreadable-merge "fixture broken: refs/heads/a survived, so the post-merge hook never ran"
+
+[ "$RC" -eq 0 ] || fail receipt-unreadable-merge "the merge succeeded and HEAD never left a, so this is the SUCCESS path — got $RC"
+receipt=$(grep '^guarded-merge: ' "$OUT" || true)
+[ -n "$receipt" ] || fail receipt-unreadable-merge "the guard printed no receipt at all"
+case "$receipt" in
+  *@) fail receipt-unreadable-merge "the receipt names no commit: $receipt" ;;
+esac
+case "$receipt" in
+  *"a@<unreadable>"*) : ;;
+  *) fail receipt-unreadable-merge "an unreadable HEAD must be rendered explicitly in the receipt, got: $receipt" ;;
+esac
+echo "  ok: receipt-unreadable-merge — guarded-merge's success receipt never leaves the sha field blank"
+
 echo "guarded-git golden test OK"
