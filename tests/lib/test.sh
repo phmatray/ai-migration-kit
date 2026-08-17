@@ -212,43 +212,125 @@ echo "  [8] no suite hand-rolls the EXIT trap (tests/lib is the documented excep
 # ---------------------------------------------------------------------------
 # 9. A suite that USES the helper must take its scratch from it.
 #
-#    Scoped to the suites that source `_lib.sh`, deliberately — not to every suite that calls
-#    `mktemp -d`. Five others (preflight, release-title-gate, repo-profile, report-dashboard,
-#    worktrees-ignored) manage their own with an inline `rm -rf`, and measured, they do not leak.
-#    Converting them is tidying, not a fix, and #72 is about the duplicated PREAMBLE rather than
-#    about every temp directory. Reproduce that measurement — a number kept without the command
-#    that produced it is not a measurement:
+#    Membership is DECLARED BY BEHAVIOUR: a suite is audited when it CALLS kit_init, the thing that
+#    actually arms the handler. It used to be inferred from whether the text of the file happened to
+#    contain the string `_lib.sh` (#128). That was cheap while there was one shared file with one
+#    obvious name; #51 added tests/_lib/py.sh, whose name differs by one character in a position
+#    nobody reads, and the audit's reach then depended on spelling. Both halves were wrong, and both
+#    were measured:
 #
-#      before=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tmp.*' | wc -l)
-#      for s in preflight repo-profile worktrees-ignored; do bash "tests/$s/test.sh" >/dev/null; done
-#      after=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tmp.*' | wc -l)
-#      echo "$before -> $after"      # observed 234 -> 234 when this was written
+#      * appending the comment `# voir tests/_lib.sh` to a suite that manages its own scratch turned
+#        THIS file red — four offenders — for a reason unrelated to the edit;
+#      * tests/report-dashboard/test.sh deliberately avoided the substring, and sat in the audit's
+#        blind spot while leaking a directory on every run. §9 exists to catch exactly that, and by
+#        construction never could. That leak is fixed in the same change.
 #
-#    The real difference, for whoever does convert them: an inline `rm -rf` at the end runs only on
-#    the success path, so a suite that fails midway leaves its directory behind. kit_scratch's is
-#    removed on every exit path. Worth doing; not worth failing this check over.
+#    A suite may legitimately want py_module without the preamble, so sourcing tests/_lib/py.sh is
+#    NOT membership — another distinction a filename match cannot draw.
 #
-#    Within a converted suite, though, a stray `mktemp -d` IS a leak — kit_cleanup only removes
-#    what lives under its own parent directory.
-# ---------------------------------------------------------------------------
+#    Not every suite is a member. Those that manage their own scratch with an inline `rm -rf` are
+#    out of scope here; the real difference, for whoever converts one, is that an inline `rm -rf` at
+#    the end runs only on the success path, so a suite that fails midway leaves its directory
+#    behind, whereas kit_scratch's is removed on every exit path. Worth doing; the audit does not
+#    fail over it.
+#
+#    Within a member suite, though, a stray `mktemp -d` IS a leak — kit_cleanup only removes what
+#    lives under its own parent directory.
+#
 #    Checked PER OCCURRENCE, not per file. Exempting a whole file the moment it mentions
 #    `kit_scratch` anywhere is the opposite of the leak described above, and it had a live
 #    instance: tests/audit-inventory ran `( cd "$(mktemp -d)" && … )` for its foreign-cwd case, a
 #    directory outside KIT_LIB_TMP that nothing removes, in a suite this change converted.
-leaky=""
-for f in tests/*/test.sh; do
-  [ "$f" = "tests/lib/test.sh" ] && continue
-  grep -q '_lib\.sh' "$f" || continue
-  # A `mktemp -d` rooted under a kit_scratch result is fine — that IS inside KIT_LIB_TMP.
+#
+#    Both halves are FUNCTIONS so the fixtures below can drive them directly. The real tree cannot
+#    tell a right rule from a wrong one here: every live suite answers the same way under either,
+#    which is precisely how a wrong rule survived (#128).
+
+# Is $1 a member of the shared library — i.e. does it CALL kit_init?
+#
+# A call, never a mention. Whole-line comments are dropped first and the name must sit at a command
+# position, so prose about the helper — this file is full of it, and so are the suites — cannot
+# decide who gets audited. That is the defect class #128 is about, so reproducing it here would be
+# a poor joke.
+#
+# Pipe-free on purpose. `grep -v … | grep -q …` lets the reader exit on the first hit; under the
+# `set -o pipefail` at the top of this file the writer's SIGPIPE (141) becomes the pipeline's
+# status, and "found it" reads back as "not a member" (#48). An audit is the last place that should
+# go unnoticed: the failure mode is a silently empty roster, which looks exactly like a clean run.
+suite_is_member() {
+  local body
+  body=$(grep -vE '^[[:space:]]*#' "$1" || true)
+  grep -qE '(^|[[:space:];&|(){}])kit_init([[:space:]]|$)' <<<"$body"
+}
+
+# The `mktemp -d` calls in $1 that sit outside kit_scratch's tree, one "    <file>: <n>:<text>"
+# line each. A `mktemp -d` rooted under a kit_scratch result is fine — that IS inside KIT_LIB_TMP.
+stray_scratch() {
+  local line
   while IFS= read -r line; do
     # `<n>:<text>` from grep -n; a comment line is prose about mktemp, not a call.
     case "${line#*:}" in [[:space:]]*\#*|\#*) continue ;; esac
     case "$line" in
       *kit_scratch*|*'$WORK'*|*'$scratch'*) continue ;;
-      *) leaky="$leaky
-    $f: $line" ;;
+      *) printf '%s\n' "    $1: $line" ;;
     esac
-  done < <(grep -n 'mktemp -d' "$f")
+  done < <(grep -n 'mktemp -d' "$1" || true)
+}
+
+# --- the predicate, driven on fixtures rather than on the tree ---------------
+# Each of these two fails under a substring rule, in OPPOSITE directions — which is what makes
+# them worth writing: one is dragged in by prose, the other is invisible despite being a member.
+mentions_only="$scratch/mentions-only.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo '# Prose naming tests/_lib.sh and kit_init, calling neither. A comment is not a call.'
+  echo 'd=$(mktemp -d); rm -rf "$d"'
+} > "$mentions_only"
+
+# Sources the helper through a VARIABLE, so its filename never appears literally: a real member
+# that a substring rule cannot see. That is the shape the leak §9 exists to catch was hiding in.
+calls_it="$scratch/calls-kit-init.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'lib="$KIT/tests/$helper"'
+  echo '. "$lib"'
+  echo 'kit_init "$PWD"'
+  echo 'd=$(mktemp -d)'
+} > "$calls_it"
+
+uses_helper="$scratch/uses-kit-scratch.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'kit_init "$PWD"'
+  echo 'd=$(kit_scratch)'
+} > "$uses_helper"
+
+if suite_is_member "$mentions_only"; then
+  echo "FAIL: a suite that only MENTIONS the shared helper was enrolled in the scratch audit."
+  echo "      Membership must follow a kit_init CALL; a filename in the text is not a declaration,"
+  echo "      and keying on one turns an unrelated comment into a red run."
+  exit 1
+fi
+if ! suite_is_member "$calls_it"; then
+  echo "FAIL: a suite that CALLS kit_init was left out of the scratch audit — the blind spot a"
+  echo "      leaking directory sat in for as long as its file avoided spelling the helper's name."
+  exit 1
+fi
+[ -n "$(stray_scratch "$calls_it")" ] || {
+  echo "FAIL: the per-occurrence audit missed a bare 'mktemp -d'"; exit 1; }
+[ -z "$(stray_scratch "$uses_helper")" ] || {
+  echo "FAIL: the per-occurrence audit flagged a directory taken from kit_scratch"; exit 1; }
+
+# --- and now the tree -------------------------------------------------------
+leaky=""
+for f in tests/*/test.sh; do
+  [ "$f" = "tests/lib/test.sh" ] && continue
+  suite_is_member "$f" || continue
+  # Command substitution eats trailing newlines, so the separator is added here rather than
+  # relying on one surviving the capture — otherwise two offenders would print on one line.
+  hits=$(stray_scratch "$f")
+  [ -n "$hits" ] && leaky="$leaky
+$hits"
 done
 if [ -n "$leaky" ]; then
   echo "FAIL: these mktemp -d calls sit outside kit_scratch's tree, so kit_cleanup cannot remove"
