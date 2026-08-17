@@ -535,8 +535,16 @@ def main():
     # et la sortie aussi : le dashboard vit à côté de son rapport.
     base = Path(args.report_json).resolve().parent
     r["coverage"]["cobertura"] = resolve_cobertura(r["coverage"]["cobertura"], base)
-    if r.get("screenshot") and not Path(r["screenshot"]["path"]).is_absolute():
-        r["screenshot"]["path"] = str(base / r["screenshot"]["path"])
+    if r.get("screenshot"):
+        # Même base, donc même diagnostic. Une capture absente remontait un FileNotFoundError brut
+        # depuis `data_uri` — une trace Python à la fin d'un long pipeline, sur l'artefact censé
+        # prouver le travail, et sans un mot sur la base contre laquelle le chemin a été résolu.
+        # C'est le même défaut que la couverture, en pire : là il n'y avait même pas de phrase (#102).
+        item = r["screenshot"]["path"]
+        path = Path(item) if Path(item).is_absolute() else base / item
+        if not path.is_file():
+            raise SystemExit(f"capture introuvable : {path}{resolution_hint(item, base)}")
+        r["screenshot"]["path"] = str(path)
     output = Path(args.output) if args.output else base / "report.html"
     output.write_text(render(r))
     print(f"OK {output}", file=sys.stderr)

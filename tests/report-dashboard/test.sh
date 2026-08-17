@@ -395,6 +395,69 @@ assert_in "$nd_dir/report.html" 'Global : 50 % lignes · branches n/d'
 rm -rf "$nd_dir"
 
 # ---------------------------------------------------------------------------
+# `screenshot.path` se résout contre la même base — et échoue de la même façon (issue #102).
+#
+# `main()` résout la capture contre le répertoire du report.json, exactement comme la couverture.
+# Mais une capture absente n'avait aucune erreur nommée : `data_uri` laissait remonter un
+# FileNotFoundError brut, donc une trace Python à la fin d'un long pipeline, sur l'artefact censé
+# prouver le travail — pire que le cas couverture que #49 avait au moins rendu lisible.
+#
+# Les deux sens sont couverts : une capture PRÉSENTE doit toujours s'embarquer. Sans ce cas-là,
+# une garde trop zélée casserait tous les report.json qui portent une capture sans qu'aucun test
+# ne bouge — la fixture principale n'en déclare aucune.
+# ---------------------------------------------------------------------------
+shot_dir="$(cd "$(mktemp -d)" && pwd -P)"   # cf. la note sur pwd -P plus haut
+mkdir -p "$shot_dir/migration"
+cp tests/report-dashboard/fixture-cobertura.xml "$shot_dir/migration/"
+python3 - "$shot_dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura.xml", "exclude": ["Fixture.Web"]}
+# Libellés sans apostrophe : `esc()` échappe `'` en `&#x27;`, et une assertion `grep -F` sur le
+# texte source échouerait pour une raison qui n'a rien à voir avec ce que ce bloc mesure.
+r["screenshot"] = {"path": "captures/app.png", "caption": "Page de connexion migrée",
+                   "alt": "Capture de la page de connexion"}
+(d / "migration" / "report.json").write_text(json.dumps(r))
+PY
+
+if err=$(python3 scripts/report-dashboard.py "$shot_dir/migration/report.json" \
+           -o "$shot_dir/migration/report.html" 2>&1); then
+  echo "ÉCHEC : une capture manquante doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *Traceback*) echo "ÉCHEC : une capture manquante crache une trace Python : $err"; exit 1 ;;
+esac
+case "$err" in
+  *capture*) : ;;
+  *) echo "ÉCHEC : l'erreur ne dit pas qu'il s'agit de la capture : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"$shot_dir/migration/captures/app.png"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la capture résolue : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"chemin relatif résolu depuis $shot_dir/migration, le répertoire du report.json"*) : ;;
+  *) echo "ÉCHEC : l'erreur de capture ne nomme pas la base de résolution : $err"; exit 1 ;;
+esac
+
+# Le cas passant : la capture existe, elle est embarquée en data URI (rien d'externe).
+mkdir -p "$shot_dir/migration/captures"
+python3 - "$shot_dir" <<'PY'
+import base64, pathlib, sys
+# PNG 1×1 valide — le plus petit fichier qui prouve que les octets sont bien lus et encodés.
+png = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+pathlib.Path(sys.argv[1], "migration", "captures", "app.png").write_bytes(png)
+PY
+python3 scripts/report-dashboard.py "$shot_dir/migration/report.json" \
+  -o "$shot_dir/migration/report.html" 2>/dev/null
+assert_in "$shot_dir/migration/report.html" 'src="data:image/png;base64,'
+assert_in "$shot_dir/migration/report.html" 'Page de connexion migrée'
+assert_in "$shot_dir/migration/report.html" 'alt="Capture de la page de connexion"'
+rm -rf "$shot_dir"
+
+# ---------------------------------------------------------------------------
 # Aucun __pycache__ laissé dans le kit (#51).
 #
 # CETTE suite doit porter sa propre garde. Le réflexe — « tests/xunit-v3 la porte déjà » — est
