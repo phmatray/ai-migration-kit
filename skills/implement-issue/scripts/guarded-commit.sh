@@ -183,9 +183,19 @@ if [ "$now_branch" != "$EXPECTED" ]; then
 fi
 
 if [ -n "$before_sha" ] && [ "$expected_now" = "$before_sha" ]; then
+  # Abbreviated through the shared reader, in a statement of its own, with the fallback spelled
+  # out — never inlined into the printf. `$EXPECTED` and not HEAD: this ALERT is about the branch
+  # that failed to move, which is what head_sha_of's optional <rev> argument exists for.
+  stalled_sha=$(head_sha_of "$REPO" "$EXPECTED")
   printf 'guarded-commit: ALERT — git commit reported success but %s did not advance (%s).\n' \
-    "$EXPECTED" "$(git -C "$REPO" rev-parse --short "$EXPECTED")" >&2
+    "$EXPECTED" "${stalled_sha:-<unreadable>}" >&2
   exit 3
 fi
 
-printf 'guarded-commit: %s@%s\n' "$EXPECTED" "$(git -C "$REPO" rev-parse --short HEAD)"
+# The receipt is this guard's strongest claim — the sentence the caller is asked to believe
+# instead of git's exit code — so it is the worst possible place for a substitution that can fail
+# in silence. Interpolated inline it rendered `guarded-commit: a@` on an unreadable HEAD, exit 0,
+# naming no commit (measured, #129; the same defect #116 removed from guarded-push.sh's receipt).
+# Read in its own statement, rendered with an explicit fallback.
+receipt_sha=$(head_sha_of "$REPO")
+printf 'guarded-commit: %s@%s\n' "$EXPECTED" "${receipt_sha:-<unreadable>}"

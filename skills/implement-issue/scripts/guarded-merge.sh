@@ -293,4 +293,11 @@ if [ "$STATE_VERB" -eq 0 ] && [ -n "$conflicts" ]; then
 fi
 
 # No "did the branch advance?" assertion here, deliberately — see the ⚠ note in the header.
-printf 'guarded-merge: %s@%s\n' "$EXPECTED" "$(git -C "$REPO" rev-parse --short HEAD)"
+#
+# The receipt is this guard's strongest claim, so it gets the shared reader and an explicit
+# fallback in a statement of its own rather than a substitution inlined into printf: inlined, a
+# failing read is neither aborted by `set -e` nor reflected in the statement's status, and an
+# unreadable HEAD rendered `guarded-merge: a@` with a zero exit — a receipt naming no commit
+# (measured, #129). Same defect, same place, as the one #116 removed from guarded-push.sh.
+receipt_sha=$(head_sha_of "$REPO")
+printf 'guarded-merge: %s@%s\n' "$EXPECTED" "${receipt_sha:-<unreadable>}"

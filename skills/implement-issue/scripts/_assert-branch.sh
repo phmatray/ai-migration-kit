@@ -38,6 +38,30 @@
 #       assert_branch below AND by each guard's post-write re-assertion, so the one subtle thing
 #       about reading a branch name lives in one function rather than in three places.
 #
+#   head_sha_of <repo> [<rev>]
+#       Echo the ABBREVIATED sha of <rev> (default HEAD), or nothing at all when it cannot be
+#       read. The counterpart of head_branch_of, and it exists for the same reason one function
+#       later (#129): reading a branch name had a home, reading a sha did not, so every message
+#       that wanted one respelled the read — four spellings across four files, and three of them
+#       interpolated a bare `$(git … rev-parse …)` straight into a printf argument, where a
+#       failure is neither aborted by `set -e` nor reflected in the statement's status. Two of
+#       those three were SUCCESS RECEIPTS, so `guarded-commit: a@` was a reachable output with a
+#       zero exit: the strongest claim a guard makes, naming no commit.
+#
+#       Failure-tolerant BY DESIGN, exactly as head_branch_of is, and for the same reason: the
+#       callers run under `set -euo pipefail`, and a helper that died on an unreadable HEAD would
+#       abort the guard with exit 1 — the ambiguous "git's own failure" code this file exists to
+#       avoid — at the very moment it was being asked to explain what went wrong. The emptiness
+#       is the answer, and every caller renders it explicitly as `${…:-<unreadable>}` in a
+#       statement of its own. NEVER inline this into a printf argument; that is the defect.
+#
+#       `--verify --quiet` and not a bare `--short <rev>`: the same trap assert_branch documents
+#       at the tail of this file. It keeps git's "Needed a single revision" off stderr on the
+#       unborn-HEAD path (where the abbreviating form exits 128 with empty stdout), and it makes
+#       an unresolvable <rev> answer nothing rather than something. The optional <rev> is what
+#       lets guarded-commit.sh abbreviate `$EXPECTED` — a branch, not HEAD — through this same
+#       one home instead of opening a fifth spelling.
+#
 #   assert_branch <tool-name> <detached-message> <mismatch-message>
 #       Reads   $REPO      the worktree to inspect
 #               $EXPECTED  the branch the caller says this task owns
@@ -84,6 +108,10 @@ usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
 # test. symbolic-ref simply fails, which is the answer we want — so an empty answer here means
 # "detached", and every caller reads it that way.
 head_branch_of() { git -C "$1" symbolic-ref --quiet --short HEAD 2>/dev/null || true; }
+
+# The sha half of the same job — see the contract above for why it answers with nothing rather
+# than dying, and why no caller may inline it into a printf argument.
+head_sha_of() { git -C "$1" rev-parse --verify --quiet --short "${2:-HEAD}" 2>/dev/null || true; }
 
 assert_branch() {
   local tool="$1" detached_message="$2" mismatch_message="$3"
