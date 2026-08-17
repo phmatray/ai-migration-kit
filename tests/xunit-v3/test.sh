@@ -1274,19 +1274,21 @@ def covers(patterns, dep):
     the rule that HOLDS the majors that mistake is loud — the suite goes red on a valid config, and
     somebody narrows it. On a rule that RE-ENABLES them it is silent, and silence there is a pin
     whose majors are open while this section prints "majors held" (#99)."""
-    unevaluated, matched, has_positive = [], False, False
+    # The whole list is walked even once an exclusion has decided the answer, for the reason
+    # `selects` gives: an entry this guard cannot read is worth reporting whatever the verdict, and
+    # returning early would report it only for whichever dependency happened to reach it first.
+    unevaluated, excluded, matched, has_positive = [], False, False, False
     for p in patterns:
         negated = p.startswith("!")
         verdict = _name_matches(p[1:] if negated else p, dep)
         if verdict is None:
             unevaluated.append(p)
         elif negated:
-            if verdict:
-                return False, unevaluated      # an explicit exclusion outranks any inclusion
+            excluded = excluded or verdict     # an explicit exclusion outranks any inclusion
         else:
             has_positive = True
             matched = matched or verdict
-    return (matched or not has_positive), unevaluated
+    return (not excluded and (matched or not has_positive)), unevaluated
 
 
 def names_reach(rule, dep):
@@ -1537,9 +1539,9 @@ def check(cfg):
     assert mine, (
         f"no customManager selects {TRANSFORM_REL}, so Renovate extracts nothing from it and the "
         f"pins go unwatched"
-        + (f" — note that {unevaluated} could not be evaluated by this guard and were treated as "
-           f"non-matching; if one of those is meant to select the transform, teach `selects` its "
-           f"dialect" if unevaluated else "")
+        + (f" — note that {sorted(set(unevaluated))} could not be evaluated by this guard and were "
+           f"treated as non-matching; if one of those is meant to select the transform, teach "
+           f"`selects` its dialect" if unevaluated else "")
     )
 
     found = {}
@@ -1618,8 +1620,9 @@ def check(cfg):
         assert held, (
             f"{dep} is now visible to Renovate but no rule disables its MAJOR updates — a one-leg bump "
             f"across the Microsoft.Testing.Platform boundary could be proposed and merged green"
-            + (f". Note: {sorted(set(unevaluated))} could not be evaluated and were treated as not "
-               f"reaching {TRANSFORM_REL}" if unevaluated else "")
+            + (f". Note: {sorted(set(unevaluated))} could not be evaluated by this guard, so one of "
+               f"them may be the hold — check those before concluding the rule is missing"
+               if unevaluated else "")
         )
 
     # Last, so that it fires even when every check above passed. An entry reaches this list only
@@ -1933,10 +1936,10 @@ def _an_unreadable_pattern_on_an_otherwise_healthy_config(c):
     # was surfaced ONLY when `mine` came out completely empty, so a partially-unreadable config
     # passed with a confident green and, when it did fail, blamed the wrong file.
     #
-    # Refusing here is deliberate even though the manager is unrelated to the transform: with the
-    # `path_glob` fallback below, ordinary globs (`templates/**`, accepted two cases down) evaluate
-    # fine, so what reaches this branch is a form nobody has taught the guard yet. Loud is the
-    # correct failure mode for that; green is not.
+    # Refusing here is deliberate even though the manager is unrelated to the transform: since
+    # `selects` falls back to `path_glob`, ordinary globs evaluate fine — `templates/**` is an
+    # `accepts` case a hundred lines above — so what reaches this branch is a form nobody has taught
+    # the guard yet. Loud is the correct failure mode for that; green is not.
     c["customManagers"].append({
         "customType": "regex",
         "managerFilePatterns": ["templates/{ci-dotnet,ci-node}.yml"],
