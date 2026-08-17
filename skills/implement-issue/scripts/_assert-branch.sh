@@ -62,6 +62,34 @@
 #       lets guarded-commit.sh abbreviate `$EXPECTED` — a branch, not HEAD — through this same
 #       one home instead of opening a fifth spelling.
 #
+#   repo_readable <repo>
+#       Succeeds while <repo> can still be read as a git repository. Not a validator — the
+#       pre-flight in assert_branch below is that — but the second half of a MEASUREMENT the
+#       post-write re-asserts need and used to skip.
+#
+#   head_state <repo> <branch-as-read>
+#       How a message should NAME where HEAD is: the branch it is on, or the word `detached`, or
+#       `<unreadable>`.
+#
+#       It exists because head_branch_of answers with nothing in TWO situations — HEAD is
+#       genuinely detached, and the repo cannot be read AT ALL — and only one caller is entitled
+#       to collapse them. assert_branch's pre-flight is that caller: it has just proven the path
+#       is a git repository, so empty there really does mean detached. Every POST-WRITE re-assert
+#       had proven no such thing and still rendered `${now_branch:-detached}`, stating as a
+#       definite fact something never measured — when the honest answer may be "the worktree is
+#       gone", which is precisely the concurrency class these guards exist for (#129).
+#
+#       Measured, before the fix: a commit that landed safely on its own branch, with HEAD never
+#       leaving it, was reported as detached, "reachable from nothing and will be
+#       garbage-collected", with a rescue command to run. Every word false, on the sentence the
+#       operator acts on.
+#
+#       It takes the branch the caller ALREADY read instead of reading it again, so the answer
+#       describes the same observation the message is reporting on, and so the readability probe
+#       runs once and only when there is something to disambiguate. head_branch_of's own contract
+#       is deliberately unchanged: widening it would relax a reading three guards depend on in
+#       order to fix a rendering in one of their paths.
+#
 #   assert_branch <tool-name> <detached-message> <mismatch-message>
 #       Reads   $REPO      the worktree to inspect
 #               $EXPECTED  the branch the caller says this task owns
@@ -112,6 +140,23 @@ head_branch_of() { git -C "$1" symbolic-ref --quiet --short HEAD 2>/dev/null || 
 # The sha half of the same job — see the contract above for why it answers with nothing rather
 # than dying, and why no caller may inline it into a printf argument.
 head_sha_of() { git -C "$1" rev-parse --verify --quiet --short "${2:-HEAD}" 2>/dev/null || true; }
+
+# The disambiguator for head_branch_of's empty answer — see the contract above. Kept here, once,
+# rather than as a third copy of the same `if` in each guard: the whole of #129 is what respelling
+# a small read at every call site costs.
+repo_readable() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }
+
+head_state() {
+  if [ -n "$2" ]; then
+    # `printf '%s'` and not `echo`: a branch name is data from outside this process, and this
+    # file already refuses to let one reach a format string (see {found}, below).
+    printf '%s' "$2"
+  elif repo_readable "$1"; then
+    printf 'detached'
+  else
+    printf '<unreadable>'
+  fi
+}
 
 assert_branch() {
   local tool="$1" detached_message="$2" mismatch_message="$3"

@@ -155,11 +155,31 @@ fi
 now_branch=$(head_branch_of "$REPO")
 now_sha=$(git -C "$REPO" rev-parse --verify --quiet HEAD 2>/dev/null || true)
 
+# The sha field already said `<unreadable>` rather than inventing something (#92). The branch
+# field beside it still said `detached`, which is not the same kind of answer: head_branch_of is
+# empty both for a genuinely detached HEAD and for a path that can no longer be read at all, and
+# after the push nothing here has ruled the second one out — so the line read
+# `HEAD is now  detached @ <unreadable>`, one measured field and one invented (#129).
+#
+# Both halves of the $unreadable test matter: head_state only ever answers `<unreadable>` for an
+# EMPTY branch, so pairing them means a branch literally NAMED `<unreadable>` (git permits it)
+# cannot make this guard describe a healthy repo as gone.
+now_state=$(head_state "$REPO" "$now_branch")
+unreadable=0
+if [ -z "$now_branch" ] && [ "$now_state" = '<unreadable>' ]; then unreadable=1; fi
+
 if [ "$now_branch" != "$EXPECTED" ] || [ "$now_sha" != "$head_sha" ]; then
   {
     echo "guarded-push: ALERT — git push exited 0, but HEAD moved while it ran."
     echo "              pushed from  $EXPECTED @ $head_sha"
-    echo "              HEAD is now  ${now_branch:-detached} @ ${now_sha:-<unreadable>}"
+    echo "              HEAD is now  $now_state @ ${now_sha:-<unreadable>}"
+    if [ "$unreadable" -eq 1 ]; then
+      # The correction has to sit here rather than replace the line above, because the line above
+      # is still the honest summary of what the guard can no longer confirm.
+      echo "              …but that reading is itself unavailable: $REPO can no longer be read as"
+      echo "              a git repository, so HEAD may never have moved at all — a worktree"
+      echo "              removed or renamed under this command reads exactly the same way."
+    fi
     echo "              git push sends the CURRENT branch, so what reached $REMOTE may not be"
     echo "              your work. Check the remote before pushing again."
   } >&2

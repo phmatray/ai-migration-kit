@@ -1553,4 +1553,104 @@ fi
 OUT=""
 echo "  ok: one-spelling — the sha read has one home, no message builds one inline, and #92's spelling stays out"
 
+# ---------------------------------------------------------------- 34. `detached` is a MEASUREMENT
+#
+# head_branch_of() answers with nothing in TWO situations — HEAD is genuinely detached, and the
+# repo cannot be read at all — and every post-write re-assert rendered `${now_branch:-detached}`,
+# which turns the second into a definite claim about the first.
+#
+# In assert_branch's PRE-FLIGHT that conflation is harmless, and deliberately so: it has proven
+# the path is a git repository two lines earlier, so empty there really does mean detached. After
+# the write nothing has proven any such thing — and "the worktree is gone" is precisely the
+# concurrency class these guards exist for (#129, the same "cannot tell nothing from failed"
+# shape as #124).
+#
+# What it cost, measured before the fix: the commit below lands safely on `a`, HEAD never leaves
+# `a`, and the guard tells the operator HEAD is detached, that the commit "is reachable from
+# nothing and will be garbage-collected", and hands them a rescue command ending in
+# `<unreadable>`. Every word of that is false, and it is the sentence they act on.
+#
+# The fixture points the guard at a SYMLINK and has the hook remove it. git resolves its
+# directories once, at startup, so the write itself completes untouched while every later
+# `git -C <link>` the guard makes fails — the shape of a worktree pruned or moved under a running
+# command. Nothing is destroyed, which is what lets each case also assert where the work really
+# went, and so prove the old message was wrong rather than merely differently worded.
+
+R=$(new_repo unreadable-commit)
+git -C "$R" checkout -q a
+LINK="$WORK/unreadable-commit-link"
+ln -s "$R" "$LINK"
+printf '#!/bin/sh\nrm -f %s\n' "$LINK" > "$R/.git/hooks/post-commit"
+chmod +x "$R/.git/hooks/post-commit"
+before_a=$(tip "$R" a)
+echo "task work" >> "$R/seed.txt"
+
+run unreadable-commit "$COMMIT" -C "$LINK" a -- -am "feat: work whose worktree is pruned under it"
+
+[ ! -e "$LINK" ] || fail unreadable-commit "fixture broken: the hook left the symlink in place, so the repo is still readable"
+[ "$(tip "$R" a)" != "$before_a" ] || fail unreadable-commit "fixture broken: the commit never landed, so there is nothing to mis-describe"
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail unreadable-commit "fixture broken: HEAD really did leave a — this case must be about the PATH, not about HEAD"
+
+[ "$RC" -eq 3 ] || fail unreadable-commit "expected exit 3 when the repo cannot be re-read, got $RC"
+grep -qi 'detached' "$OUT" \
+  && fail unreadable-commit "the ALERT claims HEAD is detached — HEAD is on 'a' and the commit is safely there; the PATH is what vanished"
+grep -qi 'cannot be read\|could not be read\|no longer be read' "$OUT" \
+  || fail unreadable-commit "the ALERT must say the repository could not be read"
+grep -q "HEAD is now '<unreadable>'" "$OUT" \
+  || fail unreadable-commit "the branch field must render <unreadable>, not a state nothing measured"
+echo "  ok: unreadable-commit — a vanished worktree is reported as unreadable, never as detached"
+
+# 34b. …the same for guarded-merge.sh's post-write re-assert.
+
+R=$(new_merge_repo unreadable-merge)
+LINK="$WORK/unreadable-merge-link"
+ln -s "$R" "$LINK"
+printf '#!/bin/sh\nrm -f %s\n' "$LINK" > "$R/.git/hooks/post-merge"
+chmod +x "$R/.git/hooks/post-merge"
+before_a=$(tip "$R" a)
+
+run unreadable-merge "$MERGE" -C "$LINK" a -- m
+
+[ ! -e "$LINK" ] || fail unreadable-merge "fixture broken: the hook left the symlink in place"
+[ "$(tip "$R" a)" != "$before_a" ] || fail unreadable-merge "fixture broken: the merge never landed"
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail unreadable-merge "fixture broken: HEAD really did leave a"
+
+[ "$RC" -eq 3 ] || fail unreadable-merge "expected exit 3 when the repo cannot be re-read, got $RC"
+grep -qi 'detached' "$OUT" \
+  && fail unreadable-merge "the ALERT claims HEAD is detached for a repo whose PATH is simply gone"
+grep -qi 'cannot be read\|could not be read\|no longer be read' "$OUT" \
+  || fail unreadable-merge "the ALERT must say the repository could not be read"
+grep -q "HEAD is now '<unreadable>'" "$OUT" \
+  || fail unreadable-merge "the branch field must render <unreadable>, not a state nothing measured"
+echo "  ok: unreadable-merge — a vanished worktree is reported as unreadable, never as detached"
+
+# 34c. …and guarded-push.sh, whose re-assert renders the same two fields side by side. Its sha
+# half already said `<unreadable>` (#92 fixed that one); the branch half beside it still said
+# `detached`, so the line read `HEAD is now  detached @ <unreadable>` — one measured field and
+# one invented, in the same sentence.
+
+R=$(new_repo_with_origin unreadable-push)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work on a"
+LINK="$WORK/unreadable-push-link"
+ln -s "$R" "$LINK"
+with_prepush_hook "$R" "rm -f $LINK"
+
+run unreadable-push "$PUSH" -C "$LINK" a
+
+[ ! -e "$LINK" ] || fail unreadable-push "fixture broken: the hook left the symlink in place"
+[ "$(remote_tip unreadable-push a)" = "$(tip "$R" a)" ] \
+  || fail unreadable-push "fixture broken: the push never reached the remote, so the re-assert is not what is under test"
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail unreadable-push "fixture broken: HEAD really did leave a"
+
+[ "$RC" -eq 4 ] || fail unreadable-push "expected exit 4 when the repo cannot be re-read, got $RC"
+grep -qi 'detached' "$OUT" \
+  && fail unreadable-push "the ALERT claims HEAD is detached for a repo whose PATH is simply gone"
+grep -q '<unreadable> @' "$OUT" \
+  || fail unreadable-push "the branch field must render <unreadable> beside the sha field, not a state nothing measured"
+echo "  ok: unreadable-push — a vanished worktree is reported as unreadable, never as detached"
+
 echo "guarded-git golden test OK"

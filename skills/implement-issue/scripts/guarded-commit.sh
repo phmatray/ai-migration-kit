@@ -153,6 +153,21 @@ fi
 # above and the commit itself. Re-read rather than assume — through the same reader the pre-flight
 # used, so the one subtle thing about reading a branch name has one home and not three.
 now_branch=$(head_branch_of "$REPO")
+# …and how to NAME that answer. An empty $now_branch means "detached" OR "this path can no longer
+# be read as a repository at all", and after a write nothing here has ruled the second one out.
+# head_state measures which; the raw $now_branch stays the thing the comparisons are made on.
+now_state=$(head_state "$REPO" "$now_branch")
+
+# The one fact the messages below have to branch on, derived from what was already read rather
+# than probed a second time. Both halves of the test matter: head_state only ever answers
+# `<unreadable>` for an EMPTY branch, so pairing them means a branch literally NAMED `<unreadable>`
+# (git permits it) cannot make this guard describe a healthy repo as gone.
+unreadable=0
+if [ -z "$now_branch" ] && [ "$now_state" = '<unreadable>' ]; then unreadable=1; fi
+
+# Reads as "the branch does not exist / is at no commit" — but on an unreadable repo it reads that
+# way because the READ failed, which is a different fact. Every use of it below is gated on
+# $unreadable for that reason.
 expected_now=$(git -C "$REPO" rev-parse --quiet --verify "refs/heads/$EXPECTED" 2>/dev/null || true)
 
 if [ "$now_branch" != "$EXPECTED" ]; then
@@ -166,17 +181,27 @@ if [ "$now_branch" != "$EXPECTED" ]; then
   head_now=$(head_sha_of "$REPO")
   new_sha=${head_now:-<unreadable>}
   {
-    echo "guarded-commit: ALERT — the commit was made, but HEAD is now '${now_branch:-detached}',"
-    echo "                not '$EXPECTED'. HEAD moved while this commit was being written."
+    echo "guarded-commit: ALERT — the commit was made, but HEAD is now '$now_state',"
+    echo "                not '$EXPECTED'. Something moved under this command while the commit"
+    echo "                was being written."
     echo "                The new commit is: $new_sha"
     if [ -n "$now_branch" ]; then
       echo "                It is on branch '$now_branch'."
-    else
+    elif [ "$unreadable" -eq 0 ]; then
       echo "                HEAD is DETACHED, so no branch points at it — it is reachable from"
       echo "                nothing and will be garbage-collected. Save it NOW:"
       echo "                    git -C $REPO branch <rescue-name> $new_sha"
+    else
+      # The third answer, which used to be printed as the second one. Everything the branch above
+      # says would be false here: the commit is most likely sitting exactly where it was asked to
+      # go, and the thing that vanished is the PATH. Say what is known and stop.
+      echo "                $REPO can no longer be read as a git repository, so this guard cannot"
+      echo "                say where the commit went, and must not guess. What moved may well be"
+      echo "                the worktree itself — removed or renamed under this command — in which"
+      echo "                case the commit is on '$EXPECTED' exactly as asked. Find the worktree"
+      echo "                before you reset, revert or force-push anything."
     fi
-    if [ "$expected_now" = "$before_sha" ]; then
+    if [ "$unreadable" -eq 0 ] && [ "$expected_now" = "$before_sha" ]; then
       echo "                '$EXPECTED' did NOT advance — the work is on the wrong branch."
       echo "                Recover by cherry-picking $new_sha onto '$EXPECTED' and reverting it"
       echo "                on '${now_branch:-the branch that took it}'. Never force-push a branch"
