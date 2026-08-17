@@ -180,12 +180,21 @@ def read_const(source, name):
     turns into a suite-wide failure naming a file the suite never touched. It also matches how the
     constant is ALREADY machine-read: renovate.json's customManager captures these very two lines
     with a regex, so anything that breaks this read has already broken Renovate's.
+
+    Two definitions are refused rather than resolved. A plain `search` would silently take the
+    first, so a module that grew a second definition would have this check comparing the whole repo
+    against a value nobody meant. Renovate reads these lines with a regex too and has the same
+    blind spot; here it is at least loud.
     """
     pattern = re.compile(r'^%s\s*=\s*"([^"]+)"\s*$' % re.escape(name), re.M)
-    match = pattern.search(source)
-    if match is None:
+    found = pattern.findall(source)
+    if not found:
         return None
-    return match.group(1)
+    if len(found) > 1:
+        die("pinned-literals-check: %s is defined more than once (%s). One home per constant — "
+            "there is no way to tell which one the repo is meant to agree with."
+            % (name, ", ".join(found)), 2)
+    return found[0]
 
 
 def claim_patterns(package):
@@ -216,13 +225,23 @@ def repo_files(repo):
 
     `git ls-files` rather than a walk because a developer checkout has OTHER WORKING TREES inside
     it — the kit's own convention puts agent worktrees under `.claude/worktrees/` — and walking
-    into one would report another branch's files as copies in this one. The walk is the fallback
-    for the golden test's scratch fixtures, which are directories rather than repositories; it
-    skips any directory carrying its own `.git`, for the same reason.
+    into one would report another branch's files as copies in this one.
+
+    `--others --exclude-standard` puts UNTRACKED-but-not-ignored files in scope too, so a local run
+    gives the verdict CI will give once the file is added. Without it a contributor writing a new
+    document that copies the pin passes locally and is refused by CI, which is the wrong order to
+    learn it in — and this repo's profile names the local suite run as THE fast path. Ignored paths
+    stay out, which is what keeps `.claude/worktrees/` (and every build artefact) from being read.
+
+    The walk is the fallback for the golden test's scratch fixtures, which are directories rather
+    than repositories, and for a host with no usable `git` at all. It skips any directory carrying
+    its own `.git` — at EVERY level, including directly under the root, which is exactly where the
+    agent worktrees sit. An earlier draft exempted the root's own children from that test and so
+    would have walked straight into them the moment the git path failed.
     """
     try:
         out = subprocess.run(
-            ["git", "-C", str(repo), "ls-files", "-z"],
+            ["git", "-C", str(repo), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
             capture_output=True, check=True,
         ).stdout
         names = [n for n in out.decode("utf-8", "replace").split("\0") if n]
@@ -236,7 +255,7 @@ def repo_files(repo):
         dirnames[:] = [
             d for d in sorted(dirnames)
             if d not in (".git", "node_modules")
-            and not (pathlib.Path(dirpath, d, ".git").exists() and pathlib.Path(dirpath) != repo)
+            and not pathlib.Path(dirpath, d, ".git").exists()
         ]
         for name in sorted(filenames):
             names.append(str(pathlib.Path(dirpath, name).relative_to(repo)))
@@ -244,15 +263,32 @@ def repo_files(repo):
 
 
 def read_lines(path):
-    """The file's lines, or None when it is not utf-8 text (an image, a compiled fixture)."""
+    """The file's lines, or None when there is legitimately nothing to read.
+
+    Only two absences are legitimate: a file that is not utf-8 text (an image, a compiled fixture)
+    and a path git lists but the working tree no longer has (a staged deletion, a dangling
+    symlink). Every OTHER OSError — unreadable, a device, a permissions problem — is a plumbing
+    error and exits 2. A blanket `except OSError: return None` would instead skip the file in
+    silence, which is a guard quietly covering less than it claims: the failure this whole script
+    exists to make loud.
+    """
     try:
         return path.read_text(encoding="utf-8").splitlines()
-    except (UnicodeDecodeError, OSError):
+    except (UnicodeDecodeError, FileNotFoundError, IsADirectoryError):
         return None
+    except OSError as exc:
+        die("pinned-literals-check: cannot read %s (%s). Refusing to skip a file in silence — "
+            "no verdict is possible about a file that was never read." % (path, exc), 2)
 
 
 def is_excluded(rel):
-    return any(rel == e or rel.startswith(e) for e in EXCLUDED)
+    """Exact path, or anything under an excluded DIRECTORY (an entry ending in '/').
+
+    A bare `startswith` on a file entry would also exclude `…-check.py.bak` or `…-check.py2` —
+    prefix matching on a name is not the same question as "is this that file", and the direction
+    it errs in is the one that hides a copy.
+    """
+    return any(rel == e or (e.endswith("/") and rel.startswith(e)) for e in EXCLUDED)
 
 
 def check_exclusions(repo, files, pin, version, problems):
@@ -299,6 +335,9 @@ def check_pin(repo, files, pin, problems):
     definition = re.compile(r'^%s\s*=' % re.escape(pin.version_const))
 
     entries = [h for h in HISTORICAL if h.pin == pin.name]
+    # Keyed by identity, not by value: two entries could legitimately carry the same path and
+    # anchor (a copy-paste in the table), and a value key would silently merge their hit counts —
+    # hiding exactly the duplicate the "exactly one line" rule below is meant to surface.
     hits = {id(h): [] for h in entries}
     marked = 0
 

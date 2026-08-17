@@ -13,6 +13,7 @@
 #   7. an EXCLUDED path spelling the pin                 -> REFUSE (a copy nothing else looks at)
 #   8. no occurrence and no marker anywhere              -> REFUSE rather than pass vacuously
 #   9. a directory with no files at all                  -> exit 2, no verdict, never a pass
+#  9b. the constant defined more than once               -> exit 2, no verdict, never a guess
 #  10. the REAL repository                               -> accept
 #  11. the check driven to red — three mutations, each of which must silence exactly one case above
 #
@@ -265,6 +266,19 @@ else
   bad "expected exit 2 on an empty directory; got rc=$rc: $out"
 fi
 
+# ------------------------------------------------------- 9b. the constant defined more than once
+# The check compares the WHOLE repo against one value, so which definition it read is not a detail.
+# Taking the first would make the verdict depend on file order — a wrong answer that looks like a
+# right one — so two definitions are a plumbing error rather than something to resolve.
+R="$WORK/twopins"; scaffold "$R"
+printf 'XUNIT_V3_VERSION = "1.2.3"\n' >> "$R/tests/xunit-v3/apply-transform.py"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'defined more than once'; then
+  ok "two definitions of the constant yield no verdict (exit 2), never a guess"
+else
+  bad "expected exit 2 on a doubly-defined constant; got rc=$rc: $out"
+fi
+
 # ------------------------------------------------------------------- 10. the REAL repository
 # The acceptance case. Without it the suite would prove the refusals work and say nothing about
 # whether the repository it ships in is actually accounted for.
@@ -281,20 +295,28 @@ fi
 # particular assertion is load-bearing. The mutants are copies; the shipped script is never edited.
 MUT="$WORK/mutants"; mkdir -p "$MUT"
 
-mutate() {  # <name> <sed-expr> -> path of the mutant
+# The mutant path comes back in a GLOBAL, never through `m=$(mutate …)`. Command substitution runs
+# the function in a SUBSHELL: a `bad` call inside it would increment $fails in a copy that dies
+# with the subshell, AND its FAIL line would be captured into $m instead of printed. A mutation
+# whose sed stopped matching would then print nothing and exit 0 — a suite reporting green over an
+# assertion it never made, which is the one outcome this repo treats as worse than a red run.
+MUTANT=""
+mutate() {  # <name> <sed-expr>; sets $MUTANT, returns non-zero if the mutation did not take
   local name="$1" expr="$2"
-  cp "$CHECK" "$MUT/$name.py"
-  rewrite "$MUT/$name.py" "$expr"
-  if cmp -s "$CHECK" "$MUT/$name.py"; then
+  MUTANT="$MUT/$name.py"
+  cp "$CHECK" "$MUTANT" && rewrite "$MUTANT" "$expr" || {
+    bad "mutation '$name' could not be built"; MUTANT=""; return 1; }
+  if cmp -s "$CHECK" "$MUTANT"; then
     bad "mutation '$name' changed nothing — its sed no longer matches the check"
+    MUTANT=""
     return 1
   fi
-  printf '%s\n' "$MUT/$name.py"
+  return 0
 }
 
 # M1 — stop classifying unmarked lines at all. Section 1's copy must go unnamed.
-if m=$(mutate blind-to-copies 's/^            if version not in line:$/            if True:/'); then
-  out=$(run_with "$m" "$WORK/newcopy")
+if mutate blind-to-copies 's/^            if version not in line:$/            if True:/'; then
+  out=$(run_with "$MUTANT" "$WORK/newcopy")
   if printf '%s' "$out" | grep -q 'docs/notes.md:1'; then
     bad "section 1 is not load-bearing: the blinded check still named docs/notes.md:1"
   else
@@ -303,8 +325,8 @@ if m=$(mutate blind-to-copies 's/^            if version not in line:$/         
 fi
 
 # M2 — stop comparing a marked line's claim to the constant. Section 2 must lose its refusal.
-if m=$(mutate accept-stale-marks 's/^                stale = sorted(.*)$/                stale = []/'); then
-  out=$(run_with "$m" "$WORK/stale")
+if mutate accept-stale-marks 's/^                stale = sorted(.*)$/                stale = []/'; then
+  out=$(run_with "$MUTANT" "$WORK/stale")
   if printf '%s' "$out" | grep -q 'states xunit.v3 1.2.3'; then
     bad "section 2 is not load-bearing: the blinded check still refused the stale mark"
   else
@@ -318,8 +340,8 @@ fi
 # two-line module, so every HISTORICAL entry is stale there too and the mutant still exits 1 for
 # that unrelated reason. Reading the exit status would let the vacuity guard rot behind a refusal
 # it never issued — the same "green for the wrong reason" the parse sweep's CI step warns about.
-if m=$(mutate no-vacuity-guard 's/^    if marked == 0:$/    if False:/'); then
-  out=$(run_with "$m" "$WORK/vacuous")
+if mutate no-vacuity-guard 's/^    if marked == 0:$/    if False:/'; then
+  out=$(run_with "$MUTANT" "$WORK/vacuous")
   if printf '%s' "$out" | grep -q 'verified NOTHING'; then
     bad "section 8 is not load-bearing: the blinded check still reported the vacuity refusal"
   else
