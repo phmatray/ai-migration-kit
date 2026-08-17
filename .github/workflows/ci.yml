@@ -16,6 +16,27 @@ on:
   # it is what #57 asks for, but it is a real edge — docs/backlog.md carries it with its trigger.
   pull_request:
 
+# Nothing in this job writes through the GitHub API: no `gh` call, no `GITHUB_TOKEN`, no `secrets.`,
+# no github-script — every step either reads the checkout, installs a toolchain, or runs a script
+# that reports through its exit status. So `contents: read` (what actions/checkout needs, and all it
+# needs) is the whole grant.
+#
+# Declared explicitly so a change to the repository's default workflow permissions cannot silently
+# widen it — that default is a settings-page toggle living outside this repository, it moves with no
+# commit and leaves no diff here, and CI stays green either way. release-title.yml says the same
+# thing for the same reason; this is the workflow where it matters more. `kit` runs third-party code
+# on every PR — `npx --yes --package renovate@…` pulls and executes a large npm dependency tree, and
+# `dotnet test samples/LegacyShop` restores NuGet packages — and it runs on `pull_request`, so it
+# runs for forks.
+#
+# WORKFLOW level, not on the `kit` job: a job added later inherits this block. A per-job grant would
+# be identical today and would silently reintroduce the gap tomorrow, with no diff to notice.
+#
+# Fork PRs already receive a read-only token; nothing declared here is something a fork cannot be
+# granted, so they keep running this workflow.
+permissions:
+  contents: read
+
 # Without a group, a second push while a run is still going leaves two runs against the same
 # branch, both publishing a check named `kit` — which verdict the PR settles on then depends on
 # run ordering rather than on the code that is actually there. Still the right call now that
