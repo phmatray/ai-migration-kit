@@ -49,7 +49,8 @@ cd "$(dirname "$0")/../.."
 KIT="$PWD"
 INV="$KIT/scripts/audit-inventory.sh"
 
-. "$KIT/tests/_lib.sh"
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$KIT"
 kit_guard kit_guard_samples_unchanged
 # Deliberately NO __pycache__ guard here, though a sibling suite registers one. This file only ever

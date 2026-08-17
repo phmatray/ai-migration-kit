@@ -59,7 +59,8 @@ template_unchanged() {
   fi
 }
 
-. "$KIT/tests/_lib.sh"
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$KIT"
 kit_guard kit_guard_samples_unchanged
 kit_guard template_unchanged

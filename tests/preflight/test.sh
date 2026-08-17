@@ -4,6 +4,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+KIT="$PWD"
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT"
+# Registered rather than left unsaid: tests/_lib.sh's contract asks every converted suite to DECIDE
+# about this guard, precisely so "forgot to call it" and "decided it does not apply" stop looking
+# alike. This one runs kit scripts against the real repo, so it takes the check.
+kit_guard kit_guard_samples_unchanged
+
 # 1. The --json output is valid JSON (the preflight may exit 0 or 1 depending on the machine).
 out=$(./scripts/preflight.sh --json || true)
 echo "$out" | python3 -m json.tool >/dev/null
@@ -30,13 +39,15 @@ PY
 
 # 4. A missing REQUIRED item ⇒ exit 1 and status "missing". PATH reduced to the bare minimum
 #    needed to read the manifest (bash + python3 + dirname): git/dotnet become unfindable.
-tmp=$(mktemp -d)
+#    The scratch comes from the shared helper, so it is removed on EVERY exit path (#128). The
+#    inline `rm -rf` this replaced ran only if the two assertions below passed — a suite that
+#    failed here left its directory behind, which is the half of the cost #72 measured away.
+tmp=$(kit_scratch)
 for c in bash python3 dirname; do ln -s "$(command -v "$c")" "$tmp/$c"; done
 if PATH="$tmp" bash ./scripts/preflight.sh --json > "$tmp/out.json" 2>/dev/null; then
   echo "the preflight should have failed without the required tooling"; exit 1
 fi
 grep -q '"status": "missing"' "$tmp/out.json"
-rm -rf "$tmp"
 
 # 5. An `mcps` entry may declare its OWN SDK floor (`requiresSdk`) — a server whose launcher needs a
 #    newer SDK than the pipeline does. roseline is exactly that: `.mcp.json` starts it with `dnx`,
@@ -48,7 +59,11 @@ rm -rf "$tmp"
 #    `$(dirname $0)/../requirements.json`, so a copy of the script beside a copy of a manifest is a
 #    complete, isolated kit. The host's `dotnet` is stubbed for the same reason — the assertion has
 #    to read the same on a .NET 10 machine and on a .NET 8 one.
-tmp=$(mktemp -d)
+#    The synthetic root comes from kit_scratch, like section 4's: this suite joined the shared
+#    library in #128, so a bare `mktemp -d` here would sit outside KIT_LIB_TMP and nothing would
+#    reclaim it (tests/lib section 9 says so by name). #112 landed this block on main while the
+#    conversion was in flight, so the two are reconciled here rather than either being dropped.
+tmp=$(kit_scratch)
 mkdir -p "$tmp/scripts" "$tmp/bin"
 cp ./scripts/preflight.sh "$tmp/scripts/preflight.sh"
 cat > "$tmp/requirements.json" <<'JSON'
@@ -113,6 +128,5 @@ assert floored["status"] == "missing", \
     f"an observed absence at level=required stays a hard fail, got {floored['status']!r}"
 assert "10" in floored["hint"], f"...and still names the floor it wanted: {floored['hint']!r}"
 PY
-rm -rf "$tmp"
 
 echo "preflight golden test OK"

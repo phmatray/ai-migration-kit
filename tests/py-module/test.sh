@@ -27,10 +27,11 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 KIT="$PWD"
+# The bootstrap: spelled out because kit_source is defined in the file this line loads. Everything
+# after it is one call (#128).
 . "$KIT/tests/_lib.sh" || {
   echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
-. "$KIT/tests/_lib/py.sh" || {
-  echo "FAIL: cannot source $KIT/tests/_lib/py.sh — that is the file under test"; exit 1; }
+kit_source "$KIT/tests/_lib/py.sh"          # the file under test
 kit_init "$KIT"
 kit_guard kit_guard_samples_unchanged
 

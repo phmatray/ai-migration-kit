@@ -26,6 +26,37 @@
 #
 # ---------------------------------------------------------------------------------- the contract
 #
+#   kit_source <path>
+#       Load another shared helper, or stop the suite NAMING the file it could not load. What it
+#       refuses over, and what it cannot, are different lists — and the second one is written down
+#       because a docstring promising prevention the code does not perform is worse than no
+#       docstring: it is what stops the next reader from adding the check that is missing.
+#
+#       REFUSES, by name, before the helper can affect the suite:
+#         * a path it cannot read;
+#         * a path that does not PARSE (`bash -n`), which is what an edit that drops a `fi`, a
+#           quote or a brace produces. Bare `. broken.sh` dies inside the source with bash's own
+#           `syntax error near unexpected token` and no mention of the helper — measured on bash
+#           3.2, exit 2, with the `||` branch never reached — and, because source executes a file
+#           as it parses it, only AFTER the helper's earlier top-level commands have run. Both are
+#           why the guard has to sit before the source rather than after it.
+#
+#       DOES NOT prevent, and cannot from here:
+#         * a helper whose top level FAILS while executing. Under the caller's `set -e` the shell
+#           dies inside the source (measured: exit 1, `||` branch never runs), so the suite stops —
+#           loudly, but without kit_source naming the file. Stopping is the safe half; the missing
+#           name is the cost.
+#         * a helper whose failing command sits in an errexit-exempt context (`if`, `&&`, `||`).
+#           The source returns 0, kit_source returns 0, and the suite proceeds with the helper only
+#           PARTIALLY loaded — the "runs with half its assertions missing" outcome this helper is
+#           otherwise about. Nothing at this level can see it; the failure surfaces later as
+#           `<helper-function>: command not found`. §11 pins the paths that ARE guarded so this
+#           list cannot quietly grow.
+#
+#       The FIRST shared file a suite loads is still sourced explicitly — this function lives in
+#       one of them, so it cannot load the file that defines it. That bootstrap line is the only
+#       one; every source after it is a single call (#128).
+#
 #   kit_init <kit-root>
 #       Arm the EXIT trap. Call once, after the suite's `cd` to the kit root, before any work.
 #
@@ -63,6 +94,56 @@
 KIT_LIB_ROOT=""
 KIT_LIB_TMP=""
 KIT_LIB_GUARDS=()
+
+kit_source() {
+  # NOT named `f`. bash is dynamically scoped, so this local is in scope while the helper below is
+  # sourced: a helper assigning a top-level global of the same name would write THIS variable
+  # instead, the value would evaporate when kit_source returned, and kit_source's own error message
+  # would then quote whatever the helper had put there rather than the path it was given. `f` is
+  # the likeliest name for that collision — it is what every loop in this repo calls its file — so
+  # the prefix is the point, not the length.
+  local _kit_src_path="${1:?kit_source needs a path}"
+  local _kit_src_err
+  # Readability is checked BEFORE the source, and separately from it, so the two failures do not
+  # get one message. `. missing.sh` under `set -e` aborts with bash's own line-number complaint and
+  # nothing about which helper or why; a suite that stops without naming the file it wanted is a
+  # CI-only failure nobody can diagnose at a distance (#74).
+  [ -r "$_kit_src_path" ] || {
+    echo "FAIL: cannot read $_kit_src_path — refusing to run unguarded"
+    echo "      A suite that loses a shared helper loses its assertions with it, and would then"
+    echo "      report OK having checked nothing."
+    exit 1
+  }
+  # Parse BEFORE sourcing, in a child shell, because the `|| {` below cannot catch a syntax error:
+  # bash aborts inside the source itself (measured on 3.2 — exit 2, the branch never runs). Worse
+  # than the missing name is WHERE it dies: `source` executes a file as it parses it, so with the
+  # error halfway down, the helper's earlier top-level commands have already taken effect and the
+  # suite is left in a state nobody wrote down. `-n` only parses; nothing in the helper runs here.
+  #
+  # `${BASH:-bash}` and not a bare `bash`: the parse must be done by the interpreter that is about
+  # to source the file, not by whatever `bash` PATH resolves to. This repo runs its suites under
+  # macOS's bash 3.2 AND under a modern bash, and the two do not accept exactly the same grammar —
+  # checking with the wrong one would either miss a real error or invent one.
+  #
+  # Captured with `if !` rather than `|| { … }`: the failing branch has to quote bash's own message,
+  # and re-running the parse to obtain it would be a second, separately-failing pipeline inside a
+  # block where errexit is live — which would replace this function's exit status with the parser's.
+  if ! _kit_src_err=$("${BASH:-bash}" -n "$_kit_src_path" 2>&1); then
+    echo "FAIL: $_kit_src_path does not parse — refusing to run unguarded"
+    echo "      Sourcing it would abort the suite partway through the helper, with bash's own"
+    echo "      syntax error and no mention of which file caused it:"
+    printf '%s\n' "$_kit_src_err" | sed 's/^/        /'
+    exit 1
+  fi
+  # shellcheck source=/dev/null
+  . "$_kit_src_path" || {
+    # Reachable only when the helper's LAST command returns non-zero from an errexit-exempt
+    # position; a top-level failure kills the shell before this runs. See the contract above —
+    # this branch is the tail of the guarantee, not the whole of it.
+    echo "FAIL: $_kit_src_path was read but failed to load — refusing to run unguarded"
+    exit 1
+  }
+}
 
 kit_init() {
   KIT_LIB_ROOT="${1:?kit_init needs the kit root}"

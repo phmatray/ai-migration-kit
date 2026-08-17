@@ -7,21 +7,75 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 KIT="$PWD"
-# Le chargeur importlib du kit (#51). Cette suite en portait une copie — correcte, mais que rien
-# n'assertait. La section 8 de tests/xunit-v3/test.sh assure désormais l'invariant sur tests/ ET
-# scripts/, donc une définition unique, ici partagée.
+# Les deux fichiers partagés du kit : le préambule (#72) puis le chargeur importlib (#51). Cette
+# suite en portait une copie — correcte, mais que rien n'assertait. La section 8 de
+# tests/xunit-v3/test.sh assure désormais l'invariant sur tests/ ET scripts/, donc une définition
+# unique, ici partagée.
 #
-# ⚠️ NE PAS écrire la chaîne littérale « _lib point sh » dans ce fichier. La section 9 de
-# tests/lib/test.sh audite les `mktemp -d` de toute suite dont le TEXTE contient cette
-# sous-chaîne ; cette suite gère quatre répertoires temporaires à elle et deviendrait rouge pour
-# une raison sans rapport avec l'édition. Le répertoire tests/_lib/ ne déclenche pas l'audit — le
-# point fait la différence. Rendre cette adhésion explicite plutôt qu'accidentelle est un suivi.
+# Ce fichier portait un avertissement « ne pas écrire le nom du préambule partagé ici » : la
+# section 9 de tests/lib/test.sh auditait alors les `mktemp -d` de toute suite dont le TEXTE
+# contenait cette sous-chaîne, et cette suite en gère plusieurs. #128 a remplacé cette inférence
+# par une déclaration — l'audit suit désormais un APPEL à kit_init — donc l'avertissement, la
+# gymnastique d'écriture qu'il imposait, ET la raison de ne pas sourcer le préambule ont disparu
+# ensemble. La première ligne est explicite (kit_source est défini dans le fichier qu'elle charge) ;
+# la seconde est un appel.
 #
 # Chemin absolu via $KIT, car le `cd` ci-dessus a déjà eu lieu.
-. "$KIT/tests/_lib/py.sh" || {
-  echo "ÉCHEC : impossible de sourcer $KIT/tests/_lib/py.sh — refus de tourner sans garde"; exit 1; }
+. "$KIT/tests/_lib.sh" || {
+  echo "ÉCHEC : impossible de sourcer $KIT/tests/_lib.sh — refus de tourner sans garde"; exit 1; }
+kit_source "$KIT/tests/_lib/py.sh"
+kit_init "$KIT"
 
-out="$(mktemp -d)/report.html"
+# ---------------------------------------------------------------------------
+# Aucun __pycache__ laissé dans le kit (#51).
+#
+# CETTE suite doit porter sa propre garde. Le réflexe — « tests/xunit-v3 la porte déjà » — est
+# faux dans l'ordre où CI exécute les choses : .github/workflows/ci.yml lance xunit-v3 AVANT ce
+# fichier, dans le même job, donc la garde de sortie de xunit-v3 a déjà tourné quand ce script
+# charge son premier module. Un __pycache__ déposé ici n'était rattrapé par rien en CI — seulement
+# par quelqu'un qui relancerait xunit-v3 ensuite, en local. C'était le trou résiduel que #51
+# prétendait fermer.
+#
+# Elle passe par first_match, l'unique implémentation de la recherche tolérante du kit :
+# `find | grep -q` ferait tuer find par SIGPIPE sous le `set -o pipefail` de la ligne 4, et
+# « trouvé » se lirait « rien trouvé » (#48). Cette suite recopiait la forme sûre à la main faute de
+# sourcer tests/_lib.sh ; elle le source maintenant (#128), donc la copie disparaît.
+#
+# Enregistrée avec kit_guard plutôt qu'écrite en fin de fichier : elle tourne alors sur CHAQUE
+# chemin de sortie, celui de l'échec compris. La forme précédente ne s'exécutait que si tout ce qui
+# précède avait réussi — un run rouge ne disait donc jamais si le chargeur avait aussi sali le
+# dépôt. Et l'enregistrement est ICI, avant le premier chargement de module : inscrite en fin de
+# fichier, la garde n'existerait précisément pas sur les chemins où elle a un intérêt.
+# (Ne pas réécrire ce paragraphe avec le mot t-r-a-p suivi d'E-X-I-T sur une même ligne : le motif
+# de la section 8 de tests/lib est volontairement non ancré et ne distingue pas un commentaire d'un
+# appel.)
+# ---------------------------------------------------------------------------
+pas_de_pycache() {
+  local stray
+  stray=$(first_match "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d)
+  if [ -n "$stray" ]; then
+    echo "ÉCHEC : un __pycache__ a été laissé dans le kit — le chargeur a perdu son"
+    echo "        PYTHONDONTWRITEBYTECODE=1 : $stray"
+    return 1
+  fi
+}
+kit_guard pas_de_pycache
+
+# Et la garde samples/, DÉCIDÉE plutôt que passée sous silence : le contrat de tests/_lib.sh demande
+# à chaque suite convertie de trancher, pour que « oubliée » et « jugée hors sujet » cessent de se
+# ressembler. Celle-ci écrit des rapports à partir de chemins qu'elle construit ; c'est exactement le
+# genre de suite pour laquelle la garde existe — une régression de résolution de chemin écrirait
+# ailleurs que dans son scratch, et la fixture gelée est ce qu'on veut voir intact en premier.
+kit_guard kit_guard_samples_unchanged
+
+# Le répertoire est CAPTURÉ, pas jeté : `out="$(mktemp -d)/report.html"` ne liait que le fichier,
+# donc plus rien ne désignait son parent et aucun `rm -rf` ne pouvait le reprendre. Chaque run en
+# laissait un derrière lui (#128), et la section 9 de tests/lib — écrite exactement pour ça — ne
+# pouvait pas le voir, cette suite évitant délibérément la sous-chaîne sur laquelle elle keyait.
+# Il vient maintenant de kit_scratch, comme tous les autres : supprimé sur CHAQUE chemin de sortie,
+# celui de l'échec compris.
+out_dir="$(kit_scratch)"
+out="$out_dir/report.html"
 python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json -o "$out" 2>/dev/null
 
 # Sans -o, la sortie atterrit À CÔTÉ du report.json — jamais dans le cwd (vague 3 : le
@@ -89,7 +143,7 @@ assert 'data-theme="dark"'
 #     deux rapports pris seul — c'est la propriété qu'un retour à « le dernier fichier gagne »
 #     casserait immédiatement.
 # ---------------------------------------------------------------------------
-multi_dir="$(mktemp -d)"
+multi_dir="$(kit_scratch)"
 python3 - "$multi_dir" <<'PY'
 import json, pathlib, sys
 src = pathlib.Path("tests/report-dashboard/fixture-report.json")
@@ -147,7 +201,6 @@ assert tile == legende.group(1), (
     f"la page publie DEUX chiffres de couverture : tuile {tile} %, légende {legende.group(1)} %. "
     "Le KPI doit être la mesure, pas une transcription.")
 PY
-rm -rf "$multi_dir"
 
 # La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
 # exactement le même objet. C'est la garantie de compatibilité des report.json déjà écrits.
@@ -178,7 +231,7 @@ PY
 # lien vers `/private/var`, alors que le script résout ses chemins avec `Path.resolve()` et affiche
 # donc la forme physique. Sans normalisation, les assertions qui comparent un chemin AFFICHÉ à
 # `$dir_case` seraient vertes sur le runner Linux de la CI et rouges sur la machine du mainteneur.
-dir_case="$(cd "$(mktemp -d)" && pwd -P)"
+dir_case="$(cd "$(kit_scratch)" && pwd -P)"
 cp tests/report-dashboard/fixture-cobertura.xml "$dir_case/projet-un.cobertura.xml"
 cp tests/report-dashboard/fixture-cobertura-b.xml "$dir_case/projet-deux.cobertura.xml"
 
@@ -216,7 +269,6 @@ case "$err" in
   *"chemin relatif résolu depuis $dir_case"*) : ;;
   *) echo "ÉCHEC : l'erreur d'un fichier manquant ne nomme pas la base : $err"; exit 1 ;;
 esac
-rm -rf "$dir_case"
 
 # ---------------------------------------------------------------------------
 # L'erreur NOMME la base contre laquelle un chemin relatif a été résolu (issue #102).
@@ -232,7 +284,7 @@ rm -rf "$dir_case"
 # chemin résolu la CONTIENT comme préfixe, donc un `case` sur « $b/migration » passerait sans que
 # le message n'explique quoi que ce soit.
 # ---------------------------------------------------------------------------
-base_case="$(cd "$(mktemp -d)" && pwd -P)"   # cf. la note sur pwd -P au bloc précédent
+base_case="$(cd "$(kit_scratch)" && pwd -P)"   # cf. la note sur pwd -P au bloc précédent
 mkdir -p "$base_case/migration"
 python3 - "$base_case" <<'PY'
 import json, pathlib, sys
@@ -285,7 +337,6 @@ case "$err" in
   *"chemin relatif résolu depuis"*)
     echo "ÉCHEC : un chemin absolu n'est résolu contre aucune base : $err"; exit 1 ;;
 esac
-rm -rf "$base_case"
 
 # ---------------------------------------------------------------------------
 # Le snippet DOCUMENTÉ, exécuté contre la disposition DOCUMENTÉE (issue #49).
@@ -300,7 +351,7 @@ rm -rf "$base_case"
 # La valeur n'est donc PAS écrite en dur ici : elle est EXTRAITE du fichier de référence. Une
 # référence qu'on se contente de lire dérive — c'est exactement comme ça qu'on en est arrivé là.
 # ---------------------------------------------------------------------------
-doc_case="$(mktemp -d)"
+doc_case="$(kit_scratch)"
 mkdir -p "$doc_case/migration" "$doc_case/coverage"
 cp tests/report-dashboard/fixture-cobertura.xml   "$doc_case/coverage/projet-un.cobertura.xml"
 cp tests/report-dashboard/fixture-cobertura-b.xml "$doc_case/coverage/projet-deux.cobertura.xml"
@@ -354,7 +405,6 @@ if [ -z "$pct" ] || [ "$pct" -le 0 ]; then
   echo "        Un rapport vide passerait un simple test d'existence du répertoire."
   exit 1
 fi
-rm -rf "$doc_case"
 
 # ---------------------------------------------------------------------------
 # Une absence de donnée de branche n'est pas une mesure de 0 % (issue #50).
@@ -384,7 +434,7 @@ assert conds["branch_pct"] == 67, conds["branch_pct"]
 PY
 
 # …et le rendu dit « n/d » plutôt que « 0 % ».
-nd_dir="$(mktemp -d)"
+nd_dir="$(kit_scratch)"
 python3 - "$nd_dir" <<'PY'
 import json, pathlib, sys
 r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
@@ -399,7 +449,6 @@ assert_in "$nd_dir/report.html" 'branches n/d'
 # rendrait « 60 % branches », l'assertion serait restée verte ; et si elle échouait, son message
 # aurait désigné l'inverse du comportement réel.
 assert_in "$nd_dir/report.html" 'Global : 50 % lignes · branches n/d'
-rm -rf "$nd_dir"
 
 # ---------------------------------------------------------------------------
 # `screenshot.path` se résout contre la même base — et échoue de la même façon (issue #102).
@@ -413,7 +462,7 @@ rm -rf "$nd_dir"
 # une garde trop zélée casserait tous les report.json qui portent une capture sans qu'aucun test
 # ne bouge — la fixture principale n'en déclare aucune.
 # ---------------------------------------------------------------------------
-shot_dir="$(cd "$(mktemp -d)" && pwd -P)"   # cf. la note sur pwd -P plus haut
+shot_dir="$(cd "$(kit_scratch)" && pwd -P)"   # cf. la note sur pwd -P plus haut
 mkdir -p "$shot_dir/migration"
 cp tests/report-dashboard/fixture-cobertura.xml "$shot_dir/migration/"
 python3 - "$shot_dir" <<'PY'
@@ -465,33 +514,7 @@ python3 scripts/report-dashboard.py "$shot_dir/migration/report.json" \
 assert_in "$shot_dir/migration/report.html" 'src="data:image/png;base64,'
 assert_in "$shot_dir/migration/report.html" 'Page de connexion migrée'
 assert_in "$shot_dir/migration/report.html" 'alt="Capture de la page de connexion"'
-rm -rf "$shot_dir"
 
-# ---------------------------------------------------------------------------
-# Aucun __pycache__ laissé dans le kit (#51).
-#
-# CETTE suite doit porter sa propre garde. Le réflexe — « tests/xunit-v3 la porte déjà » — est
-# faux dans l'ordre où CI exécute les choses : .github/workflows/ci.yml lance xunit-v3 AVANT ce
-# fichier, dans le même job, donc la garde de sortie de xunit-v3 a déjà tourné quand ce script
-# charge son premier module. Un __pycache__ déposé ici n'était rattrapé par rien en CI — seulement
-# par quelqu'un qui relancerait xunit-v3 ensuite, en local. C'était le trou résiduel que #51
-# prétendait fermer.
-#
-# `-print -quit` capturé dans une variable, jamais `find | grep -q` : sous le `set -o pipefail` de
-# la ligne 4, la sortie anticipée de grep tue find par SIGPIPE et « trouvé » se lirait
-# « rien trouvé » (#48). Même raison d'être que any_match dans tests/_lib point sh, que cette suite
-# ne peut pas sourcer (voir l'avertissement en tête de fichier).
-#
-# Sur le chemin de succès uniquement, faute de gestionnaire de sortie : `set -e` sort avant en cas
-# d'échec, et la suite est alors déjà rouge. La section 8 de tests/lib interdit justement à une
-# suite d'installer le sien, ce qui rend cette forme-ci la bonne. (Ne pas réécrire cette phrase
-# avec le mot t-r-a-p suivi d'E-X-I-T sur une même ligne : le motif de cette section 8 est
-# volontairement non ancré et ne distingue pas un commentaire d'un appel.)
-stray=$(find "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d -print -quit 2>/dev/null || true)
-if [ -n "$stray" ]; then
-  echo "ÉCHEC : un __pycache__ a été laissé dans le kit — le chargeur a perdu son"
-  echo "        PYTHONDONTWRITEBYTECODE=1 : $stray"
-  exit 1
-fi
-
-echo "OK test golden report-dashboard ($out)"
+# Le chemin n'est plus affiché : il est supprimé à la sortie, et annoncer un artefact qui n'existe
+# plus était la moitié visible de la fuite (#128).
+echo "OK test golden report-dashboard"
