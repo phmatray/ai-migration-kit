@@ -174,7 +174,11 @@ PY
 # désigner le répertoire. Le nom des fixtures ne finit pas par `.cobertura.xml`, donc on en
 # dépose des copies correctement nommées — c'est aussi ce que produit un vrai run.
 # ---------------------------------------------------------------------------
-dir_case="$(mktemp -d)"
+# `pwd -P` et pas le retour brut de mktemp : sur macOS il rend un chemin sous `/var`, qui est un
+# lien vers `/private/var`, alors que le script résout ses chemins avec `Path.resolve()` et affiche
+# donc la forme physique. Sans normalisation, les assertions qui comparent un chemin AFFICHÉ à
+# `$dir_case` seraient vertes sur le runner Linux de la CI et rouges sur la machine du mainteneur.
+dir_case="$(cd "$(mktemp -d)" && pwd -P)"
 cp tests/report-dashboard/fixture-cobertura.xml "$dir_case/projet-un.cobertura.xml"
 cp tests/report-dashboard/fixture-cobertura-b.xml "$dir_case/projet-deux.cobertura.xml"
 
@@ -206,7 +210,82 @@ case "$err" in
   *disparu.cobertura.xml*) : ;;
   *) echo "ÉCHEC : l'erreur ne nomme pas le fichier manquant : $err"; exit 1 ;;
 esac
+# …et elle nomme la base de résolution, y compris pour la forme fichier : le chemin affiché est
+# absolu alors que le report.json en portait un relatif, donc « d'où sort-il ? » se pose aussi ici.
+case "$err" in
+  *"chemin relatif résolu depuis $dir_case"*) : ;;
+  *) echo "ÉCHEC : l'erreur d'un fichier manquant ne nomme pas la base : $err"; exit 1 ;;
+esac
 rm -rf "$dir_case"
+
+# ---------------------------------------------------------------------------
+# L'erreur NOMME la base contre laquelle un chemin relatif a été résolu (issue #102).
+#
+# C'est la cause racine de #49, que #49 n'a fait que contourner. `"coverage"` écrit dans
+# `migration/report.json` désigne `migration/coverage`, pas le `coverage/` de la racine ; le
+# diagnostic disait seulement « rapport de couverture introuvable : …/migration/coverage » —
+# un chemin que personne n'a tapé, sans un mot sur d'où il sort, et en appelant « rapport » un
+# RÉPERTOIRE. Corriger la référence retirait la valeur fausse du jour ; nommer la base ferme la
+# classe entière, tout champ relatif compris, y compris ceux ajoutés plus tard.
+#
+# La base est assertée via la clause explicative, jamais en cherchant le chemin de base seul : le
+# chemin résolu la CONTIENT comme préfixe, donc un `case` sur « $b/migration » passerait sans que
+# le message n'explique quoi que ce soit.
+# ---------------------------------------------------------------------------
+base_case="$(cd "$(mktemp -d)" && pwd -P)"   # cf. la note sur pwd -P au bloc précédent
+mkdir -p "$base_case/migration"
+python3 - "$base_case" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "coverage"}      # la valeur exacte de #49
+pathlib.Path(sys.argv[1], "migration", "report.json").write_text(json.dumps(r))
+PY
+if err=$(python3 scripts/report-dashboard.py "$base_case/migration/report.json" \
+           -o "$base_case/migration/report.html" 2>&1); then
+  echo "ÉCHEC : un répertoire de couverture manquant doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *"$base_case/migration/coverage"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le chemin résolu : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"chemin relatif résolu depuis $base_case/migration"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la base de résolution : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"répertoire du report.json"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne dit pas ce qu'est cette base : $err"; exit 1 ;;
+esac
+# Et elle ne présente plus un répertoire comme un rapport. La clause ci-dessus contient le mot
+# « répertoire », donc c'est le libellé FAUTIF qu'on interdit, pas le bon qu'on cherche.
+case "$err" in
+  *"rapport de couverture introuvable"*)
+    echo "ÉCHEC : un répertoire manquant est annoncé comme un « rapport » : $err"; exit 1 ;;
+esac
+
+# Un chemin ABSOLU n'a été résolu contre rien : la clause serait un mensonge, donc elle est absente.
+python3 - "$base_case" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": str(pathlib.Path(sys.argv[1], "absent", "rien.cobertura.xml"))}
+pathlib.Path(sys.argv[1], "migration", "report.json").write_text(json.dumps(r))
+PY
+if err=$(python3 scripts/report-dashboard.py "$base_case/migration/report.json" \
+           -o "$base_case/migration/report.html" 2>&1); then
+  echo "ÉCHEC : un chemin absolu manquant doit faire échouer la génération"; exit 1
+fi
+# D'abord prouver que l'échec est bien CELUI-LÀ : sans cette assertion, n'importe quel plantage
+# (une trace Python, un JSON invalide) satisferait « la clause est absente » et le cas resterait
+# vert en n'ayant rien mesuré.
+case "$err" in
+  *"rapport de couverture introuvable : $base_case/absent/rien.cobertura.xml"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le rapport absolu manquant : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"chemin relatif résolu depuis"*)
+    echo "ÉCHEC : un chemin absolu n'est résolu contre aucune base : $err"; exit 1 ;;
+esac
+rm -rf "$base_case"
 
 # ---------------------------------------------------------------------------
 # Le snippet DOCUMENTÉ, exécuté contre la disposition DOCUMENTÉE (issue #49).
@@ -321,6 +400,72 @@ assert_in "$nd_dir/report.html" 'branches n/d'
 # aurait désigné l'inverse du comportement réel.
 assert_in "$nd_dir/report.html" 'Global : 50 % lignes · branches n/d'
 rm -rf "$nd_dir"
+
+# ---------------------------------------------------------------------------
+# `screenshot.path` se résout contre la même base — et échoue de la même façon (issue #102).
+#
+# `main()` résout la capture contre le répertoire du report.json, exactement comme la couverture.
+# Mais une capture absente n'avait aucune erreur nommée : `data_uri` laissait remonter un
+# FileNotFoundError brut, donc une trace Python à la fin d'un long pipeline, sur l'artefact censé
+# prouver le travail — pire que le cas couverture que #49 avait au moins rendu lisible.
+#
+# Les deux sens sont couverts : une capture PRÉSENTE doit toujours s'embarquer. Sans ce cas-là,
+# une garde trop zélée casserait tous les report.json qui portent une capture sans qu'aucun test
+# ne bouge — la fixture principale n'en déclare aucune.
+# ---------------------------------------------------------------------------
+shot_dir="$(cd "$(mktemp -d)" && pwd -P)"   # cf. la note sur pwd -P plus haut
+mkdir -p "$shot_dir/migration"
+cp tests/report-dashboard/fixture-cobertura.xml "$shot_dir/migration/"
+python3 - "$shot_dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura.xml", "exclude": ["Fixture.Web"]}
+# Libellés sans apostrophe : `esc()` échappe `'` en `&#x27;`, et une assertion `grep -F` sur le
+# texte source échouerait pour une raison qui n'a rien à voir avec ce que ce bloc mesure.
+r["screenshot"] = {"path": "captures/app.png", "caption": "Page de connexion migrée",
+                   "alt": "Capture de la page de connexion"}
+(d / "migration" / "report.json").write_text(json.dumps(r))
+PY
+
+if err=$(python3 scripts/report-dashboard.py "$shot_dir/migration/report.json" \
+           -o "$shot_dir/migration/report.html" 2>&1); then
+  echo "ÉCHEC : une capture manquante doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *Traceback*) echo "ÉCHEC : une capture manquante crache une trace Python : $err"; exit 1 ;;
+esac
+# Le libellé EXACT, pas un `*capture*` : le chemin résolu contient déjà « captures/app.png », donc
+# un motif large serait satisfait par le chemin lui-même et resterait vert quel que soit ce que la
+# phrase raconte — une assertion qui ne peut pas échouer.
+case "$err" in
+  *"capture introuvable :"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la capture comme telle : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"$shot_dir/migration/captures/app.png"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la capture résolue : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"chemin relatif résolu depuis $shot_dir/migration, le répertoire du report.json"*) : ;;
+  *) echo "ÉCHEC : l'erreur de capture ne nomme pas la base de résolution : $err"; exit 1 ;;
+esac
+
+# Le cas passant : la capture existe, elle est embarquée en data URI (rien d'externe).
+mkdir -p "$shot_dir/migration/captures"
+python3 - "$shot_dir" <<'PY'
+import base64, pathlib, sys
+# PNG 1×1 valide — le plus petit fichier qui prouve que les octets sont bien lus et encodés.
+png = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+pathlib.Path(sys.argv[1], "migration", "captures", "app.png").write_bytes(png)
+PY
+python3 scripts/report-dashboard.py "$shot_dir/migration/report.json" \
+  -o "$shot_dir/migration/report.html" 2>/dev/null
+assert_in "$shot_dir/migration/report.html" 'src="data:image/png;base64,'
+assert_in "$shot_dir/migration/report.html" 'Page de connexion migrée'
+assert_in "$shot_dir/migration/report.html" 'alt="Capture de la page de connexion"'
+rm -rf "$shot_dir"
 
 # ---------------------------------------------------------------------------
 # Aucun __pycache__ laissé dans le kit (#51).
