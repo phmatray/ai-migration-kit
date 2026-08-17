@@ -146,4 +146,29 @@ grep -qF '## Commit identity' "$KIT/$PROFILE" \
   || fail "$PROFILE is tracked but carries no '## Commit identity' section — the lifecycle skills
       read it there; fill the schema in skills/get-repo-profile/references/profile-template.md"
 
+# 7. No skill reads the profile with a bare `cat` (#157). The helper's whole reason to exist is that
+#    it distinguishes "absent" from "empty": `show` prints NO_PROFILE and exits 3 (case 1 above),
+#    while a bare cat writes one line to STDERR, nothing to stdout, and returns a status the reading
+#    agent never sees — so a repo with no profile looks exactly like a repo whose profile is silent,
+#    and the skill infers the facts it was supposed to read. Case 6 makes THIS repo's profile
+#    present; this case keeps every consumer repo's absence audible.
+#
+#    Matched on `cat` immediately followed by the path, so the surrounding prose may keep saying the
+#    word — the defect is the command, not the noun.
+PROFILE_CAT_RE='cat[[:space:]]+[^[:space:]|]*\.claude/skills/repo-profile\.md'
+offenders=$(grep -rnE "$PROFILE_CAT_RE" --include='*.md' "$KIT/skills" || true)
+[ -z "$offenders" ] || fail "a skill still reads the profile with a bare cat — use
+      \`<kit>/skills/get-repo-profile/scripts/repo-profile.sh show\`, which reports NO_PROFILE/exit 3
+      instead of empty output:
+$offenders"
+
+# The pattern IS the assertion, so prove it still sees what it looks for: a regex that has stopped
+# matching anything would pass the case above forever, silently. Fixture, never the real tree.
+probe=$(kit_scratch)
+mkdir -p "$probe/skills"
+printf 'Read it directly:\n\n```bash\ncat .claude/skills/repo-profile.md\n```\n' \
+  > "$probe/skills/decoy.md"
+grep -rqE "$PROFILE_CAT_RE" --include='*.md' "$probe/skills" \
+  || fail "the bare-cat pattern no longer matches a bare cat — the case above passes vacuously"
+
 echo "repo-profile golden test OK"

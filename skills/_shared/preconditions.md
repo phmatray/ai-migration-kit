@@ -6,16 +6,41 @@ links here and adds only its skill-specific extras.
 ## Load the repo profile
 
 The repo profile is the single source of truth for repo-specific facts — commit identity, labels, CI
-gates, conflict hot-spots, architecture grain. Read it directly from the committed file
-**`.claude/skills/repo-profile.md`**:
+gates, conflict hot-spots, architecture grain. It lives, committed, at
+**`.claude/skills/repo-profile.md`**; read it through the helper that already knows how to say it is
+not there:
 
 ```bash
-cat .claude/skills/repo-profile.md
+<kit>/skills/get-repo-profile/scripts/repo-profile.sh show
 ```
 
-Only if that file is **missing** (or the user asks to refresh it), run **`get-repo-profile`** to
-generate it first, then read it. If you genuinely can't obtain it, say so in the report rather than
-inventing repo specifics.
+`<kit>` is the kit root — the directory holding `skills/` and `scripts/` — resolved when the skill
+loads, the same placeholder [`worktree-ignore-check.md`](./worktree-ignore-check.md) and
+`legacy-upgrade` use. Do **not** write it as a shell variable: an unset `$KIT` expands to
+`/skills/…`, i.e. exit `127`, which is a missing tool being read as a verdict.
+
+The helper takes an optional directory and otherwise anchors itself to the repo root, so it resolves
+from any subdirectory — and from a linked worktree, where the profile is present because it is
+tracked.
+
+### The two outcomes
+
+| Exit | Output | What it means | What to do |
+|---:|---|---|---|
+| `0` | the profile | it is committed and readable | Use it. Every repo-specific value below comes from it. |
+| `3` | `NO_PROFILE` | this repository has **no committed profile** | Run **`get-repo-profile`** to generate one, then re-read. |
+
+**Why not just read the file.** A bare `cat` of a missing profile writes one line to *stderr*, nothing
+to stdout, and returns a status nobody reads — so "this repo has no profile" and "this repo's profile
+is silent" look identical, and the skill proceeds to infer the commit identity, the CI gates and the
+label set from the repository instead. That inference is usually right, which is exactly what makes it
+dangerous: it is invisible in the successful case (#157). `show` turns the same situation into a named
+condition with a named remedy.
+
+**`NO_PROFILE` is informative, not fatal.** A repository may legitimately not carry one — a first run,
+or a team that has chosen not to commit it. Generating one is the remedy; if that is genuinely
+impossible, **say so in the report, name the values you had to infer and where you got them**, and
+carry on. Do not stop the run over it, and do not infer silently.
 
 ## Verify authentication
 
