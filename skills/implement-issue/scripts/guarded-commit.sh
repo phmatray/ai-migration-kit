@@ -160,7 +160,11 @@ if [ "$now_branch" != "$EXPECTED" ]; then
   # commit is reachable from no ref at all and will eventually be garbage-collected, so it is
   # precisely the case where withholding the sha loses the work — yet it is also the case where
   # "$now_branch" is empty and a branch-name-shaped message has nothing to say.
-  new_sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '<unreadable>')
+  # Through the shared reader, then rendered — the rendering is a step of its own so that this
+  # spelling cannot drift from the receipt's at the bottom of the file, which is how the two came
+  # to disagree in the first place (#129). The rendered text is unchanged.
+  head_now=$(head_sha_of "$REPO")
+  new_sha=${head_now:-<unreadable>}
   {
     echo "guarded-commit: ALERT — the commit was made, but HEAD is now '${now_branch:-detached}',"
     echo "                not '$EXPECTED'. HEAD moved while this commit was being written."

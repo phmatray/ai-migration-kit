@@ -273,6 +273,12 @@ fi
 # defect #92 removed from the ALERT above, on the success path, which is the worse place for it.
 # The fallback is the full `$head_sha`, which the pre-flight witness check above already required
 # to be non-empty — named rather than cited by line, for the reason given at the re-assert.
-short_sha=$(git -C "$REPO" rev-parse --short "$head_sha" 2>/dev/null || true)
+#
+# The read itself is head_sha_of() from _assert-branch.sh, which is where abbreviating a sha now
+# lives for all three guards (#129): this line was the third of four spellings, and the fix that
+# landed here first stayed here while the two siblings kept theirs — the same "repair it where you
+# saw it" shape as #44/#78/#92. head_sha_of takes the <rev> as its second argument, so `$head_sha`
+# still names the sha the remote was actually compared against.
+short_sha=$(head_sha_of "$REPO" "$head_sha")
 printf 'guarded-push: %s/%s == %s, verified on the remote\n' \
   "$REMOTE" "$EXPECTED" "${short_sha:-$head_sha}"

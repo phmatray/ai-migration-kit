@@ -208,7 +208,12 @@ if [ "$now_branch" != "$EXPECTED" ]; then
   # The sha is printed unconditionally, and FIRST. A detached HEAD is the one case where the
   # merge commit is reachable from no ref at all and will eventually be garbage-collected, so
   # it is precisely the case where withholding the sha loses the work.
-  new_sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '<unreadable>')
+  # Through the shared reader, then rendered — one spelling for the read, and the rendering as a
+  # step of its own so it cannot drift from the receipt's at the bottom of the file (#129). The
+  # rendered text is unchanged. `expected_now` below is a different read-kind: the EXISTENCE and
+  # full sha of a branch ref, which is what the comparison against `before_sha` needs.
+  head_now=$(head_sha_of "$REPO")
+  new_sha=${head_now:-<unreadable>}
   expected_now=$(git -C "$REPO" rev-parse --quiet --verify "refs/heads/$EXPECTED" 2>/dev/null || true)
   {
     echo "guarded-merge: ALERT — HEAD is now '${now_branch:-detached}', not '$EXPECTED'."

@@ -1477,4 +1477,80 @@ case "$receipt" in
 esac
 echo "  ok: receipt-unreadable-merge — guarded-merge's success receipt never leaves the sha field blank"
 
+# ---------------------------------------------------------------- 33. ONE spelling for the read
+#
+# The two cases above pin the OUTPUT. This one pins the reason the output was wrong, because the
+# blank receipt was never really a typo: reading HEAD's branch had a home (head_branch_of, #44)
+# and reading HEAD's SHA had none, so every message that wanted one respelled the read. Four
+# spellings across four files, and the fourth — a bare `$(git … rev-parse …)` interpolated into a
+# printf argument — is the defect. That there were four at all is why a fifth is cheap to add,
+# which is what this case makes expensive.
+#
+# It is a STATIC scan on purpose. A behavioural case can only reach a spelling that some fixture
+# happens to exercise; the whole lesson of #44/#72/#78/#92/#129 is that the copy nobody exercises
+# is the one that keeps the bug. So the assertion is over the source itself.
+#
+# Whole-line comments are excluded, and have to be: these guards carry long prose headers that
+# QUOTE the very spellings under test — that is what the headers are for — and a scan that read
+# them would be permanently red with no way to fix it that did not delete the reasoning.
+guard_code() {
+  awk -v f="$(basename "$1")" '!/^[[:space:]]*#/ { print f ":" NR ": " $0 }' "$1"
+}
+
+# 33a. The ABBREVIATING read — `rev-parse … --short` — has exactly one home, and it is the
+# helper. This is the read-kind that carried the defect, in three of its four spellings.
+spellings=""
+for g in "$COMMIT" "$PUSH" "$MERGE"; do
+  hits=$(guard_code "$g" | grep -E 'rev-parse.*--short' || true)
+  [ -z "$hits" ] || spellings="$spellings$hits
+"
+done
+if [ -n "$spellings" ]; then
+  OUT="$WORK/out.one-spelling"
+  printf '%s' "$spellings" > "$OUT"
+  fail one-spelling "abbreviating a sha belongs to head_sha_of in _assert-branch.sh; these guards still spell it themselves:"
+fi
+
+helper_homes=$(guard_code "$HELPER" | grep -cE 'rev-parse.*--short' || true)
+OUT=""
+[ "$helper_homes" -eq 1 ] || fail one-spelling-home \
+  "the abbreviating read must have exactly ONE home in _assert-branch.sh, found $helper_homes"
+
+# 33b. …and no message may build one inline. This is the shape of the bug rather than one of its
+# instances: a command substitution that fails inside a `printf`/`echo` argument is neither
+# aborted by `set -e` nor reflected in the statement's status, so the field renders empty and the
+# guard exits 0 having named no commit. Reading into a variable first is what makes the failure
+# observable, which is why the rule is about WHERE the substitution sits, not about which flags
+# it carries.
+inlined=""
+for g in "$COMMIT" "$PUSH" "$MERGE" "$HELPER"; do
+  hits=$(guard_code "$g" | grep -E '(printf|echo).*\$\(git' || true)
+  [ -z "$hits" ] || inlined="$inlined$hits
+"
+done
+if [ -n "$inlined" ]; then
+  OUT="$WORK/out.inlined-substitution"
+  printf '%s' "$inlined" > "$OUT"
+  fail inlined-substitution "a git read inside a printf/echo argument fails invisibly — read it into a variable first:"
+fi
+
+# 33c. …and the FULL-sha witness read keeps its safe spelling. Different read-kind, same file,
+# and green the day it is written — which is its job, exactly as case 31b's is. `rev-parse HEAD`
+# with no `--verify` prints the literal string "HEAD" on an unborn branch and exits 128, so
+# `|| true` hands the caller "HEAD" as though it were a sha; that is #92, and it is one careless
+# edit away from coming back in a file that now invites people to touch its sha reads.
+unsafe=""
+for g in "$COMMIT" "$PUSH" "$MERGE" "$HELPER"; do
+  hits=$(guard_code "$g" | grep -E 'rev-parse[[:space:]]+HEAD' || true)
+  [ -z "$hits" ] || unsafe="$unsafe$hits
+"
+done
+if [ -n "$unsafe" ]; then
+  OUT="$WORK/out.unsafe-head-read"
+  printf '%s' "$unsafe" > "$OUT"
+  fail unsafe-head-read "a bare 'rev-parse HEAD' answers with the literal string HEAD on an unborn branch (#92) — use --verify --quiet:"
+fi
+OUT=""
+echo "  ok: one-spelling — the sha read has one home, no message builds one inline, and #92's spelling stays out"
+
 echo "guarded-git golden test OK"
