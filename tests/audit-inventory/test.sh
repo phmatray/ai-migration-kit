@@ -442,10 +442,13 @@ echo "  [7] a nested checkout inflates no key — csFiles, testStack and project
 # test. Each fixture below carries exactly one shape, plus third-party source that must not leak.
 # A restore folder carries third-party source AND a foreign project — both must stay out, or the
 # assertions below are vacuous (nothing to leak means nothing can be caught leaking).
+# The second argument is the sub-path the foreign code sits at, defaulting to NuGet's own
+# `lib/<tfm>/`. Case (e) needs it at a DIFFERENT depth — see there.
 seed_foreign() {
-  mkdir -p "$1/lib/net45"
-  echo 'namespace Third { public class Junk { } }' > "$1/lib/net45/Junk.cs"
-  cat > "$1/lib/net45/Third.csproj" <<'XML'
+  local sub="${2:-lib/net45}"
+  mkdir -p "$1/$sub"
+  echo 'namespace Third { public class Junk { } }' > "$1/$sub/Junk.cs"
+  cat > "$1/$sub/Third.csproj" <<'XML'
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>net45</TargetFramework></PropertyGroup>
   <ItemGroup><PackageReference Include="xunit" Version="2.4.2" /></ItemGroup>
@@ -540,6 +543,26 @@ mkdir -p "$P4/packages/newtonsoft.json/13.0.1"
 echo 'namespace Third { public class Junk { } }' > "$P4/packages/newtonsoft.json/13.0.1/Junk.cs"
 assert_restore_skipped "$P4" v3-global newtonsoft.json
 
+# (e) the name alone AGAIN, but this time against the subtree probe #107 added — a restored
+#     package whose subtree really does hold a `.csproj`. That happens: NuGet packages ship
+#     source in `contentFiles/`, and some ship a project under `content/` or a build helper under
+#     `tools/`. The probe would call this source; `<Id>.<Version>` — a shape a first-party package
+#     directory never has — has to beat it, or every committed restore folder that ships one
+#     project drags its whole third-party tree into the repo's own numbers.
+#
+#     The project sits at the depth the probe actually reaches (a child of the child). The shape
+#     the issue quotes, `lib/net45/Third.csproj`, is one level deeper and is already outside the
+#     bound — case (b) pins it — so asserting on it here would pass no matter which way the
+#     precedence ran, and this case exists precisely to pin the precedence.
+#
+#     `tools/` rather than `lib/` or `content/` keeps this case single-signal like its siblings:
+#     with a directory name the detector reads as a restore marker, the name branch could be
+#     deleted and the fixture would still be skipped for the wrong reason.
+P5="$scratch/pkg-name-beats-probe"; mk_host "$P5"
+mkdir -p "$P5/packages/Newtonsoft.Json.13.0.1"
+seed_foreign "$P5/packages/Newtonsoft.Json.13.0.1" tools
+assert_restore_skipped "$P5" name-beats-probe Newtonsoft.Json.13.0.1
+
 Q="$scratch/packages-source"
 mkdir -p "$Q/packages/app-one"
 mk_app "$Q/packages/app-one"
@@ -563,7 +586,7 @@ assert paths == ["packages/app-one/wwwroot/lib/bootstrap"], \
 assert not any(e["path"] == "packages" for e in inv["excludedFromWalk"]), \
     f"a source packages/ was reported as excluded: {inv['excludedFromWalk']}"
 PY
-echo "  [8] packages/ decided by structure — 3 restore shapes skipped and named, source walked"
+echo "  [8] packages/ decided by structure — 4 restore shapes skipped and named, source walked"
 
 # ---------------------------------------------------------------------------
 # 8b. DEPTH must not decide whether a first-party package is visible (#107).
@@ -583,14 +606,14 @@ echo "  [8] packages/ decided by structure — 3 restore shapes skipped and name
 #     and `packages/<name>/<version>/` is what a monorepo that versions its own packages looks
 #     like. Both were dropped by the rules meant for NuGet's restore output.
 # ---------------------------------------------------------------------------
-# (e) the project sits under `lib/` — the very directory name the detector reads as proof of a
+# (f) the project sits under `lib/` — the very directory name the detector reads as proof of a
 #     restored package. Source has to win over that signal, exactly as an immediate `.csproj`
 #     already wins over a stray `.nupkg` in (Q).
 D1="$scratch/pkg-deep-lib"; mk_host "$D1"
 mk_lib "$D1/packages/MyLib/lib" MyLib
 assert_package_walked "$D1" deep-lib MyLib MyLib
 
-# (f) the project sits under a version-shaped directory, so the child is caught by the v3
+# (g) the project sits under a version-shaped directory, so the child is caught by the v3
 #     "every child is a version" rule — which only ever inspected directory NAMES and never
 #     checked that the leaf holds no project. Contrast with (d), whose leaf holds none.
 D2="$scratch/pkg-deep-version"; mk_host "$D2"
