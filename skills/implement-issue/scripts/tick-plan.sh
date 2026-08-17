@@ -135,7 +135,17 @@ fi
 
 # ---------------------------------------------------------------- write, then read back
 
-if ! printf '%s' "$payload" | gh api "$endpoint" -X PATCH --input - >/dev/null; then
+# The payload goes to gh in a FILE, not down a stdin pipe. `--input -` was the last piece of the
+# recipe this script replaced still in place, and it is what made a PATCH of a ~30KB body take
+# 25–35 minutes to return from a write GitHub had already applied in seconds (#113) — the same
+# host reads the same issue back in 0.4s. A file has no pipe handshake to get stuck in.
+payload_file=$(mktemp "${TMPDIR:-/tmp}/tick-plan-payload.XXXXXX") \
+  || die "could not create a temp file for the payload. Nothing sent"
+trap 'rm -f "$payload_file"' EXIT
+printf '%s' "$payload" > "$payload_file"
+[ -s "$payload_file" ] || die "the payload file came out empty. Nothing sent"
+
+if ! gh api "$endpoint" -X PATCH --input "$payload_file" >/dev/null; then
   die "the PATCH to $endpoint failed. The body was NOT changed; intact copy: $BEFORE"
 fi
 

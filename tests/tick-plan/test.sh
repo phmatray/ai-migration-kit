@@ -26,12 +26,27 @@ WORK=$(kit_scratch)
 # A `gh` stub on PATH: records every invocation, so the test can prove that a refused write
 # never reached the network. It also stores the PATCHed body and serves it back on a GET, so
 # the script's verify-after-write step is genuinely exercised rather than stubbed away.
+#
+# The stub resolves `--input` the way real `gh` does — a path is read from that file, a bare `-`
+# from stdin — and records which of the two it was in $GH_INPUT_PATH. That is what lets the suite
+# pin the payload's transport (#113): `--input -` is the stdin pipe that sat for 25–35 minutes on
+# a 30KB body after GitHub had already stored it.
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "ARGS: $*" >> "$GH_CALL_LOG"
 if [[ "$*" == *PATCH* ]]; then
-  cat > "$GH_PAYLOAD"
+  input="<none>"; prev=""
+  for a in "$@"; do
+    [ "$prev" = "--input" ] && input="$a"
+    prev="$a"
+  done
+  printf '%s\n' "$input" > "$GH_INPUT_PATH"
+  if [ "$input" = "<none>" ] || [ "$input" = "-" ]; then
+    cat > "$GH_PAYLOAD"
+  else
+    cp "$input" "$GH_PAYLOAD"
+  fi
   jq -r .body < "$GH_PAYLOAD" > "$GH_STORE"
 else
   [ -f "$GH_STORE" ] && cat "$GH_STORE"
@@ -57,8 +72,9 @@ fresh_log() {
   GH_CALL_LOG="$WORK/gh-calls.$1.log"
   GH_PAYLOAD="$WORK/gh-payload.$1.json"
   GH_STORE="$WORK/gh-store.$1.md"
-  export GH_CALL_LOG GH_PAYLOAD GH_STORE
-  : > "$GH_CALL_LOG"; rm -f "$GH_PAYLOAD" "$GH_STORE"
+  GH_INPUT_PATH="$WORK/gh-input.$1.txt"
+  export GH_CALL_LOG GH_PAYLOAD GH_STORE GH_INPUT_PATH
+  : > "$GH_CALL_LOG"; rm -f "$GH_PAYLOAD" "$GH_STORE" "$GH_INPUT_PATH"
 }
 
 # Asserts: the command refused (non-zero) AND gh was never invoked.
@@ -127,6 +143,29 @@ assert payload["body"] == want, "payload body is not byte-identical to the ticke
 assert payload["body"].strip(), "payload body is empty — the exact bug this guards"
 PY
 echo "  ok: happy — PATCHed the ticked body verbatim"
+
+# 7b. The payload travels in a FILE, never down a stdin pipe. `--input -` is the last surviving
+#     piece of the recipe this script replaced, and it is what made a 30KB PATCH take 25–35
+#     minutes to return from a write GitHub had already applied (#113).
+if grep -qE -- '--input -($| )' "$GH_CALL_LOG"; then
+  echo "FAIL [input-file]: the PATCH still pipes its payload via '--input -'"; cat "$GH_CALL_LOG"; exit 1
+fi
+INPUT_PATH=$(cat "$GH_INPUT_PATH")
+case "$INPUT_PATH" in
+  ''|'-'|'<none>')
+    echo "FAIL [input-file]: expected '--input <file>', the PATCH passed '${INPUT_PATH:-<empty>}'"
+    cat "$GH_CALL_LOG"; exit 1 ;;
+esac
+# The stub copied $INPUT_PATH into $GH_PAYLOAD, which the round-trip check above already proved
+# byte-identical to the ticked file — so the file really held the payload, not just a path.
+[ -f "$GH_PAYLOAD" ] || { echo "FAIL [input-file]: no payload was captured from $INPUT_PATH"; exit 1; }
+echo "  ok: input-file — the payload came from $INPUT_PATH, not a stdin pipe"
+
+# ...and it is scratch: registered for cleanup, so it does not outlive the run.
+if [ -e "$INPUT_PATH" ]; then
+  echo "FAIL [input-file]: payload temp file $INPUT_PATH outlived the script"; exit 1
+fi
+echo "  ok: input-file — the payload temp file is removed on exit"
 
 # 8. A comment-hosted plan targets the comments endpoint, not the issue.
 fresh_log comment
