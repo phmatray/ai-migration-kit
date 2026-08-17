@@ -10,8 +10,11 @@
 #   5. a step marked if: false                        -> REFUSE (never runs)
 #   6. `run: ./tests/x/test.sh || true`               -> REFUSE (exit status discarded)
 #   7. a workflow with no automatic trigger           -> REFUSE (workflow_dispatch is not CI)
-#   8. an empty tests/ directory                      -> REFUSE, never a vacuous "all wired"
-#   9. every tests/<name>/ named in README.md exists  -> the prose cannot outlive the directory
+#   8. a pull_request-only workflow                   -> REFUSE (#133: never runs on a push to main)
+#   9. push-to-main AND pull_request                  -> accept (the fix must not refuse ci.yml)
+#  10. every other `push:` filter shape               -> the branch filter is actually read
+#  11. an empty tests/ directory                      -> REFUSE, never a vacuous "all wired"
+#  12. every tests/<name>/ named in README.md exists  -> the prose cannot outlive the directory
 #
 # The refusal cases are the point. A gate is worth exactly what its refusal path is worth, and an
 # inline `run:` block cannot have one — which is why scripts/release-title-gate.sh was extracted
@@ -40,10 +43,11 @@ fails=0
 ok()   { printf '  ok    %s\n' "$1"; }
 bad()  { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
-# Every refusal fixture is built with sed, and a fixture that did not come out as intended would
-# ALSO be refused — by accident, for the wrong reason, reading as a pass. So each one is asserted
-# against the parsed yaml before its verdict is trusted. (`\n` in a sed replacement is a GNU
-# extension; this is what catches it if the suite is ever run where sed behaves differently.)
+# Refusal fixtures are built by mutating a scaffolded workflow — with sed for the step-level cases,
+# by overriding $TRIGGERS for the workflow-level ones — and a fixture that did not come out as
+# intended would ALSO be refused: by accident, for the wrong reason, reading as a pass. So each one
+# is asserted against the parsed yaml before its verdict is trusted. (`\n` in a sed replacement is a
+# GNU extension; this is what catches it if the suite is ever run where sed behaves differently.)
 assert_parsed() {
   local file="$1" expr="$2" label="$3"
   python3 -c "
@@ -57,14 +61,26 @@ sys.exit(0 if ($expr) else 1)
 # Run the checker over a scratch repo; echo its output, return its status.
 run_check() { python3 "$CHECK" --repo "$1" 2>&1; }
 
+# The `on:` block scaffold() writes. The default is the shape the real ci.yml carries — a push to
+# `main` AND pull requests — because that is what every step-level fixture below means by "an
+# otherwise normal CI workflow". It used to be `pull_request:` alone, which was harmless only while
+# the guard treated the four automatic triggers as interchangeable; once a PR-only workflow is a
+# refusal in its own right (#133), a PR-only scaffold would give sections 2-6 a SECOND, workflow-level
+# reason to refuse, and each of those assertions would then pass without proving the step-level
+# defect it names.
+#
+# A fixture that is about the trigger itself sets TRIGGERS before calling scaffold; scaffold resets
+# it afterwards, so an override can never leak into the next fixture.
+DEFAULT_TRIGGERS=$'on:\n  push:\n    branches: [main]\n  pull_request:'
+TRIGGERS="$DEFAULT_TRIGGERS"
+
 # Build a scratch repo with the named suites and one workflow that wires all of them.
 scaffold() {
   local root="$1"; shift
   mkdir -p "$root/.github/workflows"
   {
     echo 'name: ci'
-    echo 'on:'
-    echo '  pull_request:'
+    printf '%s\n' "$TRIGGERS"
     echo 'jobs:'
     echo '  kit:'
     echo '    runs-on: ubuntu-latest'
@@ -76,6 +92,7 @@ scaffold() {
       echo "        run: ./tests/$s/test.sh"
     done
   } > "$root/.github/workflows/ci.yml"
+  TRIGGERS="$DEFAULT_TRIGGERS"
 }
 
 echo "== ci-wiring-check golden test =="
@@ -140,8 +157,7 @@ if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/beta/test.sh'; then
 else bad "expected refusal for '|| true'; got rc=$rc: $out"; fi
 
 # --------------------------------------------------------------- 7. no automatic trigger
-R="$WORK/manual"; scaffold "$R" alpha
-sed -i.bak 's|^on:|on:\n  workflow_dispatch:|; s|^  pull_request:||' "$R/.github/workflows/ci.yml"
+R="$WORK/manual"; TRIGGERS=$'on:\n  workflow_dispatch:'; scaffold "$R" alpha
 # PyYAML reads YAML 1.1, so the bare key `on:` is the boolean True, not the string "on".
 assert_parsed "$R/.github/workflows/ci.yml" \
   "list(d.get('on', d.get(True))) == ['workflow_dispatch']" "workflow_dispatch-only trigger"
@@ -150,7 +166,112 @@ if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'no automatic trigger'; then
   ok "a workflow_dispatch-only workflow is not CI"
 else bad "expected refusal for a manual-only workflow; got rc=$rc: $out"; fi
 
-# --------------------------------------------------------------- 8. empty tests/
+# --------------------------------------------------------------- 8. pull_request-only workflow
+# #133. `push`, `pull_request`, `pull_request_target` and `schedule` used to be interchangeable
+# evidence of "automatically triggered", and any one of them was enough. That was accidentally
+# sufficient only because ci.yml was the sole run:-bearing workflow in the repo and it carries BOTH
+# push-to-main and pull_request — so "automatically triggered" silently also meant "runs on main".
+# #119 added .github/workflows/release-title.yml, triggered on pull_request alone, and removed the
+# coincidence. A suite wired only there never runs on the push that lands on `main`, which is the
+# last verdict before release-please cuts a tag: green guard, absent coverage, no diagnostic — the
+# guard's own stated failure mode, reappearing through a case its model did not represent.
+R="$WORK/pronly"; TRIGGERS=$'on:\n  pull_request:'; scaffold "$R" alpha
+assert_parsed "$R/.github/workflows/ci.yml" \
+  "list(d.get('on', d.get(True))) == ['pull_request']" "pull_request-only trigger"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/alpha/test.sh' \
+   && printf '%s' "$out" | grep -q 'never on a push to main'; then
+  ok "a pull_request-only workflow does not count as enforcing a suite"
+else bad "expected refusal naming tests/alpha/test.sh and the PR-only reason; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 9. both triggers still pass
+# The other half of #133, and the one that costs something if it breaks: requiring a push-to-main
+# trigger must NOT over-refuse the real ci.yml, which carries `push: branches: [main]` alongside
+# `pull_request`. Section 1 already asserts that against the live repo, but section 1 fails for any
+# reason at all; this pins the specific shape, so the guarantee survives an unrelated edit to this
+# repo's own workflows.
+R="$WORK/bothtriggers"; scaffold "$R" alpha beta
+assert_parsed "$R/.github/workflows/ci.yml" \
+  "sorted(d.get('on', d.get(True))) == ['pull_request', 'push']
+   and d.get('on', d.get(True))['push']['branches'] == ['main']" \
+  "push-to-main plus pull_request"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 0 ]; then
+  ok "a workflow on both push:main and pull_request still counts as enforcing"
+else bad "expected acceptance for a push:main + pull_request workflow; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 10. the branch filter is read
+# "Runs on a push to main" is not "has a push: key": the branch filter decides it, and most of the
+# shapes below are a way for a push trigger to exist and still never fire on `main`. Table-driven,
+# because the interesting part is the filter rather than the fixture — one section apiece would be a
+# dozen near-identical copies of the block above.
+#
+# The `!` rows are the subtle ones. `!` is filter syntax, not part of a branch name, and GitHub lets
+# the LAST matching pattern in the list decide — so `["**", "!main"]` does NOT run on main and
+# `["!main", "**"]` does. Read as an unordered "does any pattern match", the first of those two
+# reads as enforced: the same fail-open this whole issue is about, one level down inside the fix.
+#
+# Each case is asserted parsed before its verdict is read, for the reason at the top of this file:
+# a mangled `on:` block would be refused too, by accident, and every want=1 row would then pass
+# without exercising anything. The reason substring is the second half of that guard — it is what
+# separates "refused because the branch filter misses main" from "refused for some other reason".
+trigger_case() {
+  local name="$1" on_block="$2" want="$3" label="$4" expect="${5:-}"
+  local R="$WORK/trigger-$name" out rc
+  TRIGGERS="$on_block"; scaffold "$R" alpha
+  assert_parsed "$R/.github/workflows/ci.yml" \
+    "bool(d.get('on', d.get(True)))
+     and d['jobs']['kit']['steps'][0]['run'].strip() == './tests/alpha/test.sh'" \
+    "$label" || return
+  out=$(run_check "$R"); rc=$?
+  if [ "$rc" -ne "$want" ]; then
+    bad "$label: expected exit $want, got $rc: $out"; return
+  fi
+  if [ -n "$expect" ] && ! printf '%s' "$out" | grep -q "$expect"; then
+    bad "$label: exit $want as expected, but the reason never said '$expect': $out"; return
+  fi
+  ok "$label"
+}
+
+trigger_case nofilter $'on:\n  push:' 0 \
+  "push: with no branches filter runs on every branch, main included"
+trigger_case listwithmain $'on:\n  push:\n    branches: [main, release/*]' 0 \
+  "a branches list that names main counts"
+trigger_case listwithoutmain $'on:\n  push:\n    branches: [release/*]' 1 \
+  "a branches list that never matches main does not count" \
+  "push trigger does not reach main"
+trigger_case glob $'on:\n  push:\n    branches: ["ma*"]' 0 \
+  "a branches glob that matches main counts"
+trigger_case ignoremain $'on:\n  push:\n    branches-ignore: [main]' 1 \
+  "branches-ignore: [main] excludes the one branch that matters" \
+  "push trigger does not reach main"
+trigger_case ignoreother $'on:\n  push:\n    branches-ignore: [docs/**]' 0 \
+  "branches-ignore that spares main still counts"
+trigger_case negated $'on:\n  push:\n    branches: ["**", "!main"]' 1 \
+  "a negated pattern AFTER a match takes main back out" \
+  "push trigger does not reach main"
+trigger_case renegated $'on:\n  push:\n    branches: ["!main", "**"]' 0 \
+  "a positive pattern after a negation puts main back in"
+trigger_case nullbranches $'on:\n  push:\n    branches:' 1 \
+  "a branches: key whose every entry is commented out selects nothing" \
+  "push trigger does not reach main"
+trigger_case emptybranches $'on:\n  push:\n    branches: []' 1 \
+  "an empty branches list selects nothing" \
+  "push trigger does not reach main"
+trigger_case bothfilters $'on:\n  push:\n    branches: [main]\n    branches-ignore: [docs/**]' 1 \
+  "branches and branches-ignore together is an invalid trigger, not a passing one" \
+  "both branches and branches-ignore"
+trigger_case bothfiltersnull $'on:\n  push:\n    branches:\n    branches-ignore: [docs/**]' 1 \
+  "a null branches: still counts as set, so the invalid combination is still caught" \
+  "both branches and branches-ignore"
+trigger_case tagsonly $'on:\n  push:\n    tags: ["v*"]' 1 \
+  "a tags-only push trigger never fires on a branch push" \
+  "push trigger does not reach main"
+trigger_case scheduleonly $'on:\n  schedule:\n    - cron: "0 3 * * *"' 1 \
+  "a nightly schedule is not the merge gate" \
+  "runs on a schedule only"
+
+# --------------------------------------------------------------- 11. empty tests/
 # Without this the glob matches nothing, the loop body never runs, and the checker would report
 # "0 suites, all wired" — a pass that means the opposite of what it says.
 R="$WORK/empty"; scaffold "$R" alpha
@@ -160,7 +281,7 @@ if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'refusing to report'; then
   ok "an empty tests/ refuses instead of passing vacuously"
 else bad "expected refusal on an empty tests/; got rc=$rc: $out"; fi
 
-# --------------------------------------------------------------- 9. README names real directories
+# --------------------------------------------------------------- 12. README names real directories
 # The README paragraph on hardening a destructive operation cites suites by name. That is a small
 # enumeration of exactly the kind this issue removed, so it is pinned rather than trusted.
 missing=
