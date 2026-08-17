@@ -22,6 +22,13 @@ rendra rentable (YAGNI sinon).
   de repo, le skill ne se déclenche presque jamais (positifs ≈ 0/3), donc la mesure est au
   plancher ; seul signal fiable : zéro sur-déclenchement sur les 10 quasi-pièges. Description
   d'origine conservée. Déclencheur : premier sous-déclenchement constaté en session réelle.
+- **Élargir `scripts/parse-sweep.sh` au-delà de `tests/*/test.sh`** (#131) : `scripts/*.sh`,
+  `hooks/*.sh` et `skills/**/scripts/*.sh` partent chez les mêmes développeurs macOS et courent le
+  même risque — un `$( … )` avec un heredoc dont les quotes ne s'apparient pas, invisible pour la
+  CI en bash 5. Le balayage est déjà paramétré par fichier (`parse-sweep.sh <fichier>…`), donc
+  c'est une ligne de plus dans la cible par défaut. Non fait ici pour rester dans le périmètre de
+  l'issue. Déclencheur : premier script hors `tests/` qui ne parse pas sous bash 3.2 — ou la
+  prochaine retouche de `parse-sweep.sh`.
 > **Implémentés en v1.9.0 (2026-07-23) — sortis du backlog.** La **porte de verdict de fin de phase 1**
 > (`verdict: ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL`) couvre les deux items dont le déclencheur a
 > sauté ce jour-là : « déjà moderne → stop » (dogfood `Atypical-Consulting/StaticWGen`) et « le

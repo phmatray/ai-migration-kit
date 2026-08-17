@@ -84,6 +84,26 @@ jobs:
       - name: Every golden test suite is enforced by CI
         run: python3 scripts/ci-wiring-check.py
 
+      # ci-wiring-check.py above proves every suite is RUN. It cannot prove any of them can be run
+      # on the maintainer's machine: `tests/renovate-config/test.sh` was wired in, counted, and
+      # green here for months while `bash -n` rejected it outright on macOS's bash 3.2 (#131) — the
+      # documented local fast path, dead, with no red check anywhere. The two steps are deliberately
+      # adjacent because they are the same question one layer apart.
+      #
+      # ⚠️ On this runner (bash 5) the `bash -n` half of the sweep is a NO-OP for that construct —
+      # bash 5 parses it happily. What runs here is the sweep's static scan, which is
+      # version-independent and does catch it; the script prints which half it is leaning on. Do not
+      # read a green step here as proof that the suites parse on bash 3.2 — only a bash 3.x host can
+      # say that, which is exactly why this guard also exists for the developer to run locally.
+      - name: Every golden test suite PARSES (the macOS bash 3.2 sweep)
+        run: ./scripts/parse-sweep.sh
+
+      # …and the sweep gets the treatment it exists to enforce: a golden test over its refusal path,
+      # driven by fixtures measured against bash 3.2.57. Its red cases stay red on bash 5 precisely
+      # because they assert the static scan's message, not merely a non-zero exit.
+      - name: Parse sweep golden test (the #131 construct, driven to red)
+        run: ./tests/parse-sweep/test.sh
+
       # Ten suites now get their EXIT trap from tests/_lib.sh (#72), so a bug in that handler would
       # silently weaken all of them at once — the `local rc=$?`-first invariant is the difference
       # between a failing suite reporting failure and reporting success. It sits AHEAD of every
