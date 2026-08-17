@@ -1131,13 +1131,25 @@ PY
 #    loader removed or renamed) would abort with no output at all, right where the message is the
 #    entire point. The paths are relative to the kit root this script cd'd to before anything else,
 #    which is also what makes the reported paths match $LOADER_HOME verbatim.
+#
+#    Scanned through $KIT — ABSOLUTE — and not through the relative `tests scripts`. The property
+#    the old $SELF spelling had, and that a relative operand silently gives up: this suite cd's
+#    into scratch copies five times below and only happens to cd back each time. The first section
+#    that leaves the cwd elsewhere would make this grep read a scratch tree, or error to stderr —
+#    and with `|| true` that reads as ZERO loaders, i.e. a FAIL blaming a removal that never
+#    happened. The `$KIT/` prefix is stripped back off before comparing, so $LOADER_HOME stays a
+#    repo-relative path a reader can open.
+#
+#    The pattern is one literal spelling — `spec_from_file_[l]ocation`, bracketed here for the very
+#    reason this section exists — and the claim is scoped to match: it is the only loader idiom the
+#    kit uses. `__import__`, `importlib.import_module` after
+#    a sys.path insert, and runpy would each write bytecode without tripping this grep. Saying so
+#    here rather than pretending otherwise is the same honesty #42 applied to its own narrower
+#    scope — and broadening the pattern is a follow-up, not a silent widening of a claim.
 LOADER_HOME="tests/_lib/py.sh"
-loader_sites=$( { grep -rn 'spec_from_file_[l]ocation' tests scripts || true; } )
-if [ -z "$loader_sites" ]; then
-  loaders=0
-else
-  loaders=$(printf '%s\n' "$loader_sites" | wc -l | tr -d ' ')
-fi
+loader_sites=$( { grep -rn 'spec_from_file_[l]ocation' "$KIT/tests" "$KIT/scripts" || true; } \
+  | sed "s|^$KIT/||")
+loaders=$(printf '%s' "$loader_sites" | { grep -c . || true; })
 if [ "$loaders" -ne 1 ] || [ "${loader_sites%%:*}" != "$LOADER_HOME" ]; then
   echo "FAIL: $loaders copy/copies of the importlib loader under tests/ and scripts/ — expected"
   echo "      exactly 1, in $LOADER_HOME."
@@ -1762,15 +1774,22 @@ fi
 # Instead: match the shape ANYWHERE, then subtract the two kinds of line that spell it out
 # legitimately — comment lines, and the one tagged `sigpipe-repro` above, which IS the broken shape
 # on purpose. The FAIL text below says `find|grep` without the space so it cannot match itself.
-# Scans tests/_lib.sh too, since #72 moved any_match there: the idiom this guard polices no longer
-# lives in this file, so scanning only $SELF would let someone revert any_match to the broken
-# pipeline and reintroduce #48 for all ten converted suites at once, with this check still green.
-strays=$( { grep -nE 'find [^|]*\| *grep -[q] \.' "$SELF" "$KIT/tests/_lib.sh" || true; } \
+# Scans the SHARED shell files too, since #72 moved any_match into tests/_lib.sh: the idiom this
+# guard polices no longer lives in this file, so scanning only $SELF would let someone revert
+# any_match to the broken pipeline and reintroduce #48 for all ten converted suites at once, with
+# this check still green.
+#
+# tests/_lib/ is scanned as a DIRECTORY rather than named file-by-file (#51). The hardcoded
+# two-file list was the same stale-inventory shape section 8 above had just been widened out of:
+# #51 added a third shared file, tests/_lib/py.sh, and a roster kept by hand does not grow with the
+# tree. Anything sourced by many suites belongs in this scan the day it lands, not the day someone
+# remembers to add it.
+strays=$( { grep -nrE 'find [^|]*\| *grep -[q] \.' "$SELF" "$KIT/tests/_lib.sh" "$KIT/tests/_lib" || true; } \
   | grep -vE ':[0-9]+:[[:space:]]*#' \
   | grep -vE '^[0-9]+:[[:space:]]*#' \
   | grep -v 'sigpipe-repro' || true)
 if [ -n "$strays" ]; then
-  echo "FAIL: a find|grep -q site is left in this suite or tests/_lib.sh — use any_match:"
+  echo "FAIL: a find|grep -q site is left in this suite or a shared tests/_lib file — use any_match:"
   echo "$strays"
   exit 1
 fi
