@@ -841,6 +841,95 @@ for shape in empty missing; do
   done
 done
 
+# WHAT QUALIFIES AS ONE MATCH (#126). The two shapes above vary how MANY entries `coverage/` holds;
+# these vary what KIND of entry it holds, which the guard used not to ask about at all. `find`
+# matches by NAME and has no opinion about type, so ANY entry called `*.cobertura.xml` satisfied a
+# bare `-name` test — a directory a collector left behind, or a symlink pointing nowhere on a
+# self-hosted runner reusing its workspace (the reason the sibling step opens with
+# `rm -rf coverage && mkdir -p coverage`). The step then went green having proved only that a NAME
+# exists, and the artifact shipped with nothing parsable in it: the very fail-open this guard was
+# written to close, and the same shape as #96 — a green run indistinguishable from a healthy one.
+#
+# The middle row is why the fix is `find -L … -type f` and NOT the obvious `-type f`. `find` does
+# not follow symlinks by default, so `-type f` alone would start refusing a LEGITIMATE report
+# reached through a symlink — trading a fail-open for a fail-closed, which is strictly worse
+# because the new failure is loud, misleading, and hits working setups. Measured (#126) against
+# the shipped expression and both candidates:
+#
+#     entry under coverage/            no -type      -type f     -L … -type f
+#     directory  bogus.cobertura.xml   matches       rejected    rejected
+#     symlink → a real report          matches       REJECTED    matches
+#     dangling symlink                 matches       rejected    rejected
+#
+# so the symlinked-report row is the one that distinguishes the two candidates, and the regression
+# a later "simplification" to a bare `-type f` would introduce. Presence semantics are untouched:
+# #31 settled that this guard tests presence and not COUNT, and nothing here compares reports to
+# projects.
+#
+# The symlink's TARGET deliberately lives OUTSIDE `coverage/`. Put it inside and `find` would reach
+# the real file directly, the case would pass for a reason that has nothing to do with following
+# the link, and a bare `-type f` would survive it — leaving the one row that matters unpinned.
+mkdir -p "$cov/real"
+: > "$cov/real/genuine.cobertura.xml"
+
+for entry in directory dangling-symlink symlinked-report; do
+  rm -rf "$cov/coverage" && mkdir -p "$cov/coverage"
+  case "$entry" in
+    directory)
+      mkdir -p "$cov/coverage/bogus.cobertura.xml"
+      target="$cov/coverage/bogus.cobertura.xml"; expect=refuse
+      [ -d "$target" ] && [ ! -f "$target" ] || {
+        echo "FAIL: fixture broken — $target is not a directory, so the case below would assert"
+        echo "      nothing about the entry type it is named for."; exit 1; } ;;
+    dangling-symlink)
+      ln -s ../nowhere/absent.cobertura.xml "$cov/coverage/dangling.cobertura.xml"
+      target="$cov/coverage/dangling.cobertura.xml"; expect=refuse
+      [ -L "$target" ] && [ ! -e "$target" ] || {
+        echo "FAIL: fixture broken — $target must be a symlink whose target does NOT exist;"
+        echo "      a resolvable one would be testing the row below instead."; exit 1; } ;;
+    symlinked-report)
+      ln -s ../real/genuine.cobertura.xml "$cov/coverage/linked.cobertura.xml"
+      target="$cov/coverage/linked.cobertura.xml"; expect=accept
+      [ -L "$target" ] && [ -f "$target" ] || {
+        echo "FAIL: fixture broken — $target must be a symlink that RESOLVES to a regular file;"
+        echo "      that is the row separating \`-L -type f\` from a bare \`-type f\`."; exit 1; } ;;
+  esac
+
+  for opts in "${COV_SHELLS[@]}"; do
+    tag=$(printf '%s' "$opts" | tr -d ' -')
+    log="$scratch/cov-$entry-$tag.log"
+    # shellcheck disable=SC2086
+    if run_cov_guard "$log" $opts; then rc=0; else rc=1; fi
+
+    if [ "$expect" = refuse ]; then
+      [ "$rc" -ne 0 ] || {
+        echo "FAIL: under \`bash $opts\` the guard ACCEPTED a coverage/ holding only a $entry named"
+        echo "      *.cobertura.xml. \`find\` matches by NAME, so a name alone passed it and the run"
+        echo "      ships an artifact with no parsable report in it. Require a regular file, and"
+        echo "      FOLLOW symlinks so the legitimate symlinked report keeps working:"
+        echo "          found=\$(find -L coverage -name '*.cobertura.xml' -type f -print -quit 2>/dev/null || true)"
+        echo "      Guard output:"
+        sed 's/^/        /' "$log"; exit 1; }
+      grep -q 'Aucun rapport de couverture produit' "$log" || {
+        echo "FAIL: under \`bash $opts\` the guard refused a coverage/ holding only a $entry WITHOUT"
+        echo "      its diagnosis — it died on find's own error under errexit instead. Keep the"
+        echo "      \`2>/dev/null || true\` tolerance so the emptiness test decides. Output:"
+        sed 's/^/        /' "$log"; exit 1; }
+    else
+      [ "$rc" -eq 0 ] || {
+        echo "FAIL: under \`bash $opts\` the guard REFUSED a coverage/ whose only entry is a symlink"
+        echo "      to a real report — a working repo told its coverage was never produced. This is"
+        echo "      what a bare \`-type f\` does: \`find\` does not follow symlinks by default, so the"
+        echo "      \`-L\` is load-bearing and not decoration. Guard output:"
+        sed 's/^/        /' "$log"; exit 1; }
+      grep -q 'Aucun rapport de couverture produit' "$log" && {
+        echo "FAIL: under \`bash $opts\` the guard exited 0 over a symlinked report but still PRINTED"
+        echo "      its missing-coverage diagnosis — a green step carrying a false message."
+        sed 's/^/        /' "$log"; exit 1; }
+    fi
+  done
+done
+
 # The fix leans on `-print -quit`, so the shipped step must SAY SO when the host's find lacks it.
 # tests/_lib.sh:kit_require_find_quit exists for exactly this reason on the kit's own side — on a
 # find without `-quit` (busybox, minimal containers) the probe answers "nothing found" with the
