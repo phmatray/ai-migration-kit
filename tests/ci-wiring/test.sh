@@ -242,6 +242,9 @@ trigger_case ignoremain $'on:\n  push:\n    branches-ignore: [main]' 1 \
   "push trigger does not reach main"
 trigger_case ignoreother $'on:\n  push:\n    branches-ignore: [docs/**]' 0 \
   "branches-ignore that spares main still counts"
+trigger_case bothfilters $'on:\n  push:\n    branches: [main]\n    branches-ignore: [docs/**]' 1 \
+  "branches and branches-ignore together is an invalid trigger, not a passing one" \
+  "both branches and branches-ignore"
 trigger_case tagsonly $'on:\n  push:\n    tags: ["v*"]' 1 \
   "a tags-only push trigger never fires on a branch push" \
   "push trigger does not reach main"

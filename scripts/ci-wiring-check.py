@@ -20,6 +20,15 @@ nothing, so all of these count as UNWIRED and are reported with the reason:
   * if: false                            — the step never runs at all
   * run: ./tests/x/test.sh || true       — the exit status is discarded
   * the workflow has no automatic trigger — a workflow_dispatch-only suite is not "CI-run"
+  * the workflow never runs on `main`    — a pull_request-only or schedule-only workflow, or a
+                                           push trigger whose branch filter misses `main`, does
+                                           not run on the push that lands on the default branch
+
+That last one used to be implied rather than checked (#133). Any of push / pull_request /
+pull_request_target / schedule counted as "automatically triggered", which was accidentally
+sufficient while ci.yml was the repo's only run:-bearing workflow — it carries both `push: [main]`
+and `pull_request`, so the weaker test happened to agree with the stronger one. #119 added a
+pull_request-only workflow and removed the coincidence.
 
 Comments are handled by parsing the YAML rather than by filtering '#' lines: a commented-out step
 simply is not in the parsed document, which is correct by construction instead of by regex.
@@ -34,10 +43,20 @@ Exit codes:
 """
 
 import argparse
+import fnmatch
 import pathlib
 import sys
 
 import yaml
+
+# The branch whose pushes are the merge gate. A constant rather than a literal sprinkled through
+# the predicates below, so a repo that renames its default branch has one line to change.
+MAIN_BRANCH = "main"
+
+# `push:` with an empty body parses to None, which is a legitimate value meaning "every branch".
+# `.get("push")` cannot tell that apart from "no push trigger at all", and those are opposite
+# verdicts — hence a sentinel rather than a None check.
+_ABSENT = object()
 
 
 def load_workflows(workflow_dir):
@@ -54,21 +73,92 @@ def load_workflows(workflow_dir):
     return docs
 
 
-def has_automatic_trigger(doc):
-    """True when the workflow runs without a human pressing a button.
+def workflow_triggers(doc):
+    """The workflow's `on:` block, normalised to {event-name: config-or-None}.
 
     PyYAML reads YAML 1.1, where the bare key `on:` is the BOOLEAN True, not the string "on".
     Reading only doc["on"] therefore finds nothing in every real workflow file, and every suite
     would look untriggered. Both spellings are checked.
+
+    `on: push`, `on: [push, pull_request]` and `on: {push: {branches: [main]}}` are all legal
+    spellings of the same block, so all three collapse to one mapping here and every caller below
+    reads exactly one shape.
     """
     triggers = doc.get("on", doc.get(True))
     if isinstance(triggers, str):
-        triggers = [triggers]
+        return {triggers: None}
+    if isinstance(triggers, list):
+        return {t: None for t in triggers if isinstance(t, str)}
     if isinstance(triggers, dict):
-        triggers = list(triggers)
-    if not isinstance(triggers, list):
+        return {k: v for k, v in triggers.items() if isinstance(k, str)}
+    return {}
+
+
+def selects_main(patterns):
+    """True when any of GitHub's branch-filter patterns selects `main`.
+
+    `fnmatch` is a good enough stand-in for GitHub's filter syntax here, and only here: GitHub's
+    `*` does not cross `/` while fnmatch's does, but the sole branch name ever matched against
+    these patterns is `main`, which contains no `/`. On that input the two agree.
+    """
+    if isinstance(patterns, str):
+        patterns = [patterns]
+    if not isinstance(patterns, list):
         return False
-    return any(t in ("push", "pull_request", "pull_request_target", "schedule") for t in triggers)
+    return any(isinstance(p, str) and fnmatch.fnmatchcase(MAIN_BRANCH, p) for p in patterns)
+
+
+def main_push_verdict(doc):
+    """Does a push to `main` run this workflow? Returns (True, None) or (False, "<reason>").
+
+    This replaces `has_automatic_trigger()`, which accepted any of push / pull_request /
+    pull_request_target / schedule (#45). That test was accidentally sufficient rather than
+    correct: `ci.yml` was the only run:-bearing workflow in the repository and it carries BOTH
+    `push: branches: [main]` and `pull_request`, so "automatically triggered" silently also meant
+    "runs on main" — not because anything checked, but because there was nowhere else for a suite
+    to be. #119 added a pull_request-only workflow and removed the coincidence, at which point a
+    suite could be moved into a PR-only workflow, never run on a push to `main`, and still be
+    reported as enforced (#133). That is this script's own stated failure mode — a suite nobody
+    runs looking exactly like a suite that passes — reappearing through a case its model did not
+    represent. It bites here because `main` really does take direct pushes: every squash-merge
+    lands one, and that run is the last verdict before release-please cuts a tag.
+
+    The verdict and its reason are returned together on purpose. Computed by two functions they
+    drift, and a refusal whose explanation names the wrong cause is worse than none at all.
+    """
+    triggers = workflow_triggers(doc)
+    push = triggers.get("push", _ABSENT)
+
+    if push is _ABSENT:
+        if "pull_request" in triggers or "pull_request_target" in triggers:
+            return False, "workflow runs on pull requests only, never on a push to main"
+        if "schedule" in triggers:
+            return False, "workflow runs on a schedule only, never on a push to main"
+        return False, "workflow has no automatic trigger"
+
+    unreached = f"workflow's push trigger does not reach {MAIN_BRANCH}"
+    if not isinstance(push, dict):
+        # `push:` with nothing under it — every branch and every tag, so `main` among them.
+        return True, None
+
+    include, exclude = push.get("branches"), push.get("branches-ignore")
+    if include is not None and exclude is not None:
+        # GitHub rejects the two together, so this workflow runs on nothing at all. Refusing with
+        # a reason that says so beats guessing which half would have won.
+        return False, "workflow sets both branches and branches-ignore, so its push trigger is invalid"
+    if include is not None:
+        return (True, None) if selects_main(include) else (False, unreached)
+    if exclude is not None:
+        return (False, unreached) if selects_main(exclude) else (True, None)
+    if "tags" in push or "tags-ignore" in push:
+        # A tag filter with no branch filter narrows the trigger to tag pushes only, so nothing
+        # here fires when a commit lands on a branch.
+        return False, unreached
+    # Filters that are not about the ref — `paths`, `paths-ignore` — are deliberately NOT read.
+    # They can genuinely stop a workflow running on a push to `main`, but answering that means
+    # deciding whether a suite's own inputs fall inside the filter, which is a different and much
+    # larger question than "which branch". Recorded as a known limit rather than half-implemented.
+    return True, None
 
 
 def is_disabled(node):
@@ -119,7 +209,7 @@ def check(repo, tests_root, workflow_dir):
     for suite in suites:
         reasons = []
         for path, doc in workflows:
-            auto = has_automatic_trigger(doc)
+            on_main, not_on_main = main_push_verdict(doc)
             for job in (doc.get("jobs") or {}).values():
                 if not isinstance(job, dict) or is_disabled(job):
                     continue
@@ -131,8 +221,8 @@ def check(repo, tests_root, workflow_dir):
                     if is_disabled(step):
                         reasons.append(f"{path.name}: step exists but cannot fail the build")
                         continue
-                    if not auto:
-                        reasons.append(f"{path.name}: workflow has no automatic trigger")
+                    if not on_main:
+                        reasons.append(f"{path.name}: {not_on_main}")
                         continue
                     verdicts[suite] = None  # wired, and enforcing
                     break
@@ -151,8 +241,10 @@ def check(repo, tests_root, workflow_dir):
             for reason in dict.fromkeys(reasons):
                 print(f"      {reason}")
         print()
-        print("  Wire each one in as a `run:` step of an automatically-triggered workflow, whose")
-        print("  failure fails the build. To exclude one deliberately, say why in the diff.")
+        print("  Wire each one in as a `run:` step of a workflow that runs on a push to")
+        print(f"  `{MAIN_BRANCH}`, whose failure fails the build. A pull-request-only workflow is")
+        print("  not enough: it never runs on the push that lands the merge. To exclude a suite")
+        print("  deliberately, say why in the diff.")
         return 1
 
     print(f"ci-wiring-check: {len(suites)} golden test suites, all enforced by CI.")
