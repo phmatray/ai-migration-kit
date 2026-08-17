@@ -64,7 +64,11 @@ scratch=$(kit_scratch)
 PIN=$(python3 - "$CI" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
-m = re.search(r'RENOVATE_VALIDATOR_VERSION:\s*["\']?([0-9]+(?:\.[0-9]+)*)["\']?', text)
+# The apostrophe is spelled \x27 rather than \' on purpose: bash 3.2 (macOS's /bin/bash) scans a
+# $( … ) command substitution WITHOUT honouring heredoc quoting, so a lone apostrophe in this body
+# opens a shell string that never closes and the whole file fails to parse (#131). \x27 is the same
+# character to the regex engine and invisible to bash's scanner. tests/parseability guards this.
+m = re.search(r'RENOVATE_VALIDATOR_VERSION:\s*["\x27]?([0-9]+(?:\.[0-9]+)*)["\x27]?', text)
 print(m.group(1) if m else "")
 PY
 )
