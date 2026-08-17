@@ -31,9 +31,11 @@
 #  8b. DEPTH decides nothing: a first-party package is walked whether its project sits in the
 #      child, under `lib/`, or under a version-shaped directory (#107);
 #   9. a loose file is a finding only when it is an asset — `.gitkeep` and `README.md` are not;
+#  10. the WHOLE emitted document, byte for byte, on one tree that exercises every traversal
+#      decision at once — the characterisation net a traversal refactor is measured against (#94);
 #   6. the output is still valid JSON, including from a foreign working directory.
 #
-# Sections 7-9 are new and sit before 6, which is the historical tail. The numbering is the order
+# Sections 7-10 are new and sit before 6, which is the historical tail. The numbering is the order
 # they were added, not the order they run — the list above is in FILE order so it stays a map.
 #
 # Every branch of the `packages/` detector is mutation-tested: break one and this suite fails.
@@ -651,6 +653,217 @@ assert paths == ["wwwroot/lib/htmx.min.js"], \
     f"a placeholder or doc file was reported as an unwatched vendored library: {paths}"
 PY
 echo "  [9] .gitkeep and README are not vendored libraries; the real asset still is"
+
+# ---------------------------------------------------------------------------
+# 10. The WHOLE document, byte for byte — the net a traversal refactor is measured against (#94).
+#
+#     Every section above asserts a handful of keys, chosen because a specific defect moved them.
+#     That is the right shape for a rule, and the wrong shape for a REFACTOR: #94 rewrites how the
+#     tree is walked and promises "same JSON, less work", so what has to be pinned is the promise —
+#     the whole document, including the keys nobody thought to name.
+#
+#     The fixture below is deliberately one tree that trips every traversal decision at once, so a
+#     change that alters any of them shows up here even if it slips past the targeted sections:
+#       - a nested checkout (a `.git` POINTER file, the worktree shape) that must be excluded;
+#       - a `packages/` holding one restored child AND one first-party child, so both verdicts of
+#         the per-child detector are exercised in the same walk;
+#       - `wwwroot/lib/` with an uncovered directory, a covered one and a loose asset, which is
+#         what makes the vendored walk and `count_files()` run at all;
+#       - a test project, so `testStack` is a recording rather than an empty list.
+#
+#     Two runs of the same tree are compared to each other FIRST: byte-identical output on an
+#     unchanged repo is its own guarantee (5g pins it for one key; a memoised probe could break it
+#     for all of them), and it is the assertion that fails most legibly. Then the document is
+#     compared to the golden.
+#
+#     `firstCommit`/`lastCommit` are the only two values neutralised, because they are the only two
+#     read from OUTSIDE the tree: the fixture has no repository of its own, so their value depends
+#     on whether the host's TMPDIR happens to sit inside someone else's checkout. Everything else —
+#     `repo` included, which is why the fixture directory is named rather than left to mktemp — is
+#     compared exactly as emitted.
+#
+#     ⚠ THE THREE PROJECTS HAVE THREE DIFFERENT LINE COUNTS ON PURPOSE — do not "tidy" them to one
+#     line each. `projectDetails` is emitted `sorted(key=-loc)` and nothing breaks a tie, so equal
+#     LOCs leave the order to Python's stable sort over `os.walk` discovery order — which is
+#     `os.scandir` order, i.e. the FILESYSTEM's. Three one-line projects passed here on APFS and
+#     would have been a coin flip on CI's ext4. Distinct LOCs (App 4, One 2, App.Tests 1) make the
+#     sort total, so this section pins the document rather than this machine. It is the same hazard
+#     5g pins for `coveredBy`, one key over.
+# ---------------------------------------------------------------------------
+G="$(kit_scratch)/inventory-golden"
+mk_app "$G/src/App"
+cat > "$G/src/App/App.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup><PackageReference Include="Serilog" Version="4.0.0" /></ItemGroup>
+</Project>
+XML
+cat > "$G/src/App/Real.cs" <<'CS'
+namespace App
+{
+    public class Real { public int X() { return 1; } }
+}
+CS
+
+mkdir -p "$G/tests/App.Tests"
+cat > "$G/tests/App.Tests/App.Tests.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup><PackageReference Include="xunit.v3" Version="1.0.0" /></ItemGroup>
+</Project>
+XML
+echo 'namespace App.Tests { public class T { public void A() { } } }' > "$G/tests/App.Tests/T.cs"
+
+# Vendored: one uncovered directory (so `count_files` runs), one covered, one loose asset.
+mkdir -p "$G/src/App/wwwroot/lib/bootstrap/dist" "$G/src/App/wwwroot/lib/jquery"
+echo '/* 1 */' > "$G/src/App/wwwroot/lib/bootstrap/dist/a.js"
+echo '/* 2 */' > "$G/src/App/wwwroot/lib/bootstrap/dist/b.js"
+echo '/* 3 */' > "$G/src/App/wwwroot/lib/jquery/jquery.min.js"
+echo 'x' > "$G/src/App/wwwroot/lib/htmx.min.js"
+cat > "$G/src/App/package.json" <<'JSON'
+{ "name": "app", "dependencies": { "jquery": "3.7.1" } }
+JSON
+
+# A nested checkout: a whole copy of the app behind a `.git` POINTER file.
+mkdir -p "$G/.claude/worktrees/agent/src/App"
+cp "$G/src/App/App.csproj" "$G/.claude/worktrees/agent/src/App/App.csproj"
+cp "$G/src/App/Real.cs"    "$G/.claude/worktrees/agent/src/App/Real.cs"
+echo "gitdir: /elsewhere/.git/worktrees/agent" > "$G/.claude/worktrees/agent/.git"
+
+# One `packages/` carrying BOTH verdicts: a restored child and a first-party one.
+mkdir -p "$G/packages/Newtonsoft.Json.13.0.1"
+echo 'namespace Third { public class Junk { } }' > "$G/packages/Newtonsoft.Json.13.0.1/Junk.cs"
+mk_lib "$G/packages/one" One
+cat > "$G/packages/one/Svc.cs" <<'CS'
+namespace One;
+public class Svc { public int N() { return 2; } }
+CS
+
+# The two values read from outside the tree, neutralised — see the header of this section. A line
+# edit, not a re-serialisation: re-dumping the JSON would make "byte-identical" mean nothing.
+neutralise_dates() { sed -E 's/^(  "(firstCommit|lastCommit)": ")[^"]*(",?)$/\1unknown\3/'; }
+
+golden_run1=$("$INV" "$G" | neutralise_dates)
+golden_run2=$("$INV" "$G" | neutralise_dates)
+if [ "$golden_run1" != "$golden_run2" ]; then
+  echo "FAIL: two runs over an unchanged tree emitted different documents:"
+  diff <(printf '%s\n' "$golden_run1") <(printf '%s\n' "$golden_run2") || true
+  exit 1
+fi
+
+golden_expected=$(cat <<'JSON'
+{
+  "repo": "inventory-golden",
+  "era": "modern-sdk",
+  "erasDetected": [
+    "modern-sdk"
+  ],
+  "firstCommit": "unknown",
+  "lastCommit": "unknown",
+  "projects": [
+    "App",
+    "App.Tests",
+    "One"
+  ],
+  "projectDetails": [
+    {
+      "name": "App",
+      "csFiles": 1,
+      "loc": 4,
+      "targetFramework": "net10.0",
+      "zombie": false,
+      "skeleton": true
+    },
+    {
+      "name": "One",
+      "csFiles": 1,
+      "loc": 2,
+      "targetFramework": "net10.0",
+      "zombie": false,
+      "skeleton": true
+    },
+    {
+      "name": "App.Tests",
+      "csFiles": 1,
+      "loc": 1,
+      "targetFramework": "net10.0",
+      "zombie": false,
+      "skeleton": true
+    }
+  ],
+  "skeletonProjects": [
+    "App",
+    "App.Tests",
+    "One"
+  ],
+  "zombieProjects": [],
+  "xamlPages": 0,
+  "xamlControls": 0,
+  "xamlOther": 0,
+  "xamlPageNames": [],
+  "csFiles": 3,
+  "locTotal": 7,
+  "locCodeBehind": 0,
+  "locLogic": 7,
+  "windowsApiClusters": {},
+  "packages": [
+    "Serilog",
+    "xunit.v3"
+  ],
+  "hasTests": true,
+  "testStack": [
+    {
+      "project": "tests/App.Tests/App.Tests.csproj",
+      "targetFrameworks": "net10.0",
+      "framework": "xunit",
+      "xunitMajor": 3,
+      "packageSource": "PackageReference",
+      "packages": {
+        "xunit.v3": "1.0.0"
+      }
+    }
+  ],
+  "vendoredAssets": [
+    {
+      "path": "src/App/wwwroot/lib/bootstrap",
+      "files": 2,
+      "coveredByManifest": false,
+      "coveredBy": null
+    },
+    {
+      "path": "src/App/wwwroot/lib/htmx.min.js",
+      "files": 1,
+      "coveredByManifest": false,
+      "coveredBy": null
+    },
+    {
+      "path": "src/App/wwwroot/lib/jquery",
+      "files": 1,
+      "coveredByManifest": true,
+      "coveredBy": "src/App/package.json"
+    }
+  ],
+  "excludedFromWalk": [
+    {
+      "path": ".claude/worktrees/agent",
+      "reason": "checkout imbriqué"
+    },
+    {
+      "path": "packages/Newtonsoft.Json.13.0.1",
+      "reason": "paquet NuGet restauré"
+    }
+  ]
+}
+JSON
+)
+if [ "$golden_run1" != "$golden_expected" ]; then
+  echo "FAIL: the emitted document changed. This suite's other sections assert the keys a known"
+  echo "      defect moved; THIS one asserts the whole thing, so a traversal change that alters"
+  echo "      any number at all lands here. Left = expected, right = emitted:"
+  diff <(printf '%s\n' "$golden_expected") <(printf '%s\n' "$golden_run1") || true
+  exit 1
+fi
+echo "  [10] the whole document is byte-identical to the golden, and stable across two runs"
 
 # ---------------------------------------------------------------------------
 # 6. Still valid JSON, including from a foreign working directory — CI runs this
