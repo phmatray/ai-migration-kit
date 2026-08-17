@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Un cobertura qui exprime ses branches UNIQUEMENT à la racine : `branch-rate` est présent,
+     aucune ligne ne porte de `condition-coverage`. C'est la forme que produisent plusieurs
+     générateurs de la chaîne VSTest/coverlet que `templates/ci-dotnet.yml` supporte encore.
+     Avant #50, parse_cobertura ne lisait que les attributs par ligne et rendait donc un
+     « 0 % branches » péremptoire sur une application bien couverte — une absence de donnée
+     affichée comme une mesure. -->
+<coverage line-rate="0.75" branch-rate="0.6" version="1.9" timestamp="0"
+          lines-covered="3" lines-valid="4" branches-covered="3" branches-valid="5">
+  <packages>
+    <package name="Fixture.Root" line-rate="0.75" branch-rate="0.6">
+      <classes>
+        <class name="Fixture.Root.Widget" filename="Widget.cs" line-rate="0.75" branch-rate="0.6">
+          <methods />
+          <lines>
+            <line number="1" hits="1" />
+            <line number="2" hits="1" />
+            <line number="3" hits="1" />
+            <line number="4" hits="0" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
