@@ -114,15 +114,24 @@ git worktree list --porcelain        # match the entry whose branch == headRefNa
 - **A worktree for the branch exists** (usual case — `implement-issue` left one): use it. Pull first: `git -C <path> pull --ff-only`.
 - **No local worktree/branch** (PR built elsewhere, or already cleaned): create one **only if** Step 4 needs corrections. If the PR is already `CLEAN` with green CI, merge without checking out locally. When needed, create an isolated worktree tracking the remote branch via `superpowers:using-git-worktrees` (or `git worktree add <path> <branch>` as fallback — reference §2). Remember the path; Step 7 removes it.
 
-**Whenever a worktree is in hand — the one you just found, or one you create here or in Step 4 —
-prove its home is ignored before working in it.** This repo is not the kit's, and `.claude/worktrees/`
-is the kit's convention, not a fact about someone else's checkout. The check runs below, where the
-path is recorded.
+**As soon as you know a worktree will be involved — whether you found one above or will create one
+here or in Step 4 — prove its home is ignored, before touching it.** This repo is not the kit's, and
+`.claude/worktrees/` is the kit's convention, not a fact about someone else's checkout. Run the check
+from [`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md); it takes no
+worktree path, so the same call serves the found worktree and the one not yet created.
 
-⚠️ **Reuse is the usual case here, so the check cannot hang off creation** (#86). The bullet above
-calls an existing worktree the normal outcome; a guard that only fired on `git worktree add` would
-skip precisely those repos. **No worktree, no check** stays true — a PR that is already `CLEAN` merges
-without a local checkout and has nothing to verify.
+`0` go ahead · `1` a home is **not** ignored, so stop before pulling into it or creating one · `2`
+ignored but over-broad, so **do** go ahead and mention the profile cost · `3`/`127` no verdict, which
+is not a pass. Full verdict table, the bare-repository case, why `2` is not a stop, and the
+never-edit-their-`.gitignore` rule are all in that one file. Skipping this is how #43 reproduces in a
+customer repo — silently, as a single gitlink rather than a diff anyone spots.
+
+⚠️ **Reuse is the usual case here, so the check cannot hang off creation** (#86) — but it still runs
+*before* the worktree is touched, not after. The bullet above calls an existing worktree the normal
+outcome, and a guard that only fired on `git worktree add` would skip precisely those repos; one that
+fired after the `pull --ff-only` below would be writing into the unignored home it was about to
+refuse. **No worktree, no check** stays true — a PR that is already `CLEAN` merges without a local
+checkout and has nothing to verify.
 
 Don't run corrections from the current session's worktree if it isn't the PR's branch — you'd edit the
 wrong checkout (a known footgun here). Use `git -C <path>` rather than `cd` (a `cd` in a compound
@@ -139,19 +148,10 @@ BRANCH=<headRefName from Step 1>
 WORKTREE=<absolute path of that branch's worktree>
 GUARDS=<the kit's skills/implement-issue/scripts directory>
 BASE=<baseRefName from Step 1>     # NOT assumed to be main — plenty of repos default to dev
-
-# Same moment, same variable: prove the home is ignored before anything writes here.
-# The main checkout, NOT $WORKTREE — a linked worktree is its own toplevel, so asking the guard
-# about it answers for the wrong directory, and fails open.
-REPO_ROOT=$(git -C "$WORKTREE" worktree list --porcelain | head -1 | cut -d' ' -f2-)
-<kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT"
 ```
 
-`0` use it · `1` a home is **not** ignored, so don't · `2` ignored but over-broad, so **do** use it
-and mention the profile cost · `3`/`127` no verdict, which is not a pass. Full verdict table, why
-`2` is not a stop, and the never-edit-their-`.gitignore` rule:
-[`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md). Skipping this is how #43
-reproduces in a customer repo — silently, as a single gitlink rather than a diff anyone spots.
+The ignore check above is a **precondition of this block**, not part of it: it has already run by the
+time `$WORKTREE` has a value, which is why its recipe never asks for one.
 
 Record them at whichever point the worktree appears: this step skips creation when the PR looks
 `CLEAN`, and Step 4 then creates one only if corrections turn out to be needed. Reaching a guarded
@@ -206,9 +206,9 @@ The heart of the skill. Re-read the merge state, clear whatever it reports, push
 GitHub reports `CLEAN`. `mergeStateStatus` is the driver:
 
 ⚠️ **If Step 2 deferred the worktree** — the normal outcome when the PR looked `CLEAN` there — this is
-where it appears, so this is where Step 2's `WORKTREE` block runs: record the names *and* the ignore
-check together, before the first correction writes anything. Same call, same variable, whether the
-worktree is created here or was found in Step 2 —
+where it appears, so run Step 2's ignore check **here, before `git worktree add`**, and then record
+its `WORKTREE` block. The check is the same call either way; it takes no worktree path precisely so
+that deferring the worktree does not defer the guard past the thing it guards —
 [`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md). Reading the check in
 Step 2 and then obtaining the worktree here is how it ends up never running at all.
 
@@ -358,7 +358,7 @@ Clean up the throwaway workspace — the right cleanup depends on **where** the 
 checkout or another worktree). Move to the main checkout, remove the PR's worktree, delete its branch:
 
 ```bash
-MAIN=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')   # the primary working tree
+MAIN=$(git worktree list --porcelain | sed -n '1s/^worktree //p')   # the primary working tree
 cd "$MAIN"
 
 git worktree remove "<pr-worktree-path>"     # add --force if it has untracked/dirty leftovers

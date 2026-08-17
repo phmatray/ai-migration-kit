@@ -292,14 +292,81 @@ echo "  ok: reuse-wrong-root — judging the reused worktree instead of its chec
 #      Compared as PHYSICAL paths: git reports the resolved path, and on macOS the scratch dir
 #      arrives via the /var -> /private/var symlink, so a literal string compare fails on the
 #      symlink rather than on the recipe.
+#      One spelling only — case 23 exercises the same line against bare repos and spaced paths.
 reuse_phys=$(cd "$reuse" && pwd -P)
-main_root=$(git -C "$LINKED" worktree list --porcelain | head -1 | cut -d' ' -f2-)
+main_root=$(git -C "$LINKED" worktree list --porcelain | sed -n '1s/^worktree //p')
 [ "$main_root" = "$reuse_phys" ] || {
   echo "FAIL [reuse-main-root-recipe]: expected '$reuse_phys', got '$main_root'"; exit 1; }
-[ "$(git -C "$reuse" worktree list --porcelain | head -1 | cut -d' ' -f2-)" = "$reuse_phys" ] || {
+[ "$(git -C "$reuse" worktree list --porcelain | sed -n '1s/^worktree //p')" = "$reuse_phys" ] || {
   echo "FAIL [reuse-main-root-recipe]: the recipe is not idempotent from the main checkout"; exit 1; }
 rc=0; bash "$KIT/$GUARD" -C "$main_root" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 1 ] || { echo "FAIL [reuse-main-root-recipe]: the recipe's root did not reproduce the refusal, got $rc"; exit 1; }
 echo "  ok: reuse-main-root-recipe — worktree list --porcelain yields the checkout the hazard is in"
+
+# 23. THE RECIPE the skills use to derive that root (#86). Case 22 proves the guard needs the main
+#     checkout; this proves the one line documented in skills/_shared/worktree-ignore-check.md
+#     actually produces it. It lives here because the first version of that recipe
+#     (`head -1 | cut -d' ' -f2-`, no bare handling) was measured HARD-STOPPING a correctly
+#     configured bare repository — a false refusal a reader cannot unblock, since the .gitignore it
+#     asks for is already there.
+main_worktree() {                                # the documented recipe, verbatim
+  local list; list=$(git -C "$1" worktree list --porcelain)
+  local root; root=$(printf '%s\n' "$list" | sed -n '1s/^worktree //p')
+  printf '%s\n' "$list" | sed -n '2p' | grep -qx bare && root=''
+  printf '%s' "$root"
+}
+
+# 23a. Normal layout: identical answer from the main checkout and from inside a linked worktree.
+#      The second half is the whole point — that is where $WORKTREE points on the reuse path.
+rec="$WORK/rec"
+mkdir -p "$rec"
+git -C "$rec" init -q -b main
+git -C "$rec" config user.email t@example.com
+git -C "$rec" config user.name "Golden Test"
+printf 'x\n' > "$rec/tracked.txt"
+git -C "$rec" add -A
+git -C "$rec" commit -qm base
+git -C "$rec" worktree add -q .claude/worktrees/feat -b feat
+rec_phys=$(cd "$rec" && pwd -P)                  # git reports resolved paths; macOS /var -> /private/var
+[ "$(main_worktree "$rec")" = "$rec_phys" ] || {
+  echo "FAIL [recipe-main]: from the main checkout, got '$(main_worktree "$rec")'"; exit 1; }
+[ "$(main_worktree "$rec/.claude/worktrees/feat")" = "$rec_phys" ] || {
+  echo "FAIL [recipe-linked]: from the linked worktree, got '$(main_worktree "$rec/.claude/worktrees/feat")'"; exit 1; }
+echo "  ok: recipe — same main-checkout root from the checkout and from a linked worktree"
+
+# 23b. THE regression. A bare repo with linked worktrees: the first entry IS the bare repository,
+#      `check-ignore` cannot run in it ("must be run in a work tree"), and the guard would report
+#      that as "NOT ignored" — refusing a repo whose .gitignore is already correct. There is no
+#      hazard to guard either: a bare repo has no working tree for `git add -A` to run in. The
+#      recipe must therefore yield NOTHING, and the caller skips the check.
+bare="$WORK/bare.git"
+git init -q --bare "$bare"
+git -C "$rec" push -q "$bare" main
+git -C "$bare" worktree add -q "$bare/.claude/worktrees/g" main
+[ -z "$(main_worktree "$bare")" ] || {
+  echo "FAIL [recipe-bare]: expected no root for a bare repo, got '$(main_worktree "$bare")'"; exit 1; }
+[ -z "$(main_worktree "$bare/.claude/worktrees/g")" ] || {
+  echo "FAIL [recipe-bare-linked]: expected no root from a bare repo's worktree"; exit 1; }
+# And the control: had the caller passed the bare path anyway, the guard really does misreport.
+rc=0; bash "$KIT/$GUARD" -C "$bare" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || {
+  echo "FAIL [recipe-bare]: expected the guard to misjudge a bare repo (exit 1), got $rc — if this"
+  echo "  changed, check-ignore learned to run in a bare repo and the skip may be droppable"; exit 1; }
+echo "  ok: recipe — a bare repository yields no root, so the check is skipped rather than failed"
+
+# 23c. A checkout under a path containing a space. `awk '{print $2}'` — the spelling this repo used
+#      in merge-mechanics §7 — truncates at the space; the sed spelling does not.
+spaced="$WORK/my repo"
+mkdir -p "$spaced"
+git -C "$spaced" init -q -b main
+git -C "$spaced" config user.email t@example.com
+git -C "$spaced" config user.name "Golden Test"
+printf 'x\n' > "$spaced/tracked.txt"
+git -C "$spaced" add -A
+git -C "$spaced" commit -qm base
+spaced_phys=$(cd "$spaced" && pwd -P)
+[ "$(main_worktree "$spaced")" = "$spaced_phys" ] || {
+  echo "FAIL [recipe-space]: got '$(main_worktree "$spaced")', expected '$spaced_phys'"; exit 1; }
+echo "  ok: recipe — a path containing a space survives (the awk spelling truncates it)"
 
 echo "worktrees-ignored golden test OK"

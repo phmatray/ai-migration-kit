@@ -42,48 +42,53 @@ git worktree list --porcelain \
   | grep -E " ${HEAD_BRANCH}$"
 ```
 
-If a worktree is found, record its path and `git pull --ff-only` so it's current. If not, and Step 4
-shows corrections are needed, create one tracking the remote branch (prefer
-`superpowers:using-git-worktrees`; this is the manual fallback):
+Whichever branch you are on — a worktree was found, or Step 4 shows corrections are needed and one
+must be created — establish the precondition **first**, and BRANCH ON IT; the guard's refusal has to
+stop the next line, or it is decoration:
+
+```bash
+# `<kit>` is the kit root (holds skills/ and scripts/), resolved when the skill loads; the guard
+# judges the repo at -C, so an installed plugin works.
+#
+# The recipe (main working tree, bare repositories, and why it must NOT be derived from a worktree
+# path) is stated once in ../../_shared/worktree-ignore-check.md — run it from there.
+REPO_ROOT=<per _shared/worktree-ignore-check.md — empty for a bare repo, which has nothing to check>
+if [ -n "$REPO_ROOT" ]; then
+  rc=0; <kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT" || rc=$?
+  case "$rc" in
+    0|2) : ;;                                  # 2 = ignored but over-broad: no worktree hazard, proceed
+    *)   echo "worktree home not verified (exit $rc) — not creating or using one"; exit 1 ;;
+  esac
+fi
+```
+
+Only then take one of the two branches:
 
 ```bash
 # Found: the path column of the matching line above.
 WORKTREE=<absolute path of the matched worktree>
 git -C "$WORKTREE" pull --ff-only
 
-# Or created:
+# Or created (prefer superpowers:using-git-worktrees; this is the manual fallback):
 git fetch origin "$HEAD_BRANCH"
-WORKTREE="$(git rev-parse --show-toplevel)/.claude/worktrees/merge-$PR"
+WORKTREE="$REPO_ROOT/.claude/worktrees/merge-$PR"   # same root the guard just cleared
 git worktree add "$WORKTREE" "$HEAD_BRANCH"    # checks out the existing branch (tracks origin/$HEAD_BRANCH)
 ```
 
-Then — on **both** branches of the above, the found one and the created one — establish the
-precondition before anything writes, and BRANCH ON IT; the guard's refusal has to stop the next step,
-or it is decoration:
+**Why the check covers use, not just creation** (#86) — and why it still runs *before* either branch.
+Reuse is this skill's usual case: `implement-issue` normally left a worktree behind, so a check wired
+to `git worktree add` verifies only the runs that happen to build one, and never the repo that keeps
+getting worked in. A worktree that already exists is also the one with something to find — its home
+was ignored once, or nobody looked, and the rule can have been dropped or negated since. But widening
+*when* it applies must not delay *where* it sits: run it after `git worktree add` and a refusal has
+already planted a full checkout in the unignored home, with nothing prescribed to remove it; run it
+after `pull --ff-only` and it has already written there. Hence one call, ahead of both. (No worktree
+at all — the already-`CLEAN` merge — means nothing to check; that stays true.)
 
-```bash
-# `<kit>` is the kit root (holds skills/ and scripts/), resolved when the skill loads; the guard
-# judges the repo at -C, so an installed plugin works.
-#
-# -C takes the MAIN CHECKOUT root. `.claude/worktrees/` is an anchored pattern, so a subdirectory
-# makes a correctly configured repo answer "NOT ignored" — and a linked worktree, which is what
-# $WORKTREE holds on the reuse path, is its own toplevel and answers for the wrong directory
-# entirely (it fails OPEN — see the shared reference). `worktree list --porcelain` prints the main
-# worktree first from anywhere, so one line serves both branches.
-REPO_ROOT=$(git -C "$WORKTREE" worktree list --porcelain | head -1 | cut -d' ' -f2-)
-rc=0; <kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT" || rc=$?
-case "$rc" in
-  0|2) : ;;                                    # 2 = ignored but over-broad: no worktree hazard, proceed
-  *)   echo "worktree home not verified (exit $rc) — not working in it"; exit 1 ;;
-esac
-```
-
-**Why the check runs at the point of use, not of creation** (#86). Reuse is this skill's usual case —
-`implement-issue` normally left a worktree behind — so a check wired to `git worktree add` verifies
-only the runs that happen to build one, and never the repo that keeps getting worked in. A worktree
-that already exists is also the one with something to find: its home was ignored once, or nobody
-looked, and the rule can have been dropped or negated since. (No worktree at all — the already-`CLEAN`
-merge — means nothing to check; that stays true.)
+⚠️ **`$REPO_ROOT` is also the root the worktree is created under**, deliberately: deriving the
+creation path from the ambient `git rev-parse --show-toplevel` while verifying a different root lets
+the two disagree whenever the session sits in a linked worktree — which this skill warns is common —
+so the guard would clear one directory while `git worktree add` planted the checkout in another.
 
 **Why it must be checked.** `.claude/worktrees/` is this kit's convention, and a convention is not
 a fact about *someone else's* repository. A worktree is a full checkout, so where the rule is absent
@@ -285,11 +290,14 @@ PR's branch is checked out. Decide the case from §2's worktree listing.
 Move to the main checkout, remove the PR's worktree, then delete its local branch:
 
 ```bash
-MAIN=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')   # first entry = primary working tree
+# Same spelling as the root recipe in §2 (one idiom, not two): `awk '{print $2}'` truncates a
+# checkout under a path containing a space — measured on `/Users/x/my repo`.
+MAIN=$(git worktree list --porcelain | sed -n '1s/^worktree //p')   # first entry = primary working tree
 cd "$MAIN"
 
-# Remove the PR's worktree (force only if it has dirty/untracked leftovers — a merged PR shouldn't).
-git worktree remove "$PR_WORKTREE_PATH" 2>/dev/null || git worktree remove --force "$PR_WORKTREE_PATH" 2>/dev/null || true
+# Remove the PR's worktree — $WORKTREE, the path §2 recorded (force only if it has dirty/untracked
+# leftovers, which a merged PR shouldn't).
+git worktree remove "$WORKTREE" 2>/dev/null || git worktree remove --force "$WORKTREE" 2>/dev/null || true
 git worktree prune
 
 # Delete the local branch. -D (not -d): after a squash-merge the branch isn't "merged" in git's view,
