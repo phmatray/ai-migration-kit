@@ -6,9 +6,14 @@ on:
   # No `types:` here — the default set (opened, synchronize, reopened) is exactly what this job
   # reacts to. It once listed `edited` as well, for the release-title gate that used to be a step
   # below; `types` is WORKFLOW-level, so that made every PR *body* edit run all of the following —
-  # the dotnet build and nine golden suites — to re-decide a ~50 ms check on a title that had not
+  # the dotnet build and every golden suite — to re-decide a ~50 ms check on a title that had not
   # changed. The gate moved to .github/workflows/release-title.yml, which keeps `edited` where it
-  # is actually load-bearing (#57).
+  # is actually load-bearing (#57); the reasoning for the split lives in that file's header.
+  #
+  # Note what going back to the defaults also gives up: `edited` covers title, body AND base-branch
+  # changes indistinguishably, so retargeting a PR to a different base no longer re-runs this job,
+  # and its verdict then describes a merge into the OLD base. That was the behaviour before #29 and
+  # it is what #57 asks for, but it is a real edge — docs/backlog.md carries it with its trigger.
   pull_request:
 
 # Without a group, a second push while a run is still going leaves two runs against the same
@@ -32,10 +37,9 @@ jobs:
           # never fires and the step reports a wrong date instead of failing. Keep the full history.
           fetch-depth: 0
 
-      # The release-title gate used to be the first step here, ahead of the toolchain so it failed
-      # fast. It now runs in .github/workflows/release-title.yml, which owns the `edited` trigger
-      # it needs (#57). Its golden test stays in this job with the other tests/*/test.sh steps —
-      # that is a unit test of a script, not a gate on the title.
+      # (The release-title gate was the step that used to sit here — moved in #57, see the `on:`
+      # block above. Its golden test stays in this job with the other tests/*/test.sh steps: that
+      # is a unit test of a script, not a gate on the title.)
 
       # The harness puts agent worktrees under .claude/worktrees/. Unignored, any `git add -A` run
       # in this repo stages one as a gitlink (#43). Needs only the checkout, so it sits here and

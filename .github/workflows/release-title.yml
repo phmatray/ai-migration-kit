@@ -2,13 +2,18 @@ name: release-title
 
 # The release-title gate, in a workflow of its own (#57).
 #
-# It lived in `ci.yml` next to the 24 steps of the `kit` job. The gate reads the PR *title*, so a
-# retitle has to re-run it, which meant `ci.yml` carried `types: [… edited]`. But `types` is
-# WORKFLOW-level and `edited` fires on title, **body** or base-branch changes with nothing in the
-# payload trigger to tell them apart — so every PR body edit ran the whole dotnet build and nine
-# golden suites to re-decide a ~50 ms bash check against a title that had not changed. That is this
-# repo's normal workflow, not a corner case: skills/implement-issue ticks the PR's `### Plan` mirror
-# with `gh pr edit --body-file` once per task, so a ten-task issue fired ten extra full runs.
+# It lived in `ci.yml`, as one step of the `kit` job — the job that carries the dotnet build and
+# every golden suite. (No step count here on purpose: `kit` grows most months, and this repo has
+# already learned that a hand-maintained inventory of it goes stale — scripts/ci-wiring-check.py
+# exists because the README's went stale four times. Ask the file, not this comment.)
+#
+# The gate reads the PR *title*, so a retitle has to re-run it, which meant `ci.yml` carried
+# `types: [… edited]`. But `types` is WORKFLOW-level and `edited` fires on title, **body** or
+# base-branch changes with nothing in the payload trigger to tell them apart — so every PR body
+# edit ran that whole job to re-decide a ~50 ms bash check against a title that had not changed.
+# That is this repo's normal workflow, not a corner case: skills/implement-issue ticks the PR's
+# `### Plan` mirror with `gh pr edit --body-file` once per task, so a ten-task issue fired ten
+# extra full runs.
 #
 # Splitting is what fixes it, rather than a condition on the heavy job. Skipping `kit` on body-only
 # edits would work — GitHub sends `changes.title` only when the title changed — but it makes the one
@@ -16,17 +21,28 @@ name: release-title
 # reads like a green (merge-pr has a whole table on telling phantom skips apart). One job, one honest
 # verdict; the trigger each job needs is now the trigger each job has.
 #
-# Everything the gate needs is a checkout and bash, so the split costs one extra checkout.
+# TWO THINGS THE SPLIT COSTS, written down because neither is obvious from the diff:
 #
-# Observed on the PR that introduced this file (#119), against one head sha, since no test can
-# assert a trigger — a workflow's trigger is only ever exercised by the real event:
+#  1. **The gate no longer short-circuits the build.** As step 2 of `kit` it failed in ~30 s, before
+#     setup-dotnet, and the rest of the job never ran. Now the two are independent: a PR titled
+#     `chore(skills):` that touches skills/** runs `kit` to completion (green) while this workflow
+#     reports red beside it. The verdict is unchanged and still blocking-by-inspection; what is lost
+#     is the early exit. Judged worth it — that path costs runner time only on a PR that is already
+#     failing, whereas the body-edit path it replaces cost it on PRs that were fine.
+#  2. **A per-push cost, not a one-off.** "One extra checkout" undersells it: this workflow allocates
+#     its own runner and does a `fetch-depth: 0` clone on every `synchronize` too, not only on the
+#     edits the split was meant to make cheap. Net for a ten-task issue: 10 heavy `ci` runs + ~20
+#     cheap gate runs, against 20 heavy runs before. Favourable, but not free.
+#
+# Observed on the PR that introduced this file (#119) on 2026-08-13, against head sha fafdca5 — a
+# point-in-time record, since no test can assert a trigger and Actions logs are pruned after 90 days:
 #
 #   push (synchronize)   ci ✅ 31711285103   release-title ✅ 31711285233
 #   PR *body* edit       ci — not triggered  release-title ✅ 31711515732
 #   PR *title* edit      ci — not triggered  release-title ✅ 31711605496
 #
 # `ci` ran exactly once for that sha, from the push; the two edits added no run to it. The title
-# edit's gate log echoes the NEW title in its env block, so it re-judged rather than replaying the
+# edit's gate log echoed the NEW title in its env block, so it re-judged rather than replaying the
 # earlier verdict. That is the whole behaviour this split exists to produce.
 
 on:
@@ -56,8 +72,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gate:
+  # `title-gate`, not `gate`. The job name IS the check-run name and the key any future branch
+  # protection rule would match on, and it cannot be changed afterwards without breaking that rule.
+  # This repo calls at least three other things "the gate" (worktrees-ignored.sh, ci-wiring-check.py,
+  # the Renovate validator step), so a bare `gate` would be ambiguous at exactly the moment someone
+  # has to type it into a settings page.
+  #
+  # ⚠️ IF BRANCH PROTECTION IS EVER ENABLED ON `main`, IT MUST REQUIRE BOTH `kit` AND `title-gate`.
+  # Before #57 there was one check and requiring it covered everything. There are two now, and this
+  # is the half that is easy to forget — requiring only `kit` would let a PR titled `chore(skills):`
+  # merge green while this workflow sits red and unrequired, which is exactly the hole #27 opened
+  # this gate to close. `main` has no protection today, so nothing is broken; this is the note for
+  # whoever adds it.
+  title-gate:
     runs-on: ubuntu-latest
+    # `release-please.yml` sets one for the same reason: an un-timed job that hangs holds an
+    # `in_progress` check-run for GitHub's 6-hour default, and skills/merge-pr treats in_progress as
+    # "CI still pending" and waits on it. Two steps against a fixed-size repo; ten minutes is
+    # already generous, and a run that exceeds it is stuck rather than slow.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
