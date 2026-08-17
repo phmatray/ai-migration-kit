@@ -233,11 +233,16 @@ echo "  [2] transform -> xunit.v3 runs $count tests (baseline $BASELINE_TESTS), 
 # ---------------------------------------------------------------------------
 # 3. The OutputType trap is pinned.
 #
-#    A v3 test project left as a library must never yield a green 6-test run. On xunit.v3
-#    3.2.2 the package guards this itself, failing the BUILD with an explicit message — so
-#    what is asserted here is the guard, not a silent 0-test pass. If a future version drops
-#    that guard, this assertion still holds: the run must not come back green with the full
-#    test count. That is why the counted-tests gate, not this guard, is the contract.
+#    A v3 test project left as a library must never yield a green 6-test run. On
+#    xunit.v3 3.2.2 the package guards this itself, failing the BUILD with an   # pinned:xunit-v3
+#    explicit message — so what is asserted here is the guard, not a silent 0-test pass. If a
+#    future version drops that guard, this assertion still holds: the run must not come back
+#    green with the full test count. That is why the counted-tests gate, not this guard, is the
+#    contract.
+#
+#    The claim above used to wrap between the package id and the version, which made it
+#    unreadable to any line-based check — the exact shape #90 exists to close — so it was
+#    rewrapped rather than excused.
 # ---------------------------------------------------------------------------
 cp -R "$FIXTURE" "$scratch/trap"
 python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/trap" --skip-output-type > /dev/null
@@ -465,7 +470,7 @@ cd "$KIT"
 #     contribute nothing while its siblings still reported — leaving the job green on a union
 #     that is quietly partial, the same wrong-answer shape as #17 one level up.
 #
-#     Measured instead (2026-08-10, SDK 10.0.302, xunit.v3 3.2.2, CodeCoverage 17.14.2):
+#     Measured instead (2026-08-10, SDK 10.0.302, xunit.v3 3.2.2, CodeCoverage 17.14.2):  # pinned:xunit-v3
 #     `--coverage` is an option CONTRIBUTED BY that extension, so without it MTP does not skip
 #     collection — it refuses the option, `Unknown option '--coverage'`, and the test app exits
 #     non-zero. Under the step's `set -euo pipefail` that fails the step outright, before the
@@ -896,7 +901,7 @@ else:
     raise AssertionError("the default package argument does not check CodeCoverage")
 
 # The rule is keyed on the PACKAGE ID, not the major: `xunit.v3` and `xunit.v3.mtp-v2` are both on
-# major 3 today and sit on opposite MTP lines (measured: xunit.v3 3.2.2 -> MTP 1.9.1,
+# major 3 today and sit on opposite MTP lines (measured: xunit.v3 3.2.2 -> MTP 1.9.1,  # pinned:xunit-v3
 # xunit.v3.mtp-v2 3.2.2 -> MTP 2.0.2), so a version-keyed map would invert every pair below.
 #
 # The rest of the Microsoft.Testing family splits at the SAME v1/v2 boundary but versions AS the
@@ -1888,7 +1893,7 @@ rejects("ignorePaths written with a character class", _ignore_by_character_class
 # --- packageRules: keys that narrow a rule, and keys that merely look like they do (#99) --------
 #
 # A hold only protects what it MATCHES, and `rule_applies` read three of the keys that narrow that
-# reach. Any OTHER `match*` key was invisible, so a hold Renovate would not apply to xunit.v3 3.2.2
+# reach. Any OTHER `match*` key was invisible, so a hold Renovate would not apply to xunit.v3 3.2.2  # pinned:xunit-v3
 # was scored as full protection. The three below are the ones measured on the issue.
 def _narrow_the_hold_by_current_version(c):
     _family_rule(c)["matchCurrentVersion"] = "<3"
