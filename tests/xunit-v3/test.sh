@@ -1893,7 +1893,7 @@ rejects("ignorePaths written with a character class", _ignore_by_character_class
 # --- packageRules: keys that narrow a rule, and keys that merely look like they do (#99) --------
 #
 # A hold only protects what it MATCHES, and `rule_applies` read three of the keys that narrow that
-# reach. Any OTHER `match*` key was invisible, so a hold Renovate would not apply to xunit.v3 3.2.2
+# reach. Any OTHER `match*` key was invisible, so a hold Renovate would not apply to xunit.v3 3.2.2  # pinned:xunit-v3
 # was scored as full protection. The three below are the ones measured on the issue.
 def _narrow_the_hold_by_current_version(c):
     _family_rule(c)["matchCurrentVersion"] = "<3"
