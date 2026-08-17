@@ -84,12 +84,26 @@ python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json -
 
 # Sans -o, la sortie atterrit À CÔTÉ du report.json — jamais dans le cwd (vague 3 : le
 # dashboard de pokedexg s'était retrouvé à la racine du repo migré).
+#
+# C'est le SEUL fichier que cette suite écrit hors de son scratch, et la disposition testée
+# l'impose : le trap de kit_init ne peut donc pas le reprendre. Il était supprimé par un `rm -f`
+# placé APRÈS les deux assertions ci-dessous — c'est-à-dire seulement sur le chemin vert. Mesuré :
+# une panne entre la génération et ce `rm` laissait `tests/report-dashboard/report.html` non suivi
+# dans l'arbre, un run rouge après l'autre. C'est la fuite que #104 décrit pour les arbres
+# temporaires (#128 les a, elles, déjà mises sous trap), sur le dernier chemin qui y échappait.
+#
+# La suppression est donc ENREGISTRÉE comme les autres gardes, pour tourner sur CHAQUE chemin de
+# sortie ; `$KIT` et pas un chemin relatif, parce qu'un gestionnaire de sortie ne peut rien
+# supposer du répertoire courant. Le `rm -f` du HAUT reste : il n'est pas un nettoyage mais une
+# PRÉCONDITION — sans lui, le `[ -f ]` juste après pourrait être satisfait par le fichier d'un run
+# précédent et n'assurerait plus que CE run l'a écrit.
 defaut="tests/report-dashboard/report.html"
+nettoie_sortie_par_defaut() { rm -f "$KIT/$defaut"; }
+kit_guard nettoie_sortie_par_defaut
 rm -f "$defaut"
 python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json 2>/dev/null
 [ -f "$defaut" ] || { echo "ÉCHEC : sans -o, report.html doit être écrit à côté du report.json"; exit 1; }
 [ ! -f report.html ] || { echo "ÉCHEC : sans -o, rien ne doit être écrit dans le cwd"; exit 1; }
-rm -f "$defaut"
 
 assert_in() { grep -qF "$2" "$1" || { echo "ÉCHEC : « $2 » absent du HTML généré ($1)"; exit 1; }; }
 refuse_in() { ! grep -qF "$2" "$1" || { echo "ÉCHEC : « $2 » présent alors qu'il devrait être exclu ($1)"; exit 1; }; }
