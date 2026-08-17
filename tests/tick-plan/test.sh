@@ -47,6 +47,7 @@ if [[ "$*" == *PATCH* ]]; then
   else
     cp "$input" "$GH_PAYLOAD"
   fi
+  [ -n "${GH_PATCH_FAIL:-}" ] && exit 4
   jq -r .body < "$GH_PAYLOAD" > "$GH_STORE"
   # $GH_MANGLE_STORE models a concurrent edit: GitHub ends up holding something other than
   # what was sent, which the read-back must catch whether or not the call was bounded.
@@ -264,7 +265,25 @@ grep -q 'WARNING' "$WORK/out.warn-unverified" \
   || { echo "FAIL [warn-unverified]: no WARNING"; cat "$WORK/out.warn-unverified"; exit 1; }
 echo "  ok: warn-unverified — unbounded + unreadable stays a WARNING"
 
-# 14. The deadline must be a sane number: a junk value is caught before anything is sent.
+# 14. A PATCH that fails on its own is still a refusal — nothing was sent, so there is nothing to
+#     read back. The exit status now arrives via `wait` on a backgrounded call rather than from a
+#     foreground `if !`, which is new machinery and worth pinning.
+fresh_log patch-failed
+export GH_PATCH_FAIL=1
+RC=0
+"$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+  > "$WORK/out.patch-failed" 2>&1 || RC=$?
+unset GH_PATCH_FAIL
+[ "$RC" -ne 0 ] || { echo "FAIL [patch-failed]: a failed PATCH reported success"
+                     cat "$WORK/out.patch-failed"; exit 1; }
+grep -q 'REFUSED' "$WORK/out.patch-failed" \
+  || { echo "FAIL [patch-failed]: no REFUSED"; cat "$WORK/out.patch-failed"; exit 1; }
+grep -q 'jq .body' "$GH_CALL_LOG" \
+  && { echo "FAIL [patch-failed]: read back a body after a PATCH that never landed"
+       cat "$GH_CALL_LOG"; exit 1; }
+echo "  ok: patch-failed — a failing PATCH still REFUSES, with no read-back"
+
+# 15. The deadline must be a sane number: a junk value is caught before anything is sent.
 refuses bad-timeout env TICK_PLAN_PATCH_TIMEOUT=soon \
   "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
 
