@@ -100,17 +100,22 @@ jobs:
           # exactly that "sha not present" path.
           fetch-depth: 0
 
-      # Consumers install a version-keyed cache of this plugin (#6), so a skills change reaches
-      # nobody until release-please cuts a release — and this repo squash-merges, so the PR title
-      # is the commit release-please will read on main. #7 enforced that with a per-PR version
-      # bump; #14 rightly retired it when release-please landed, leaving the guarantee resting on
-      # an unchecked precondition (#27). This step is that check.
+      # Consumers install a version-keyed cache of this plugin (#6) — a whole-repo checkout of the
+      # tagged commit — so a change to anything they run reaches nobody until release-please cuts a
+      # release, and this repo squash-merges, so the PR title is the commit release-please will read
+      # on main. #7 enforced that with a per-PR version bump; #14 rightly retired it when
+      # release-please landed, leaving the guarantee resting on an unchecked precondition (#27).
+      # This step is that check.
+      #
+      # It covers all shipped content, not just skills/ (#55): the gate defines "shipped" by
+      # exclusion, so scripts/, commands/, templates/, hooks/ and requirements.json are gated too.
+      # Keep this step NAME accurate — it is the label on the red check a contributor sees.
       #
       # `if: github.event_name == 'pull_request'` guarded this step in ci.yml, which also runs on
       # push to main. This workflow has no push trigger, so that condition is always true here —
       # and a tautological `if:` on the only step of the only job is precisely the shape that
       # produces a check-run nobody can distinguish from a deliberate skip. Dropped, not moved.
-      - name: Skills changes carry a releasable PR title
+      - name: Shipped-content changes carry a releasable PR title
         env:
           # Never interpolate ${{ … }} into a run: block — a PR title is attacker-controlled on
           # fork PRs and would be pasted into the script the shell parses. Through the environment

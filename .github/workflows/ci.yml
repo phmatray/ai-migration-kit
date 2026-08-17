@@ -38,8 +38,9 @@ jobs:
           fetch-depth: 0
 
       # (The release-title gate was the step that used to sit here — moved in #57, see the `on:`
-      # block above. Its golden test stays in this job with the other tests/*/test.sh steps: that
-      # is a unit test of a script, not a gate on the title.)
+      # block above. #55 widened it to every shipped path and renamed it while it was in flight;
+      # that newer name and rationale moved with it. Its golden test stays in this job with the
+      # other tests/*/test.sh steps: that is a unit test of a script, not a gate on the title.)
 
       # The harness puts agent worktrees under .claude/worktrees/. Unignored, any `git add -A` run
       # in this repo stages one as a gitlink (#43). Needs only the checkout, so it sits here and
@@ -92,6 +93,14 @@ jobs:
       - name: Shared test preamble golden test (the rc invariant every suite now leans on)
         run: ./tests/lib/test.sh
 
+      # Same argument, one file over (#51): tests/_lib/py.sh is now the kit's ONLY importlib
+      # loader, sourced by the xunit-v3 and report-dashboard suites, so a regression there weakens
+      # both at once — and its worst failure mode is silent. A `py_module` call whose heredoc went
+      # missing used to exit 0 having asserted nothing, and this step's suite drives that refusal.
+      # Ahead of both tenants, for the reason the step above gives.
+      - name: Shared module-loader golden test (refusal paths, and the no-__pycache__ invariant)
+        run: ./tests/py-module/test.sh
+
       # …and the wiring guard gets the same treatment it exists to enforce: a golden test over its
       # refusal path. An inline `run:` block could not have one, which is exactly how the first
       # version of scripts/release-title-gate.sh managed to fail open.
@@ -127,12 +136,30 @@ jobs:
           # against a config the real Renovate accepts. An unpinned gate is red on correct input,
           # and its obvious "fix" would silently downgrade the config. Floor is major 40.
           # Bumped by the customManager in renovate.json; tests/renovate-config asserts both.
-          RENOVATE_VALIDATOR_VERSION: 44.23.3
+          RENOVATE_VALIDATOR_VERSION: 44.29.4
         run: |
+          # Both flags are load-bearing and both were MEASURED against this pin in #79, not read
+          # off the docs. Dropping either one re-opens a hole that leaves CI green.
+          #
+          # --no-global: passing a filename positionally makes the validator judge it as a GLOBAL
+          #   self-hosted config — it even says so, "Validating renovate.json as global config".
+          #   This file is a REPO config. Measured: `autodiscover` and `baseDir`, which Renovate
+          #   ignores outright in a repo config, PASS without this flag and fail with it. That is
+          #   the silent-ignore failure this gate exists to catch, sitting inside the gate itself.
+          #
+          # --strict: NOT what catches an unknown key — a mistyped key inside customManagers
+          #   already exits 1 unflagged, because renovate 44 sets returnVal=1 on warnings too.
+          #   `strict` is consulted in exactly one branch, `if (isMigrated)`. So it means "fail if
+          #   the config needs migration", and it is the only thing that catches a stale spelling
+          #   such as `fileMatch` for `managerFilePatterns` — measured: exit 0 without, 1 with.
+          #
+          # Known limit (follow-up): RE2 is an OPTIONAL native module. When it fails to load the
+          # validator falls back to JS RegExp and logs "RE2 not usable" as a bare warning that does
+          # not affect the exit code — so an RE2-only-invalid regex can still pass here.
           npx --yes --package "renovate@$RENOVATE_VALIDATOR_VERSION" -- \
-            renovate-config-validator renovate.json
+            renovate-config-validator --no-global --strict renovate.json
 
-      - name: Renovate config golden test (accepts the real config, rejects an unknown key)
+      - name: Renovate config golden test (accepts the real config; rejects unknown, global-only and unmigrated keys)
         run: ./tests/renovate-config/test.sh
 
       # release-please stamps both files in the same release PR, so a mismatch means someone

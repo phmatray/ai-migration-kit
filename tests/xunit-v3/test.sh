@@ -16,8 +16,9 @@
 #      sends readers there for the pinned value), and every prose claim about that version — in the
 #      module's own comments and in the migration reference agents read — is swept for agreement,
 #      so a Renovate bump cannot leave a measurement standing that nobody re-took;
-#   8. THIS FILE loads kit scripts through exactly one module loader, so the no-__pycache__
-#      invariant that loader carries cannot be lost to a copy-paste;
+#   8. tests/ and scripts/ load kit scripts through exactly one module loader — the shared
+#      tests/_lib/py.sh — so the no-__pycache__ invariant that loader carries cannot be lost to a
+#      copy-paste, in this file or in any other (#51 widened this from "THIS FILE");
 #   9. Renovate can actually SEE those two pins and actually HOLDS their majors — the custom
 #      managers are executed against the real file, and the holds are tested for REACH, so a config
 #      the engine would reject, or protection that has been scoped away from the pins, fails here
@@ -50,21 +51,15 @@ FIXTURE="$KIT/samples/LegacyShop"
 #   …body; `mod` is the loaded module, sys.argv[1] is <script-path>, argv[2:] are the args…
 #   PY
 #
-# Every such snippet goes through here, and section 8 asserts it. The reason is the
-# PYTHONDONTWRITEBYTECODE=1 below: `exec_module` COMPILES the target, so without it Python drops a
-# __pycache__ next to the kit script, and cleanup() turns that into a suite-wide failure for a
-# reason unrelated to whatever was under test. That prefix is load-bearing and invisible at the
-# call site — precisely the shape a copy-paste loses. One loader means it can only be forgotten
-# once, here, where the tests would say so immediately.
-py_module() {
-  PYTHONDONTWRITEBYTECODE=1 python3 -c '
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("kit_module", sys.argv[1])
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-exec(compile(sys.stdin.read(), "<py_module body>", "exec"), globals())
-' "$@"
-}
+# The definition lives in tests/_lib/py.sh since #51 — this suite is no longer its only tenant,
+# and a loader that only one file asserts is a loader the OTHER file can quietly copy wrong. The
+# PYTHONDONTWRITEBYTECODE=1 it carries is the whole point (see that file); section 8 asserts that
+# it is the kit's only one.
+#
+# Sourced through $KIT, an absolute path, because this script has already cd'd to the kit root —
+# a relative path here would resolve against wherever the suite happened to be invoked from.
+. "$KIT/tests/_lib/py.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib/py.sh — refusing to run unguarded"; exit 1; }
 
 # Print the `run: |` body of a named step of templates/ci-dotnet.yml, so the assertions below
 # execute the template VERBATIM instead of a copy that drifts from it. A hand-copied command is
@@ -1111,36 +1106,63 @@ print(f"  [7e] every measured claim about {pkg} agrees with the transform: {vers
 PY
 
 # ---------------------------------------------------------------------------
-# 8. The no-__pycache__ invariant lives in exactly one place IN THIS FILE.
-#
-#    Scope is deliberate and worth stating, because the assertion below reads only $SELF:
-#    tests/report-dashboard/test.sh carries its own loader for its own module. That one is
-#    correct today (it does prefix PYTHONDONTWRITEBYTECODE=1) but nothing asserts it, so the
-#    guard here must not be read as a repo-wide guarantee.
+# 8. The no-__pycache__ invariant lives in exactly one place ACROSS tests/ AND scripts/.
 #
 #    Loading a kit script through importlib compiles it, and without
-#    PYTHONDONTWRITEBYTECODE that drops a __pycache__ next to it — which cleanup() turns into a
-#    suite-wide failure, for a reason unrelated to whatever was being tested. The prefix is
-#    therefore load-bearing and invisible at the call site, which is exactly the shape that gets
-#    lost in a copy-paste. One loader, asserted here, so a new call site cannot reintroduce it.
+#    PYTHONDONTWRITEBYTECODE that drops a __pycache__ next to it — which the no_pycache guard
+#    turns into a suite-wide failure, for a reason unrelated to whatever was being tested. The
+#    prefix is therefore load-bearing and invisible at the call site, which is exactly the shape
+#    that gets lost in a copy-paste. One loader, asserted here, so a new call site cannot
+#    reintroduce it.
+#
+#    #42 could only claim this for THIS FILE, and said so rather than overstating it: the grep
+#    read $SELF alone, while tests/report-dashboard/test.sh carried a second loader for its own
+#    module. That copy was correct — it did carry the prefix — but nothing asserted it, so an edit
+#    dropping the prefix would have stranded a __pycache__ under scripts/ and surfaced it in THIS
+#    suite's exit guard, naming a file this suite never touches. Misdirection of exactly the kind
+#    section 8 exists to prevent, one directory over (#51).
+#
+#    So the scope is now tests/ and scripts/, and the single definition must live in the shared
+#    helper. Both halves matter: a count alone would be satisfied by any one file keeping a
+#    private loader, which is the arrangement this replaced.
 # ---------------------------------------------------------------------------
-#    The `[l]` is not a typo: it keeps this grep from counting its own pattern, so the assertion
-#    measures the script's loaders rather than itself. And it reads $SELF, not $0: this script cd's
-#    to the kit root on line 13, after which a relative $0 no longer resolves — the grep then fails
-#    with "No such file" and the check quietly does not run.
-#    `|| true` because `grep -c` exits 1 when the count is ZERO, and under `set -e` an assignment
-#    from a failing substitution kills the script — so the one case this block exists to describe
-#    (the loader removed or renamed) would abort with no output at all, right where the message is
-#    the entire point.
-loaders=$(grep -c 'spec_from_file_[l]ocation' "$SELF" || true)
-if [ "$loaders" -ne 1 ]; then
-  echo "FAIL: $loaders copies of the importlib loader in $(basename "$SELF") — expected exactly 1."
+#    The `[l]` is not a typo: it keeps this grep from counting its own pattern — including in this
+#    very file, which the recursive scan now reads — so the assertion measures the kit's loaders
+#    rather than itself.
+#    `|| true` because `grep` exits 1 when there is no match, and under `set -e` an assignment from
+#    a failing substitution kills the script — so the one case this block exists to describe (the
+#    loader removed or renamed) would abort with no output at all, right where the message is the
+#    entire point. The paths are relative to the kit root this script cd'd to before anything else,
+#    which is also what makes the reported paths match $LOADER_HOME verbatim.
+#
+#    Scanned through $KIT — ABSOLUTE — and not through the relative `tests scripts`. The property
+#    the old $SELF spelling had, and that a relative operand silently gives up: this suite cd's
+#    into scratch copies five times below and only happens to cd back each time. The first section
+#    that leaves the cwd elsewhere would make this grep read a scratch tree, or error to stderr —
+#    and with `|| true` that reads as ZERO loaders, i.e. a FAIL blaming a removal that never
+#    happened. The `$KIT/` prefix is stripped back off before comparing, so $LOADER_HOME stays a
+#    repo-relative path a reader can open.
+#
+#    The pattern is one literal spelling — `spec_from_file_[l]ocation`, bracketed here for the very
+#    reason this section exists — and the claim is scoped to match: it is the only loader idiom the
+#    kit uses. `__import__`, `importlib.import_module` after
+#    a sys.path insert, and runpy would each write bytecode without tripping this grep. Saying so
+#    here rather than pretending otherwise is the same honesty #42 applied to its own narrower
+#    scope — and broadening the pattern is a follow-up, not a silent widening of a claim.
+LOADER_HOME="tests/_lib/py.sh"
+loader_sites=$( { grep -rn 'spec_from_file_[l]ocation' "$KIT/tests" "$KIT/scripts" || true; } \
+  | sed "s|^$KIT/||")
+loaders=$(printf '%s' "$loader_sites" | { grep -c . || true; })
+if [ "$loaders" -ne 1 ] || [ "${loader_sites%%:*}" != "$LOADER_HOME" ]; then
+  echo "FAIL: $loaders copy/copies of the importlib loader under tests/ and scripts/ — expected"
+  echo "      exactly 1, in $LOADER_HOME."
   echo "      Every Python snippet that loads a kit script must go through py_module(), which"
-  echo "      carries PYTHONDONTWRITEBYTECODE=1. A copy without it turns the whole suite red:"
-  grep -n 'spec_from_file_[l]ocation' "$SELF"
+  echo "      carries PYTHONDONTWRITEBYTECODE=1. A copy without it drops a __pycache__ beside the"
+  echo "      script it loaded and turns some suite red for a reason unrelated to what it tests:"
+  printf '%s\n' "${loader_sites:-  (none found — the loader was removed or renamed)}"
   exit 1
 fi
-echo "  [8] one module loader carries the no-__pycache__ invariant"
+echo "  [8] one module loader, in $LOADER_HOME, carries the no-__pycache__ invariant"
 
 # ---------------------------------------------------------------------------
 # 9. Renovate can actually SEE the two pins the transform writes.
@@ -1784,15 +1806,22 @@ fi
 # Instead: match the shape ANYWHERE, then subtract the two kinds of line that spell it out
 # legitimately — comment lines, and the one tagged `sigpipe-repro` above, which IS the broken shape
 # on purpose. The FAIL text below says `find|grep` without the space so it cannot match itself.
-# Scans tests/_lib.sh too, since #72 moved any_match there: the idiom this guard polices no longer
-# lives in this file, so scanning only $SELF would let someone revert any_match to the broken
-# pipeline and reintroduce #48 for all ten converted suites at once, with this check still green.
-strays=$( { grep -nE 'find [^|]*\| *grep -[q] \.' "$SELF" "$KIT/tests/_lib.sh" || true; } \
+# Scans the SHARED shell files too, since #72 moved any_match into tests/_lib.sh: the idiom this
+# guard polices no longer lives in this file, so scanning only $SELF would let someone revert
+# any_match to the broken pipeline and reintroduce #48 for all ten converted suites at once, with
+# this check still green.
+#
+# tests/_lib/ is scanned as a DIRECTORY rather than named file-by-file (#51). The hardcoded
+# two-file list was the same stale-inventory shape section 8 above had just been widened out of:
+# #51 added a third shared file, tests/_lib/py.sh, and a roster kept by hand does not grow with the
+# tree. Anything sourced by many suites belongs in this scan the day it lands, not the day someone
+# remembers to add it.
+strays=$( { grep -nrE 'find [^|]*\| *grep -[q] \.' "$SELF" "$KIT/tests/_lib.sh" "$KIT/tests/_lib" || true; } \
   | grep -vE ':[0-9]+:[[:space:]]*#' \
   | grep -vE '^[0-9]+:[[:space:]]*#' \
   | grep -v 'sigpipe-repro' || true)
 if [ -n "$strays" ]; then
-  echo "FAIL: a find|grep -q site is left in this suite or tests/_lib.sh — use any_match:"
+  echo "FAIL: a find|grep -q site is left in this suite or a shared tests/_lib file — use any_match:"
   echo "$strays"
   exit 1
 fi

@@ -112,7 +112,39 @@ jobs:
       #   la modification se verra si l'un des deux points cesse d'être vrai.
       - name: Garde — la couverture a bien été produite
         run: |
-          if ! find coverage -name '*.cobertura.xml' | grep -q . ; then
+          # `-print -quit` capturé dans une variable, et NON `find … | grep -q .` (#97).
+          #
+          # Le tuyau ne marchait que par accident : le shell d'étape par défaut de GitHub est
+          # `bash -e {0}`, sans `pipefail`, donc le statut de `find` est jeté et le pipeline rend
+          # celui de `grep`. Deux modifications ordinaires l'arment — ajouter `set -euo pipefail`
+          # à ce corps, ce que l'étape sœur « Tests + couverture » fait DÉJÀ, ou poser
+          # `defaults.run.shell: bash`, que GitHub mappe sur `bash -eo pipefail`.
+          #
+          # Armé, il s'inverse : `grep -q` sort au premier match, `find` meurt sur le tuyau fermé
+          # (SIGPIPE/141 en BSD, EPIPE/1 en GNU), `pipefail` remonte CE statut, et la condition
+          # niée prend donc sa branche « aucune couverture » précisément quand la couverture A été
+          # produite — sur tout dépôt ayant pris ce template. Mesuré dès #48 ; il faut assez de
+          # rapports pour dépasser le tampon de 64 Kio, sinon `find` a fini d'écrire avant que
+          # `grep` ne ferme, et le défaut reste invisible. Épinglé par tests/ci-template/test.sh [10].
+          #
+          # `2>/dev/null` + `|| true` : si `coverage/` n'existe pas du tout, `find` écrit sur
+          # stderr et sort non-zéro — sous `set -e` l'étape mourrait là, sur un message obscur, au
+          # lieu de rendre celui d'en dessous. La variable reste vide et la garde parle.
+          found=$(find coverage -name '*.cobertura.xml' -print -quit 2>/dev/null || true)
+          if [ -z "$found" ]; then
+            # Le `|| true` ci-dessus coupe dans les deux sens : un find SANS `-quit` (busybox,
+            # images minimales) échoue, son erreur part à /dev/null, et « aucun rapport » devient
+            # indiscernable de « find n'a pas pu tourner ». On sortirait alors le message d'en
+            # dessous — un vrai échec, diagnostiqué à l'envers, en pointant la collecte de
+            # couverture au lieu du find du runner. Même raison d'être que
+            # tests/_lib.sh:kit_require_find_quit côté kit ; ici la vérification est portée par
+            # l'étape elle-même, et elle ne coûte rien : on n'y arrive que sur le chemin d'échec.
+            if ! find . -maxdepth 0 -print -quit >/dev/null 2>&1; then
+              echo "Le find de ce runner ne supporte pas '-print -quit' : la garde ne peut pas"
+              echo "distinguer « aucun rapport de couverture » de « find a échoué ». Utilisez une"
+              echo "image avec GNU findutils (ou BSD find) plutôt qu'un busybox."
+              exit 1
+            fi
             echo "Aucun rapport de couverture produit — la collecte a été ignorée en silence."
             echo "Projet MTP sans Microsoft.Testing.Extensions.CodeCoverage ? Voir"
             echo "legacy-upgrade/references/xunit-v3-migration.md."
@@ -279,7 +311,7 @@ jobs:
           # Version EXACTE, jamais `26.x` ni `26.5.x` : la précondition 2 tombe si Node flotte,
           # et `tests/ci-template/test.sh` refuse toute forme non `N.N.N`.
           # Renovate maintient cette ligne — elle est extraite comme dépendance `node`.
-          node-version: 26.5.0
+          node-version: 26.7.0
 
       - name: Reconstruire le bundle front committé
         if: ${{ vars.BUNDLE_DIST != '' }}
