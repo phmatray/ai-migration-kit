@@ -132,6 +132,19 @@ jobs:
           # lieu de rendre celui d'en dessous. La variable reste vide et la garde parle.
           found=$(find coverage -name '*.cobertura.xml' -print -quit 2>/dev/null || true)
           if [ -z "$found" ]; then
+            # Le `|| true` ci-dessus coupe dans les deux sens : un find SANS `-quit` (busybox,
+            # images minimales) échoue, son erreur part à /dev/null, et « aucun rapport » devient
+            # indiscernable de « find n'a pas pu tourner ». On sortirait alors le message d'en
+            # dessous — un vrai échec, diagnostiqué à l'envers, en pointant la collecte de
+            # couverture au lieu du find du runner. Même raison d'être que
+            # tests/_lib.sh:kit_require_find_quit côté kit ; ici la vérification est portée par
+            # l'étape elle-même, et elle ne coûte rien : on n'y arrive que sur le chemin d'échec.
+            if ! find . -maxdepth 0 -print -quit >/dev/null 2>&1; then
+              echo "Le find de ce runner ne supporte pas '-print -quit' : la garde ne peut pas"
+              echo "distinguer « aucun rapport de couverture » de « find a échoué ». Utilisez une"
+              echo "image avec GNU findutils (ou BSD find) plutôt qu'un busybox."
+              exit 1
+            fi
             echo "Aucun rapport de couverture produit — la collecte a été ignorée en silence."
             echo "Projet MTP sans Microsoft.Testing.Extensions.CodeCoverage ? Voir"
             echo "legacy-upgrade/references/xunit-v3-migration.md."

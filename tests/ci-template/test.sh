@@ -708,18 +708,32 @@ echo "  [9] stale bin/ logs are cleaned before the run; a committed TestResults/
 #     then-branch — so the step fails with "Aucun rapport de couverture produit" precisely when
 #     coverage WAS produced. In every repo that took the template.
 #
-#     Two things make this case easy to write wrongly, and both are why it is shaped as it is:
+#     Three things make this case easy to write wrongly, and all three are why it is shaped as it is:
 #
-#     * The fixture must OVERRUN the ~64 KiB pipe buffer. With less output `find` finishes writing
-#       before `grep` closes the pipe, never sees EPIPE, and the bug is simply not reachable — the
-#       test would pass against the broken guard and prove nothing. Hence the long path components:
-#       they buy the byte volume without tens of thousands of inodes, and the volume is MEASURED
-#       below rather than assumed.
+#     * The fixture must OVERRUN the pipe buffer. With less output `find` finishes writing before
+#       `grep` closes the pipe, never sees EPIPE, and the bug is simply not reachable — the test
+#       would pass against the broken guard and prove nothing. Hence the long path components:
+#       they buy the byte volume without tens of thousands of inodes.
+#     * A byte threshold alone does NOT establish that. "64 KiB" is Linux's `PIPE_DEF_BUFFERS`
+#       (16) x PAGE_SIZE, so on a 64 KiB-page arm64 kernel the capacity is 1 MiB and a 350 KB
+#       listing fits entirely — `grep -q` never closes the pipe under a still-writing `find`, the
+#       BROKEN guard exits 0, and a test that only checked its own fixture size would go green over
+#       a reverted fix. So the naive pipeline is RUN FIRST and required to fail: the reproduction
+#       is proven on the host at hand rather than inferred from a constant. Same control as
+#       tests/xunit-v3/test.sh section 10, for the same reason.
 #     * The fixture's population is proven by COUNTING files, never by reading an exit status.
 #       Measured while fixing #48, the status is not even the same on both platforms: BSD find is
 #       killed by SIGPIPE (141), GNU find catches EPIPE and returns 1 — and 1 is also what an empty
 #       directory yields, so a status-reading test cannot tell "the bug fired" from "I built no
-#       fixture".
+#       fixture". Counting first is what makes the non-zero status unambiguous.
+#
+#     And it is run under the THREE shells this step can actually get, because "correct under
+#     `set -euo pipefail`" is not the property the goal asks for — shell-option INDEPENDENCE is:
+#       * `bash -e`            — GitHub's default step shell, what the template ships into today;
+#       * `bash -eo pipefail`  — what `defaults.run.shell: bash` maps to;
+#       * `bash -euo pipefail` — the sibling step "Tests + couverture"'s own prologue.
+#     Testing only the armed one would let a regression that is correct there and broken under bare
+#     `bash -e` ship in the configuration every repo actually runs.
 # ---------------------------------------------------------------------------
 COV_GUARD=$(step_named "Garde — la couverture a bien été produite")
 [ -n "$COV_GUARD" ] || { echo "FAIL: the coverage guard step has an empty run: body"; exit 1; }
@@ -740,77 +754,108 @@ done
 
 # Measure the fixture the way the guard will see it — relative to the step's working directory,
 # and REDIRECTED TO A FILE so no pipe exists and nothing can SIGPIPE the measurement itself.
-( cd "$cov" && find coverage -name '*.cobertura.xml' ) > "$scratch/cov-listing.txt"
+( cd "$cov" && find coverage -name '*.cobertura.xml' -type f ) > "$scratch/cov-listing.txt"
 cov_files=$(wc -l < "$scratch/cov-listing.txt" | tr -d ' ')
 cov_bytes=$(wc -c < "$scratch/cov-listing.txt" | tr -d ' ')
-[ "$cov_files" -gt 0 ] || {
-  echo "FAIL: the fixture holds no *.cobertura.xml — this case would then assert nothing."; exit 1; }
-[ "$cov_bytes" -gt 65536 ] || {
-  echo "FAIL: the fixture prints only $cov_bytes bytes ($cov_files files), which fits in the pipe"
-  echo "      buffer. \`find\` would finish writing before \`grep -q\` closes it, the broken guard"
-  echo "      would never see EPIPE, and this case would pass against the very bug it pins."
-  echo "      Lengthen the path components or add files until this exceeds 65536."; exit 1; }
+[ "$cov_files" -eq 800 ] || {
+  echo "FAIL: fixture broken — $cov_files matching files, expected 800. Counted directly rather"
+  echo "      than inferred from an exit status, so the control below is unambiguous."; exit 1; }
 
-# The armed configuration, run for real: the step's own body under `set -euo pipefail`.
-if ( cd "$cov" && bash -c "set -euo pipefail
-$COV_GUARD" ) > "$scratch/cov-guard.log" 2>&1; then
-  cov_rc=0
-else
-  cov_rc=$?
-fi
-if grep -q 'Aucun rapport de couverture produit' "$scratch/cov-guard.log"; then
-  echo "FAIL: the coverage guard reported MISSING coverage over $cov_files cobertura reports"
-  echo "      ($cov_bytes bytes of paths). Under \`pipefail\` the \`find … | grep -q .\` idiom"
-  echo "      reports \`find\`'s death on the closed pipe, and the negated condition then takes"
-  echo "      its then-branch on success. Capture the first match instead:"
-  echo "          found=\$(find coverage -name '*.cobertura.xml' -print -quit 2>/dev/null || true)"
-  echo "          if [ -z \"\$found\" ]; then"
-  echo "      Guard output:"
-  sed 's/^/        /' "$scratch/cov-guard.log"
-  exit 1
-fi
-[ "$cov_rc" -eq 0 ] || {
-  echo "FAIL: the coverage guard exited $cov_rc over $cov_files reports — it must succeed when"
-  echo "      coverage was produced. Guard output:"
-  sed 's/^/        /' "$scratch/cov-guard.log"; exit 1; }
+# THE control: the naive pipeline must actually invert HERE, on this host, before anything below
+# is worth asserting. A byte threshold cannot establish that — pipe capacity is PAGE_SIZE-derived,
+# so a 64 KiB-page kernel swallows this whole listing and the broken guard would exit 0. If this
+# pipeline succeeds, the fixture is too small for THIS machine and the case is proving nothing.
+set +e
+( cd "$cov" && set -o pipefail && find coverage -name '*.cobertura.xml' 2>/dev/null | grep -q . )  # sigpipe-repro
+naive_rc=$?
+set -e
+[ "$naive_rc" -ne 0 ] || {
+  echo "FAIL: fixture broken — the naive pipeline SUCCEEDED on $cov_files matches"
+  echo "      ($cov_bytes bytes of paths). It must fail here (141 on BSD find, 1 on GNU find's"
+  echo "      'Broken pipe'): that inversion is the whole defect of #97, and without it this case"
+  echo "      would go green against a reverted fix. This host's pipe capacity is larger than the"
+  echo "      listing — lengthen the path components or add files until it inverts."; exit 1; }
 
-# The inverse, under the SAME armed shell: a genuinely empty coverage/ must still FAIL. Section
-# [4e] of tests/xunit-v3/test.sh pins this under the default shell; it is re-pinned here because
-# the `|| true` that makes the fix pipefail-proof is also exactly what could swallow a real
-# emptiness — and because that sibling suite needs the .NET SDK, so this is the copy that runs
-# everywhere.
-rm -rf "$cov/coverage" && mkdir -p "$cov/coverage"
-if ( cd "$cov" && bash -c "set -euo pipefail
-$COV_GUARD" ) > "$scratch/cov-guard-empty.log" 2>&1; then
-  echo "FAIL: the coverage guard ACCEPTED an empty coverage/ — a silent collection failure would"
-  echo "      ship as a green run. Output:"
-  sed 's/^/        /' "$scratch/cov-guard-empty.log"
-  exit 1
-fi
-grep -q 'Aucun rapport de couverture produit' "$scratch/cov-guard-empty.log" || {
-  echo "FAIL: the guard refused an empty coverage/ without saying why — the message is the whole"
-  echo "      point of the step. Output:"
-  sed 's/^/        /' "$scratch/cov-guard-empty.log"; exit 1; }
+# Every shell this step can actually get. `run_cov_guard <log> <bash-flags…>` runs the step's OWN
+# extracted body, nothing re-typed, so these assertions are about the shipped template.
+run_cov_guard() {
+  local log="$1"; shift
+  ( cd "$cov" && bash "$@" -c "$COV_GUARD" ) > "$log" 2>&1
+}
+# `-e` alone is GitHub's default step shell and therefore the configuration EVERY repo that took
+# this template runs today; the other two are the two documented ways it gets armed.
+COV_SHELLS=("-e" "-eo pipefail" "-euo pipefail")
 
-# And when coverage/ is MISSING rather than empty — the shape a collection failure actually takes,
-# since the test step creates the directory only on its way to writing into it. This is the path
-# where `set -e` and the fix's `|| true` meet: `find` on a non-existent directory exits non-zero
-# and writes to stderr, so without the tolerance the step would die HERE, under errexit, on
-# find's own message instead of the diagnosis below it — a regression the empty-dir case above
-# cannot see, because there find exits 0.
-rm -rf "$cov/coverage"
-if ( cd "$cov" && bash -c "set -euo pipefail
-$COV_GUARD" ) > "$scratch/cov-guard-missing.log" 2>&1; then
-  echo "FAIL: the coverage guard ACCEPTED a missing coverage/ directory. Output:"
-  sed 's/^/        /' "$scratch/cov-guard-missing.log"
-  exit 1
-fi
-grep -q 'Aucun rapport de couverture produit' "$scratch/cov-guard-missing.log" || {
-  echo "FAIL: with coverage/ absent the guard failed without its diagnosis — it died on find's"
-  echo "      own error under errexit instead. Keep the \`2>/dev/null || true\` tolerance so the"
-  echo "      emptiness test, not find's exit status, decides. Output:"
-  sed 's/^/        /' "$scratch/cov-guard-missing.log"; exit 1; }
-echo "  [10] the coverage guard holds under \`set -euo pipefail\` — $cov_files reports"\
-     "($cov_bytes bytes) accepted; empty and missing coverage/ still refused"
+for opts in "${COV_SHELLS[@]}"; do
+  tag=$(printf '%s' "$opts" | tr -d ' -')
+  # --- coverage present: the guard must PASS ---
+  # shellcheck disable=SC2086
+  if run_cov_guard "$scratch/cov-ok-$tag.log" $opts; then :; else
+    echo "FAIL: under \`bash $opts\` the coverage guard FAILED over $cov_files cobertura reports"
+    echo "      ($cov_bytes bytes of paths) — it must succeed when coverage was produced. The"
+    echo "      find|grep -q shape reports find's death on the closed pipe instead of what it"
+    echo "      found; capture the first match and test it for emptiness instead:"
+    echo "          found=\$(find coverage -name '*.cobertura.xml' -print -quit 2>/dev/null || true)"
+    echo "          if [ -z \"\$found\" ]; then"
+    echo "      Guard output:"
+    sed 's/^/        /' "$scratch/cov-ok-$tag.log"
+    exit 1
+  fi
+  grep -q 'Aucun rapport de couverture produit' "$scratch/cov-ok-$tag.log" && {
+    echo "FAIL: under \`bash $opts\` the guard exited 0 but still PRINTED its missing-coverage"
+    echo "      diagnosis over $cov_files reports — a green step carrying a false message."
+    sed 's/^/        /' "$scratch/cov-ok-$tag.log"; exit 1; }
+done
+
+# The inverse direction, under the same three shells: coverage genuinely absent must still FAIL,
+# and fail WITH the diagnosis. Section [4e] of tests/xunit-v3/test.sh pins this under one unarmed
+# shell; it is re-pinned here because the `2>/dev/null || true` that makes the fix option-proof is
+# also precisely what could swallow a real absence — and because that sibling suite needs the .NET
+# SDK, so this is the copy that runs everywhere.
+#
+# Two shapes, and the difference is not cosmetic. EMPTY is what the step actually meets in CI: the
+# sibling step "Tests + couverture" opens with `rm -rf coverage && mkdir -p coverage`, so the
+# directory always exists by the time the guard runs. MISSING is the shape that exercises the
+# tolerance itself — there `find` exits non-zero and writes to stderr, so a guard without
+# `2>/dev/null || true` dies under errexit on find's own message instead of reaching the
+# diagnosis. The empty case cannot see that, because there `find` exits 0.
+for shape in empty missing; do
+  rm -rf "$cov/coverage"
+  [ "$shape" = empty ] && mkdir -p "$cov/coverage"
+  for opts in "${COV_SHELLS[@]}"; do
+    tag=$(printf '%s' "$opts" | tr -d ' -')
+    log="$scratch/cov-$shape-$tag.log"
+    # shellcheck disable=SC2086
+    if run_cov_guard "$log" $opts; then
+      echo "FAIL: under \`bash $opts\` the guard ACCEPTED a $shape coverage/ — a silent collection"
+      echo "      failure would ship as a green run. Output:"
+      sed 's/^/        /' "$log"
+      exit 1
+    fi
+    grep -q 'Aucun rapport de couverture produit' "$log" || {
+      echo "FAIL: under \`bash $opts\` the guard refused a $shape coverage/ WITHOUT its diagnosis —"
+      echo "      it died on find's own error under errexit instead. Keep the \`2>/dev/null || true\`"
+      echo "      tolerance so the emptiness test, not find's exit status, decides. Output:"
+      sed 's/^/        /' "$log"; exit 1; }
+  done
+done
+
+# The fix leans on `-print -quit`, so the shipped step must SAY SO when the host's find lacks it.
+# tests/_lib.sh:kit_require_find_quit exists for exactly this reason on the kit's own side — on a
+# find without `-quit` (busybox, minimal containers) the probe answers "nothing found" with the
+# error discarded. In the template that surfaces as the missing-coverage message and a pointer at
+# Microsoft.Testing.Extensions.CodeCoverage: a real failure, diagnosed as the wrong cause, on
+# somebody else's runner. The shipped copy gets no `kit_require_find_quit`, so it must carry the
+# check itself.
+grep -q -- '-print -quit' templates/ci-dotnet.yml || {
+  echo "FAIL: the coverage guard no longer uses '-print -quit'"; exit 1; }
+grep -q 'maxdepth 0 -print -quit' templates/ci-dotnet.yml || {
+  echo "FAIL: the guard depends on '-print -quit' but never proves this runner's find supports it."
+  echo "      Without that probe an unsupported predicate is indistinguishable from absent"
+  echo "      coverage, and the step blames the collector for the runner's find — see"
+  echo "      tests/_lib.sh:kit_require_find_quit, which exists for that exact failure."; exit 1; }
+echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
+     "— $cov_files reports ($cov_bytes bytes, naive pipeline confirmed inverting) accepted;"\
+     "empty and missing coverage/ still refused, with their diagnosis"
 
 echo "ci-dotnet template opt-in bundle gate golden test OK"
