@@ -193,6 +193,17 @@ set -e
 # conflicted working tree belongs to whoever owns that branch now.
 
 now_branch=$(head_branch_of "$REPO")
+
+# …and how to NAME that answer. An empty $now_branch means "detached" OR "this path can no longer
+# be read as a repository at all", and after a write nothing here has ruled the second one out;
+# rendering `${now_branch:-detached}` stated the first as a fact (#129). head_state measures which;
+# the raw $now_branch stays the value the comparison below is made on, and head_state_unreadable
+# is the shared decision the ALERT branches on — one home for it rather than a copy per guard,
+# which is the mistake this issue exists to undo.
+now_state=$(head_state "$REPO" "$now_branch")
+unreadable=0
+if head_state_unreadable "$now_branch" "$now_state"; then unreadable=1; fi
+
 conflicts=$(git -C "$REPO" ls-files --unmerged 2>/dev/null || true)
 
 # Collected here, with `|| true`, rather than piped into the exit-5 report below. Under
@@ -208,42 +219,64 @@ if [ "$now_branch" != "$EXPECTED" ]; then
   # The sha is printed unconditionally, and FIRST. A detached HEAD is the one case where the
   # merge commit is reachable from no ref at all and will eventually be garbage-collected, so
   # it is precisely the case where withholding the sha loses the work.
-  new_sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '<unreadable>')
+  # Through the shared reader, then rendered — one spelling for the read, and the rendering as a
+  # step of its own so it cannot drift from the receipt's at the bottom of the file (#129). The
+  # rendered text is unchanged. `expected_now` below is a different read-kind: the EXISTENCE and
+  # full sha of a branch ref, which is what the comparison against `before_sha` needs.
+  head_now=$(head_sha_of "$REPO")
+  new_sha=${head_now:-<unreadable>}
   expected_now=$(git -C "$REPO" rev-parse --quiet --verify "refs/heads/$EXPECTED" 2>/dev/null || true)
   {
-    echo "guarded-merge: ALERT — HEAD is now '${now_branch:-detached}', not '$EXPECTED'."
-    echo "               HEAD moved while this call was running."
+    echo "guarded-merge: ALERT — HEAD is now '$now_state', not '$EXPECTED'."
+    echo "               Something moved under this command while it was running."
     echo "               HEAD is now at: $new_sha"
     if [ -n "$now_branch" ]; then
       echo "               It is on branch '$now_branch'."
-    else
+    elif [ "$unreadable" -eq 0 ]; then
       echo "               HEAD is DETACHED, so no branch points at it — it is reachable from"
       echo "               nothing and will be garbage-collected. Save it NOW:"
       echo "                   git -C '$REPO' branch <rescue-name> $new_sha"
+    else
+      # The third answer, which used to be printed as the second one. Everything the branch above
+      # says would be false here: the merge most likely sits exactly where it was asked to go, and
+      # what vanished is the PATH.
+      echo "               $REPO can no longer be read as a git repository, so this guard cannot"
+      echo "               say where the merge went, and must not guess. What moved may well be"
+      echo "               the worktree itself — removed or renamed under this command — in which"
+      echo "               case the merge is on '$EXPECTED' exactly as asked. Find the worktree"
+      echo "               before you abort, reset or force-push anything."
     fi
     # Whether anything was WRITTEN is git's exit code to answer, not something to assume from
     # the branch having moved. Claiming "the merge ran" after git refused would send the caller
     # to reset an innocent branch that took nothing — the guard's own advice causing the damage
     # it exists to prevent. guarded-commit.sh consults its rc before reporting for this reason.
     if [ "$merge_rc" -eq 0 ]; then
-      if [ "$expected_now" = "$before_sha" ]; then
+      # `$expected_now` came back empty on an unreadable repo because the READ failed, not
+      # because the branch stood still — so it may not be compared there. Same reason the
+      # recovery paragraph below is withheld: every command in it names a path that is gone.
+      if [ "$unreadable" -eq 1 ]; then
+        echo "               git merge SUCCEEDED, but which ref carries it cannot be read from"
+        echo "               here — see above."
+      elif [ "$expected_now" = "$before_sha" ]; then
         echo "               git merge SUCCEEDED, and '$EXPECTED' did NOT advance — the merge"
-        echo "               landed on '${now_branch:-a detached HEAD}' instead."
+        echo "               landed on '$now_state' instead."
       else
         echo "               git merge SUCCEEDED. Check which of the two branches carries it."
       fi
       if [ -n "$conflicts" ]; then
         echo "               The working tree also carries unresolved conflicts, and they are now"
-        echo "               sitting in '${now_branch:-a detached HEAD}'. Do not resolve them here."
+        echo "               sitting in '$now_state'. Do not resolve them here."
       fi
-      echo "               Recovery is a judgement call and belongs to whoever owns that branch:"
-      echo "                   git -C '$REPO' merge --abort   (if the merge is still in progress)"
-      echo "               or resetting it to its pre-merge tip. Do neither unless you own it,"
-      echo "               and never force-push a branch you do not own."
+      if [ "$unreadable" -eq 0 ]; then
+        echo "               Recovery is a judgement call and belongs to whoever owns that branch:"
+        echo "                   git -C '$REPO' merge --abort   (if the merge is still in progress)"
+        echo "               or resetting it to its pre-merge tip. Do neither unless you own it,"
+        echo "               and never force-push a branch you do not own."
+      fi
     else
       echo "               git merge FAILED (exit $merge_rc), so THIS call wrote nothing —"
-      echo "               '${now_branch:-the detached HEAD}' took no merge and must not be reset."
-      echo "               The alarming part is only that HEAD moved under a running command."
+      echo "               '$now_state' took no merge and must not be reset."
+      echo "               The alarming part is only that something moved under a running command."
       echo "               Get back onto '$EXPECTED' in a worktree of its own before retrying."
     fi
   } >&2
@@ -293,4 +326,11 @@ if [ "$STATE_VERB" -eq 0 ] && [ -n "$conflicts" ]; then
 fi
 
 # No "did the branch advance?" assertion here, deliberately — see the ⚠ note in the header.
-printf 'guarded-merge: %s@%s\n' "$EXPECTED" "$(git -C "$REPO" rev-parse --short HEAD)"
+#
+# The receipt is this guard's strongest claim, so it gets the shared reader and an explicit
+# fallback in a statement of its own rather than a substitution inlined into printf: inlined, a
+# failing read is neither aborted by `set -e` nor reflected in the statement's status, and an
+# unreadable HEAD rendered `guarded-merge: a@` with a zero exit — a receipt naming no commit
+# (measured, #129). Same defect, same place, as the one #116 removed from guarded-push.sh.
+receipt_sha=$(head_sha_of "$REPO")
+printf 'guarded-merge: %s@%s\n' "$EXPECTED" "${receipt_sha:-<unreadable>}"

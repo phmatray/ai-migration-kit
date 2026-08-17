@@ -38,6 +38,69 @@
 #       assert_branch below AND by each guard's post-write re-assertion, so the one subtle thing
 #       about reading a branch name lives in one function rather than in three places.
 #
+#   head_sha_of <repo> [<rev>]
+#       Echo the ABBREVIATED sha of <rev> (default HEAD), or nothing at all when it cannot be
+#       read. The counterpart of head_branch_of, and it exists for the same reason one function
+#       later (#129): reading a branch name had a home, reading a sha did not, so every message
+#       that wanted one respelled the read — four spellings across four files, and three of them
+#       interpolated a bare `$(git … rev-parse …)` straight into a printf argument, where a
+#       failure is neither aborted by `set -e` nor reflected in the statement's status. Two of
+#       those three were SUCCESS RECEIPTS, so `guarded-commit: a@` was a reachable output with a
+#       zero exit: the strongest claim a guard makes, naming no commit.
+#
+#       Failure-tolerant BY DESIGN, exactly as head_branch_of is, and for the same reason: the
+#       callers run under `set -euo pipefail`, and a helper that died on an unreadable HEAD would
+#       abort the guard with exit 1 — the ambiguous "git's own failure" code this file exists to
+#       avoid — at the very moment it was being asked to explain what went wrong. The emptiness
+#       is the answer, and every caller renders it explicitly as `${…:-<unreadable>}` in a
+#       statement of its own. NEVER inline this into a printf argument; that is the defect.
+#
+#       `--verify --quiet` and not a bare `--short <rev>`: the same trap assert_branch documents
+#       at the tail of this file. It keeps git's "Needed a single revision" off stderr on the
+#       unborn-HEAD path (where the abbreviating form exits 128 with empty stdout), and it makes
+#       an unresolvable <rev> answer nothing rather than something. The optional <rev> is what
+#       lets guarded-commit.sh abbreviate `$EXPECTED` — a branch, not HEAD — through this same
+#       one home instead of opening a fifth spelling.
+#
+#   repo_readable <repo>
+#       Succeeds while <repo> can still be read as a git repository. Not a validator — the
+#       pre-flight in assert_branch below is that — but the second half of a MEASUREMENT the
+#       post-write re-asserts need and used to skip.
+#
+#   head_state <repo> <branch-as-read>
+#       How a message should NAME where HEAD is: the branch it is on, or the word `detached`, or
+#       `<unreadable>`.
+#
+#       It exists because head_branch_of answers with nothing in TWO situations — HEAD is
+#       genuinely detached, and the repo cannot be read AT ALL — and only one caller is entitled
+#       to collapse them. assert_branch's pre-flight is that caller: it has just proven the path
+#       is a git repository, so empty there really does mean detached. Every POST-WRITE re-assert
+#       had proven no such thing and still rendered `${now_branch:-detached}`, stating as a
+#       definite fact something never measured — when the honest answer may be "the worktree is
+#       gone", which is precisely the concurrency class these guards exist for (#129).
+#
+#       Measured, before the fix: a commit that landed safely on its own branch, with HEAD never
+#       leaving it, was reported as detached, "reachable from nothing and will be
+#       garbage-collected", with a rescue command to run. Every word false, on the sentence the
+#       operator acts on.
+#
+#       It takes the branch the caller ALREADY read instead of reading it again, so the answer
+#       describes the same observation the message is reporting on, and so the readability probe
+#       runs once and only when there is something to disambiguate. head_branch_of's own contract
+#       is deliberately unchanged: widening it would relax a reading three guards depend on in
+#       order to fix a rendering in one of their paths.
+#
+#   head_state_unreadable <branch-as-read> <state>
+#       True when head_state's answer means "this path could not be read", as opposed to a branch
+#       name or a genuine detachment. Pure string logic over two values the caller already holds
+#       — no second probe — and a FUNCTION rather than the same two-line test written out in each
+#       guard, because the same small test written out in each guard is the whole subject of #129.
+#
+#       BOTH arguments are consulted, and that is the point: head_state only ever answers
+#       `<unreadable>` for an EMPTY branch, so pairing them means a branch literally NAMED
+#       `<unreadable>` — git's ref rules permit it — cannot make a guard describe a healthy
+#       repository as gone.
+#
 #   assert_branch <tool-name> <detached-message> <mismatch-message>
 #       Reads   $REPO      the worktree to inspect
 #               $EXPECTED  the branch the caller says this task owns
@@ -85,6 +148,38 @@ usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; }
 # "detached", and every caller reads it that way.
 head_branch_of() { git -C "$1" symbolic-ref --quiet --short HEAD 2>/dev/null || true; }
 
+# The sha half of the same job — see the contract above for why it answers with nothing rather
+# than dying, and why no caller may inline it into a printf argument.
+head_sha_of() { git -C "$1" rev-parse --verify --quiet --short "${2:-HEAD}" 2>/dev/null || true; }
+
+# The disambiguator for head_branch_of's empty answer — see the contract above. Kept here, once,
+# rather than as a third copy of the same `if` in each guard: the whole of #129 is what respelling
+# a small read at every call site costs.
+repo_readable() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }
+
+# `${2:-}` and not a bare `$2`: every caller runs under `set -u`, where a function reached with
+# one argument dies on "unbound variable" with exit 1 — the ambiguous "git's own failure" code
+# this whole file exists to avoid, produced by a helper whose job is to explain what went wrong.
+# An absent branch and an empty one mean the same thing here, so the default costs nothing.
+head_state() {
+  if [ -n "${2:-}" ]; then
+    # `printf '%s'` and not `echo`: a branch name is data from outside this process, and this
+    # file already refuses to let one reach a format string (see {found}, below).
+    printf '%s' "$2"
+  elif repo_readable "$1"; then
+    printf 'detached'
+  else
+    printf '<unreadable>'
+  fi
+}
+
+head_state_unreadable() { [ -z "${1:-}" ] && [ "${2:-}" = '<unreadable>' ]; }
+
+# assert_branch is defined LAST on purpose, and each guard's bootstrap leans on it: that check
+# tests for `assert_branch` and `refuse`, the last and the first function here, so a helper
+# truncated anywhere in between still fails the check instead of surviving to a `command not
+# found` (exit 127) at the first call. Adding a function BELOW this one would quietly break that
+# — put new helpers above it.
 assert_branch() {
   local tool="$1" detached_message="$2" mismatch_message="$3"
   local head_branch
