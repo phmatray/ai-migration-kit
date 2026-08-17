@@ -54,6 +54,17 @@ sdk_below_floor() {
   [ "$SDK_MAJOR" -lt "$floor" ]
 }
 
+# Where the floor is unmet, this is WHY — prefixed to the entry's own hint, so every status line
+# that names the server also names the version it wanted. Empty otherwise.
+# It changes the MESSAGE, never the VERDICT of an observed absence: a `level: required` server the
+# claude CLI can see is not running still hard-fails phase 0. Softening that would swap one silent
+# failure for another — green on a host that cannot run it, for a pipeline started without the
+# engine every phase of it depends on.
+floor_note() {
+  sdk_below_floor "$1" || return 0
+  printf 'needs a .NET SDK >= %s to start, this host has %s — ' "$1" "$SDK_MAJOR"
+}
+
 # requirements.json → one tab-separated line per entry: kind, level, name, test/match, requiredBy,
 # requiresSdk, hint. "-" placeholder where a field is empty: an empty field would be swallowed by
 # read (tab = IFS whitespace). hint stays LAST because `read` gives the trailing field the remainder.
@@ -84,19 +95,18 @@ while IFS=$'\t' read -r kind level name test reqby floor hint; do
       ;;
     mcp)
       # A live server is checked FIRST, so an observed connection always beats the floor: the floor
-      # is a proxy for "the shipped launcher cannot start it", and a server the user brought up some
-      # other way is running whatever this host's SDK says.
-      # Failing the floor is a documented degradation and never a phase-0 hard fail, even at
-      # level=required: the pipeline itself genuinely runs on `dotnet >= 8`, and #112 is about the
-      # host being TOLD, not about locking it out. It is placed above the claude-CLI shrug because
-      # "unknown — confirm in session" is the wrong answer to a question already settled.
+      # is a proxy for "the shipped launcher cannot start it", and a server the user brought up by
+      # some other route is running whatever this host's SDK says.
+      note=$(floor_note "$floor")
       if [ "$CLAUDE_CLI" -eq 1 ] && mcp_ok "$test"; then record ok "$name" "$reqby" ""
-      elif sdk_below_floor "$floor"; then
-        record absent "$name" "$reqby" "needs a .NET SDK >= $floor to start, this host has $SDK_MAJOR — $hint"
       elif [ "$CLAUDE_CLI" -eq 0 ]; then
-        record unknown "$name" "$reqby" "claude CLI absent (normal in CI) — confirm in session"
-      elif [ "$level" = required ]; then record missing "$name" "$reqby" "$hint"; FAIL=1
-      else record absent "$name" "$reqby" "$hint"; fi
+        # Nothing can be observed here — but "unknown, confirm in session" is the wrong answer to a
+        # question this host has already settled: below the launcher's floor the server cannot
+        # start, whoever confirms it. That is the silent pass #112 filed, so name it instead.
+        if [ -n "$note" ]; then record absent "$name" "$reqby" "$note$hint"
+        else record unknown "$name" "$reqby" "claude CLI absent (normal in CI) — confirm in session"; fi
+      elif [ "$level" = required ]; then record missing "$name" "$reqby" "$note$hint"; FAIL=1
+      else record absent "$name" "$reqby" "$note$hint"; fi
       ;;
     skill)
       record unknown "$name" "$reqby" "session capability — the agent confirms it itself ($hint)"

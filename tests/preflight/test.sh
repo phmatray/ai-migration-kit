@@ -73,7 +73,7 @@ SH
 chmod +x "$tmp/bin/dotnet"
 # No `claude` on this PATH, so the live MCP probe cannot run — which is the CI case, and the one
 # where an unstartable server would otherwise be reported as a shrug ("unknown, confirm in session").
-for c in bash python3 dirname awk; do ln -s "$(command -v "$c")" "$tmp/bin/$c"; done
+for c in bash python3 dirname awk grep; do ln -s "$(command -v "$c")" "$tmp/bin/$c"; done
 if ! out=$(PATH="$tmp/bin" bash "$tmp/scripts/preflight.sh" --json 2>/dev/null); then
   echo "an mcps floor the host misses is a documented degradation, not a phase-0 hard fail"; exit 1
 fi
@@ -93,6 +93,25 @@ assert unfloored["status"] == "unknown", \
     f"an entry without requiresSdk must be unaffected, got {unfloored['status']!r}"
 assert "claude CLI absent" in unfloored["hint"], \
     f"an entry without requiresSdk must keep its old hint: {unfloored['hint']!r}"
+PY
+
+# 6. The floor EXPLAINS an absence; it does not excuse one. Give the same host a `claude` that can
+#    see the server is not there, and a `level: required` entry must still hard-fail phase 0 — only
+#    now the message says which SDK it wanted. Softening that would trade one silent failure for
+#    another: green on a host that cannot run it, for a pipeline started without the engine every
+#    phase of it depends on.
+printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/claude"   # a CLI that lists no servers at all
+chmod +x "$tmp/bin/claude"
+if PATH="$tmp/bin" bash "$tmp/scripts/preflight.sh" --json > "$tmp/seen.json" 2>/dev/null; then
+  echo "a REQUIRED mcp the host can SEE is absent must still fail the preflight"; exit 1
+fi
+python3 - "$tmp/seen.json" <<'PY'
+import json, sys
+checks = {c["name"]: c for c in json.load(open(sys.argv[1]))["checks"]}
+floored = checks["floored server"]
+assert floored["status"] == "missing", \
+    f"an observed absence at level=required stays a hard fail, got {floored['status']!r}"
+assert "10" in floored["hint"], f"...and still names the floor it wanted: {floored['hint']!r}"
 PY
 rm -rf "$tmp"
 

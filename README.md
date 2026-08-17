@@ -101,7 +101,7 @@ on a C# file, naming the roseline tool that replaces it (`search_symbols`, `get_
 `find_references`, …). An advisory reminder was tried first and does not work — the reminder arrives
 together with the file content, so the model has already been paid by the time the advice lands.
 
-Three properties keep that safe to have switched on:
+Four properties keep that safe to have switched on:
 
 - **Inert outside C# projects.** The gate walks *up* from the file looking for a
   `*.sln`/`*.slnx`/`*.csproj`, and no-ops when it finds none — so a globally-installed plugin never
@@ -109,10 +109,11 @@ Three properties keep that safe to have switched on:
 - **A one-shot escape.** Issuing the *identical* `Read` again straight away is allowed through. It
   is consumed rather than latched (a third read denies again) and it expires, so a marker left
   behind by a deny you complied with cannot silently open the file hours later.
-- **Fails open, always.** No `dnx` on `PATH` — so the shipped launcher cannot have started the
-  server, and the tools the deny message names do not exist — no `jq`, an unparseable payload, an
-  unwritable `TMPDIR`, any internal error: the gate exits silently and the `Read` proceeds. It never
-  fails closed, and it never enforces a tool it cannot confirm is there.
+- **Fails open, always.** No `jq`, an unparseable payload, an unwritable `TMPDIR`, any internal
+  error — the gate exits silently and the `Read` proceeds. It never fails closed.
+- **It never enforces a tool that cannot be there.** No `dnx` on `PATH` means the shipped launcher
+  cannot have started the server, so the `mcp__roseline__*` tools the deny message names do not
+  exist — and the gate lets the `Read` through rather than pointing you at them.
 
 `Grep` is deliberately left alone: roseline replaces whole-file reads, but `search_symbols` finds
 *symbols*, and grepping a string literal or a comment in `.cs` is a real need it cannot serve.
