@@ -16,7 +16,9 @@
 #      and tolerate a starting path that does not exist instead of aborting the caller (#98);
 #   7. sourcing is loud when the helper is missing — a suite must never run unguarded;
 #   8. no suite hand-rolls the EXIT trap again — the anti-recurrence check;
-#   9. a suite that uses the helper takes its scratch from it, per occurrence.
+#   9. a suite that uses the helper takes its scratch from it, per occurrence;
+#  10. a suite that does NOT use it still leaves no temp directory behind — so §9 and §10 together
+#      cover every suite in the tree, and nothing falls between them (#128).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -338,5 +340,121 @@ if [ -n "$leaky" ]; then
   exit 1
 fi
 echo "  [9] a suite that uses the helper takes its scratch from it"
+
+# ---------------------------------------------------------------------------
+# 10. A suite that is NOT a member must not leak temp directories either.
+#
+#     §9 covers the members: kit_cleanup removes what kit_scratch took, on every exit path. A suite
+#     that manages its own scratch is outside that guarantee, and nothing ever measured it — which
+#     is how tests/report-dashboard/test.sh came to leak a directory on every single run, unnoticed
+#     (#128). It was in §9's blind spot by construction, since §9 keyed on a filename that suite
+#     deliberately avoided spelling. The two sections together now cover every suite, so a change
+#     that moves a suite from one side to the other cannot drop it out of both.
+#
+#     BEHAVIOURAL, not textual: the suite is run for real, every path `mktemp` hands it is recorded,
+#     and the ones that still exist afterwards are the leak. A suite that cleans up correctly comes
+#     out clean whichever spelling it used, and there is no pattern to keep in step with the code —
+#     which is the whole point, after a rule keyed on spelling missed a real leak.
+#
+#     The FIXTURES are what keep this honest. The live loop below only visits suites that are not
+#     members and do call `mktemp -d`; convert them all and it visits nothing, which is a check that
+#     has gone quiet while still printing its OK line. Driving a deliberately leaky suite through
+#     the same harness proves the detector still detects — and it earned its place twice during
+#     #128, catching both of the wrong mechanisms tried before this one.
+# ---------------------------------------------------------------------------
+# What NOT to do, both measured rather than reasoned about:
+#
+#   * "run it with TMPDIR pointing somewhere private, then look in there." `mktemp -d` with no
+#     template — the form every self-managing suite uses — honours $TMPDIR under GNU coreutils and
+#     IGNORES it under BSD/macOS, which takes the per-user temp dir regardless. On a maintainer's
+#     Mac the check would have measured an empty directory and printed OK.
+#   * "…and re-root it with -p so both mktemps comply." That works, but everything ELSE that reads
+#     TMPDIR writes there too: probing for `node` and `dotnet` in tests/preflight deposited
+#     `node-compile-cache` and `NuGetScratch`, and the suite was accused of leaking them.
+#
+# So the ledger: a one-file `mktemp` shim, first on PATH, appends every path the real mktemp returns
+# and otherwise behaves identically. Attribution is then exact — these are the paths THIS suite was
+# handed — and it needs no environment override at all, so the suite runs in its normal conditions.
+shim_dir="$scratch/shim"
+mkdir -p "$shim_dir"
+real_mktemp=$(command -v mktemp)
+{
+  echo '#!/usr/bin/env bash'
+  echo 'set -euo pipefail'
+  echo "real='$real_mktemp'"
+  # Status and stderr are the real mktemp's; only stdout is observed on the way past. `-u` names a
+  # path without creating it, which simply never shows up as a leftover — no special case needed.
+  echo 'out=$("$real" "$@")'
+  echo 'printf "%s\n" "$out" >> "$MKTEMP_SHIM_LEDGER"'
+  echo 'printf "%s\n" "$out"'
+} > "$shim_dir/mktemp"
+chmod +x "$shim_dir/mktemp"
+
+# Prints "<rc>|<leftover paths, newline-separated>" for the suite at $1. Whatever it leaked is
+# REMOVED here: a leak detector that leaves the leak behind makes every later run of this file
+# noisier than the last, and tests/lib is a prerequisite of ten other suites.
+leftovers_of() {
+  local ledger rc left p
+  ledger=$(mktemp "$scratch/ledger.XXXXXX")
+  set +e
+  PATH="$shim_dir:$PATH" MKTEMP_SHIM_LEDGER="$ledger" bash "$1" >/dev/null 2>&1
+  rc=$?
+  set -e
+  left=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    [ -e "$p" ] || continue
+    if [ -n "$left" ]; then left="$left
+$p"; else left="$p"; fi
+    rm -rf "$p"
+  done < "$ledger"
+  rm -f "$ledger"
+  printf '%s|%s' "$rc" "$left"
+}
+
+# The exact shape the leak had: the directory is never even bound to a variable, so no `rm -rf`
+# anywhere in the file could have removed it.
+leaky_suite="$scratch/leaks-a-tmpdir.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'set -euo pipefail'
+  echo 'f="$(mktemp -d)/artifact.html"'
+  echo ': > "$f"'
+} > "$leaky_suite"
+r=$(leftovers_of "$leaky_suite")
+[ "${r%%|*}" = "0" ] || { echo "FAIL: the leaky fixture did not even run: ${r#*|}"; exit 1; }
+[ -n "${r#*|}" ] || {
+  echo "FAIL: the leak detector saw nothing under a suite that never removes its mktemp -d."
+  echo "      Every OK line this section prints would then be meaningless."
+  exit 1; }
+
+tidy_suite="$scratch/removes-its-tmpdir.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'set -euo pipefail'
+  echo 'd=$(mktemp -d)'
+  echo 'rm -rf "$d"'
+} > "$tidy_suite"
+r=$(leftovers_of "$tidy_suite")
+[ "${r%%|*}" = "0" ] || { echo "FAIL: the tidy fixture did not even run: ${r#*|}"; exit 1; }
+[ -z "${r#*|}" ] || { echo "FAIL: the detector flagged a suite that removes what it took: ${r#*|}"; exit 1; }
+
+for f in tests/*/test.sh; do
+  [ "$f" = "tests/lib/test.sh" ] && continue
+  suite_is_member "$f" && continue           # §9 owns the members
+  grep -q 'mktemp' "$f" || continue          # nothing to leak
+  r=$(leftovers_of "$f")
+  [ "${r%%|*}" = "0" ] || {
+    echo "FAIL: $f exited ${r%%|*} under a private TMPDIR — a run that failed proves nothing about"
+    echo "      what it cleans up. Fix that suite first; this section measures successful runs."
+    exit 1; }
+  [ -z "${r#*|}" ] || {
+    echo "FAIL: $f manages its own scratch and left this behind after a SUCCESSFUL run:"
+    printf '%s\n' "${r#*|}" | sed 's/^/        /'
+    echo "      Remove it before the suite returns, or take it from kit_scratch, which is removed"
+    echo "      on every exit path including the failing one."
+    exit 1; }
+done
+echo "  [10] a suite that manages its own scratch leaves no temp directory behind"
 
 echo "tests/_lib.sh golden test OK"

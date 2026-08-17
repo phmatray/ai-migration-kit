@@ -11,17 +11,22 @@ KIT="$PWD"
 # n'assertait. La section 8 de tests/xunit-v3/test.sh assure désormais l'invariant sur tests/ ET
 # scripts/, donc une définition unique, ici partagée.
 #
-# ⚠️ NE PAS écrire la chaîne littérale « _lib point sh » dans ce fichier. La section 9 de
-# tests/lib/test.sh audite les `mktemp -d` de toute suite dont le TEXTE contient cette
-# sous-chaîne ; cette suite gère quatre répertoires temporaires à elle et deviendrait rouge pour
-# une raison sans rapport avec l'édition. Le répertoire tests/_lib/ ne déclenche pas l'audit — le
-# point fait la différence. Rendre cette adhésion explicite plutôt qu'accidentelle est un suivi.
+# Ce fichier portait un avertissement « ne pas écrire le nom du préambule partagé ici » : la
+# section 9 de tests/lib/test.sh auditait alors les `mktemp -d` de toute suite dont le TEXTE
+# contenait cette sous-chaîne, et cette suite en gère plusieurs. #128 a remplacé cette inférence
+# par une déclaration — l'audit suit désormais un APPEL à kit_init — donc l'avertissement, et la
+# gymnastique d'écriture qu'il imposait, n'ont plus lieu d'être.
 #
 # Chemin absolu via $KIT, car le `cd` ci-dessus a déjà eu lieu.
 . "$KIT/tests/_lib/py.sh" || {
   echo "ÉCHEC : impossible de sourcer $KIT/tests/_lib/py.sh — refus de tourner sans garde"; exit 1; }
 
-out="$(mktemp -d)/report.html"
+# Le répertoire est CAPTURÉ, pas jeté : `out="$(mktemp -d)/report.html"` ne liait que le fichier,
+# donc plus rien ne désignait son parent et aucun `rm -rf` ne pouvait le reprendre. Chaque run en
+# laissait un derrière lui (#128), et la section 9 de tests/lib — écrite exactement pour ça — ne
+# pouvait pas le voir, cette suite évitant délibérément la sous-chaîne sur laquelle elle keyait.
+out_dir="$(mktemp -d)"
+out="$out_dir/report.html"
 python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json -o "$out" 2>/dev/null
 
 # Sans -o, la sortie atterrit À CÔTÉ du report.json — jamais dans le cwd (vague 3 : le
@@ -479,8 +484,8 @@ rm -rf "$shot_dir"
 #
 # `-print -quit` capturé dans une variable, jamais `find | grep -q` : sous le `set -o pipefail` de
 # la ligne 4, la sortie anticipée de grep tue find par SIGPIPE et « trouvé » se lirait
-# « rien trouvé » (#48). Même raison d'être que any_match dans tests/_lib point sh, que cette suite
-# ne peut pas sourcer (voir l'avertissement en tête de fichier).
+# « rien trouvé » (#48). Même raison d'être que any_match dans tests/_lib.sh, que cette suite ne
+# source pas : elle ne prend pas le préambule partagé, seulement le chargeur.
 #
 # Sur le chemin de succès uniquement, faute de gestionnaire de sortie : `set -e` sort avant en cas
 # d'échec, et la suite est alors déjà rouge. La section 8 de tests/lib interdit justement à une
@@ -494,4 +499,8 @@ if [ -n "$stray" ]; then
   exit 1
 fi
 
-echo "OK test golden report-dashboard ($out)"
+rm -rf "$out_dir"
+
+# Le chemin n'est plus affiché : il vient d'être supprimé, et annoncer un artefact qui n'existe
+# plus était la moitié visible de la fuite (#128).
+echo "OK test golden report-dashboard"
