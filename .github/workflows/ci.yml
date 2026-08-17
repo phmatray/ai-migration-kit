@@ -95,14 +95,11 @@ jobs:
       # version-independent and does catch it; the script prints which half it is leaning on. Do not
       # read a green step here as proof that the suites parse on bash 3.2 — only a bash 3.x host can
       # say that, which is exactly why this guard also exists for the developer to run locally.
+      # The sweep itself sources nothing, so it can sit up here with the other cheap structural
+      # gates; its golden test sources tests/_lib.sh and therefore waits until after that helper's
+      # own test, below.
       - name: Every golden test suite PARSES (the macOS bash 3.2 sweep)
         run: ./scripts/parse-sweep.sh
-
-      # …and the sweep gets the treatment it exists to enforce: a golden test over its refusal path,
-      # driven by fixtures measured against bash 3.2.57. Its red cases stay red on bash 5 precisely
-      # because they assert the static scan's message, not merely a non-zero exit.
-      - name: Parse sweep golden test (the #131 construct, driven to red)
-        run: ./tests/parse-sweep/test.sh
 
       # Ten suites now get their EXIT trap from tests/_lib.sh (#72), so a bug in that handler would
       # silently weaken all of them at once — the `local rc=$?`-first invariant is the difference
@@ -126,6 +123,15 @@ jobs:
       # version of scripts/release-title-gate.sh managed to fail open.
       - name: CI-wiring guard golden test (refusal paths, not just the happy one)
         run: ./tests/ci-wiring/test.sh
+
+      # …and so does the parse sweep, for the same reason. It sits HERE rather than beside its gate
+      # above because it sources tests/_lib.sh, and the two steps above are the ones that name a
+      # regression in the shared helper instead of leaving it to surface as an unexplained failure.
+      # Note what this step does and does not prove: on bash 5 the sweep's `bash -n` half is blind
+      # to the #131 construct, so the red cases here assert the STATIC scan's message rather than a
+      # bare non-zero exit — otherwise they would pass on this runner for the wrong reason.
+      - name: Parse sweep golden test (the #131 construct, driven to red)
+        run: ./tests/parse-sweep/test.sh
 
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo

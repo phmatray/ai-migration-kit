@@ -59,6 +59,12 @@
 #   Each limit costs a false NEGATIVE, never a false positive: the scan stays silent where it is
 #   unsure, because a guard that reddens CI on correct code gets deleted.
 #
+# …with ONE exception, and it is deliberate: a heredoc still open at end of file is REFUSED. That
+# state means the scan stopped at the opener and covered nothing after it, and a guard that has
+# quietly stopped looking is worth less than no guard at all — it is the very shape of #131. It is
+# also the net that catches a `<<` this scanner mis-read, the way `$(( 1 << 3 ))` was read as a
+# heredoc opener until the arithmetic case below was added.
+#
 # Usage:
 #   parse-sweep.sh [-C <repo-path>] [<file>...]
 #
@@ -130,7 +136,7 @@ fi
 # $4 = "detect" to look for heredoc openers, anything else to scan quotes only (heredoc bodies are
 # not shell, so nothing in them may be read as an opener or as a `$(`).
 sweep_scan() {
-  local text="$1" i=0 n c nxt prev='' comment=0 detect="${4:-no}" rest ch
+  local text="$1" i=0 n c nxt prev='' comment=0 detect="${4:-no}" rest ch j pd ac
   SC_STATE="${2:-0}"; SC_DEPTH="${3:-0}"; SC_DELIM=''; SC_DASH=0; SC_INSUB=0
   n=${#text}
   while [ "$i" -lt "$n" ]; do
@@ -165,6 +171,25 @@ sweep_scan() {
 
     if [ "$detect" = detect ]; then
       nxt=${text:$((i + 1)):1}
+
+      # `$(( … ))` and `(( … ))` are ARITHMETIC, and `<<` inside them is a left shift, not a
+      # heredoc operator. Skipping them whole is not tidiness — measured, `mask=$(( 1 << 3 ))` was
+      # read as a heredoc opened with the delimiter `3`, whose terminator never arrives, so every
+      # remaining line of the file was consumed as heredoc body and never checked. The fixture that
+      # found it genuinely fails on bash 3.2 and this scan called it clean: a guard that had gone
+      # quiet, which is the failure #131 itself is about. tests/parse-sweep drives it.
+      if { [ "$c" = '$' ] && [ "$nxt" = '(' ] && [ "${text:$((i + 2)):1}" = '(' ]; } \
+         || { [ "$c" = '(' ] && [ "$nxt" = '(' ]; }; then
+        if [ "$c" = '$' ]; then j=$((i + 3)); else j=$((i + 2)); fi
+        pd=2
+        while [ "$j" -lt "$n" ] && [ "$pd" -gt 0 ]; do
+          ac=${text:$j:1}
+          if [ "$ac" = '(' ]; then pd=$((pd + 1)); elif [ "$ac" = ')' ]; then pd=$((pd - 1)); fi
+          j=$((j + 1))
+        done
+        prev=')'; i="$j"; continue
+      fi
+
       if [ "$c" = '$' ] && [ "$nxt" = '(' ]; then
         SC_DEPTH=$((SC_DEPTH + 1)); prev='('; i=$((i + 2)); continue
       fi
@@ -311,6 +336,22 @@ for file in "${TARGETS[@]}"; do
       delim="$SC_DELIM"; dash="$SC_DASH"; insub="$SC_INSUB"; open_line="$lineno"; body=''
     fi
   done < "$file"
+
+  # A heredoc still open at end of file means the scan STOPPED THERE: everything after the opener
+  # was consumed as body and never examined. That is the one outcome a guard must never report as
+  # clean, so it is a refusal — and the message says which of the two causes to look for, because
+  # the second one is a bug in this script rather than in the file.
+  if [ -n "$delim" ]; then
+    failed=1
+    printf 'parse-sweep: REFUSED — %s: the scan could not complete.\n' "$file" >&2
+    printf '  The heredoc <<%s opened at line %s is never terminated, so every line after it was\n' \
+      "$delim" "$open_line" >&2
+    printf '  read as body and never checked.\n' >&2
+    printf '  Either the file really is unterminated — the `bash -n` half above will have said so —\n' >&2
+    printf '  or this scanner mis-read a `<<` that is not a heredoc operator, in which case fix the\n' >&2
+    printf '  scanner rather than the file. A scan that stops early has to be loud: covering nothing\n' >&2
+    printf '  in silence is the failure #131 is about.\n' >&2
+  fi
 done
 
 if [ "$failed" -ne 0 ]; then

@@ -22,6 +22,9 @@
 #     glued-hash           FAILS         a # with no blank before it is NOT a comment
 #     herestring           parses        <<< must not be read as a heredoc opener
 #     dash-heredoc         FAILS         <<- with a tab-indented terminator, hazard in the body
+#     shift-operator       FAILS         arithmetic `<<` is a SHIFT; read as an opener it swallows
+#                                        the rest of the file and the scan goes quiet (found in
+#                                        review, and it had)
 #
 # The pair (hazard, fixed) is the point of the whole file: neither half alone rules out a scan that
 # is right for the wrong reason.
@@ -149,6 +152,32 @@ if [ 1 -eq 1 ]; then
   echo "never closed"
 FIXTURE
 
+# THE regression fixture (found in review). `<<` inside arithmetic is a left SHIFT. Read as a
+# heredoc operator it opens a body delimited by `3`, no such terminator ever arrives, and the rest
+# of the file — including the real hazard below — is swallowed as body and never examined. This
+# file genuinely fails on bash 3.2, and the scan called it clean.
+cat > "$FIX/shift-operator.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+mask=$(( 1 << 3 ))
+(( mask = mask << 1 ))
+echo "$mask"
+A=$(python3 - <<'PY'
+import re
+m = re.search(r'X:\s*["\']?([0-9]+)["\']?', "X: 42")
+print(m.group(1) if m else "")
+PY
+)
+echo "$A"
+FIXTURE
+
+# The net under every remaining way an opener can be mis-read: a heredoc that is never terminated.
+cat > "$FIX/unterminated.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+A=$(python3 - <<'PY'
+print(42)
+echo "$A"
+FIXTURE
+
 # ----------------------------------------------------------------------------------- assertions
 
 # Runs the guard over one fixture and asserts the exit code, plus (optionally) a substring.
@@ -220,6 +249,20 @@ verdict herestring 0 '' "$FIX/herestring.sh"
 #    fixture must still be found.
 verdict dash-heredoc 1 "$STATIC" "$FIX/dash-heredoc.sh"
 
+# ----------------------------------------------- 9b-9c. the scan must not stop looking, silently
+
+# 9b. THE review regression. Arithmetic `<<` is a left shift, not a heredoc operator. Before this
+#     case the scan read `$(( 1 << 3 ))` as a heredoc delimited by `3`, waited for a terminator
+#     that never came, and reported this file — which really does fail on bash 3.2 — as CLEAN.
+#     A guard that has quietly stopped looking is the failure #131 itself is about, so the
+#     assertion is on the STATIC marker: the hazard further down the file must still be found.
+verdict shift-operator 1 "$STATIC" "$FIX/shift-operator.sh"
+
+# 9c. …and the net under every remaining way an opener could be mis-read. A heredoc still open at
+#     end of file means the scan covered nothing past it, which must be a refusal rather than a
+#     silent pass — the distinct message tells the reader whether to fix the file or the scanner.
+verdict unterminated 1 'the scan could not complete' "$FIX/unterminated.sh"
+
 # ------------------------------------------------------------------ 10. the version-blind half
 
 # 10. An ordinary syntax error, which every bash rejects. This is the half of the sweep that does
@@ -262,7 +305,7 @@ fi
 #     agreement is the evidence behind the table in the guard's header; on any other bash it
 #     cannot be produced, and the run says so instead of quietly skipping it.
 if [ "$SWEEP_MAJOR" -le 3 ]; then
-  for f in hazard fixed top-level in-double-quotes comment-line glued-hash herestring dash-heredoc; do
+  for f in hazard fixed top-level in-double-quotes comment-line glued-hash herestring dash-heredoc shift-operator; do
     pn=0; "$SWEEP_BASH" -n "$FIX/$f.sh" >/dev/null 2>&1 || pn=1
     sn=0; "$SWEEP_BASH" "$KIT/$GUARD" "$FIX/$f.sh" >/dev/null 2>&1 || sn=1
     [ "$pn" -eq "$sn" ] || {
