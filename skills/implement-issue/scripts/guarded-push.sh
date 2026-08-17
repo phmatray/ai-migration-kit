@@ -34,11 +34,27 @@
 #   0  pushed, and <remote>/<expected-branch> is verified equal to HEAD
 #   2  REFUSED before pushing — HEAD is another branch, or detached, or not a repo, or this script
 #      could not load the branch assertion it shares with guarded-commit.sh. Nothing sent.
-#   4  the push reported success but this guard could NOT prove the work is where that implied —
-#      the silent mis-push. Three causes, and the message says which: HEAD moved out from under
-#      the push (caught before the remote is read at all, so this one is about your local
-#      checkout, not the remote), <remote> could not be listed, or <remote>/<expected-branch>
-#      does not carry this HEAD.
+#   4  the push reported success but this guard could NOT prove the work is where that implied.
+#      THREE conditions return it and they are not the same answer — two disprove the delivery,
+#      one only fails to establish it — so read the message, not only the code:
+#
+#        a. HEAD moved out from under the push. `git push` sends the CURRENT branch, so what
+#           reached <remote> may not be your work. Caught before the remote is read at all, so
+#           this one is about your local checkout, not the remote.
+#           ALERT: `HEAD moved while it ran`.
+#        b. <remote> could not be listed — VERIFICATION DID NOT RUN. Nothing about the remote was
+#           read, so nothing here disproves anything: the push itself exited 0 and the work is
+#           PROBABLY already on the remote. The failure is in the check (a `--remote` naming a
+#           remote the push never wrote to, a network drop, an expired credential), not
+#           necessarily in the delivery. Fix that and RE-VERIFY; re-pushing on the strength of
+#           this code alone redoes an action that most likely already succeeded.
+#           ALERT: `could not be listed` / `push is UNVERIFIED` — the sentence wraps across two
+#           lines, so match either half rather than the whole of it.
+#        c. <remote> was listed and does not carry this HEAD — the silent mis-push, and the only
+#           condition in which the remote positively contradicts the push. Treat the work as
+#           unpushed and find out what the branch actually holds before pushing again.
+#           ALERT: `is NOT this HEAD`, or `has no '<expected-branch>' to show for it` when the
+#           listing came back with no such branch at all.
 #   *  git push's own exit code, if the push itself failed. Nothing else was done.
 #
 # That last line is why every path here also prints a line starting `guarded-push:` —
