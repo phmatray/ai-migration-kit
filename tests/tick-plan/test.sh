@@ -26,14 +26,48 @@ WORK=$(kit_scratch)
 # A `gh` stub on PATH: records every invocation, so the test can prove that a refused write
 # never reached the network. It also stores the PATCHed body and serves it back on a GET, so
 # the script's verify-after-write step is genuinely exercised rather than stubbed away.
+#
+# The stub resolves `--input` the way real `gh` does — a path is read from that file, a bare `-`
+# from stdin — and records which of the two it was in $GH_INPUT_PATH. That is what lets the suite
+# pin the payload's transport (#113): `--input -` is the stdin pipe that sat for 25–35 minutes on
+# a 30KB body after GitHub had already stored it.
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "ARGS: $*" >> "$GH_CALL_LOG"
 if [[ "$*" == *PATCH* ]]; then
-  cat > "$GH_PAYLOAD"
+  input="<none>"; prev=""
+  for a in "$@"; do
+    [ "$prev" = "--input" ] && input="$a"
+    prev="$a"
+  done
+  printf '%s\n' "$input" > "$GH_INPUT_PATH"
+  if [ "$input" = "<none>" ] || [ "$input" = "-" ]; then
+    cat > "$GH_PAYLOAD"
+  else
+    cp "$input" "$GH_PAYLOAD"
+  fi
+  [ -n "${GH_PATCH_FAIL:-}" ] && exit 4
   jq -r .body < "$GH_PAYLOAD" > "$GH_STORE"
+  # $GH_MANGLE_STORE models a concurrent edit: GitHub ends up holding something other than
+  # what was sent, which the read-back must catch whether or not the call was bounded.
+  [ -n "${GH_MANGLE_STORE:-}" ] && printf 'a concurrent edit\n' >> "$GH_STORE"
+  # $GH_PAYLOAD is stored BEFORE the sleep on purpose: that is the production symptom (#113) —
+  # GitHub already holds the new body while the client is still waiting on the call.
+  #
+  # $GH_PATCH_IGNORE_TERM is the adversarial version: a call that will not die on SIGTERM. A
+  # deadline that only sends TERM is advisory against it, because the script then blocks in
+  # `wait` for the whole sleep — the exact stall the deadline exists to prevent.
+  if [ -n "${GH_PATCH_IGNORE_TERM:-}" ]; then
+    trap '' TERM
+    sleep "${GH_PATCH_SLEEP:-8}"
+    exit 0
+  fi
+  # `exec` so the sleep inherits this pid and a kill on it actually ends the call.
+  [ -n "${GH_PATCH_SLEEP:-}" ] && exec sleep "$GH_PATCH_SLEEP"
+  exit 0
 else
+  [ -n "${GH_READ_FAIL:-}" ] && exit 3
   [ -f "$GH_STORE" ] && cat "$GH_STORE"
 fi
 STUB
@@ -57,8 +91,9 @@ fresh_log() {
   GH_CALL_LOG="$WORK/gh-calls.$1.log"
   GH_PAYLOAD="$WORK/gh-payload.$1.json"
   GH_STORE="$WORK/gh-store.$1.md"
-  export GH_CALL_LOG GH_PAYLOAD GH_STORE
-  : > "$GH_CALL_LOG"; rm -f "$GH_PAYLOAD" "$GH_STORE"
+  GH_INPUT_PATH="$WORK/gh-input.$1.txt"
+  export GH_CALL_LOG GH_PAYLOAD GH_STORE GH_INPUT_PATH
+  : > "$GH_CALL_LOG"; rm -f "$GH_PAYLOAD" "$GH_STORE" "$GH_INPUT_PATH"
 }
 
 # Asserts: the command refused (non-zero) AND gh was never invoked.
@@ -128,6 +163,29 @@ assert payload["body"].strip(), "payload body is empty — the exact bug this gu
 PY
 echo "  ok: happy — PATCHed the ticked body verbatim"
 
+# 7b. The payload travels in a FILE, never down a stdin pipe. `--input -` is the last surviving
+#     piece of the recipe this script replaced, and it is what made a 30KB PATCH take 25–35
+#     minutes to return from a write GitHub had already applied (#113).
+if grep -qE -- '--input -($| )' "$GH_CALL_LOG"; then
+  echo "FAIL [input-file]: the PATCH still pipes its payload via '--input -'"; cat "$GH_CALL_LOG"; exit 1
+fi
+INPUT_PATH=$(cat "$GH_INPUT_PATH")
+case "$INPUT_PATH" in
+  ''|'-'|'<none>')
+    echo "FAIL [input-file]: expected '--input <file>', the PATCH passed '${INPUT_PATH:-<empty>}'"
+    cat "$GH_CALL_LOG"; exit 1 ;;
+esac
+# The stub copied $INPUT_PATH into $GH_PAYLOAD, which the round-trip check above already proved
+# byte-identical to the ticked file — so the file really held the payload, not just a path.
+[ -f "$GH_PAYLOAD" ] || { echo "FAIL [input-file]: no payload was captured from $INPUT_PATH"; exit 1; }
+echo "  ok: input-file — the payload came from $INPUT_PATH, not a stdin pipe"
+
+# ...and it is scratch: registered for cleanup, so it does not outlive the run.
+if [ -e "$INPUT_PATH" ]; then
+  echo "FAIL [input-file]: payload temp file $INPUT_PATH outlived the script"; exit 1
+fi
+echo "  ok: input-file — the payload temp file is removed on exit"
+
 # 8. A comment-hosted plan targets the comments endpoint, not the issue.
 fresh_log comment
 "$TICK" --repo o/r --issue 42 --comment-id 998877 --before "$BEFORE" --after "$WORK/ticked.md" >/dev/null 2>&1 \
@@ -142,5 +200,126 @@ KIT="$PWD"
 ( cd "$WORK" && bash "$KIT/$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" >/dev/null 2>&1 ) \
   || { echo "FAIL [foreign-cwd]: refused when run from another directory"; exit 1; }
 echo "  ok: foreign cwd"
+
+# ---------------------------------------------------------------- the deadline
+#
+# The PATCH runs under a pure-bash deadline (TICK_PLAN_PATCH_TIMEOUT, default 60s; no timeout(1),
+# which stock macOS does not ship). Expiry is NOT failure: killing the call does not un-send it,
+# so the read-back — which costs 0.4s against the real API — is what decides the verdict.
+
+# Runs the tick with a stub that sleeps past the deadline; leaves the exit code in $RC and the
+# wall-clock cost in $ELAPSED. No command substitution around the call: an orphaned child would
+# hold the pipe open and hide the very stall being measured.
+run_bounded() {
+  local name="$1" timeout="$2"; shift 2
+  fresh_log "$name"
+  local start; start=$(date +%s)
+  RC=0
+  TICK_PLAN_PATCH_TIMEOUT="$timeout" "$@" > "$WORK/out.$name" 2>&1 || RC=$?
+  ELAPSED=$(( $(date +%s) - start ))
+}
+
+export GH_PATCH_SLEEP=6
+
+# 10. Bounded, and GitHub holds what was sent → success, and back in a couple of seconds rather
+#     than at the end of the sleep. Driven at 2s rather than 1s so the run has to actually WAIT:
+#     `date +%s` is whole-second, so a 1s deadline can fire almost immediately and would pass even
+#     if the timer measured nothing at all.
+run_bounded bounded-match 2 "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+[ "$RC" -eq 0 ] || { echo "FAIL [bounded-match]: expected success from the read-back, got exit $RC"
+                     cat "$WORK/out.bounded-match"; exit 1; }
+[ "$ELAPSED" -ge 1 ] || { echo "FAIL [bounded-match]: returned in ${ELAPSED}s with a 2s deadline —
+        the timer is not measuring anything"; cat "$WORK/out.bounded-match"; exit 1; }
+[ "$ELAPSED" -lt 5 ] || { echo "FAIL [bounded-match]: took ${ELAPSED}s — the PATCH was not bounded"
+                          cat "$WORK/out.bounded-match"; exit 1; }
+grep -q 'body verified intact' "$WORK/out.bounded-match" \
+  || { echo "FAIL [bounded-match]: no verified-intact verdict"; cat "$WORK/out.bounded-match"; exit 1; }
+grep -qi 'bounded' "$WORK/out.bounded-match" \
+  || { echo "FAIL [bounded-match]: the output does not say the call was bounded, so a reader cannot
+        tell the two success paths apart"; cat "$WORK/out.bounded-match"; exit 1; }
+echo "  ok: bounded-match — bounded at 2s, verdict from the read-back (${ELAPSED}s, sleep was 6s)"
+
+# 11. Bounded, but GitHub holds something else → the existing ALERT, exit 1. A killed call must
+#     never be allowed to launder a mismatch into success.
+export GH_MANGLE_STORE=1
+run_bounded bounded-differs 1 "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_MANGLE_STORE
+[ "$RC" -eq 1 ] || { echo "FAIL [bounded-differs]: expected exit 1, got $RC"
+                     cat "$WORK/out.bounded-differs"; exit 1; }
+grep -q 'ALERT' "$WORK/out.bounded-differs" \
+  || { echo "FAIL [bounded-differs]: no ALERT on a mismatched body"; cat "$WORK/out.bounded-differs"; exit 1; }
+[ "$ELAPSED" -lt 5 ] || { echo "FAIL [bounded-differs]: took ${ELAPSED}s — the PATCH was not bounded"; exit 1; }
+# ...and it must NOT tell the reader to restore. After a cut-short PATCH the write most likely never
+# landed, so restoring is either a no-op or it un-ticks a write that arrives a moment later.
+grep -q 'Do NOT restore' "$WORK/out.bounded-differs" \
+  || { echo "FAIL [bounded-differs]: the bounded mismatch still advises a restore"
+       cat "$WORK/out.bounded-differs"; exit 1; }
+echo "  ok: bounded-differs — bounded, mismatch still ALERTs and exits 1, without advising a restore"
+
+# 11b. A call that ignores SIGTERM must still be bounded. A deadline that only asks politely is
+#      advisory: `wait` then blocks for the whole call and the stall comes straight back.
+export GH_PATCH_IGNORE_TERM=1 GH_PATCH_SLEEP=20
+run_bounded bounded-stubborn 1 "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_PATCH_IGNORE_TERM
+export GH_PATCH_SLEEP=6
+[ "$RC" -eq 0 ] || { echo "FAIL [bounded-stubborn]: expected success from the read-back, got exit $RC"
+                     cat "$WORK/out.bounded-stubborn"; exit 1; }
+[ "$ELAPSED" -lt 10 ] || { echo "FAIL [bounded-stubborn]: took ${ELAPSED}s of a 20s call — SIGTERM was
+        ignored and nothing escalated, so the deadline is advisory"; cat "$WORK/out.bounded-stubborn"; exit 1; }
+echo "  ok: bounded-stubborn — a TERM-ignoring call is escalated and still bounded (${ELAPSED}s of 20s)"
+
+# 12. Bounded AND the read-back failed → nothing at all confirms what GitHub holds, so the script
+#     must not report success. This is the one path where the sole authority is unavailable.
+export GH_READ_FAIL=1
+run_bounded bounded-unverified 1 "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_READ_FAIL
+[ "$RC" -ne 0 ] || { echo "FAIL [bounded-unverified]: claimed success with no evidence either way"
+                     cat "$WORK/out.bounded-unverified"; exit 1; }
+grep -q 'ALERT' "$WORK/out.bounded-unverified" \
+  || { echo "FAIL [bounded-unverified]: no ALERT"; cat "$WORK/out.bounded-unverified"; exit 1; }
+echo "  ok: bounded-unverified — bounded + unreadable = no verdict, and it says so"
+
+unset GH_PATCH_SLEEP
+
+# 13. Unbounded PATCH whose read-back fails keeps today's softer contract: gh itself reported
+#     success, so this stays a WARNING and exit 0 rather than becoming an error.
+fresh_log warn-unverified
+export GH_READ_FAIL=1
+RC=0
+"$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+  > "$WORK/out.warn-unverified" 2>&1 || RC=$?
+unset GH_READ_FAIL
+[ "$RC" -eq 0 ] || { echo "FAIL [warn-unverified]: a successful PATCH must not fail on a read-back hiccup"
+                     cat "$WORK/out.warn-unverified"; exit 1; }
+grep -q 'WARNING' "$WORK/out.warn-unverified" \
+  || { echo "FAIL [warn-unverified]: no WARNING"; cat "$WORK/out.warn-unverified"; exit 1; }
+# The summary line must not contradict that warning by claiming the body was verified — nothing
+# was read back, so there is nothing behind such a claim.
+grep -q 'body verified intact' "$WORK/out.warn-unverified" \
+  && { echo "FAIL [warn-unverified]: warned 'unverified' on stderr and claimed 'verified intact' on stdout"
+       cat "$WORK/out.warn-unverified"; exit 1; }
+echo "  ok: warn-unverified — unbounded + unreadable stays a WARNING, and claims no verification"
+
+# 14. A PATCH that fails on its own is still a refusal — nothing was sent, so there is nothing to
+#     read back. The exit status now arrives via `wait` on a backgrounded call rather than from a
+#     foreground `if !`, which is new machinery and worth pinning.
+fresh_log patch-failed
+export GH_PATCH_FAIL=1
+RC=0
+"$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+  > "$WORK/out.patch-failed" 2>&1 || RC=$?
+unset GH_PATCH_FAIL
+[ "$RC" -ne 0 ] || { echo "FAIL [patch-failed]: a failed PATCH reported success"
+                     cat "$WORK/out.patch-failed"; exit 1; }
+grep -q 'REFUSED' "$WORK/out.patch-failed" \
+  || { echo "FAIL [patch-failed]: no REFUSED"; cat "$WORK/out.patch-failed"; exit 1; }
+grep -q 'jq .body' "$GH_CALL_LOG" \
+  && { echo "FAIL [patch-failed]: read back a body after a PATCH that never landed"
+       cat "$GH_CALL_LOG"; exit 1; }
+echo "  ok: patch-failed — a failing PATCH still REFUSES, with no read-back"
+
+# 15. The deadline must be a sane number: a junk value is caught before anything is sent.
+refuses bad-timeout env TICK_PLAN_PATCH_TIMEOUT=soon \
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
 
 echo "tick-plan golden test OK"

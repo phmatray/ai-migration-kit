@@ -144,12 +144,22 @@ else
 fi
 ```
 
-It wraps the file with `jq -Rs` (a JSON string, so backticks, quotes and newlines survive intact)
-and PATCHes with `--input -`, which is far more robust than `-f body=...` for large, Markdown-heavy
-bodies. The body-sourced file holds the *whole* description, so flipping only this task's checkbox
-lines leaves the template fields and brainstorm/spec untouched. After the write, the issue re-renders
-with this task's boxes ticked — and because the plan is in the body, the progress meter advances too.
-The script then re-reads the issue and asserts the stored body matches what it sent.
+It wraps the file with `jq -Rs` (a JSON string, so backticks, quotes and newlines survive intact),
+writes that payload to a temp file, and PATCHes with **`--input <file>`** — far more robust than
+`-f body=...` for large, Markdown-heavy bodies, and deliberately **not** `--input -`: the stdin pipe
+is what made a PATCH of a ~30KB body take 25–35 minutes to return from a write GitHub had already
+applied in seconds (#113). Don't "simplify" it back into a pipe. The body-sourced file holds the
+*whole* description, so flipping only this task's checkbox lines leaves the template fields and
+brainstorm/spec untouched. After the write, the issue re-renders with this task's boxes ticked — and
+because the plan is in the body, the progress meter advances too. The script then re-reads the issue
+and asserts the stored body matches what it sent.
+
+The PATCH also runs under a deadline — `TICK_PLAN_PATCH_TIMEOUT` seconds, default **60**, overridable
+mainly so the golden suite need not wait a minute per case. **Expiry is not failure.** Killing the
+call does not un-send it, so the script falls through to the read-back and *that* decides: a bounded
+call whose stored body matches is a success (the output says it was bounded), one whose body differs
+is an `ALERT`, and one that cannot be read back at all is an `ALERT` too, because then nothing
+confirms anything. The read-back — not the PATCH's exit status — is the authority.
 
 ### ⛔ Never pipe `jq` straight into a mutating `gh api`
 
@@ -317,6 +327,10 @@ the normal outcome of a real sync, not an error.** Resolve them and *complete* t
 | `tick-plan: REFUSED — body length changed` / `differs outside the checkboxes` | Something rewrote the working file beyond flipping boxes (a stray Edit, a re-fetch mid-task, an agent "tidying" the body) | **Nothing was sent — the issue is intact.** Re-copy `/tmp/plan-$ISSUE.orig.md` over the working file, re-apply only this task's flips, re-run |
 | `tick-plan: REFUSED — --after file is empty` / `does not exist` | The fetch failed, or the working file was clobbered. This is the wipe (Koine#1813) being caught | **Nothing was sent.** Re-fetch via §2 and restart the tick; never hand-PATCH around the script |
 | `tick-plan: REFUSED — no checkbox was ticked` | The per-line Edit didn't land (step text drifted from what the plan actually says) | Re-read the working file, match the real step text, re-flip. A no-op write would look like progress |
+| `tick-plan: the PATCH to … exceeded Ns and was bounded` | **Not an error, and not a failure** (#113). The PATCH outran `TICK_PLAN_PATCH_TIMEOUT` (default 60s) and was killed, which does not un-send it | **Nothing to do — read the next line.** The read-back decides; if it printed `body verified intact … [PATCH bounded …]` the tick landed and the run continues |
+| `tick-plan: ALERT — … does not hold what was sent, and the PATCH was cut short` | The call was bounded *and* GitHub still holds the old body — most likely the write never left | **Re-run the tick** (`--before`/`--after` unchanged; it is idempotent). Do **not** restore from `/tmp/plan-$ISSUE.orig.md` — the write may still arrive and the restore would un-tick it |
+| `tick-plan: ALERT — the PATCH was bounded at Ns and the read-back failed` | The call was cut short **and** the authority is unreachable, so nothing establishes what the issue now holds | Re-run the tick once connectivity is back; it reports the true state. Never assume either outcome — that is the whole reason this path refuses rather than warns |
+| `tick-plan: REFUSED — TICK_PLAN_PATCH_TIMEOUT must be …` | The deadline override is not a whole number of seconds ≥ 1 | **Nothing was sent.** Unset it for the 60s default, or pass whole seconds |
 | A commit landed on **another branch** (and a push carried it into someone else's PR) | A concurrent checkout switched HEAD in a shared working tree between the branch creation and the commit. `git commit` never re-checks the branch, so it exits 0 | Cherry-pick the commit onto the branch it belongs to, then `git revert` it on the branch it wrongly landed on. **Never force-push a branch you do not own** — its author may already have built on it. Then move to this issue's own worktree (Step 4) and route every write through the guards |
 | `guarded-commit: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: something checked out `X` in this worktree | **Nothing was committed.** Check out `Y` — better, move to `Y`'s own worktree — and re-run. Do not "just commit anyway" |
 | `guarded-commit: ALERT — the commit was made, but HEAD is now …` (exit 3) | HEAD moved *during* the commit; the work is on the branch the message names | Recover exactly as in the first row. The commit is not lost, only misfiled |
