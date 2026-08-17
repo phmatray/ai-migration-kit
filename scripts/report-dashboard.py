@@ -181,6 +181,24 @@ def parse_cobertura(paths, excluded_prefixes, included_names=None):
     }
 
 
+def resolution_hint(item, base):
+    """La clause qui NOMME la base contre laquelle un chemin relatif vient d'être résolu.
+
+    Tous les chemins d'un `report.json` (cobertura, capture) sont relatifs AU RAPPORT, jamais au
+    cwd ni à la racine du repo. Les diagnostics, eux, affichent le chemin RÉSOLU — donc un chemin
+    que l'auteur n'a jamais tapé, sans un mot sur d'où il sort. C'est exactement ce qui a produit
+    #49 : `"coverage"` écrit dans `migration/report.json` désigne `migration/coverage`, et
+    « introuvable : …/migration/coverage » ne laissait aucune prise pour comprendre pourquoi.
+    Corriger la référence retirait la valeur fausse du jour ; nommer la base ferme la classe
+    entière — tout champ relatif, y compris ceux ajoutés plus tard (#102).
+
+    Un chemin ABSOLU n'a été résolu contre rien : la clause serait un mensonge, donc elle est vide.
+    """
+    if Path(item).is_absolute():
+        return ""
+    return f" (chemin relatif résolu depuis {base}, le répertoire du report.json)"
+
+
 def resolve_cobertura(entry, base):
     """Résout le champ `coverage.cobertura` en liste de fichiers, relatifs au report.json.
 
@@ -198,21 +216,30 @@ def resolve_cobertura(entry, base):
     files = []
     for item in entries:
         path = Path(item) if Path(item).is_absolute() else base / item
+        hint = resolution_hint(item, base)
         if path.is_dir():
             found = sorted(path.rglob("*.cobertura.xml"))
             if not found:
-                raise SystemExit(f"aucun *.cobertura.xml dans le répertoire {path}")
+                raise SystemExit(f"aucun *.cobertura.xml dans le répertoire {path}{hint}")
             files.extend(found)
         elif any(c in str(item) for c in "*?["):
             found = sorted(Path(p) for p in glob.glob(str(path), recursive=True))
             if not found:
-                raise SystemExit(f"le motif {path} ne correspond à aucun fichier")
+                raise SystemExit(f"le motif {path} ne correspond à aucun fichier{hint}")
             files.extend(found)
         else:
             # Nommer le fichier manquant : un FileNotFoundError brut d'ET.parse ne dit pas
             # lequel des N rapports a disparu, et sous MTP ils changent de nom à chaque run.
             if not path.is_file():
-                raise SystemExit(f"rapport de couverture introuvable : {path}")
+                # …et ne pas appeler « rapport » ce qui a été écrit comme un RÉPERTOIRE. La
+                # branche `is_dir()` ci-dessus ne se prend que si le dossier EXISTE ; un dossier
+                # absent retombe ici, et « rapport de couverture introuvable » envoyait alors
+                # chercher un fichier là où l'auteur avait désigné un dossier (#102). Le
+                # discriminant est le suffixe `.xml` : c'est la seule forme fichier que les quatre
+                # formes documentées emploient, tout le reste désigne un répertoire.
+                kind = ("rapport de couverture" if path.suffix.lower() == ".xml"
+                        else "répertoire de couverture")
+                raise SystemExit(f"{kind} introuvable : {path}{hint}")
             files.append(path)
     if not files:
         raise SystemExit("coverage.cobertura ne désigne aucun rapport")

@@ -174,7 +174,11 @@ PY
 # désigner le répertoire. Le nom des fixtures ne finit pas par `.cobertura.xml`, donc on en
 # dépose des copies correctement nommées — c'est aussi ce que produit un vrai run.
 # ---------------------------------------------------------------------------
-dir_case="$(mktemp -d)"
+# `pwd -P` et pas le retour brut de mktemp : sur macOS il rend un chemin sous `/var`, qui est un
+# lien vers `/private/var`, alors que le script résout ses chemins avec `Path.resolve()` et affiche
+# donc la forme physique. Sans normalisation, les assertions qui comparent un chemin AFFICHÉ à
+# `$dir_case` seraient vertes sur le runner Linux de la CI et rouges sur la machine du mainteneur.
+dir_case="$(cd "$(mktemp -d)" && pwd -P)"
 cp tests/report-dashboard/fixture-cobertura.xml "$dir_case/projet-un.cobertura.xml"
 cp tests/report-dashboard/fixture-cobertura-b.xml "$dir_case/projet-deux.cobertura.xml"
 
@@ -206,7 +210,75 @@ case "$err" in
   *disparu.cobertura.xml*) : ;;
   *) echo "ÉCHEC : l'erreur ne nomme pas le fichier manquant : $err"; exit 1 ;;
 esac
+# …et elle nomme la base de résolution, y compris pour la forme fichier : le chemin affiché est
+# absolu alors que le report.json en portait un relatif, donc « d'où sort-il ? » se pose aussi ici.
+case "$err" in
+  *"chemin relatif résolu depuis $dir_case"*) : ;;
+  *) echo "ÉCHEC : l'erreur d'un fichier manquant ne nomme pas la base : $err"; exit 1 ;;
+esac
 rm -rf "$dir_case"
+
+# ---------------------------------------------------------------------------
+# L'erreur NOMME la base contre laquelle un chemin relatif a été résolu (issue #102).
+#
+# C'est la cause racine de #49, que #49 n'a fait que contourner. `"coverage"` écrit dans
+# `migration/report.json` désigne `migration/coverage`, pas le `coverage/` de la racine ; le
+# diagnostic disait seulement « rapport de couverture introuvable : …/migration/coverage » —
+# un chemin que personne n'a tapé, sans un mot sur d'où il sort, et en appelant « rapport » un
+# RÉPERTOIRE. Corriger la référence retirait la valeur fausse du jour ; nommer la base ferme la
+# classe entière, tout champ relatif compris, y compris ceux ajoutés plus tard.
+#
+# La base est assertée via la clause explicative, jamais en cherchant le chemin de base seul : le
+# chemin résolu la CONTIENT comme préfixe, donc un `case` sur « $b/migration » passerait sans que
+# le message n'explique quoi que ce soit.
+# ---------------------------------------------------------------------------
+base_case="$(cd "$(mktemp -d)" && pwd -P)"   # cf. la note sur pwd -P au bloc précédent
+mkdir -p "$base_case/migration"
+python3 - "$base_case" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "coverage"}      # la valeur exacte de #49
+pathlib.Path(sys.argv[1], "migration", "report.json").write_text(json.dumps(r))
+PY
+if err=$(python3 scripts/report-dashboard.py "$base_case/migration/report.json" \
+           -o "$base_case/migration/report.html" 2>&1); then
+  echo "ÉCHEC : un répertoire de couverture manquant doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *"$base_case/migration/coverage"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le chemin résolu : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"chemin relatif résolu depuis $base_case/migration"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la base de résolution : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"répertoire du report.json"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne dit pas ce qu'est cette base : $err"; exit 1 ;;
+esac
+# Et elle ne présente plus un répertoire comme un rapport. La clause ci-dessus contient le mot
+# « répertoire », donc c'est le libellé FAUTIF qu'on interdit, pas le bon qu'on cherche.
+case "$err" in
+  *"rapport de couverture introuvable"*)
+    echo "ÉCHEC : un répertoire manquant est annoncé comme un « rapport » : $err"; exit 1 ;;
+esac
+
+# Un chemin ABSOLU n'a été résolu contre rien : la clause serait un mensonge, donc elle est absente.
+python3 - "$base_case" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": str(pathlib.Path(sys.argv[1], "absent", "rien.cobertura.xml"))}
+pathlib.Path(sys.argv[1], "migration", "report.json").write_text(json.dumps(r))
+PY
+if err=$(python3 scripts/report-dashboard.py "$base_case/migration/report.json" \
+           -o "$base_case/migration/report.html" 2>&1); then
+  echo "ÉCHEC : un chemin absolu manquant doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *"chemin relatif résolu depuis"*)
+    echo "ÉCHEC : un chemin absolu n'est résolu contre aucune base : $err"; exit 1 ;;
+esac
+rm -rf "$base_case"
 
 # ---------------------------------------------------------------------------
 # Le snippet DOCUMENTÉ, exécuté contre la disposition DOCUMENTÉE (issue #49).
