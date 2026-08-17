@@ -203,7 +203,14 @@ fi
 # swallow the next copy in silence — the exclusion-list failure this whole design rejects, rebuilt
 # inside the allowlist.
 R="$WORK/broad"; scaffold "$R"
-grep 'are STABLE releases' "$R/tests/xunit-v3/apply-transform.py" >> "$R/tests/xunit-v3/apply-transform.py"
+# Read the line out FIRST, then append. `grep pattern f >> f` is a file that is its own output:
+# BSD grep (macOS) does it, GNU grep (CI) refuses with "input file is also the output" and appends
+# nothing — so the second occurrence never exists and this section passes vacuously on one platform
+# while failing on the other. The suite's whole subject is copies of a literal; it must not create
+# its own fixture in a way only one grep implementation performs.
+dup_line=$(grep 'are STABLE releases' "$R/tests/xunit-v3/apply-transform.py")
+[ -n "$dup_line" ] || bad "section 5 fixture: the line to duplicate was not found in the scaffold"
+printf '%s\n' "$dup_line" >> "$R/tests/xunit-v3/apply-transform.py"
 out=$(run_check "$R"); rc=$?
 if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'covers 2 lines'; then
   ok "a HISTORICAL entry that covers two occurrences is refused as too broad"
