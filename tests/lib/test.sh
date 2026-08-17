@@ -18,7 +18,9 @@
 #   8. no suite hand-rolls the EXIT trap again — the anti-recurrence check;
 #   9. a suite that uses the helper takes its scratch from it, per occurrence;
 #  10. a suite that does NOT use it still leaves no temp directory behind — so §9 and §10 together
-#      cover every suite in the tree, and nothing falls between them (#128).
+#      cover every suite in the tree, and nothing falls between them (#128);
+#  11. `kit_source` loads a helper and refuses, by name, one it cannot;
+#  12. no suite sources a shared helper unguarded — the anti-recurrence check for §11.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -456,5 +458,109 @@ for f in tests/*/test.sh; do
     exit 1; }
 done
 echo "  [10] a suite that manages its own scratch leaves no temp directory behind"
+
+# ---------------------------------------------------------------------------
+# 11. kit_source: a helper that cannot be loaded stops the suite, by name.
+#
+#     The guarded-source preamble
+#
+#         . "$KIT/tests/_lib.sh" || {
+#           echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+#
+#     was copy-pasted across ten suites, in four spellings of the root variable and two languages,
+#     and tests/xunit-v3/test.sh guarded one of its two shared sources and left the other bare —
+#     inconsistent inside a single file (#128). Same argument as py_module (#42, #51) and the trap
+#     handler (#72), applied to the mechanism that loads them.
+#
+#     One source per suite must still be spelled out: kit_source lives in the file it would have to
+#     load. That bootstrap line is the only one, and every source AFTER it is one call.
+#
+#     Driven through run_suite, so the refusal is observed as a suite would experience it — the exit
+#     status AND the fact that the body never ran. A guard that printed and continued would be worse
+#     than none, since the suite would then assert nothing and say OK.
+# ---------------------------------------------------------------------------
+r=$(run_suite 'kit_source "'"$scratch"'/no-such-helper.sh"; echo "the suite kept going"')
+[ "${r%%|*}" != "0" ] || {
+  echo "FAIL: kit_source exited 0 on a helper that does not exist: ${r#*|}"; exit 1; }
+case "${r#*|}" in *"the suite kept going"*)
+  echo "FAIL: kit_source printed a complaint and let the suite run on unguarded: ${r#*|}"; exit 1 ;;
+esac
+case "${r#*|}" in *no-such-helper.sh*) : ;; *)
+  echo "FAIL: kit_source refused without naming the file it could not load: ${r#*|}"; exit 1 ;;
+esac
+
+# The passing path, or the refusal above proves only that kit_source can say no. A helper it loads
+# must actually have taken effect — a definition from it is callable afterwards.
+printf 'kit_source_probe() { echo "probe-loaded"; }\n' > "$scratch/loadable-helper.sh"
+r=$(run_suite 'kit_source "'"$scratch"'/loadable-helper.sh"; kit_source_probe')
+[ "${r%%|*}" = "0" ] || { echo "FAIL: kit_source refused a readable helper: ${r#*|}"; exit 1; }
+case "${r#*|}" in *probe-loaded*) : ;; *)
+  echo "FAIL: kit_source returned 0 but the helper's definitions are not in scope: ${r#*|}"; exit 1 ;;
+esac
+echo "  [11] kit_source loads a helper, and refuses one it cannot, naming it"
+
+# ---------------------------------------------------------------------------
+# 12. No suite loads a shared helper unguarded.
+#
+#     §11 proves kit_source refuses; this proves nothing skipped it. The failure it prevents is
+#     silent by construction: `. missing.sh` under `set -e` stops the suite with bash's own
+#     line-number complaint and no mention of which helper — but a suite that sources a helper
+#     BARE and keeps going asserts less than it claims to while still printing OK, which is the
+#     outcome this whole file exists to make impossible.
+#
+#     It had a live instance when this was written: tests/xunit-v3/test.sh guarded one of its two
+#     shared sources and left the other bare, sixty lines apart, in a file its own author had just
+#     written both halves of (#128) — the same "copy-paste is not a thing people decide to do"
+#     argument §8 makes about the trap.
+#
+#     Enumerated from the filesystem, never from a list here (#45). tests/lib/test.sh is exempt on
+#     both counts: it sources the file under test deliberately, guarded by its own `[ -r ]` check
+#     at the top, and the illustrative preamble in §11's comment above would otherwise match.
+# ---------------------------------------------------------------------------
+# The unguarded `.`-sources of a shared helper in $1, one "<n>:<text>" line each.
+bare_sources() {
+  local hit n text
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    n=${hit%%:*}
+    text=${hit#*:}
+    # A guard may sit on the source line itself, or open with `|| {` and close on the next line.
+    case "$text" in
+      *"exit 1"*) continue ;;
+      *'|| {'*)
+        case "$(sed -n "$((n + 1))p" "$1")" in *"exit 1"*) continue ;; esac ;;
+    esac
+    printf '%s\n' "    $1:$hit"
+  done < <(grep -nE '^[[:space:]]*\.[[:space:]].*tests/_lib' "$1" || true)
+}
+
+# Fixtures first, for the same reason as §9 and §10: the tree currently answers "all guarded", so
+# it cannot tell a working check from one that matches nothing at all.
+bare_fixture="$scratch/sources-bare.sh"
+printf '. "$KIT/tests/_lib.sh"\nkit_init "$PWD"\n' > "$bare_fixture"
+[ -n "$(bare_sources "$bare_fixture")" ] || {
+  echo "FAIL: the bare-source check did not flag a bare '. \$KIT/tests/_lib.sh'"; exit 1; }
+
+guarded_fixture="$scratch/sources-guarded.sh"
+{
+  echo '. "$KIT/tests/_lib.sh" || {'
+  echo '  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }'
+} > "$guarded_fixture"
+[ -z "$(bare_sources "$guarded_fixture")" ] || {
+  echo "FAIL: the bare-source check flagged the guarded bootstrap form"; exit 1; }
+
+unguarded=""
+for f in tests/*/test.sh; do
+  [ "$f" = "tests/lib/test.sh" ] && continue
+  hits=$(bare_sources "$f")
+  [ -n "$hits" ] && unguarded="$unguarded
+$hits"
+done
+if [ -n "$unguarded" ]; then
+  echo "FAIL: these suites source a shared helper without refusing to run when it cannot be"
+  echo "      loaded. Use kit_source, or the two-line bootstrap form, but never a bare dot:$unguarded"
+  exit 1
+fi
+echo "  [12] every shared helper is sourced guarded — kit_source, or the bootstrap form"
 
 echo "tests/_lib.sh golden test OK"

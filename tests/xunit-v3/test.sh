@@ -58,8 +58,14 @@ FIXTURE="$KIT/samples/LegacyShop"
 #
 # Sourced through $KIT, an absolute path, because this script has already cd'd to the kit root —
 # a relative path here would resolve against wherever the suite happened to be invoked from.
-. "$KIT/tests/_lib/py.sh" || {
-  echo "FAIL: cannot source $KIT/tests/_lib/py.sh — refusing to run unguarded"; exit 1; }
+#
+# Both shared files are loaded HERE, together. They used to sit sixty lines apart, and the second
+# was sourced BARE while the first was guarded — one file, two answers to "what happens if this
+# helper goes missing" (#128). The first line is spelled out because kit_source is defined in the
+# file it loads; the second is one call.
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_source "$KIT/tests/_lib/py.sh"
 
 # Print the `run: |` body of a named step of templates/ci-dotnet.yml, so the assertions below
 # execute the template VERBATIM instead of a copy that drifts from it. A hand-copied command is
@@ -120,7 +126,6 @@ no_pycache() {
   fi
 }
 
-. "$KIT/tests/_lib.sh"
 kit_init "$KIT"
 kit_guard kit_guard_samples_unchanged
 kit_guard no_pycache

@@ -26,6 +26,14 @@
 #
 # ---------------------------------------------------------------------------------- the contract
 #
+#   kit_source <path>
+#       Load another shared helper, or stop the suite naming the file it could not load. A suite
+#       must never run with half its assertions missing, so this refuses rather than warns.
+#
+#       The FIRST shared file a suite loads is still sourced explicitly — this function lives in
+#       one of them, so it cannot load the file that defines it. That bootstrap line is the only
+#       one; every source after it is a single call (#128).
+#
 #   kit_init <kit-root>
 #       Arm the EXIT trap. Call once, after the suite's `cd` to the kit root, before any work.
 #
@@ -63,6 +71,25 @@
 KIT_LIB_ROOT=""
 KIT_LIB_TMP=""
 KIT_LIB_GUARDS=()
+
+kit_source() {
+  local f="${1:?kit_source needs a path}"
+  # Readability is checked BEFORE the source, and separately from it, so the two failures do not
+  # get one message. `. missing.sh` under `set -e` aborts with bash's own line-number complaint and
+  # nothing about which helper or why; a suite that stops without naming the file it wanted is a
+  # CI-only failure nobody can diagnose at a distance (#74).
+  [ -r "$f" ] || {
+    echo "FAIL: cannot read $f — refusing to run unguarded"
+    echo "      A suite that loses a shared helper loses its assertions with it, and would then"
+    echo "      report OK having checked nothing."
+    exit 1
+  }
+  # shellcheck source=/dev/null
+  . "$f" || {
+    echo "FAIL: $f was read but failed to load — refusing to run unguarded"
+    exit 1
+  }
+}
 
 kit_init() {
   KIT_LIB_ROOT="${1:?kit_init needs the kit root}"
