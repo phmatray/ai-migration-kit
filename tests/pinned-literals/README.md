@@ -38,7 +38,7 @@ side of the v1/v2 boundary, and nothing about the `xunit.v3` pin governs it. For
 `XUNIT_V3_VERSION` would encode exactly the "the major determines the line" mistake `MTP_LINE`
 exists to refuse.
 
-Applied below, that rule alone classifies 7 of the 9 historical entries; the other two are the
+Applied below, that rule alone classifies 6 of the 8 historical entries; the other two are the
 transform's *input* fixture and an illustration of a wrong-answer message.
 
 ## The inventory
@@ -55,20 +55,24 @@ every refusal.
 | `skills/legacy-upgrade/references/xunit-v3-migration.md:135` | the measured-resolution table's `xunit.v3` row |
 | `templates/ci-dotnet.yml:89` | the coverage guard's measurement banner — **shipped to migrated repos** |
 | `tests/xunit-v3/apply-transform.py:41` | the module header's resolution table, `xunit.v3` row |
-| `tests/xunit-v3/test.sh:236` | section 3: the `OutputType` guard, measured on the pinned package |
-| `tests/xunit-v3/test.sh:468` | section 4f: the `--coverage`-refusal measurement |
-| `tests/xunit-v3/test.sh:899` | section 7's keyed-on-the-id argument, `xunit.v3` half |
+| `tests/xunit-v3/test.sh:237` | section 3: the `OutputType` guard, measured on the pinned package |
+| `tests/xunit-v3/test.sh:473` | section 4f: the `--coverage`-refusal measurement |
+| `tests/xunit-v3/test.sh:904` | section 7's keyed-on-the-id argument, `xunit.v3` half |
 
 Two of these are new coverage relative to `[7e]`, which read only `apply-transform.py` and the
 migration reference: `templates/ci-dotnet.yml` — the file this kit *ships* — and the three claims
 inside `tests/xunit-v3/test.sh` itself.
 
-`tests/xunit-v3/test.sh:236` needed a one-line reflow to become checkable: the claim was wrapped
+`tests/xunit-v3/test.sh:237` needed a one-line reflow to become checkable: the claim was wrapped
 across two comment lines, with the package id ending one and the version starting the next. A claim
 a reader can see and a checker cannot is the failure mode this issue is about, so the comment was
 rewrapped rather than excused.
 
-### historical — recorded, must not move (9)
+### historical — recorded, must not move (8)
+
+Each of these is an entry in `HISTORICAL` inside `scripts/pinned-literals-check.py`, carrying the
+reason below. An entry must match **exactly one** line: an anchor broad enough to cover two would
+swallow the next copy silently, which is the exclusion-list failure this design rejects.
 
 | file:line | why it must not track the pin |
 |---|---|
@@ -78,9 +82,14 @@ rewrapped rather than excused.
 | `tests/xunit-v3/apply-transform.py:44` | the same stable-releases enumeration, in the module |
 | `tests/xunit-v3/apply-transform.py:65` | a measurement of `xunit.v3.core.mtp-v{1,2}`'s nuspecs — it spans **both** lines, so the v2 leg is not this pin's to govern; re-measure both legs by hand when the pin moves |
 | `tests/xunit-v3/apply-transform.py:149` | an *illustration* of a wrong-answer message (a version string landing in the package-id slot). The point is the slot, not the number |
-| `tests/xunit-v3/test.sh:608` | ⚠️ **the scratch `.csproj` fixture — an INPUT to the transform.** Derive it from the constant and the test starts asserting against a value it generated itself, so it would stop detecting the drift it exists to catch |
-| `tests/xunit-v3/test.sh:900` | section 7's `mtp-v2` half — the other MTP line |
-| `tests/xunit-v3/apply-transform.py:54` | the constant's **own definition**, skipped by the check rather than listed: it is the source every other spelling is compared against |
+| `tests/xunit-v3/test.sh:613` | ⚠️ **the scratch `.csproj` fixture — an INPUT to the transform.** Derive it from the constant and the test starts asserting against a value it generated itself, so it would stop detecting the drift it exists to catch |
+| `tests/xunit-v3/test.sh:905` | section 7's `mtp-v2` half — the other MTP line |
+
+### neither — the source itself
+
+`tests/xunit-v3/apply-transform.py:54` is `XUNIT_V3_VERSION`'s own definition. The check skips that
+one line rather than listing it: it is what every other spelling is compared against, not a copy of
+it.
 
 ### deliberately out of scope
 

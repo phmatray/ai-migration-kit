@@ -38,7 +38,7 @@ from pathlib import Path
 # parallel lines at the SAME major, and the id — not the version — selects the Microsoft.Testing
 # .Platform major. Measured against nuget.org (`*.nuspec` on api.nuget.org/v3-flatcontainer):
 #
-#   xunit.v3        3.2.2 -> xunit.v3.mtp-v1      -> Microsoft.Testing.Platform 1.9.1
+#   xunit.v3        3.2.2 -> xunit.v3.mtp-v1      -> Microsoft.Testing.Platform 1.9.1  # pinned:xunit-v3
 #   xunit.v3.mtp-v2 3.2.2 -> xunit.v3.core.mtp-v2 -> Microsoft.Testing.Platform 2.0.2
 #
 # Both are major 3, and `xunit.v3.mtp-v2` 3.2.0/3.2.1/3.2.2 are STABLE releases — so a map keyed on
