@@ -12,7 +12,8 @@
 #   3. a registered guard that fails turns a PASSING suite red, and prints its own message;
 #   4. a registered guard that passes leaves the status alone;
 #   5. `kit_guard_samples_unchanged` catches a mutated samples/ and is silent otherwise;
-#   6. `any_match` answers correctly and does NOT trip SIGPIPE with many matches (#48);
+#   6. `first_match`/`any_match` answer correctly, do NOT trip SIGPIPE with many matches (#48),
+#      and tolerate a starting path that does not exist instead of aborting the caller (#98);
 #   7. sourcing is loud when the helper is missing — a suite must never run unguarded;
 #   8. no suite hand-rolls the EXIT trap again — the anti-recurrence check;
 #   9. a suite that uses the helper takes its scratch from it, per occurrence.
@@ -112,7 +113,7 @@ case "$out" in *"samples/Frozen/file.txt"*) : ;; *)
 echo "  [5] the samples/ guard catches a mutation, names it, and is silent otherwise"
 
 # ---------------------------------------------------------------------------
-# 6. any_match: correct answers, and no SIGPIPE at scale.
+# 6. first_match / any_match: correct answers, no SIGPIPE at scale, no abort on a missing path.
 #
 #    The bug it replaces (#48) is a RACE — `find … | grep -q .` only returns 141 when find is still
 #    writing as grep exits — so the negative case needs enough matches to provoke it, not one.
@@ -132,7 +133,27 @@ fi
 if any_match "$scratch/does-not-exist" -name '*' 2>/dev/null; then
   echo "FAIL: any_match found something under a nonexistent path"; exit 1
 fi
-echo "  [6] any_match is correct at 300 matches, on empty, and on a missing path"
+
+# first_match is the half any_match is now built on, so its own contract is driven HERE, beside the
+# file that declares it, rather than only downstream in the heaviest suite in the matrix (#98).
+# The `if !` IS the assertion, not a style choice: errexit is suppressed for an `if` condition, so a
+# probe that reports failure is caught and named here instead of aborting this suite — which is
+# precisely what it used to do at its two former call sites, taking their diagnostics down with it.
+if ! first_hit=$(first_match "$scratch/does-not-exist" -name '*'); then
+  echo "FAIL: first_match reported failure on a path that does not exist. A bare assignment from"
+  echo "      it then aborts its caller under 'set -e', before the caller's own '…but it was"
+  echo "      empty' diagnostic — the thing that explains the failure — can run."
+  exit 1
+fi
+[ -z "$first_hit" ] || {
+  echo "FAIL: first_match returned '$first_hit' under a path that does not exist"; exit 1; }
+# …and it must actually return the match when there IS one, or the emptiness above proves nothing.
+first_hit=$(first_match "$many" -name '__pycache__' -type d)
+case "$first_hit" in
+  "$many"/*/__pycache__) : ;;
+  *) echo "FAIL: first_match returned '$first_hit', not a matching path under $many"; exit 1 ;;
+esac
+echo "  [6] first_match/any_match: correct at 300 matches, on empty, and on a missing path"
 
 # ---------------------------------------------------------------------------
 # 7. A suite whose helper is missing must FAIL, not run unguarded.

@@ -45,10 +45,16 @@
 #       does not apply" must not look the same. That ambiguity is exactly how renovate-config ended
 #       up without it.
 #
+#   first_match <find-args…>
+#       Print the FIRST matching path, or nothing. Tolerates a starting path that does not exist,
+#       so a bare `x=$(first_match …)` cannot abort its caller under `set -e` before the caller's
+#       own "…but it was empty" diagnostic can run (#98).
+#
 #   any_match <find-args…>
-#       `find` that answers a yes/no question without tripping SIGPIPE. `find … | grep -q .` exits
-#       141 under `pipefail` when grep closes the pipe early, and the caller's `if` then reads the
-#       failure as "found nothing" — an intermittently disabled guard (#48).
+#       The same search read as a yes/no question, without tripping SIGPIPE.
+#       `find … | grep -q .` exits 141 under `pipefail` when grep closes the pipe early, and the
+#       caller's `if` then reads the failure as "found nothing" — an intermittently disabled
+#       guard (#48). Defined in terms of first_match: one home for the tolerance, too.
 #
 # There is deliberately no `set -euo pipefail` here: the callers set it, and re-setting it in a
 # sourced file would mean this file silently decides the shell options of every suite that loads it
@@ -121,29 +127,51 @@ kit_guard_samples_unchanged() {
   fi
 }
 
-any_match() {
+first_match() {
   # `-print -quit` rather than a pipe: find stops itself on the first hit, so nothing can close the
-  # pipe under it. Captured into a variable so the exit status describes the SEARCH and not the
-  # reader's early exit — the defect #48 pinned, where a SIGPIPE'd find returned 141 and `pipefail`
-  # promoted it to the pipeline's status, making "found something" read as "found nothing".
+  # pipe under it — the defect #48 pinned, where a SIGPIPE'd find returned 141 and `pipefail`
+  # promoted that to the pipeline's status, making "found something" read as "found nothing".
   #
   # `|| true` is load-bearing, not sloppiness: find exits non-zero on a path that legitimately does
-  # not exist, and a bare assignment under `set -e` would abort the caller — for a guard registered
-  # with kit_guard that means aborting on EVERY exit path, including the successful one.
-  local hit
-  hit=$(find "$@" -print -quit 2>/dev/null || true)
-  [ -n "$hit" ]
+  # not exist, and a bare `x=$(find missing …)` under `set -e` aborts the caller AT the assignment.
+  # Two call sites in tests/xunit-v3/test.sh spelled the search out inline without it, so the
+  # `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written directly beneath each one could never
+  # run (#98). Precisely: find's own one-line error still reached the console there — command
+  # substitution captures stdout, not stderr — but the FAIL message and its `tail` of the step log
+  # did not, and that tail is what makes a CI-only failure diagnosable at a distance (#74). For a
+  # probe called from a guard registered with kit_guard it is worse still, since the abort lands on
+  # EVERY exit path, including the successful one.
+  #
+  # The cost, and the reason the contract above promises "or nothing" rather than "or no match":
+  # `2>/dev/null || true` swallows every failure mode, not just the missing start path. A typo'd
+  # predicate or an unreadable directory also comes back empty and quiet, and the caller's
+  # diagnostic then accuses whatever it was written to accuse. The redirect stays because
+  # any_match is registered from kit_guard, where find's complaint about a legitimately-absent
+  # path would print on every clean run; a caller that must tell the modes apart tests the path
+  # itself rather than reading it out of this probe.
+  find "$@" -print -quit 2>/dev/null || true
+}
+
+any_match() {
+  # "Is there at least one?" is the same search read as a yes/no, so it is the same code rather
+  # than a second copy of the tolerance above — the one-home argument of #48 applied to its own
+  # other half (#98). The answer comes from the OUTPUT being non-empty and never from an exit
+  # status: first_match discards find's status deliberately, which is exactly what stops a reader's
+  # early exit — the SIGPIPE 141 of #48 — from ever being read back as "found nothing".
+  [ -n "$(first_match "$@")" ]
 }
 
 kit_require_find_quit() {
-  # `-print -quit` is what makes any_match safe, so prove this host's find HAS it — once, loudly.
+  # `-print -quit` is what makes first_match safe, so prove this host's find HAS it — once, loudly.
   # Otherwise the `|| true` above cuts both ways: on a find without `-quit` (busybox, some minimal
-  # containers) every call answers "nothing found" with the error discarded, and a guard leaning on
-  # any_match reports clean from the very first exit path. A silent "clean" is what lets a stray
-  # .pyc reach the tree.
+  # containers) every call answers "nothing found" with the error discarded. A guard leaning on
+  # any_match then reports clean from the very first exit path, which is what lets a stray .pyc
+  # reach the tree; and a direct first_match caller is handed an empty string, so ITS diagnostic
+  # goes on to accuse the step that was supposed to produce the file.
   if ! find "${KIT_LIB_ROOT:-.}" -maxdepth 0 -print -quit >/dev/null 2>&1; then
-    echo "FAIL: this host's find does not support '-print -quit', which any_match depends on."
-    echo "      Every any_match() call would answer 'nothing found' regardless of what is there."
+    echo "FAIL: this host's find does not support '-print -quit', which first_match depends on."
+    echo "      Every first_match() call — and so every any_match() call — would answer 'nothing"
+    echo "      found' regardless of what is there."
     exit 1
   fi
 }
