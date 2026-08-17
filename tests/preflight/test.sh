@@ -59,7 +59,11 @@ grep -q '"status": "missing"' "$tmp/out.json"
 #    `$(dirname $0)/../requirements.json`, so a copy of the script beside a copy of a manifest is a
 #    complete, isolated kit. The host's `dotnet` is stubbed for the same reason — the assertion has
 #    to read the same on a .NET 10 machine and on a .NET 8 one.
-tmp=$(mktemp -d)
+#    The synthetic root comes from kit_scratch, like section 4's: this suite joined the shared
+#    library in #128, so a bare `mktemp -d` here would sit outside KIT_LIB_TMP and nothing would
+#    reclaim it (tests/lib section 9 says so by name). #112 landed this block on main while the
+#    conversion was in flight, so the two are reconciled here rather than either being dropped.
+tmp=$(kit_scratch)
 mkdir -p "$tmp/scripts" "$tmp/bin"
 cp ./scripts/preflight.sh "$tmp/scripts/preflight.sh"
 cat > "$tmp/requirements.json" <<'JSON'
@@ -124,6 +128,5 @@ assert floored["status"] == "missing", \
     f"an observed absence at level=required stays a hard fail, got {floored['status']!r}"
 assert "10" in floored["hint"], f"...and still names the floor it wanted: {floored['hint']!r}"
 PY
-rm -rf "$tmp"
 
 echo "preflight golden test OK"
