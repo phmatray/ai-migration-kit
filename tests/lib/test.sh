@@ -157,7 +157,85 @@ case "$first_hit" in
   "$many"/*/__pycache__) : ;;
   *) echo "FAIL: first_match returned '$first_hit', not a matching path under $many"; exit 1 ;;
 esac
-echo "  [6] first_match/any_match: correct at 300 matches, on empty, and on a missing path"
+
+# The tolerance above must not extend to failures nobody asked to ignore (#124). `2>/dev/null` used
+# to cover every one of them, so a typo'd predicate, an unreadable directory or a find that died on
+# something real all came back empty and quiet — indistinguishable from "no match". The emptiness
+# test written beneath each call site is only a test if empty means one thing; otherwise the FAIL
+# message goes on to accuse whatever it was written to accuse. That is the #74 concern — a CI-only
+# failure whose published evidence explains the wrong thing — inverted.
+if ! noisy_out=$(first_match "$empty" -nmae 'no-such-primary' 2>/dev/null); then
+  echo "FAIL: first_match reported failure on a bad predicate. Its status is load-bearing at zero:"
+  echo "      a bare 'x=\$(first_match …)' under 'set -e' aborts the caller AT the assignment (#98)."
+  exit 1
+fi
+[ -z "$noisy_out" ] || {
+  echo "FAIL: first_match printed '$noisy_out' on stdout for a find that failed"; exit 1; }
+noisy_err=$(first_match "$empty" -nmae 'no-such-primary' 2>&1 >/dev/null)
+[ -n "$noisy_err" ] || {
+  echo "FAIL: first_match swallowed a find failure that is NOT a missing starting path, so the"
+  echo "      caller's own '…but it was empty' diagnostic is the only thing the reader gets and it"
+  echo "      names the wrong culprit (#124). find's complaint has to reach the console."
+  exit 1; }
+
+# …and the quiet half stays quiet. This is the binding constraint, not a nicety: any_match is
+# registered from kit_guard, which runs on EVERY exit path including the successful one, so a single
+# line of noise here shows up on every clean run of every suite that guards anything.
+quiet_err=$(first_match "$scratch/does-not-exist" -name '*' 2>&1 >/dev/null)
+[ -z "$quiet_err" ] || {
+  echo "FAIL: first_match complained about an absent starting path: $quiet_err"; exit 1; }
+any_err=$( { any_match "$scratch/does-not-exist" -name '*' || true; } 2>&1 >/dev/null )
+[ -z "$any_err" ] || {
+  echo "FAIL: any_match complained about an absent starting path: $any_err"
+  echo "      It runs from kit_guard on every exit path — this would print on clean runs too."
+  exit 1; }
+
+# A starting path that is absent AND one that yields a match: the complaint is suppressed and the
+# match is still returned. Measured on macOS find, this is also the case that proves the status can
+# never be read as "found nothing" — find exits 1 here while printing a real hit.
+mixed=$(first_match "$scratch/does-not-exist" "$many" -name '__pycache__' -type d 2>&1)
+case "$mixed" in
+  "$many"/*/__pycache__) : ;;
+  *) echo "FAIL: with one absent and one good starting path, first_match produced '$mixed'"; exit 1 ;;
+esac
+
+# The suppression rule reads find's message TEXT, so the wordings this host cannot produce are
+# driven directly rather than assumed. BSD, GNU (quoted two ways depending on locale), busybox and
+# bfs each phrase the same complaint differently; a rule verified on one platform's string can lapse
+# silently on another — permissively, which re-opens the noise, or strictly, which restores the
+# silence #124 is removing. Both directions are asserted.
+while IFS= read -r msg; do
+  [ -n "$msg" ] || continue
+  kit_find_err_is_absent_path_only "$msg" || {
+    echo "FAIL: an absent-path complaint was not recognised, so first_match would print it on every"
+    echo "      clean run of every kit_guard: $msg"
+    exit 1; }
+done <<'ABSENT'
+find: /nope: No such file or directory
+find: '/nope': No such file or directory
+find: ‘/nope’: No such file or directory
+bfs: error: /nope: No such file or directory.
+ABSENT
+while IFS= read -r msg; do
+  [ -n "$msg" ] || continue
+  if kit_find_err_is_absent_path_only "$msg"; then
+    echo "FAIL: a real find failure was classified as an absent starting path and would be"
+    echo "      swallowed — the silence this exists to remove: $msg"
+    exit 1
+  fi
+done <<'REAL'
+find: -nmae: unknown primary or operator
+find: unknown predicate `-nmae'
+find: /root/private: Permission denied
+bfs: error: Unknown argument; did you mean -name?
+REAL
+# Mixed: one absent-path line beside a real one must come out FALSE, or the real complaint is
+# suppressed by the company it keeps. A whole-string test rather than a per-line one gets this wrong.
+kit_find_err_is_absent_path_only "$(printf 'find: /nope: No such file or directory\nfind: /root: Permission denied\n')" && {
+  echo "FAIL: a capture mixing an absent-path complaint with a REAL failure was suppressed whole"
+  exit 1; }
+echo "  [6] first_match/any_match: correct at 300 matches, on empty, and on a missing path;"
+echo "      a find failure that is not a missing path reaches stderr, and only that one is quiet"
 
 # ---------------------------------------------------------------------------
 # 7. A suite whose helper is missing must FAIL, not run unguarded.

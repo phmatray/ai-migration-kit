@@ -77,9 +77,38 @@
 #       up without it.
 #
 #   first_match <find-args…>
-#       Print the FIRST matching path, or nothing. Tolerates a starting path that does not exist,
-#       so a bare `x=$(first_match …)` cannot abort its caller under `set -e` before the caller's
-#       own "…but it was empty" diagnostic can run (#98).
+#       Print the FIRST matching path, or nothing — and say why, when there is a reason worth
+#       hearing:
+#
+#           case                     stdout       stderr               exit
+#           a match exists           first path   —                    0
+#           path exists, no match    (empty)      —                    0
+#           starting path absent     (empty)      —                    0
+#           any other find failure   (empty)      find's own message   0
+#
+#       Exit status is ALWAYS 0, on every row. Callers assign in a bare `x=$(first_match …)` under
+#       `set -e`, where a non-zero status aborts the caller AT the assignment — before the caller's
+#       own "…but it was empty" diagnostic can run (#98). The signal is the stderr, never the
+#       status.
+#
+#       Row 3 is that tolerance, and it stays exactly as quiet as it was: any_match is registered
+#       from kit_guard, so a complaint about a legitimately-absent path would print on EVERY exit
+#       path, including the successful one. Row 4 is what #124 took back. `2>/dev/null` used to
+#       cover it too, so a typo'd predicate or an unreadable directory came back empty and silent,
+#       indistinguishable from "no match" — and the caller's diagnostic then sent the reader to
+#       investigate the step that was supposed to produce the file. The emptiness test written
+#       beneath each call site is only a test if empty means one thing.
+#
+#       `-quit` stops the walk at the first hit, so what this reports is what the probe SAW before
+#       stopping, not a whole-tree verdict: a later unreadable directory may never be visited.
+#
+#   kit_find_err_is_absent_path_only <stderr-text>
+#       True when EVERY line of that text is find's "that starting path is not there" complaint —
+#       the one failure first_match suppresses. Split out and named so tests/lib/test.sh can drive
+#       it on the wordings a given host cannot produce: BSD, GNU (whose quoting varies with the
+#       locale), busybox and bfs each phrase it differently, and a rule verified on one platform's
+#       string can lapse silently on another — permissively, re-opening the noise, or strictly,
+#       restoring the silence #124 removed.
 #
 #   any_match <find-args…>
 #       The same search read as a yes/no question, without tripping SIGPIPE.
@@ -208,29 +237,72 @@ kit_guard_samples_unchanged() {
   fi
 }
 
+kit_find_err_is_absent_path_only() {
+  local _kit_fe_line
+  # PER LINE, never on the text as a whole. find keeps going after a starting path it cannot open,
+  # so one capture can hold an absent-path complaint AND a real failure at once — measured: with
+  # `find /nope /good -name x -print -quit`, /nope's complaint and /good's hit both arrive. A
+  # whole-string test matches the first phrase it sees and suppresses the pair, which is the exact
+  # silence #124 exists to remove, reintroduced one level down.
+  #
+  # A here-STRING, not a here-doc: `<<EOF` re-expands its body, so a find message containing `$` or
+  # a backtick — an unreadable path is allowed to have either — would be run as code. `<<<` expands
+  # the word once, to the value it already holds, and never again.
+  while IFS= read -r _kit_fe_line; do
+    [ -n "$_kit_fe_line" ] || continue
+    case "$_kit_fe_line" in
+      # The trailing phrase only, deliberately: BSD writes `find: /nope: No such file or directory`,
+      # GNU quotes the path (with `'` under C, with typographic quotes under a UTF-8 locale), and
+      # bfs prefixes its own name and adds a full stop. Everything before and after the phrase is
+      # the part that varies; keying on any of it is how the rule lapses on somebody else's host.
+      *"No such file or directory"*) ;;
+      *) return 1 ;;
+    esac
+  done <<< "${1:-}"
+  return 0
+}
+
 first_match() {
   # `-print -quit` rather than a pipe: find stops itself on the first hit, so nothing can close the
   # pipe under it — the defect #48 pinned, where a SIGPIPE'd find returned 141 and `pipefail`
   # promoted that to the pipeline's status, making "found something" read as "found nothing".
   #
-  # `|| true` is load-bearing, not sloppiness: find exits non-zero on a path that legitimately does
-  # not exist, and a bare `x=$(find missing …)` under `set -e` aborts the caller AT the assignment.
-  # Two call sites in tests/xunit-v3/test.sh spelled the search out inline without it, so the
-  # `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written directly beneath each one could never
-  # run (#98). Precisely: find's own one-line error still reached the console there — command
-  # substitution captures stdout, not stderr — but the FAIL message and its `tail` of the step log
-  # did not, and that tail is what makes a CI-only failure diagnosable at a distance (#74). For a
-  # probe called from a guard registered with kit_guard it is worse still, since the abort lands on
-  # EVERY exit path, including the successful one.
+  # Discarding find's STATUS is load-bearing, not sloppiness: find exits non-zero on a path that
+  # legitimately does not exist, and a bare `x=$(find missing …)` under `set -e` aborts the caller
+  # AT the assignment. Two call sites in tests/xunit-v3/test.sh spelled the search out inline
+  # without that tolerance, so the `[ -n "$x" ] || { echo FAIL; tail -20 "$log"; }` written directly
+  # beneath each one could never run (#98). For a probe called from a guard registered with
+  # kit_guard it is worse still, since the abort lands on EVERY exit path, including the successful
+  # one. And the status could not be read even in principle: with several starting paths, find exits
+  # 1 for the absent one while printing a real hit from another — measured.
   #
-  # The cost, and the reason the contract above promises "or nothing" rather than "or no match":
-  # `2>/dev/null || true` swallows every failure mode, not just the missing start path. A typo'd
-  # predicate or an unreadable directory also comes back empty and quiet, and the caller's
-  # diagnostic then accuses whatever it was written to accuse. The redirect stays because
-  # any_match is registered from kit_guard, where find's complaint about a legitimately-absent
-  # path would print on every clean run; a caller that must tell the modes apart tests the path
-  # itself rather than reading it out of this probe.
-  find "$@" -print -quit 2>/dev/null || true
+  # What is NOT discarded any more is find's stderr (#124). `2>/dev/null` covered every failure
+  # mode, not just the missing start path, so a typo'd predicate or an unreadable directory came
+  # back empty and quiet — and the caller's "…but it was empty" diagnostic then accused whatever it
+  # was written to accuse, sending the reader to investigate a healthy step. So: capture it, stay
+  # silent for the one case the tolerance was written for, re-emit anything else.
+  local _kit_fm_err
+  # stdout passes STRAIGHT THROUGH to the caller rather than being captured and re-printed: fd 3 is
+  # this function's own stdout, which for the `x=$(first_match …)` call shape is the capture pipe.
+  # Only stderr is held back for inspection, so nothing rewrites the one stream the contract is
+  # about — and there is no temp file, hence nothing to clean up and no dependency on kit_init
+  # having run (tests/lib/test.sh sources this file without arming the trap, on purpose).
+  #
+  # The `|| true` sits on the ASSIGNMENT, which is where errexit would otherwise fire.
+  #
+  # LC_ALL=C because the classifier below reads find's message text and GNU findutils translates
+  # it. On a French host the not-found complaint would stop matching and every clean run of every
+  # kit_guard would start printing it — this tolerance defeated by the environment rather than by
+  # any change to the code.
+  { _kit_fm_err=$(LC_ALL=C find "$@" -print -quit 2>&1 1>&3) || true; } 3>&1
+  if [ -n "$_kit_fm_err" ] && ! kit_find_err_is_absent_path_only "$_kit_fm_err"; then
+    # The WHOLE capture, not the offending lines alone: when one of several starting paths is also
+    # absent, its complaint is the context that lets the reader place the real one.
+    printf '%s\n' "$_kit_fm_err" >&2
+  fi
+  # Explicit, because "always 0" is the contract and not an accident of what the `if` above happens
+  # to return when its condition is false.
+  return 0
 }
 
 any_match() {
@@ -244,11 +316,13 @@ any_match() {
 
 kit_require_find_quit() {
   # `-print -quit` is what makes first_match safe, so prove this host's find HAS it — once, loudly.
-  # Otherwise the `|| true` above cuts both ways: on a find without `-quit` (busybox, some minimal
-  # containers) every call answers "nothing found" with the error discarded. A guard leaning on
-  # any_match then reports clean from the very first exit path, which is what lets a stray .pyc
-  # reach the tree; and a direct first_match caller is handed an empty string, so ITS diagnostic
-  # goes on to accuse the step that was supposed to produce the file.
+  # Otherwise the discarded STATUS above cuts both ways: on a find without `-quit` (busybox, some
+  # minimal containers) every call answers "nothing found". A guard leaning on any_match then
+  # reports clean from the very first exit path, which is what lets a stray .pyc reach the tree; and
+  # a direct first_match caller is handed an empty string, so ITS diagnostic goes on to accuse the
+  # step that was supposed to produce the file. #124 means the complaint is now re-emitted rather
+  # than swallowed — it is not an absent starting path — but that turns one silent wrong answer into
+  # a line of noise on every single probe, which is a worse way to learn this than being told here.
   if ! find "${KIT_LIB_ROOT:-.}" -maxdepth 0 -print -quit >/dev/null 2>&1; then
     echo "FAIL: this host's find does not support '-print -quit', which first_match depends on."
     echo "      Every first_match() call — and so every any_match() call — would answer 'nothing"
