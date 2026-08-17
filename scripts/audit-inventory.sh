@@ -181,6 +181,10 @@ def paquet_restaure(nom, chemin):
     # cran plus bas, `content/`, `contentFiles/` et `tools/` en livrent parfois un pour de vrai.
     # À cette profondeur-là, `<Id>.<Version>` — une forme qu'un paquet de première main n'a pas —
     # est le signal le plus fiable des deux, et il tranche.
+    #
+    # Cet ordre paie aussi le coût de la sonde : sur un `packages/` de restauration réel, dont les
+    # 3 à 28 enfants portent tous ce nom, on n'y arrive jamais. Elle ne s'exécute que là où le
+    # verdict était réellement douteux (#94 possède le sujet du coût de parcours).
     if projet_sous_l_enfant(chemin):
         return False                      # packages/MyLib/lib/MyLib.csproj — #107
     if 'lib' in noms or 'content' in noms:

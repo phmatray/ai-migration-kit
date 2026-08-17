@@ -442,6 +442,7 @@ echo "  [7] a nested checkout inflates no key — csFiles, testStack and project
 # test. Each fixture below carries exactly one shape, plus third-party source that must not leak.
 # A restore folder carries third-party source AND a foreign project — both must stay out, or the
 # assertions below are vacuous (nothing to leak means nothing can be caught leaking).
+#
 # The second argument is the sub-path the foreign code sits at, defaulting to NuGet's own
 # `lib/<tfm>/`. Case (e) needs it at a DIFFERENT depth — see there.
 seed_foreign() {
@@ -609,8 +610,15 @@ echo "  [8] packages/ decided by structure — 4 restore shapes skipped and name
 # (f) the project sits under `lib/` — the very directory name the detector reads as proof of a
 #     restored package. Source has to win over that signal, exactly as an immediate `.csproj`
 #     already wins over a stray `.nupkg` in (Q).
+#
+#     The stray `.nupkg` is here too, and deliberately: (Q) pins that one artefact from
+#     `dotnet pack -o .` must not make a first-party package invisible, but it only ever pinned it
+#     at depth 1. Carrying it here is what pins the ORDER of the two branches one level down —
+#     without it, moving the probe below the `.nupkg` check would break nothing in this suite and
+#     would re-create the all-zeros failure for every packaged first-party library.
 D1="$scratch/pkg-deep-lib"; mk_host "$D1"
 mk_lib "$D1/packages/MyLib/lib" MyLib
+: > "$D1/packages/MyLib/MyLib.1.0.0.nupkg"
 assert_package_walked "$D1" deep-lib MyLib MyLib
 
 # (g) the project sits under a version-shaped directory, so the child is caught by the v3
