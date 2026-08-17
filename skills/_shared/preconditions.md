@@ -23,12 +23,17 @@ The helper takes an optional directory and otherwise anchors itself to the repo 
 from any subdirectory — and from a linked worktree, where the profile is present because it is
 tracked.
 
-### The two outcomes
+### The outcomes
 
 | Exit | Output | What it means | What to do |
 |---:|---|---|---|
 | `0` | the profile | it is committed and readable | Use it. Every repo-specific value below comes from it. |
 | `3` | `NO_PROFILE` | this repository has **no committed profile** | Run **`get-repo-profile`** to generate one, then re-read. |
+| `2` | `ERR: cannot cd …` | the directory argument is wrong | No verdict was reached — fix the invocation, don't read it as "no profile". |
+| `126`/`127` | shell error | the helper is missing or not executable | Also **no verdict** — check that `<kit>` resolved. `get-repo-profile` documents a skills-only adoption path, so the script can legitimately be absent; open `.claude/skills/repo-profile.md` yourself in that case, and treat an unreadable one as `NO_PROFILE` below. |
+
+Only `0` and `3` are **verdicts**. The rest mean the question was never answered — and "no verdict" is
+not "no profile", which is the whole distinction this call exists to preserve.
 
 **Why not just read the file.** A bare `cat` of a missing profile writes one line to *stderr*, nothing
 to stdout, and returns a status nobody reads — so "this repo has no profile" and "this repo's profile

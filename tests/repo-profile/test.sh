@@ -133,6 +133,15 @@ $sec"
 #    `ls-files --error-unmatch` and not `[ -f ]`: on disk is not the property under test — the file
 #    was on disk in the generating checkout the whole time. Tracked is what makes it travel.
 PROFILE=".claude/skills/repo-profile.md"
+
+# "Tracked" is only a question a git repository can answer, and `ls-files` outside one exits 128
+# with the same empty stdout as an untracked file — which the assertion below would report as "the
+# profile is not tracked", stating as measured fact something never measured (#129). Separate the
+# two, so an unrunnable case reads as unrunnable.
+git -C "$KIT" rev-parse --git-dir >/dev/null 2>&1 \
+  || fail "the kit root $KIT is not a git repository, so whether $PROFILE is TRACKED cannot be
+      measured from here. That is a missing precondition, not a passing case"
+
 git -C "$KIT" ls-files --error-unmatch -- "$PROFILE" >/dev/null 2>&1 \
   || fail "the kit's own $PROFILE is not tracked. get-repo-profile tells consumer repos to commit
       it and worktrees-ignored.sh keeps the path visible for exactly that; generate it with
@@ -153,10 +162,22 @@ grep -qF '## Commit identity' "$KIT/$PROFILE" \
 #    and the skill infers the facts it was supposed to read. Case 6 makes THIS repo's profile
 #    present; this case keeps every consumer repo's absence audible.
 #
-#    Matched on `cat` immediately followed by the path, so the surrounding prose may keep saying the
-#    word — the defect is the command, not the noun.
+#    Matched on `cat` immediately followed by the path (an optional prefix such as `"$KIT/` allowed),
+#    so the surrounding prose may keep saying the word — the defect is the command, not the noun.
+#    It deliberately does NOT try to catch every spelling a determined author could reach for
+#    (`cat -- <path>`, a shell variable holding the path); this is a lint against the reflex, and a
+#    pattern loose enough to catch those would start matching the paragraphs that explain them.
 PROFILE_CAT_RE='cat[[:space:]]+[^[:space:]|]*\.claude/skills/repo-profile\.md'
-offenders=$(grep -rnE "$PROFILE_CAT_RE" --include='*.md' "$KIT/skills" || true)
+
+# grep exits 1 for "searched, found nothing" and 2 for "could not search" — a missing directory, an
+# unreadable file — and only the first is a pass. `|| true` collapsed them, so a scan that never ran
+# looked exactly like a clean one: the fail-open shape release-title-diff.sh was split out to remove.
+[ -d "$KIT/skills" ] || fail "$KIT/skills does not exist, so the bare-cat scan below has nothing to
+      search. Refusing to report that as a clean scan"
+grep_rc=0
+offenders=$(grep -rnE "$PROFILE_CAT_RE" --include='*.md' "$KIT/skills") || grep_rc=$?
+[ "$grep_rc" -le 1 ] || fail "the bare-cat scan could not run (grep exit $grep_rc) — that is not a
+      verdict, and must not be read as one"
 [ -z "$offenders" ] || fail "a skill still reads the profile with a bare cat — use
       \`<kit>/skills/get-repo-profile/scripts/repo-profile.sh show\`, which reports NO_PROFILE/exit 3
       instead of empty output:

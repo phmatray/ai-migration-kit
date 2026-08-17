@@ -14,9 +14,13 @@
 
 ## Commit identity
 - **Author line:** `git -c user.email=phmatray@gmail.com -c user.name="Philippe Matray"`
-- **Source:** git config, cross-checked against recent log authors (there is no `CLAUDE.md` in this
-  repo, so nothing overrides it). The other authors in the log are `renovate[bot]` and
-  `github-actions[bot]` (release-please) — **never impersonate either**.
+- **Source:** git config, cross-checked against the full list of log authors (there is no `CLAUDE.md`
+  in this repo, so nothing overrides it).
+- **The other identities in the log, none of which you may use:** `renovate[bot]`,
+  `github-actions[bot]` (release-please), and a second human identity
+  `Philippe Matray <philippe@atypical.consulting>` — the work address, present on early commits. The
+  GitHub identity above is the canonical one; passing `<commit-identity>` explicitly is what keeps a
+  machine's ambient git config from substituting the other.
 
 ## Build & test
 - **Build:** none — this repo ships as files (bash + python + markdown skills/templates); there is no
@@ -52,13 +56,13 @@
 - `./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null`
 - `python3 tests/skills/check-frontmatter.py`
 - `python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/*.yml')]"`
-- Every suite: `./tests/{lib,py-module,ci-wiring,parse-sweep,pinned-literals,xunit-v3,renovate-config,`
-  `preflight,repo-profile,skills,audit-inventory,ci-template,report-dashboard,followups,tick-plan,`
-  `guarded-git,release-title-gate,worktrees-ignored,roseline}/test.sh`
+- **Every golden suite**, one CI step each: `./tests/<suite>/test.sh` for every directory under
+  `tests/`. `python3 scripts/ci-wiring-check.py` is precisely what proves that list complete, so read
+  it out of `.github/workflows/ci.yml` — **never copy it here**. A hand-kept inventory of these steps
+  went stale four times in the README, which is why that gate exists at all.
 - Plus inline `run: |` steps for JSON manifest validity, the Renovate `--strict` validator, the
   plugin-version/manifest match, the RoselineMCP tool-name check, the foreign-working-directory
-  simulation and the contrast checker. **Don't hand-maintain a count of them** — `ci-wiring-check.py`
-  exists because a hand-kept inventory went stale four times; ask `.github/workflows/ci.yml`.
+  simulation and the contrast checker — same rule: ask the workflow, don't mirror it.
 
 `.github/workflows/release-title.yml`, job `title-gate` — a separate check-run:
 - `./scripts/release-title-diff.sh "$BASE_SHA" "$HEAD_SHA"` → `./scripts/release-title-gate.sh "$PR_TITLE" …`
