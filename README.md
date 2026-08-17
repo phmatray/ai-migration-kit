@@ -204,7 +204,7 @@ skills/implement-issue/ generic issue/PR lifecycle: plan → draft PR → ready
 skills/merge-pr/        generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
 skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
 skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main)
-scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a skills change must carry a title that cuts a release)
+scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
 tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
