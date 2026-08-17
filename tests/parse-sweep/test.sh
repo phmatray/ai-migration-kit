@@ -20,14 +20,31 @@
 #     in-double-quotes     parses        an apostrophe that pairs inside a "…" string
 #     comment-line         parses        an apostrophe in a # comment — bash sees the comment too
 #     glued-hash           FAILS         a # with no blank before it is NOT a comment
+#     glued-paren          FAILS         …and a `)` before it is not a blank either. `)` ends
+#                                        nearly every Python statement, so this is the likeliest
+#                                        spelling of the whole hazard (found in review)
+#     glued-semicolon      FAILS         the same for `;`, the other metacharacter that ends a
+#                                        line of embedded code
+#     double-quoted-sub    FAILS         PIN="$( … )" — the dominant spelling in this kit — carries
+#                                        the hazard exactly as PIN=$( … ) does (found in review)
+#     pair-across-bodies   parses        TWO heredocs in ONE $( … ) whose apostrophes pair with
+#                                        EACH OTHER. bash never restarts its scan, so judging a
+#                                        body alone reddens correct code (found in review)
+#     …-bad                FAILS         the same shape with the second apostrophe OPENING rather
+#                                        than closing — so the case above cannot be satisfied by
+#                                        skipping multi-heredoc substitutions
 #     herestring           parses        <<< must not be read as a heredoc opener
 #     dash-heredoc         FAILS         <<- with a tab-indented terminator, hazard in the body
 #     shift-operator       FAILS         arithmetic `<<` is a SHIFT; read as an opener it swallows
 #                                        the rest of the file and the scan goes quiet (found in
 #                                        review, and it had)
+#     unterminated         FAILS         the net under every remaining mis-read opener: a heredoc
+#                                        still open at EOF is a scan that covered nothing past it
+#     plain-syntax-error   FAILS         an ordinary syntax error, which every bash rejects
 #
 # The pair (hazard, fixed) is the point of the whole file: neither half alone rules out a scan that
-# is right for the wrong reason.
+# is right for the wrong reason. The pair (glued-paren, pair-across-bodies) is the same argument one
+# level up — a scan that refuses everything is as useless as one that refuses nothing.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -117,6 +134,81 @@ A=$(python3 - <<'PY'
 x = "a"+"b"#it's glued to the token, so it is not a comment
 print(x)
 PY
+)
+echo "$A"
+FIXTURE
+
+# The three fixtures below were added in review. Each one is a file the guard reported as CLEAN (or,
+# for the last, REFUSED) while bash 3.2.57 said the opposite — measured, not reasoned about.
+
+# A `#` glued to a closing paren. `)` is a shell metacharacter, so it looks like a word boundary —
+# but the command-substitution scanner only opens a comment at the start of the text, after a
+# newline, or after a BLANK. Since `)` ends nearly every Python statement, treating it as a boundary
+# made the scan blind to the likeliest spelling of the hazard in a real suite.
+cat > "$FIX/glued-paren.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+A=$(python3 - <<'PY'
+print("a")#it's glued to the closing paren, so it is not a comment
+PY
+)
+echo "$A"
+FIXTURE
+
+# …and the same for `;`, so the fix is the rule rather than a special case for parens.
+cat > "$FIX/glued-semicolon.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+A=$(python3 - <<'PY'
+x = 1;#it's glued to the semicolon, so it is not a comment either
+print(x)
+PY
+)
+echo "$A"
+FIXTURE
+
+# The #131 line in the spelling this kit actually reaches for most: the substitution wrapped in "…".
+# bash scans it identically; the scan used to look for `$(` only outside a string, so it saw nothing
+# here — and the unmatched quote then left it in "…" for the whole rest of the file, hiding every
+# later hazard too.
+cat > "$FIX/double-quoted-sub.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+PIN="$(python3 - <<'PY'
+import re
+m = re.search(r'X:\s*["\']?([0-9]+)["\']?', "X: 42")
+print(m.group(1) if m else "")
+PY
+)"
+echo "$PIN"
+FIXTURE
+
+# THE false-positive control for the carry-across. Two heredocs in ONE substitution: the first body
+# leaves an apostrophe live (`'it\'s one'` — bash does not honour Python's backslash inside '…'),
+# and the FIRST apostrophe of the second body closes it. bash is hunting for the matching `)` and
+# never restarts its quote scan, so this file parses on 3.2 — measured. Judging each body from a
+# fresh state refused it, and a guard that reddens correct code is one that gets deleted.
+cat > "$FIX/pair-across-bodies.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+A=$(python3 - <<'P1'
+label = 'it\'s one'
+P1
+python3 - <<'P2'
+# ...and this line's apostrophe is the one that closes it again
+P2
+)
+echo "$A"
+FIXTURE
+
+# …and its negative twin, which is what keeps the case above from being satisfied by simply not
+# checking substitutions that hold more than one heredoc. Same shape, but the second body opens a
+# second live apostrophe instead of closing the first, so the substitution ends mid-string.
+# Measured: bash 3.2 rejects it.
+cat > "$FIX/pair-across-bodies-bad.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+A=$(python3 - <<'P1'
+label = 'it\'s one'
+P1
+python3 - <<'P2'
+label = 'so\'s this'
+P2
 )
 echo "$A"
 FIXTURE
@@ -237,6 +329,32 @@ verdict comment-line 0 '' "$FIX/comment-line.sh"
 #    the previous token starts no comment, and the apostrophe behind it is live. Measured: FAILS.
 verdict glued-hash 1 "$STATIC" "$FIX/glued-hash.sh"
 
+# ------------------------------------------ 7b-7e. the three holes review measured, one case each
+
+# 7b. A `#` glued to a `)`. The scan used to accept every shell metacharacter as a comment boundary,
+#     which is the LEXER's rule and not the command substitution scanner's — so this file, which
+#     bash 3.2 rejects, was reported clean. `)` ends nearly every Python statement, so this was not
+#     an exotic corner: it was the likeliest way for a real suite to carry the hazard past the gate.
+verdict glued-paren 1 "$STATIC" "$FIX/glued-paren.sh"
+
+# 7c. The same for `;` — the fix has to be the rule, not a patch for parens.
+verdict glued-semicolon 1 "$STATIC" "$FIX/glued-semicolon.sh"
+
+# 7d. The hazard spelled PIN="$( … )". Looking for `$(` only outside a string missed the dominant
+#     spelling in this kit, and left the emulator inside "…" for the rest of the file — so every
+#     later hazard in the same file went unseen as well.
+verdict double-quoted-sub 1 "$STATIC" "$FIX/double-quoted-sub.sh"
+
+# 7e. THE control that keeps 7b-7d from being bought with red builds on correct code. Two heredocs
+#     in one substitution whose apostrophes pair with each other: bash 3.2 parses it, so the sweep
+#     must too. Before the state carried across bodies this refused it.
+verdict pair-across-bodies 0 '' "$FIX/pair-across-bodies.sh"
+
+# 7f. …and the twin that stops 7e being satisfied by giving up on multi-heredoc substitutions
+#     altogether. Same shape, second body opens a live apostrophe instead of closing one, and
+#     bash 3.2 rejects the file — so the sweep must still find it.
+verdict pair-across-bodies-bad 1 "$STATIC" "$FIX/pair-across-bodies-bad.sh"
+
 # --------------------------------------------------------------- 8-9. the operator's other shapes
 
 # 8. `<<<` is a herestring. Read as a heredoc opener, the scan would wait for a terminator that
@@ -305,7 +423,9 @@ fi
 #     agreement is the evidence behind the table in the guard's header; on any other bash it
 #     cannot be produced, and the run says so instead of quietly skipping it.
 if [ "$SWEEP_MAJOR" -le 3 ]; then
-  for f in hazard fixed top-level in-double-quotes comment-line glued-hash herestring dash-heredoc shift-operator; do
+  for f in hazard fixed top-level in-double-quotes comment-line glued-hash glued-paren \
+           glued-semicolon double-quoted-sub pair-across-bodies pair-across-bodies-bad \
+           herestring dash-heredoc shift-operator; do
     pn=0; "$SWEEP_BASH" -n "$FIX/$f.sh" >/dev/null 2>&1 || pn=1
     sn=0; "$SWEEP_BASH" "$KIT/$GUARD" "$FIX/$f.sh" >/dev/null 2>&1 || sn=1
     [ "$pn" -eq "$sn" ] || {
