@@ -8,10 +8,14 @@ cd "$(dirname "$0")/../.."
 
 KIT="$PWD"
 # Le chargeur importlib du kit (#51). Cette suite en portait une copie — correcte, mais que rien
-# n'assertait : une édition qui aurait perdu son PYTHONDONTWRITEBYTECODE=1 laissait un
-# __pycache__ sous scripts/, et l'échec serait remonté dans la suite xunit-v3, en désignant un
-# fichier que celle-ci ne touche jamais. Une seule définition, assertée par la section 8 de
-# tests/xunit-v3/test.sh sur tests/ et scripts/.
+# n'assertait. La section 8 de tests/xunit-v3/test.sh assure désormais l'invariant sur tests/ ET
+# scripts/, donc une définition unique, ici partagée.
+#
+# ⚠️ NE PAS écrire la chaîne littérale « _lib point sh » dans ce fichier. La section 9 de
+# tests/lib/test.sh audite les `mktemp -d` de toute suite dont le TEXTE contient cette
+# sous-chaîne ; cette suite gère quatre répertoires temporaires à elle et deviendrait rouge pour
+# une raison sans rapport avec l'édition. Le répertoire tests/_lib/ ne déclenche pas l'audit — le
+# point fait la différence. Rendre cette adhésion explicite plutôt qu'accidentelle est un suivi.
 #
 # Chemin absolu via $KIT, car le `cd` ci-dessus a déjà eu lieu.
 . "$KIT/tests/_lib/py.sh" || {
@@ -113,13 +117,45 @@ assert_in "$multi" 'Repository : 4/6 lignes couvertes'
 assert_in "$multi" 'Global : 75 % lignes · 78 % branches'
 # L'exclusion s'applique à TOUS les rapports, pas seulement au premier.
 refuse_in "$multi" 'ExcludedWeb'
+
+# La tuile KPI et la légende rendent la MÊME quantité, donc elles doivent dire la même chose (#50).
+# C'est ce cas-ci qui les sépare : la fixture porte un KPI écrit à la main (70), et l'union des deux
+# coberturas vaut 75. Une page qui publie les deux rend invérifiable la promesse « couverture
+# mesurée, jamais estimée » — un lecteur ne peut pas dire laquelle des deux est la mesure. Assertion
+# en Python et pas en sed : les tuiles sont concaténées sur une seule ligne.
+python3 - "$multi" <<'PY'
+import re, sys
+html = open(sys.argv[1], encoding="utf-8").read()
+tiles = re.findall(r'<div class="tile"><div class="v">(.*?)</div><div class="l">(.*?)</div></div>', html)
+# Le LIBELLÉ EXACT de la fixture, pas une re-implémentation du sélecteur de production. Chercher
+# ici « couvertur » comme le fait kpi_source() ferait bouger le test avec le code : les deux
+# seraient d'accord par construction, et le test ne prouverait plus QUELLE tuile aurait dû être
+# choisie. La tuile « tests verts » est là pour la contrepartie : le remplacement ne doit pas
+# déborder sur une tuile qui n'est pas une couverture.
+par_libelle = {label: v for v, label in tiles}
+assert "couverture mesurée (lignes)" in par_libelle, f"tuiles rendues : {list(par_libelle)}"
+assert par_libelle.get("tests verts", "").strip() == "42", (
+    f"la tuile « tests verts » a été réécrite : {par_libelle.get('tests verts')!r} — le "
+    "remplacement doit viser la seule tuile de couverture")
+# La valeur porte son unité dans un <small> imbriqué : on ne garde que le nombre.
+tile = re.match(r"\s*(\d+)", re.sub(r"<[^>]*>", "", par_libelle["couverture mesurée (lignes)"]))
+assert tile, "la tuile de couverture ne commence pas par un nombre"
+tile = tile.group(1)
+legende = re.search(r"Global : (\d+) % lignes", html)
+assert legende, "la légende de couverture est absente du HTML"
+assert tile == legende.group(1), (
+    f"la page publie DEUX chiffres de couverture : tuile {tile} %, légende {legende.group(1)} %. "
+    "Le KPI doit être la mesure, pas une transcription.")
+PY
 rm -rf "$multi_dir"
 
 # La forme mono-chemin ne change pas : une chaîne nue et une liste d'un élément doivent rendre
 # exactement le même objet. C'est la garantie de compatibilité des report.json déjà écrits.
-# `mod` est le module déjà chargé par py_module ; le chemin passe en argument au lieu d'être une
-# chaîne littérale dans le corps.
-py_module scripts/report-dashboard.py <<'PY'
+#
+# #50 avait extrait un `rd_python()` LOCAL ici, pour la même raison qu'il fallait deux appels ;
+# #51 généralise ce geste au kit entier, donc le chargeur local disparaît au profit de py_module.
+# Aucune assertion des deux côtés n'est perdue : seul le chargeur change, `rd` devient `mod`.
+py_module "$KIT/scripts/report-dashboard.py" <<'PY'
 a = "tests/report-dashboard/fixture-cobertura.xml"
 b = "tests/report-dashboard/fixture-cobertura-b.xml"
 seul, liste = mod.parse_cobertura(a, ["Fixture.Web"]), mod.parse_cobertura([a], ["Fixture.Web"])
@@ -240,5 +276,77 @@ if [ -z "$pct" ] || [ "$pct" -le 0 ]; then
   exit 1
 fi
 rm -rf "$doc_case"
+
+# ---------------------------------------------------------------------------
+# Une absence de donnée de branche n'est pas une mesure de 0 % (issue #50).
+#
+# `branch_pct` se dérivait uniquement des `condition-coverage` par ligne, avec un repli sur 0.
+# Un producteur qui exprime ses branches à la RACINE — forme courante de la chaîne VSTest/coverlet
+# que `templates/ci-dotnet.yml` supporte encore — rendait donc un « 0 % branches » péremptoire sur
+# une application bien couverte, alors que le `branch-rate` racine portait le vrai chiffre. Seul le
+# chemin MTP était protégé (tests/xunit-v3 assert branch_pct > 0), pas celui-ci.
+# ---------------------------------------------------------------------------
+py_module "$KIT/scripts/report-dashboard.py" <<'PY'
+# 1. branch-rate racine, aucun condition-coverage -> on lit la racine, pas 0.
+racine = mod.parse_cobertura("tests/report-dashboard/fixture-cobertura-rootbranch.xml", [])
+assert racine["branch_pct"] == 60, (
+    f"branch-rate racine 0.6 doit rendre 60 %, pas {racine['branch_pct']} % — "
+    "une absence de condition-coverage n'est pas une absence de branches")
+
+# 2. Ni l'un ni l'autre -> None, que le rendu affichera « n/d ». Surtout pas 0, qui est un chiffre
+#    et se lit comme une mesure.
+muet = mod.parse_cobertura("tests/report-dashboard/fixture-cobertura-nobranch.xml", [])
+assert muet["branch_pct"] is None, (
+    f"sans aucune donnée de branche, branch_pct doit être None, pas {muet['branch_pct']!r}")
+
+# 3. Le chemin par condition-coverage ne bouge pas.
+conds = mod.parse_cobertura("tests/report-dashboard/fixture-cobertura.xml", ["Fixture.Web"])
+assert conds["branch_pct"] == 67, conds["branch_pct"]
+PY
+
+# …et le rendu dit « n/d » plutôt que « 0 % ».
+nd_dir="$(mktemp -d)"
+python3 - "$nd_dir" <<'PY'
+import json, pathlib, sys
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura-nobranch.xml"}
+pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
+PY
+cp tests/report-dashboard/fixture-cobertura-nobranch.xml "$nd_dir/"
+python3 scripts/report-dashboard.py "$nd_dir/report.json" -o "$nd_dir/report.html" 2>/dev/null
+assert_in "$nd_dir/report.html" 'branches n/d'
+# La légende ENTIÈRE, pas le sous-texte « 0 % branches » : `grep -F` sur celui-ci matche aussi
+# « 50 % branches », « 30 % branches »… Le jour où ce cas basculerait à tort sur le repli racine et
+# rendrait « 60 % branches », l'assertion serait restée verte ; et si elle échouait, son message
+# aurait désigné l'inverse du comportement réel.
+assert_in "$nd_dir/report.html" 'Global : 50 % lignes · branches n/d'
+rm -rf "$nd_dir"
+
+# ---------------------------------------------------------------------------
+# Aucun __pycache__ laissé dans le kit (#51).
+#
+# CETTE suite doit porter sa propre garde. Le réflexe — « tests/xunit-v3 la porte déjà » — est
+# faux dans l'ordre où CI exécute les choses : .github/workflows/ci.yml lance xunit-v3 AVANT ce
+# fichier, dans le même job, donc la garde de sortie de xunit-v3 a déjà tourné quand ce script
+# charge son premier module. Un __pycache__ déposé ici n'était rattrapé par rien en CI — seulement
+# par quelqu'un qui relancerait xunit-v3 ensuite, en local. C'était le trou résiduel que #51
+# prétendait fermer.
+#
+# `-print -quit` capturé dans une variable, jamais `find | grep -q` : sous le `set -o pipefail` de
+# la ligne 4, la sortie anticipée de grep tue find par SIGPIPE et « trouvé » se lirait
+# « rien trouvé » (#48). Même raison d'être que any_match dans tests/_lib point sh, que cette suite
+# ne peut pas sourcer (voir l'avertissement en tête de fichier).
+#
+# Sur le chemin de succès uniquement, faute de gestionnaire de sortie : `set -e` sort avant en cas
+# d'échec, et la suite est alors déjà rouge. La section 8 de tests/lib interdit justement à une
+# suite d'installer le sien, ce qui rend cette forme-ci la bonne. (Ne pas réécrire cette phrase
+# avec le mot t-r-a-p suivi d'E-X-I-T sur une même ligne : le motif de cette section 8 est
+# volontairement non ancré et ne distingue pas un commentaire d'un appel.)
+stray=$(find "$KIT/scripts" "$KIT/tests" -name '__pycache__' -type d -print -quit 2>/dev/null || true)
+if [ -n "$stray" ]; then
+  echo "ÉCHEC : un __pycache__ a été laissé dans le kit — le chargeur a perdu son"
+  echo "        PYTHONDONTWRITEBYTECODE=1 : $stray"
+  exit 1
+fi
 
 echo "OK test golden report-dashboard ($out)"
