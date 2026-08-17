@@ -218,7 +218,8 @@ wording — so the example issue becomes e.g.
 Every commit and push **in Steps 5–9** goes through the guards in `scripts/` — never a bare
 `git commit` or `git push`. They take `$BRANCH` explicitly, refuse (exit 2) when HEAD is anything else
 or detached, and prove afterwards that the commit landed on that branch (exit 3 if not) and that the
-remote really carries this HEAD (exit 4 if not). `-c user.email=… -c user.name="…"` is the profile's
+remote really carries this HEAD (exit 4 if it does not — or if the guard could not find out; Step 6
+says how to tell those apart). `-c user.email=… -c user.name="…"` is the profile's
 *Commit identity*; it goes **before** `$BRANCH`, because those are options to `git`, not to
 `git commit`.
 
@@ -302,8 +303,19 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
    ```bash
    "$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH"
    ```
-   Exit **4** means git reported success but the remote does not carry your commit — the silent
-   mis-push. Treat the work as unpushed and find out where it went before doing anything else.
+   Exit **4** means git reported success but the guard could not prove the work is where that
+   implied — and three different conditions return it, so **read the message, not only the code**
+   (#93). `… is NOT this HEAD` / `… has no '<branch>' to show for it` is the silent mis-push, the
+   remote contradicting the delivery; `HEAD moved while it ran` means the push may have carried
+   another branch instead. For those two, go and look at what the remote actually holds before
+   pushing again. `… could not be listed` / `push is UNVERIFIED` is a different answer —
+   verification never ran, so nothing here disproves the push, and nothing here confirms it
+   either. **Don't act on this code alone; re-run the guard.** Fix what broke the listing (a
+   `--remote` naming a remote the push never wrote to, connectivity, credentials) and run the
+   guard again — it has no verify-only mode, so re-verifying *is* re-running it, and that is
+   safe: a re-push of work the remote already holds is a no-op, and one of work it does not hold
+   is what you wanted. Per-condition recovery: the Troubleshooting table in
+   `references/github-mechanics.md`.
 
 Continue until no task has an unchecked box. The issue's plan now reads all-`- [x]`.
 
