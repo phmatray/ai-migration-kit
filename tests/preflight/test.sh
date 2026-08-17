@@ -38,4 +38,62 @@ fi
 grep -q '"status": "missing"' "$tmp/out.json"
 rm -rf "$tmp"
 
+# 5. An `mcps` entry may declare its OWN SDK floor (`requiresSdk`) — a server whose launcher needs a
+#    newer SDK than the pipeline does. roseline is exactly that: `.mcp.json` starts it with `dnx`,
+#    which ships only with the .NET 10 SDK, while the pipeline itself runs on `dotnet >= 8`. Below
+#    the floor the server cannot start, so preflight must NAME it and the version it wants instead
+#    of reporting the setup fine (#112). An entry WITHOUT the field is unaffected.
+#
+#    Driven against a SYNTHETIC kit root, not the real manifest: preflight resolves its manifest as
+#    `$(dirname $0)/../requirements.json`, so a copy of the script beside a copy of a manifest is a
+#    complete, isolated kit. The host's `dotnet` is stubbed for the same reason — the assertion has
+#    to read the same on a .NET 10 machine and on a .NET 8 one.
+tmp=$(mktemp -d)
+mkdir -p "$tmp/scripts" "$tmp/bin"
+cp ./scripts/preflight.sh "$tmp/scripts/preflight.sh"
+cat > "$tmp/requirements.json" <<'JSON'
+{
+  "description": "synthetic manifest — the requiresSdk case",
+  "tools": [
+    { "name": "dotnet SDK >= 8", "level": "required", "test": "sdk_ok", "hint": "install an LTS .NET SDK" }
+  ],
+  "mcps": [
+    { "name": "floored server", "match": "floored", "level": "required", "requiresSdk": "10", "hint": "launched with a newer-SDK launcher" },
+    { "name": "unfloored server", "match": "unfloored", "level": "recommended", "hint": "no floor declared" }
+  ],
+  "sessionSkills": []
+}
+JSON
+# A .NET 9 host: comfortably above the pipeline's own floor of 8, below the server's declared 10.
+cat > "$tmp/bin/dotnet" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = "--list-sdks" ] && echo "9.0.100 [/stub/sdk]"
+exit 0
+SH
+chmod +x "$tmp/bin/dotnet"
+# No `claude` on this PATH, so the live MCP probe cannot run — which is the CI case, and the one
+# where an unstartable server would otherwise be reported as a shrug ("unknown, confirm in session").
+for c in bash python3 dirname awk; do ln -s "$(command -v "$c")" "$tmp/bin/$c"; done
+if ! out=$(PATH="$tmp/bin" bash "$tmp/scripts/preflight.sh" --json 2>/dev/null); then
+  echo "an mcps floor the host misses is a documented degradation, not a phase-0 hard fail"; exit 1
+fi
+python3 - "$out" <<'PY'
+import json, sys
+checks = {c["name"]: c for c in json.loads(sys.argv[1])["checks"]}
+
+floored = checks["floored server"]
+assert floored["status"] == "absent", \
+    f"a server whose declared SDK floor is unmet must degrade loudly, got {floored['status']!r}"
+assert "10" in floored["hint"], f"the report must name the required version: {floored['hint']!r}"
+assert "9" in floored["hint"], f"...and what this host actually has: {floored['hint']!r}"
+
+# No floor declared ⇒ byte-for-byte the behaviour that shipped before this field existed.
+unfloored = checks["unfloored server"]
+assert unfloored["status"] == "unknown", \
+    f"an entry without requiresSdk must be unaffected, got {unfloored['status']!r}"
+assert "claude CLI absent" in unfloored["hint"], \
+    f"an entry without requiresSdk must keep its old hint: {unfloored['hint']!r}"
+PY
+rm -rf "$tmp"
+
 echo "preflight golden test OK"
