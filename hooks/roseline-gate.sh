@@ -28,8 +28,9 @@ case "$fp" in *.cs) ;; *) exit 0 ;; esac
 # downward scan from cwd misses the mainstream src/Company.Product/Api/Api.csproj layout entirely
 # (depth 4), leaving the gate silently off in exactly the repos it is meant for.
 # `-print -quit` captured into a variable with `|| true`, per the lesson tests/_lib.sh's
-# any_match() records (#48): find stops itself on the first hit so nothing can SIGPIPE it, and a
-# legitimately-missing path must not abort the gate.
+# first_match() records (#48, #98): find stops itself on the first hit so nothing can SIGPIPE it,
+# and a legitimately-missing path must not abort the gate. Spelled out rather than called: a hook
+# runs standalone from any repo, so it cannot source the kit's test helper.
 hit=""
 dir=$(dirname "$fp")
 levels=0
