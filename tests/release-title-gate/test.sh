@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Golden test for release-title-gate.sh — the check that a PR touching skills/** carries a PR
-# title release-please will actually release.
+# Golden test for release-title-gate.sh — the check that a PR touching SHIPPED PLUGIN CONTENT
+# carries a PR title release-please will actually release. (It was scoped to skills/** until #55
+# widened it; "shipped" is now defined by exclusion in the script's NON_SHIPPED list.)
 #
 # Written fail-path-first, on purpose: #16 removed a `metadata.version` field that "looked
 # authoritative precisely because a test appeared to guard it". A gate that cannot be shown to
@@ -83,6 +84,57 @@ refuses refactor-skills "'refactor'" "refactor(skills): extract the helper"   sk
 #    drops it and it cuts no release — despite looking like a synonym for `feat`.
 refuses feature-skills "'feature'" "feature(skills): add a harvester" skills/merge-pr/SKILL.md
 
+# 8b. skills/** was only ever a proxy (#55). A consumer installs a version-keyed cache that is a
+#     whole-repo checkout of the tagged commit, so these are every bit as install-time as skills/:
+#     scripts/ (legacy-upgrade mandates them by name), commands/ (the five slash commands the
+#     plugin exposes), templates/ (the workflows the kit hands to migrated repos) and
+#     requirements.json (the single source preflight reads). A chore: fix to any of them cut no
+#     release and reached nobody, while the gate printed "not applicable" and exited 0.
+refuses chore-scripts      "'chore'" "chore(ci): tidy the inventory script"   scripts/audit-inventory.sh
+refuses chore-commands     "'chore'" "chore: reword the migrate command"     commands/migrate.md
+refuses chore-templates    "'chore'" "chore: bump the workflow action"       templates/ci-dotnet.yml
+refuses chore-requirements "'chore'" "chore: add a prerequisite"             requirements.json
+refuses chore-hooks        "'chore'" "chore: adjust the hook"                hooks/hooks.json
+
+# 8c. One shipped path is enough — a mixed changeset gates on the shipped half, exactly as the old
+#     anchor gated a skills/+README changeset.
+refuses mixed-shipped-and-docs "'chore'" \
+  "chore: tidy up" scripts/audit-inventory.sh docs/legacy-upgrade.md
+
+# 8d. THE EXCEPTIONS. A top-level directory is the wrong granularity for these two: their directory
+#     is excluded, but a shipped skill resolves them out of the install cache BY NAME, so taking
+#     the directory's word for it would reopen #55 inside the list that closed it.
+#       - skills/legacy-upgrade/references/xunit-v3-migration.md calls
+#         `<kit>/tests/xunit-v3/apply-transform.py` "the witness", and its XUNIT_V3_VERSION /
+#         COVERAGE_EXT_VERSION constants land in EVERY migrated csproj (renovate.json watches this
+#         exact file, #36).
+#       - skills/followups/SKILL.md rule 7 mandates `--backlog "<kit>/docs/backlog.md"`.
+refuses shipped-anyway-transform "'chore'" \
+  "chore(deps): update xunit.v3 to 3.2.3" tests/xunit-v3/apply-transform.py
+refuses shipped-anyway-backlog "'chore'" \
+  "chore: add a backlog entry" docs/backlog.md
+
+# 8e. The exception is exact, not a prefix — its siblings stay excluded, or `tests/` would be
+#     gated wholesale and every golden-test tweak would have to cut a release.
+passes sibling-of-exception-still-excluded \
+  "chore: tighten the xunit golden test" tests/xunit-v3/test.sh
+
+# 8f. FAIL CLOSED on unknown paths, in BOTH branches of is_shipped: an unknown directory (the `*/`
+#     prefix branch) and an unknown root file (the exact-match branch). Without the second, a
+#     regression turning the exact match into a prefix test — excluding README.md.bak — would keep
+#     the whole suite green.
+refuses unknown-toplevel  "'chore'" "chore: add a thing"      newthing/x.md
+refuses unknown-root-file "'chore'" "chore: add a thing"      newthing.md
+refuses near-miss-suffix  "'chore'" "chore: leave a backup"   README.md.bak
+refuses near-miss-manifest "'chore'" "chore: leave a backup"  .release-please-manifest.json.bak
+
+# 8g. .claude/ must not swallow .claude-plugin/ — marketplace.json is shipped metadata, and
+#     plugin.json is only exempt for release-please's own PR (8h), never for a human edit.
+refuses marketplace-is-shipped "'chore'" \
+  "chore: register a command" .claude-plugin/marketplace.json
+refuses plugin-json-human-edit "'chore'" \
+  "chore: reword the plugin description" .claude-plugin/plugin.json
+
 # ---------------------------------------------------------------- passes
 
 # 9. The releasable types — the four VISIBLE sections of DEFAULT_CHANGELOG_SECTIONS. perf and
@@ -107,6 +159,42 @@ passes nested-skills-dir "docs: rewrite the walkthrough" docs/skills/guide.md .c
 
 # 12. A releasable title is fine even with no skills path — the gate never *requires* a type.
 passes fix-no-skills "fix(ci): pin the runner image" .github/workflows/ci.yml
+
+# ------------------------------------------------- the deny-list boundaries (#55)
+# The exclusions really do exclude: a change confined to them cuts no release and should not.
+passes docs-only  "chore: fix a typo in the walkthrough" docs/legacy-upgrade.md
+passes tests-only "chore: tighten a golden assertion"    tests/preflight/test.sh
+passes evals-reviews-samples-only "chore: refresh the fixtures" \
+  evals/skills/case.md reviews/pr-29.md samples/LegacyShop/README.md
+passes root-markdown-only "docs: rewrite the intro" README.md ARCHITECTURE.md CHANGELOG.md
+
+# Development-only root config. Gating these would force repo-hygiene PRs (#43 gitignored a
+# directory) to cut a release whose changelog entry would be false to consumers. renovate.json is
+# here twice over: Renovate's own onboarding PR is titled `Configure Renovate`, not a Conventional
+# Commits header at all, so gating it would refuse a PR no bot can retitle.
+passes dev-config-only "chore: ignore the worktree dir" \
+  .gitignore .editorconfig LICENSE renovate.json release-please-config.json
+passes renovate-onboarding-title "Configure Renovate" renovate.json
+
+# Anchored at the repo root: `docs/skills/…` is excluded because it is under docs/, not because it
+# contains `skills`.
+passes docs-skills-nested "docs: rewrite the walkthrough" docs/skills/guide.md
+
+# LOAD-BEARING BYPASS: release-please's own release PR is titled `chore(main): release X.Y.Z` by
+# construction and touches exactly these three files. If it were refused, no release could ever
+# merge and the gate would deadlock the mechanism it exists to protect. Drive the real shape.
+passes release-please-pr "chore(main): release 1.11.0" \
+  .claude-plugin/plugin.json .release-please-manifest.json CHANGELOG.md
+passes release-please-pr-subset "chore(main): release 2.0.0" \
+  .release-please-manifest.json CHANGELOG.md
+
+# …and BOTH halves of that exemption are required, or it becomes the blanket path-exclusion it was
+# written not to be. Wrong title with the release changeset, and release-please's title with an
+# extra shipped file, must each still gate.
+refuses release-files-wrong-title "'chore'" \
+  "chore: bump the version by hand" .claude-plugin/plugin.json .release-please-manifest.json
+refuses release-title-extra-file "'chore'" \
+  "chore(main): release 1.11.0" .claude-plugin/plugin.json skills/merge-pr/SKILL.md
 
 # ---------------------------------------------------------------- plumbing must fail closed
 

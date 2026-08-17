@@ -88,6 +88,18 @@
       ],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": [
+        "These two paths hold SHIPPED content, so scripts/release-title-gate.sh gates them (#55): a PR touching them must carry a title release-please will release, or the bump reaches no consumer's version-keyed cache. Renovate's default semanticCommitType here is `chore`, which is not releasable — so without this rule every such PR would land red and need a human retitle before it could merge, reinstating by a different route the staleness #35 and #36 fixed. A bot cannot retitle itself.",
+        "`fix` is also the honest type: templates/ are the workflows handed to migrated repos, and the constants in tests/xunit-v3/apply-transform.py are baked into every migrated csproj. A bump to either changes what consumers get, which is exactly what deserves a release entry.",
+        "tests/release-title-gate/test.sh pins the gate side of this contract (chore-templates and shipped-anyway-transform both refuse); this rule is the Renovate side. Change one and check the other."
+      ],
+      "matchFileNames": [
+        "templates/**",
+        "tests/xunit-v3/apply-transform.py"
+      ],
+      "semanticCommitType": "fix"
     }
   ]
 }
