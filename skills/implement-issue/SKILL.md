@@ -309,10 +309,12 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
    remote contradicting the delivery; `HEAD moved while it ran` means the push may have carried
    another branch instead. For those two, go and look at what the remote actually holds before
    pushing again. `… could not be listed` / `push is UNVERIFIED` is a different answer —
-   verification never ran, so nothing here disproves the push, which itself exited 0, and the work
-   is very likely already on the remote. **Re-verify, don't re-push**: fix what broke the listing
-   (a `--remote` naming a remote the push never wrote to, connectivity, credentials) and run the
-   guard again. Per-condition recovery: the Troubleshooting table in
+   verification never ran, so nothing here disproves the push, and nothing here confirms it
+   either. **Don't act on this code alone; re-run the guard.** Fix what broke the listing (a
+   `--remote` naming a remote the push never wrote to, connectivity, credentials) and run the
+   guard again — it has no verify-only mode, so re-verifying *is* re-running it, and that is
+   safe: a re-push of work the remote already holds is a no-op, and one of work it does not hold
+   is what you wanted. Per-condition recovery: the Troubleshooting table in
    `references/github-mechanics.md`.
 
 Continue until no task has an unchecked box. The issue's plan now reads all-`- [x]`.
