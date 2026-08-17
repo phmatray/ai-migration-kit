@@ -134,7 +134,11 @@ if any_match "$empty" -name '__pycache__' -type d; then
   echo "FAIL: any_match found something in an empty tree"; exit 1
 fi
 # A path that does not exist must answer "no", not explode the caller under `set -e`.
-if any_match "$scratch/does-not-exist" -name '*' 2>/dev/null; then
+#
+# No `2>/dev/null` here any more: silence on this call is now a promise the probe makes (#124), and
+# a redirect on the one call whose quiet is under test would hide the regression it is under test
+# for. The promise itself is asserted below; this line just stops covering for it.
+if any_match "$scratch/does-not-exist" -name '*'; then
   echo "FAIL: any_match found something under a nonexistent path"; exit 1
 fi
 
@@ -221,6 +225,8 @@ while IFS= read -r msg; do
   if kit_find_err_is_absent_path_only "$msg"; then
     echo "FAIL: a real find failure was classified as an absent starting path and would be"
     echo "      swallowed — the silence this exists to remove: $msg"
+    echo "      (The last of these only fails when the phrase is matched UNANCHORED: a path whose"
+    echo "      own name ends in it, carrying a different error entirely.)"
     exit 1
   fi
 done <<'REAL'
@@ -228,6 +234,7 @@ find: -nmae: unknown primary or operator
 find: unknown predicate `-nmae'
 find: /root/private: Permission denied
 bfs: error: Unknown argument; did you mean -name?
+find: /x/No such file or directory: Permission denied
 REAL
 # Mixed: one absent-path line beside a real one must come out FALSE, or the real complaint is
 # suppressed by the company it keeps. A whole-string test rather than a per-line one gets this wrong.

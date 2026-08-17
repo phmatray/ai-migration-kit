@@ -110,6 +110,13 @@
 #       string can lapse silently on another — permissively, re-opening the noise, or strictly,
 #       restoring the silence #124 removed.
 #
+#       What it CANNOT tell apart, and no text rule can: a `-exec`'d command that does not exist.
+#       GNU find reports that as `find: 'cmd': No such file or directory` — byte-identical to the
+#       complaint about an absent starting path — so it would be suppressed. No call site in this
+#       repo passes `-exec` (they are all `-name`/`-type`/`-path` probes), and one that needs to
+#       must not read its verdict out of this helper. Written down rather than left to be
+#       rediscovered, per the same argument kit_source's contract makes about its own residue.
+#
 #   any_match <find-args…>
 #       The same search read as a yes/no question, without tripping SIGPIPE.
 #       `find … | grep -q .` exits 141 under `pipefail` when grep closes the pipe early, and the
@@ -251,11 +258,19 @@ kit_find_err_is_absent_path_only() {
   while IFS= read -r _kit_fe_line; do
     [ -n "$_kit_fe_line" ] || continue
     case "$_kit_fe_line" in
-      # The trailing phrase only, deliberately: BSD writes `find: /nope: No such file or directory`,
-      # GNU quotes the path (with `'` under C, with typographic quotes under a UTF-8 locale), and
-      # bfs prefixes its own name and adds a full stop. Everything before and after the phrase is
-      # the part that varies; keying on any of it is how the rule lapses on somebody else's host.
-      *"No such file or directory"*) ;;
+      # The phrase, ANCHORED AT THE END of the line. Everything to its left is the part that varies
+      # — BSD writes `find: /nope: No such file or directory`, GNU quotes the path (with `'` under
+      # C, with typographic quotes under a UTF-8 locale), bfs prefixes its own name — so keying on
+      # any of it is how the rule lapses on somebody else's host. The `.` alternative is bfs, the
+      # one implementation that punctuates.
+      #
+      # Unanchored (`*"…"*`) it also swallowed a DIFFERENT error about a path whose own name ends
+      # in the phrase — `find: /x/No such file or directory: Permission denied`. Contrived, but the
+      # anchor costs nothing and the two failure directions are not symmetric: a variant this rule
+      # stops recognising prints one line per probe, which someone notices on the next clean run,
+      # whereas a real failure it swallows is the silence #124 exists to remove and nobody ever
+      # sees it. When in doubt, be loud.
+      *"No such file or directory"|*"No such file or directory".) ;;
       *) return 1 ;;
     esac
   done <<< "${1:-}"
