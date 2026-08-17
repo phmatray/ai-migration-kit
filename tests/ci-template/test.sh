@@ -947,5 +947,8 @@ grep -q 'maxdepth 0 -print -quit' templates/ci-dotnet.yml || {
 echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
      "— $cov_files reports ($cov_bytes bytes, naive pipeline confirmed inverting) accepted;"\
      "empty and missing coverage/ still refused, with their diagnosis"
+echo "  [10b] and it asks what KIND of entry it found: a directory and a dangling symlink named"\
+     "*.cobertura.xml are refused, a symlink to a real report is accepted — the row that keeps"\
+     "the -L on the -type f"
 
 echo "ci-dotnet template opt-in bundle gate golden test OK"
