@@ -48,7 +48,16 @@ if [[ "$*" == *PATCH* ]]; then
     cp "$input" "$GH_PAYLOAD"
   fi
   jq -r .body < "$GH_PAYLOAD" > "$GH_STORE"
+  # $GH_MANGLE_STORE models a concurrent edit: GitHub ends up holding something other than
+  # what was sent, which the read-back must catch whether or not the call was bounded.
+  [ -n "${GH_MANGLE_STORE:-}" ] && printf 'a concurrent edit\n' >> "$GH_STORE"
+  # $GH_PAYLOAD is stored BEFORE the sleep on purpose: that is the production symptom (#113) —
+  # GitHub already holds the new body while the client is still waiting on the call. `exec` so
+  # the sleep inherits this pid and a kill on it actually ends the call.
+  [ -n "${GH_PATCH_SLEEP:-}" ] && exec sleep "$GH_PATCH_SLEEP"
+  exit 0
 else
+  [ -n "${GH_READ_FAIL:-}" ] && exit 3
   [ -f "$GH_STORE" ] && cat "$GH_STORE"
 fi
 STUB
@@ -181,5 +190,82 @@ KIT="$PWD"
 ( cd "$WORK" && bash "$KIT/$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" >/dev/null 2>&1 ) \
   || { echo "FAIL [foreign-cwd]: refused when run from another directory"; exit 1; }
 echo "  ok: foreign cwd"
+
+# ---------------------------------------------------------------- the deadline
+#
+# The PATCH runs under a pure-bash deadline (TICK_PLAN_PATCH_TIMEOUT, default 60s; no timeout(1),
+# which stock macOS does not ship). Expiry is NOT failure: killing the call does not un-send it,
+# so the read-back — which costs 0.4s against the real API — is what decides the verdict.
+
+# Runs the tick with a stub that sleeps past the deadline; leaves the exit code in $RC and the
+# wall-clock cost in $ELAPSED. No command substitution around the call: an orphaned child would
+# hold the pipe open and hide the very stall being measured.
+run_bounded() {
+  local name="$1"; shift
+  fresh_log "$name"
+  local start; start=$(date +%s)
+  RC=0
+  TICK_PLAN_PATCH_TIMEOUT=1 "$@" > "$WORK/out.$name" 2>&1 || RC=$?
+  ELAPSED=$(( $(date +%s) - start ))
+}
+
+export GH_PATCH_SLEEP=6
+
+# 10. Bounded, and GitHub holds what was sent → success, and back in a couple of seconds rather
+#     than at the end of the sleep.
+run_bounded bounded-match "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+[ "$RC" -eq 0 ] || { echo "FAIL [bounded-match]: expected success from the read-back, got exit $RC"
+                     cat "$WORK/out.bounded-match"; exit 1; }
+[ "$ELAPSED" -lt 5 ] || { echo "FAIL [bounded-match]: took ${ELAPSED}s — the PATCH was not bounded"
+                          cat "$WORK/out.bounded-match"; exit 1; }
+grep -q 'body verified intact' "$WORK/out.bounded-match" \
+  || { echo "FAIL [bounded-match]: no verified-intact verdict"; cat "$WORK/out.bounded-match"; exit 1; }
+grep -qi 'bounded' "$WORK/out.bounded-match" \
+  || { echo "FAIL [bounded-match]: the output does not say the call was bounded, so a reader cannot
+        tell the two success paths apart"; cat "$WORK/out.bounded-match"; exit 1; }
+echo "  ok: bounded-match — bounded at 1s, verdict from the read-back (${ELAPSED}s, sleep was 6s)"
+
+# 11. Bounded, but GitHub holds something else → the existing ALERT, exit 1. A killed call must
+#     never be allowed to launder a mismatch into success.
+export GH_MANGLE_STORE=1
+run_bounded bounded-differs "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_MANGLE_STORE
+[ "$RC" -eq 1 ] || { echo "FAIL [bounded-differs]: expected exit 1, got $RC"
+                     cat "$WORK/out.bounded-differs"; exit 1; }
+grep -q 'ALERT' "$WORK/out.bounded-differs" \
+  || { echo "FAIL [bounded-differs]: no ALERT on a mismatched body"; cat "$WORK/out.bounded-differs"; exit 1; }
+[ "$ELAPSED" -lt 5 ] || { echo "FAIL [bounded-differs]: took ${ELAPSED}s — the PATCH was not bounded"; exit 1; }
+echo "  ok: bounded-differs — bounded, mismatch still ALERTs and exits 1"
+
+# 12. Bounded AND the read-back failed → nothing at all confirms what GitHub holds, so the script
+#     must not report success. This is the one path where the sole authority is unavailable.
+export GH_READ_FAIL=1
+run_bounded bounded-unverified "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_READ_FAIL
+[ "$RC" -ne 0 ] || { echo "FAIL [bounded-unverified]: claimed success with no evidence either way"
+                     cat "$WORK/out.bounded-unverified"; exit 1; }
+grep -q 'ALERT' "$WORK/out.bounded-unverified" \
+  || { echo "FAIL [bounded-unverified]: no ALERT"; cat "$WORK/out.bounded-unverified"; exit 1; }
+echo "  ok: bounded-unverified — bounded + unreadable = no verdict, and it says so"
+
+unset GH_PATCH_SLEEP
+
+# 13. Unbounded PATCH whose read-back fails keeps today's softer contract: gh itself reported
+#     success, so this stays a WARNING and exit 0 rather than becoming an error.
+fresh_log warn-unverified
+export GH_READ_FAIL=1
+RC=0
+"$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+  > "$WORK/out.warn-unverified" 2>&1 || RC=$?
+unset GH_READ_FAIL
+[ "$RC" -eq 0 ] || { echo "FAIL [warn-unverified]: a successful PATCH must not fail on a read-back hiccup"
+                     cat "$WORK/out.warn-unverified"; exit 1; }
+grep -q 'WARNING' "$WORK/out.warn-unverified" \
+  || { echo "FAIL [warn-unverified]: no WARNING"; cat "$WORK/out.warn-unverified"; exit 1; }
+echo "  ok: warn-unverified — unbounded + unreadable stays a WARNING"
+
+# 14. The deadline must be a sane number: a junk value is caught before anything is sent.
+refuses bad-timeout env TICK_PLAN_PATCH_TIMEOUT=soon \
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
 
 echo "tick-plan golden test OK"
