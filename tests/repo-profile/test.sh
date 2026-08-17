@@ -10,6 +10,10 @@ SCRIPT="skills/get-repo-profile/scripts/repo-profile.sh"
 . "$KIT/tests/_lib.sh" || {
   echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$KIT"
+# Decided, not omitted — tests/_lib.sh's contract asks a converted suite to say either way, so that
+# "forgot" and "does not apply" stop looking alike. This one runs a kit script that WRITES profiles,
+# pointed at scratch repos; the guard is what proves it never wrote into the frozen fixture instead.
+kit_guard kit_guard_samples_unchanged
 
 fail() { echo "FAIL: $1"; exit 1; }
 

@@ -30,15 +30,21 @@
 #
 # The kit's other shared preamble — scratch dirs, the EXIT trap, the samples/ guard, any_match —
 # lives in tests/_lib.sh (#72), and one home per shared mechanism is the rule this repo works by.
-# The loader is deliberately NOT folded in there, for a reason that is easy to lose:
-# tests/lib/test.sh section 9 audits every `mktemp -d` in any suite whose text mentions `_lib.sh`,
-# and tests/report-dashboard/test.sh manages four of its own. Sourcing _lib.sh purely to reach
-# py_module would drag that suite into an audit it was explicitly measured out of — #72 recorded
-# that converting those five suites is tidying rather than a fix, and deferred it on purpose.
 #
-# So: a separate file, and the two shared mechanisms stay separately adoptable. A suite takes the
-# loader without taking the preamble. If those five suites are ever converted, merging this back
-# into tests/_lib.sh becomes the obvious simplification.
+# The loader used to be kept out of that file for a HARD reason: tests/lib/test.sh section 9 audited
+# every `mktemp -d` in any suite whose text merely mentioned `_lib.sh`, so sourcing the preamble to
+# reach py_module would have dragged tests/report-dashboard/test.sh into an audit it had been
+# measured out of. **That reason is gone.** #128 rekeyed section 9 on a `kit_init` CALL, converted
+# the self-managing suites, and report-dashboard now sources both files by name — the mention costs
+# nothing, because nothing is decided by a mention any more.
+#
+# What is left is a plain not-yet-done: the two mechanisms stay separately adoptable (a suite can
+# take the loader without taking the preamble), and folding this file back into tests/_lib.sh is
+# the obvious simplification rather than a blocked one. It is a change with its own risk and its own
+# moving parts — tests/py-module/test.sh is this file's golden test, and tests/xunit-v3/test.sh
+# section 8 pins LOADER_HOME to this path — so it is tracked as a follow-up, not smuggled into the
+# change that unblocked it. Do not restore the old paragraph: it now argues for a rule the tree no
+# longer has, which is the precise hazard #128 deleted from report-dashboard's own header.
 #
 # There is deliberately no `set -euo pipefail` here: the callers set it, and re-setting it in a
 # sourced file would mean this file silently decides the shell options of every suite that loads

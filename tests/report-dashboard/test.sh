@@ -61,6 +61,13 @@ pas_de_pycache() {
 }
 kit_guard pas_de_pycache
 
+# Et la garde samples/, DÉCIDÉE plutôt que passée sous silence : le contrat de tests/_lib.sh demande
+# à chaque suite convertie de trancher, pour que « oubliée » et « jugée hors sujet » cessent de se
+# ressembler. Celle-ci écrit des rapports à partir de chemins qu'elle construit ; c'est exactement le
+# genre de suite pour laquelle la garde existe — une régression de résolution de chemin écrirait
+# ailleurs que dans son scratch, et la fixture gelée est ce qu'on veut voir intact en premier.
+kit_guard kit_guard_samples_unchanged
+
 # Le répertoire est CAPTURÉ, pas jeté : `out="$(mktemp -d)/report.html"` ne liait que le fichier,
 # donc plus rien ne désignait son parent et aucun `rm -rf` ne pouvait le reprendre. Chaque run en
 # laissait un derrière lui (#128), et la section 9 de tests/lib — écrite exactement pour ça — ne

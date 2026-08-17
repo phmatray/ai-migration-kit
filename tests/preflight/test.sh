@@ -8,6 +8,10 @@ KIT="$PWD"
 . "$KIT/tests/_lib.sh" || {
   echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$KIT"
+# Registered rather than left unsaid: tests/_lib.sh's contract asks every converted suite to DECIDE
+# about this guard, precisely so "forgot to call it" and "decided it does not apply" stop looking
+# alike. This one runs kit scripts against the real repo, so it takes the check.
+kit_guard kit_guard_samples_unchanged
 
 # 1. The --json output is valid JSON (the preflight may exit 0 or 1 depending on the machine).
 out=$(./scripts/preflight.sh --json || true)

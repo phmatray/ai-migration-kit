@@ -252,10 +252,18 @@ echo "  [8] no suite hand-rolls the EXIT trap (tests/lib is the documented excep
 
 # Is $1 a member of the shared library — i.e. does it CALL kit_init?
 #
-# A call, never a mention. Whole-line comments are dropped first and the name must sit at a command
-# position, so prose about the helper — this file is full of it, and so are the suites — cannot
-# decide who gets audited. That is the defect class #128 is about, so reproducing it here would be
-# a poor joke.
+# A call, never a mention. BOTH kinds of comment are dropped first — the whole-line kind and the
+# trailing kind — and the name must then sit at a command position, so prose about the helper (this
+# file is full of it, and so are the suites) cannot decide who gets audited. That is the defect
+# class #128 is about, so reproducing it here would be a poor joke, and dropping only whole-line
+# comments would have reproduced exactly half of it: a mention pushed to the end of a code line
+# still sits after whitespace, which is a command position to any pattern that looks for one.
+#
+# The trailing strip keys on whitespace before the `#`, which is what keeps it from eating the
+# shell's other uses of that character: `${x#*|}`, `$((n + 1))`-style arithmetic and quoted paths
+# have no space in front of theirs. The residue it accepts is a `kit_init` written AFTER a quoted
+# `#` on one line — a false NEGATIVE, so a suite would have to hide itself from an audit it opted
+# into, and no suite in the tree writes anything of the sort.
 #
 # Pipe-free on purpose. `grep -v … | grep -q …` lets the reader exit on the first hit; under the
 # `set -o pipefail` at the top of this file the writer's SIGPIPE (141) becomes the pipeline's
@@ -263,7 +271,7 @@ echo "  [8] no suite hand-rolls the EXIT trap (tests/lib is the documented excep
 # go unnoticed: the failure mode is a silently empty roster, which looks exactly like a clean run.
 suite_is_member() {
   local body
-  body=$(grep -vE '^[[:space:]]*#' "$1" || true)
+  body=$(sed -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*$//' "$1")
   grep -qE '(^|[[:space:];&|(){}])kit_init([[:space:]]|$)' <<<"$body"
 }
 
@@ -291,6 +299,17 @@ mentions_only="$scratch/mentions-only.sh"
   echo 'd=$(mktemp -d); rm -rf "$d"'
 } > "$mentions_only"
 
+# The same mention, moved to the END of a code line. Dropping whole-line comments alone does not
+# reach it, and the mention then sits at a command position for any `kit_init` pattern to match —
+# so this fixture enrolls a non-member unless trailing comments are stripped too. It is the
+# original defect at one remove: prose still deciding who gets audited, just further right.
+trailing_mention="$scratch/trailing-mention.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'd=$(mktemp -d)   # the shared preamble would arm kit_init here'
+  echo 'rm -rf "$d"'
+} > "$trailing_mention"
+
 # Sources the helper through a VARIABLE, so its filename never appears literally: a real member
 # that a substring rule cannot see. That is the shape the leak §9 exists to catch was hiding in.
 calls_it="$scratch/calls-kit-init.sh"
@@ -313,6 +332,12 @@ if suite_is_member "$mentions_only"; then
   echo "FAIL: a suite that only MENTIONS the shared helper was enrolled in the scratch audit."
   echo "      Membership must follow a kit_init CALL; a filename in the text is not a declaration,"
   echo "      and keying on one turns an unrelated comment into a red run."
+  exit 1
+fi
+if suite_is_member "$trailing_mention"; then
+  echo "FAIL: a mention of kit_init in a TRAILING comment enrolled the suite. Dropping whole-line"
+  echo "      comments is not enough — a comment that starts mid-line is still a comment, and the"
+  echo "      audit's reach would again depend on prose an editor added for unrelated reasons."
   exit 1
 fi
 if ! suite_is_member "$calls_it"; then
@@ -447,8 +472,10 @@ for f in tests/*/test.sh; do
   grep -q 'mktemp' "$f" || continue          # nothing to leak
   r=$(leftovers_of "$f")
   [ "${r%%|*}" = "0" ] || {
-    echo "FAIL: $f exited ${r%%|*} under a private TMPDIR — a run that failed proves nothing about"
-    echo "      what it cleans up. Fix that suite first; this section measures successful runs."
+    echo "FAIL: $f exited ${r%%|*} under the mktemp ledger shim — a run that failed proves nothing"
+    echo "      about what it cleans up. Fix that suite first; this section measures successful"
+    echo "      runs. (The shim only records what mktemp returned; it overrides no TMPDIR, so a"
+    echo "      failure here is the suite's own and not an artefact of how it was measured.)"
     exit 1; }
   [ -z "${r#*|}" ] || {
     echo "FAIL: $f manages its own scratch and left this behind after a SUCCESSFUL run:"
@@ -517,7 +544,11 @@ echo "  [11] kit_source loads a helper, and refuses one it cannot, naming it"
 #     both counts: it sources the file under test deliberately, guarded by its own `[ -r ]` check
 #     at the top, and the illustrative preamble in §11's comment above would otherwise match.
 # ---------------------------------------------------------------------------
-# The unguarded `.`-sources of a shared helper in $1, one "<n>:<text>" line each.
+# The unguarded sources of a shared helper in $1, one "<n>:<text>" line each.
+#
+# BOTH spellings of the source builtin, `.` and `source`. Policing only the dot would make the
+# guarantee depend on which one the author typed, and `source` is the spelling a newcomer reaches
+# for — so the check would have lapsed on the likelier form, which is how §9's rule failed too.
 bare_sources() {
   local hit n text
   while IFS= read -r hit; do
@@ -531,7 +562,7 @@ bare_sources() {
         case "$(sed -n "$((n + 1))p" "$1")" in *"exit 1"*) continue ;; esac ;;
     esac
     printf '%s\n' "    $1:$hit"
-  done < <(grep -nE '^[[:space:]]*\.[[:space:]].*tests/_lib' "$1" || true)
+  done < <(grep -nE '^[[:space:]]*(\.|source)[[:space:]].*tests/_lib' "$1" || true)
 }
 
 # Fixtures first, for the same reason as §9 and §10: the tree currently answers "all guarded", so
@@ -540,6 +571,17 @@ bare_fixture="$scratch/sources-bare.sh"
 printf '. "$KIT/tests/_lib.sh"\nkit_init "$PWD"\n' > "$bare_fixture"
 [ -n "$(bare_sources "$bare_fixture")" ] || {
   echo "FAIL: the bare-source check did not flag a bare '. \$KIT/tests/_lib.sh'"; exit 1; }
+
+# `source` is bash's other spelling of `.`, and it is the one a newcomer reaches for. A check that
+# polices only the dot leaves the commoner spelling unpoliced, so the anti-recurrence guarantee
+# would hold for the form nobody types and lapse for the form they do — the same "the reach depends
+# on how it was written" hole §9 was rewritten to close.
+bare_keyword_fixture="$scratch/sources-bare-keyword.sh"
+printf 'source "$KIT/tests/_lib.sh"\nkit_init "$PWD"\n' > "$bare_keyword_fixture"
+[ -n "$(bare_sources "$bare_keyword_fixture")" ] || {
+  echo "FAIL: the bare-source check did not flag a bare 'source \$KIT/tests/_lib.sh' — only the"
+  echo "      dot spelling was policed, so the guard lapses on the form most people write."
+  exit 1; }
 
 guarded_fixture="$scratch/sources-guarded.sh"
 {
