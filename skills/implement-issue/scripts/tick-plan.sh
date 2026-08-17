@@ -185,7 +185,18 @@ bounded=0
 deadline_at=$(( $(date +%s) + PATCH_TIMEOUT ))
 while kill -0 "$patch_pid" 2>/dev/null; do
   if [ "$(date +%s)" -ge "$deadline_at" ]; then
+    # SIGTERM, then ESCALATE. A deadline that only asks politely is advisory: the `wait` below
+    # blocks until the child really exits, so anything that ignores or blocks TERM would hold the
+    # run open for exactly as long as the unbounded call did. SIGKILL cannot be ignored, which is
+    # what makes the bound a bound.
     kill "$patch_pid" 2>/dev/null || true
+    grace_until=$(( $(date +%s) + 2 ))
+    while kill -0 "$patch_pid" 2>/dev/null && [ "$(date +%s)" -lt "$grace_until" ]; do
+      sleep 0.1 2>/dev/null || sleep 1
+    done
+    if kill -0 "$patch_pid" 2>/dev/null; then
+      kill -9 "$patch_pid" 2>/dev/null || true
+    fi
     bounded=1
     break
   fi
@@ -214,8 +225,18 @@ if got=$(gh api "$endpoint" --jq .body 2>/dev/null); then
     exit 1
   fi
   if [ "$got" != "$(cat "$AFTER")" ]; then
-    printf 'tick-plan: ALERT — %s does not match what was sent (concurrent edit?).\n' "$endpoint" >&2
-    printf '           Pre-edit copy for restore: %s\n' "$BEFORE" >&2
+    if [ "$bounded" -eq 1 ]; then
+      # Different cause, so different advice. After a call that was cut short, "restore from
+      # --before" is the wrong move twice over: the write probably never landed (nothing to undo),
+      # and if it lands a moment later the restore silently un-ticks it.
+      printf 'tick-plan: ALERT — %s does not hold what was sent, and the PATCH was cut short at %ss,\n' \
+        "$endpoint" "$PATCH_TIMEOUT" >&2
+      printf '           so the likeliest reading is that the write never landed. RE-RUN the tick.\n' >&2
+      printf '           Do NOT restore from %s — that would undo a write that may still arrive.\n' "$BEFORE" >&2
+    else
+      printf 'tick-plan: ALERT — %s does not match what was sent (concurrent edit?).\n' "$endpoint" >&2
+      printf '           Pre-edit copy for restore: %s\n' "$BEFORE" >&2
+    fi
     exit 1
   fi
 elif [ "$bounded" -eq 1 ]; then
@@ -228,6 +249,16 @@ elif [ "$bounded" -eq 1 ]; then
   exit 1
 else
   printf 'tick-plan: WARNING — PATCH reported success but the read-back failed; content unverified.\n' >&2
+  verified=0
+fi
+
+# The summary line must not claim more than was actually established: on the WARNING path above
+# nothing was read back, so "verified intact" would be the kind of unbacked claim this whole
+# script exists to prevent.
+if [ "${verified:-1}" -eq 1 ]; then
+  state="body verified intact"
+else
+  state="body NOT verified — the read-back failed"
 fi
 
 bounded_note=""
@@ -235,5 +266,5 @@ if [ "$bounded" -eq 1 ]; then
   bounded_note=" [PATCH bounded at ${PATCH_TIMEOUT}s; verdict from the read-back]"
 fi
 
-printf 'tick-plan: %s — %s box(es) ticked, %s/%s done, body verified intact (%s bytes)%s\n' \
-  "$endpoint" "$flipped" "$after_done" "$(( after_done + after_todo ))" "$after_bytes" "$bounded_note"
+printf 'tick-plan: %s — %s box(es) ticked, %s/%s done, %s (%s bytes)%s\n' \
+  "$endpoint" "$flipped" "$after_done" "$(( after_done + after_todo ))" "$state" "$after_bytes" "$bounded_note"
