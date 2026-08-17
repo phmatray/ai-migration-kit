@@ -283,8 +283,17 @@ jobs:
           bash "$KIT/scripts/preflight.sh" --json | python3 -m json.tool > /dev/null
           bash "$KIT/scripts/audit-inventory.sh" "$KIT/samples/LegacyShop" | python3 -m json.tool > /dev/null
           python3 "$KIT/scripts/followups.py" "$KIT/tests/followups/fixture-a" --backlog "$KIT/docs/backlog.md" > /dev/null
-          out=$(bash "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" show "$KIT") || true
-          [ "$out" = "NO_PROFILE" ]   # kit has no profile: the deterministic answer, from any CWD
+          # The answer must come from the directory the helper is GIVEN, never from this foreign
+          # CWD. Two calls from the same place, two deterministic and DIFFERENT answers — which is
+          # the property this simulation exists to check, and which a single call cannot show.
+          # The kit tracks its own profile since #157, so `show "$KIT"` must print that file
+          # verbatim; the scratch dir we are standing in has none, so it must report the named
+          # NO_PROFILE condition (exit 3) rather than fall back to the kit's.
+          out=$(bash "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" show "$KIT")
+          [ "$out" = "$(cat "$KIT/.claude/skills/repo-profile.md")" ]
+          rc=0
+          out=$(bash "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" show "$PWD") || rc=$?
+          [ "$rc" = 3 ] && [ "$out" = "NO_PROFILE" ]
           # The guards exist to be called from someone else's checkout, so they belong in this
           # simulation too. --help exercises the header slice against $0 (a hardcoded line range
           # there silently stops documenting the exit codes), and the refusal proves the guard
