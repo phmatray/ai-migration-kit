@@ -1492,7 +1492,21 @@ def check(cfg):
     helper that meets a spelling it cannot resolve puts it here, and the assertion at the bottom
     refuses on a non-empty list no matter how well the rest of the config reads. #99 measured what
     the alternative costs — six spellings Renovate honours that this guard accepted, because each
-    site decided locally that what it could not read was harmless."""
+    site decided locally that what it could not read was harmless.
+
+    THE BOUNDARY THIS SECTION DOES NOT CROSS: `cfg` is the UNRESOLVED renovate.json, read straight
+    off disk. Renovate resolves `extends` first and merges the preset underneath the local keys, so
+    everything a preset contributes is invisible here — `cfg.get("ignorePaths")` is empty today
+    because the file declares none, not because nothing ignores the transform, and a preset setting
+    `enabledManagers` would disable the custom managers repo-wide while every assertion below still
+    passed. This repo extends `local>phmatray/.github:renovate-ci` (#99, hole 4).
+
+    Resolving a preset means fetching another repository, which is exactly what this section must
+    not do — it is the offline, always-runnable half of the pair. The engine-backed half is
+    `tests/renovate-config/`, where the real renovate-config-validator judges this file instead of a
+    model of it. Note the honest limit even there: the validator is handed the file, so it does not
+    fetch `local>` presets either. Nothing in the kit asserts the RESOLVED config today; that is the
+    engine-backed follow-through #99 records, not a claim this docstring may make."""
     unevaluated = []
     managers = cfg.get("customManagers", [])
     assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
