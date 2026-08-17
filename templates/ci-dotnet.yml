@@ -546,3 +546,72 @@ jobs:
             exit 1
           fi
           echo "$BUNDLE_DIST est à jour."
+
+      # Le COMPLÉMENT de la garde : aucune configuration committée.
+      #
+      # Déplacer l'interrupteur dans le dépôt rend sa perte visible dans un diff, et c'est
+      # l'essentiel de #96 — mais pas la totalité : la suppression passe quand même au VERT,
+      # puisque tout le bloc s'éteint. « Ça a l'air entretenu, ça ne mesure rien », d'un cran plus
+      # haut. Cette étape sépare donc les deux états qui se ressemblaient : un dépôt qui n'a JAMAIS
+      # voulu la garde, et un dépôt qui l'a PERDUE.
+      #
+      # Elle SIGNALE, elle ne bloque pas, et c'est délibéré. Détecter un bundle committé consommé
+      # par le build est exactement l'heuristique que #70 a refusée comme mécanisme d'ARMEMENT
+      # (approche C) : une condition d'activation qui peut se tromper est pire que pas de garde du
+      # tout. En revanche, se tromper dans un AVERTISSEMENT ne coûte qu'une ligne à ignorer — alors
+      # que faire rougir un des 192 dépôts sans bundle apprendrait à ignorer une étape rouge, ce
+      # que toute la conception opt-in existe pour éviter (#32).
+      - name: Détection — un bundle front committé sans configuration de garde
+        if: ${{ hashFiles('.github/bundle-gate.json') == '' }}
+        env:
+          BUNDLE_GATE_CONFIG: .github/bundle-gate.json
+        run: |
+          # Le shell par défaut de GitHub est `bash -e` : sans ce `set +e`, un `grep` sans
+          # correspondance — le cas NORMAL sur 192 dépôts sur 193 — ferait échouer une étape qui
+          # ne garde rien.
+          set +e
+          cfg="$BUNDLE_GATE_CONFIG"
+
+          # Uniquement ce que git SUIT : un dist/ non committé n'est pas un bundle committé, et
+          # c'est précisément la population que cette garde ne concerne pas.
+          # Les motifs de `case` portent une parenthèse OUVRANTE. Elle n'est pas décorative :
+          # dans bash 3.2 — celui de macOS, où ce modèle est relu — l'analyseur voit le `)` d'un
+          # motif comme la fin de la substitution `$(` qui l'englobe, et le fichier ne PARSE pas.
+          # `tests/ci-template/test.sh` passe ce corps à `bash -n`, donc l'oubli est rouge.
+          report=$(
+            git ls-files -- '*package.json' | while IFS= read -r pkg; do
+              case "$pkg" in (*/node_modules/*) continue ;; esac
+              dir=${pkg%/package.json}
+              if [ "$dir" = "$pkg" ]; then dir=.; fi
+              for out in dist build out wwwroot/dist; do
+                if [ "$dir" = . ]; then cand="$out"; else cand="$dir/$out"; fi
+                git ls-files --error-unmatch -- "$cand" > /dev/null 2>&1 || continue
+                # Consommé par un projet .NET ? MSBuild écrit ses chemins relativement au .csproj
+                # et avec des ANTISLASHS : ne chercher que la forme '/' ne trouverait rien sur le
+                # dépôt même pour lequel cette détection existe.
+                git ls-files -- '*.csproj' | while IFS= read -r proj; do
+                  pd=${proj%/*}
+                  if [ "$pd" = "$proj" ]; then pd=.; fi
+                  rel="$cand"
+                  case "$cand" in ("$pd"/*) rel=${cand#"$pd"/} ;; esac
+                  win=$(printf '%s' "$rel" | tr '/' '\\')
+                  if grep -qF -- "$rel" "$proj" 2>/dev/null \
+                     || grep -qF -- "$win" "$proj" 2>/dev/null; then
+                    printf '%s (consommé par %s)\n' "$cand" "$proj"
+                  fi
+                done
+              done
+            done
+          )
+
+          if [ -n "$report" ]; then
+            echo "::warning::Ce dépôt committe un bundle front consommé par un projet .NET, et ne porte pas $cfg : la garde de dérive est DÉSARMÉE."
+            echo "$report"
+            echo "Si la garde a été perdue (fichier supprimé, dépôt transféré), recommittez $cfg :"
+            echo '    { "src": "<le répertoire qui porte package.json>", "dist": "<le bundle committé, sous src>" }'
+            echo "Si ce dépôt n'a jamais voulu la garde, il n'y a rien à faire : ceci n'est pas une erreur."
+          fi
+
+          # Cette étape rapporte ; elle ne juge pas. Sortir en 0 explicitement, plutôt que
+          # `continue-on-error`, qui masquerait AUSSI un vrai défaut de l'étape elle-même.
+          exit 0

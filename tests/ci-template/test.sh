@@ -34,6 +34,9 @@
 #      committed config file, with Node pinned to an EXACT version;
 #  1c. the config step REFUSES a malformed, untracked, absent or self-inconsistent config rather
 #      than exporting nothing and letting the rest of the block run on empty paths;
+#  1d. a fifth step runs on the ABSENCE of the config and reports a repo that carries a committed
+#      bundle consumed by a project — so losing the config stops looking like never wanting it —
+#      while staying silent, and green, on the 192 repos that have no such bundle;
 #   2. the guard FAILS on a bundle that no longer matches its sources;
 #   3. it fails on the content-hash rename (delete + UNTRACKED add), and 3b on the real-world
 #      shape where the bundle dir is gitignored and force-added — both invisible to plain
@@ -315,6 +318,123 @@ config_refuses "an untracked config" '{ "src": "web", "dist": "web/dist" }' untr
 echo "  [1c] refuses every malformed, self-inconsistent or uncommitted config instead of arming"
 
 # ---------------------------------------------------------------------------
+# 1d. A repo that never wanted the gate and one that LOST its config must stop being the same
+#     observable run.
+#
+#     Moving the switch into the repository (1c) makes losing it a DIFF, which is most of the fix.
+#     It is not all of it: the deletion still lands green, because the whole block simply turns
+#     off — the "looks tended, measures nothing" shape one level up, which is what #96 is about.
+#
+#     So a fifth step runs on the COMPLEMENT of the gate: no config file. It reports a repo that
+#     carries a committed bundle consumed by a .NET project and yet has no config — the exact
+#     1-in-193 shape from #32 — and says nothing at all on the other 192. It WARNS rather than
+#     fails, and that is deliberate: a detection heuristic that can be wrong must not be able to
+#     red a repo that never opted in, which is the reason #70's brainstorm rejected auto-arming
+#     (approach C) outright. Reporting is the part of C that is safe to keep.
+#
+#     Both halves are asserted: it speaks when it should, and — the one that keeps it deletable —
+#     it is silent on a repo with no bundle at all.
+# ---------------------------------------------------------------------------
+python3 - "$TEMPLATE" "$CONFIG" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+config = sys.argv[2]
+steps = doc["jobs"]["test"]["steps"]
+disarmed = [s for s in steps
+            if f"hashFiles('{config}')" in str(s.get("if", ""))
+            and ("== ''" in str(s["if"]) or '== ""' in str(s["if"]))]
+assert len(disarmed) == 1, (
+    f"expected exactly one step running on the ABSENCE of {config} — the one that tells a repo "
+    f"that lost its config from a repo that never wanted one apart; got {len(disarmed)}")
+det = disarmed[0]
+assert "always()" not in str(det["if"]), f"an always() gate would run it on armed repos too: {det['if']}"
+assert str((det.get("env") or {}).get("BUNDLE_GATE_CONFIG", "")) == config, (
+    f"the detection step names a different config than the one it is gated on: {det.get('env')}")
+# It must not be able to fail the job on its own terms: `continue-on-error` would be the wrong
+# spelling of that (it hides real failures too), so what is asserted is that the body never exits
+# non-zero — driven below, not declared here.
+assert "continue-on-error" not in det, (
+    "the detection step must be harmless because its body is, not because failures are swallowed: "
+    "continue-on-error would also swallow a genuine bug in it")
+PY
+echo "  [1d] one step runs on the absence of the config, and cannot be armed at the same time"
+
+step_named "Détection — un bundle front committé sans configuration de garde" > "$scratch/detect.sh"
+[ -s "$scratch/detect.sh" ] || { echo "FAIL: the detection step has an empty run: body"; exit 1; }
+bash -n "$scratch/detect.sh" || { echo "FAIL: the detection body is not valid bash"; exit 1; }
+
+# The shape measured on Ninjadog (2026-07-26): a csproj that embeds a SIBLING front-end bundle,
+# committed, with no MSBuild target calling npm. Written with the csproj's own separator, because
+# that is how MSBuild spells it and a detector that only looks for '/' finds nothing on the one
+# repo it exists for.
+mk_consumer_repo() {   # $1 = root · $2 = "consumed" | "orphan" | "bare"
+  local root="$1" kind="$2"
+  mkdir -p "$root/src/tools/App"
+  git init -q "$root"
+  if [ "$kind" != bare ]; then
+    mkdir -p "$root/src/tools/App/WebUI/dist/assets"
+    printf '{ "name": "webui", "private": true }\n' > "$root/src/tools/App/WebUI/package.json"
+    printf 'console.log(1)\n' > "$root/src/tools/App/WebUI/dist/assets/index-LLLLLLLL.js"
+  fi
+  {
+    printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n'
+    if [ "$kind" = consumed ]; then
+      printf '    <EmbeddedResource Include="WebUI\\dist\\**" />\n'
+    fi
+    printf '  </ItemGroup>\n</Project>\n'
+  } > "$root/src/tools/App/App.csproj"
+  git -C "$root" add -A
+  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+      commit -qm "a repo shaped like the one consumer"
+}
+
+detect_rc=0
+run_detect() {   # $1 = repo root
+  set +e
+  ( cd "$1" && BUNDLE_GATE_CONFIG="$CONFIG" bash "$scratch/detect.sh" ) \
+    > "$scratch/out-detect.txt" 2>&1
+  detect_rc=$?
+  set -e
+}
+
+DCONSUMED="$scratch/detect-consumed"
+mk_consumer_repo "$DCONSUMED" consumed
+run_detect "$DCONSUMED"
+if [ "$detect_rc" -ne 0 ]; then
+  echo "FAIL: the detection step failed the job. It reports, it does not gate — a heuristic that"
+  echo "      can red a repo that never opted in is the auto-arming design #70 rejected:"
+  cat "$scratch/out-detect.txt"; exit 1
+fi
+grep -q '::warning::' "$scratch/out-detect.txt" || {
+  echo "FAIL: a committed bundle consumed by a csproj, and no gate config, passed in SILENCE."
+  echo "      That repo is indistinguishable from one that never wanted the gate — the whole"
+  echo "      point of #96:"; cat "$scratch/out-detect.txt"; exit 1; }
+grep -q 'WebUI/dist' "$scratch/out-detect.txt" || {
+  echo "FAIL: warned but never named the bundle it found:"; cat "$scratch/out-detect.txt"; exit 1; }
+grep -q "$CONFIG" "$scratch/out-detect.txt" || {
+  echo "FAIL: warned but never named the file that would fix it:"
+  cat "$scratch/out-detect.txt"; exit 1; }
+echo "  [1d] a committed bundle consumed by a project, with no config, is reported"
+
+# The other side, and the one that decides whether this step is shippable at all: 192 of 193 repos
+# must see nothing. A detector that cries on them teaches its own dismissal, which is strictly
+# worse than absent — the measurement behind the whole opt-in design (#32).
+for kind in bare orphan; do
+  DQ="$scratch/detect-$kind"
+  mk_consumer_repo "$DQ" "$kind"
+  run_detect "$DQ"
+  if [ "$detect_rc" -ne 0 ]; then
+    echo "FAIL: the detection step failed on a '$kind' repo:"; cat "$scratch/out-detect.txt"; exit 1
+  fi
+  if grep -qE '::(warning|error)::' "$scratch/out-detect.txt"; then
+    echo "FAIL: the detection step annotated a '$kind' repo — one with no committed bundle"
+    echo "      consumed by any project. It must leave those 192 completely untouched:"
+    cat "$scratch/out-detect.txt"; exit 1
+  fi
+done
+echo "  [1d] silent on a repo with no bundle, and on one whose bundle no project consumes"
+
+# ---------------------------------------------------------------------------
 # 2. The content-hash rename: the old asset disappears and a differently-named one
 #    appears UNTRACKED. `git diff` is not blind here — a deleted TRACKED file is a
 #    diff — but it reports only the disappearance and never names the replacement,
@@ -532,22 +652,34 @@ raw = open(sys.argv[1], encoding="utf-8").read()
 config = sys.argv[2]
 doc = yaml.safe_load(raw)
 steps = doc["jobs"]["test"]["steps"]
-armed = [i for i, s in enumerate(steps) if f"hashFiles('{config}')" in str(s.get("if", ""))]
-assert len(armed) == 4, f"expected exactly 4 bundle steps gated on {config}, got {len(armed)}"
-for i in armed:
+def cmp_empty(cond, op):
+    return f"{op} ''" in cond or f'{op} ""' in cond
+
+# Every step the gate owns, armed (four) or disarmed (the detection one). Each must compare the
+# hash to the empty string EXPLICITLY: `if: ${{ hashFiles(...) }}` would also work in GitHub for
+# the armed half, but `!= ''` says the intent out loud, cannot be misread as a boolean flag, and
+# leaves the disarmed half with a spelling — `== ''` — that has no truthy equivalent at all.
+own = [i for i, s in enumerate(steps) if f"hashFiles('{config}')" in str(s.get("if", ""))]
+armed = [i for i in own if cmp_empty(str(steps[i]["if"]), "!=")]
+assert len(armed) == 4, f"expected exactly 4 bundle steps ARMED by {config}, got {len(armed)}"
+assert len(own) == len(armed) + 1, (
+    f"expected the four armed steps plus exactly one running on the config's absence, "
+    f"got {len(own)} steps keyed on {config}")
+for i in own:
     cond = str(steps[i]["if"])
-    # The gate must compare the hash to empty. `if: ${{ hashFiles(...) }}` would also work in
-    # GitHub, but `!= ''` says the intent out loud and cannot be misread as a boolean flag.
-    assert "!= ''" in cond or '!= ""' in cond, \
-        f"the gate must compare hashFiles to empty, so an absent config is plainly false: {cond}"
+    assert cmp_empty(cond, "!=") or cmp_empty(cond, "=="), \
+        f"the gate must compare hashFiles to empty, so its state is never a guess: {cond}"
     assert "always()" not in cond, f"an always() gate would defeat the opt-in entirely: {cond}"
 # Nothing OUTSIDE those steps may depend on the config or on the paths it publishes — a repo that
 # never commits it must get exactly the run it gets today. Checked against the whole document, not
 # just `steps`: the workflow already keeps `SOLUTION` in a top-level `env:`, and `jobs.test.env`,
 # `defaults.run` and a second job are all places a reference could hide from a steps-only scan.
 cfg_id = next(s for s in steps if s.get("name") == "Configuration de la garde bundle")["id"]
+# `own` (above) is keyed off the `if:` naming the config rather than off step names, so a renamed
+# step cannot slip out of this check — and the detection step, gated on the same config by its
+# ABSENCE, is excluded here for the same reason the four armed ones are.
 rest = dict(doc)
-rest["jobs"] = {k: (dict(v, steps=[s for i, s in enumerate(v["steps"]) if i not in armed])
+rest["jobs"] = {k: (dict(v, steps=[s for i, s in enumerate(v["steps"]) if i not in own])
                     if k == "test" else v)
                for k, v in doc["jobs"].items()}
 leaked = [ln for ln in yaml.safe_dump(rest, allow_unicode=True).splitlines()
