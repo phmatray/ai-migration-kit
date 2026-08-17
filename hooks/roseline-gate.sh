@@ -9,6 +9,9 @@
 # Every failure path exits 0 with no output, which lets the Read through. That direction is
 # deliberate and absolute: the plugin installs globally, so a gate that failed *closed* would
 # deadlock repositories it was never meant to touch. Set ROSELINE_GATE=off to disable it outright.
+#
+# "Cannot enforce" is one of those failure paths, not an exception to them: the gate only blocks
+# where roseline's shipped launcher exists to have started the server (see the `dnx` probe below).
 
 case "${ROSELINE_GATE:-}" in off|0|false|no|disabled) exit 0 ;; esac
 
@@ -22,6 +25,28 @@ tool=$(jq -r '.tool_name // empty' <<<"$payload" 2>/dev/null) || exit 0
 
 fp=$(jq -r '.tool_input.file_path // empty' <<<"$payload" 2>/dev/null) || exit 0
 case "$fp" in *.cs) ;; *) exit 0 ;; esac
+
+# ------------------------------------------------------- can roseline be running on this host?
+# Denying a Read names `mcp__roseline__*` as the replacement, so the gate must not deny when those
+# tools cannot exist. `.mcp.json` launches the server with `dnx`, which ships ONLY in the .NET 10
+# SDK, while the pipeline itself accepts `dotnet >= 8` — so on a .NET 8/9 host preflight went green,
+# the server never started, and the gate blocked every `.cs` Read in favour of tools the session
+# could not call (#112). No `dnx`, no shipped launcher, no server: let the Read through.
+#
+# A proxy, deliberately, and one that errs the safe way. A PreToolUse hook is handed only the tool
+# payload on stdin — there is no channel exposing the connected MCP servers — so a live handshake is
+# not available at all. This cannot catch a server that started and then crashed; that costs one
+# unnecessary deny, recoverable through the retry escape below, whereas the reverse mistake costs
+# nothing: the Read simply proceeds.
+#
+# It also subsumes the SDK floor `requirements.json` declares (`requiresSdk`) rather than reading
+# it: `dnx` on PATH implies an SDK at or above 10 by construction, and `command -v` is a shell
+# lookup where parsing the manifest would put a `jq` plus a `dotnet --list-sdks` spawn on the path
+# of every `.cs` Read.
+#
+# Placed above the marker write on purpose — a fail-open path must not arm a one-shot escape that
+# nothing will ever consume, which would then let the NEXT read of that file through for free.
+command -v dnx >/dev/null 2>&1 || exit 0
 
 # ---------------------------------------------------------------- is this .cs inside a project?
 # Walk UP from the file's own directory. Upward is the direction that answers the question; a

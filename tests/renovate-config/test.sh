@@ -50,7 +50,8 @@ KIT="$PWD"
 CI="$KIT/.github/workflows/ci.yml"
 FLOOR=40
 
-. "$KIT/tests/_lib.sh"
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$KIT"
 # This suite only reads ci.yml and renovate.json and shells out to npx, so it registers no extra
 # guard. Saying so beats leaving it unsaid: before #72 this was the one suite silently missing the

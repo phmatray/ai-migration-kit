@@ -153,6 +153,21 @@ fi
 # above and the commit itself. Re-read rather than assume — through the same reader the pre-flight
 # used, so the one subtle thing about reading a branch name has one home and not three.
 now_branch=$(head_branch_of "$REPO")
+# …and how to NAME that answer. An empty $now_branch means "detached" OR "this path can no longer
+# be read as a repository at all", and after a write nothing here has ruled the second one out.
+# head_state measures which; the raw $now_branch stays the thing the comparisons are made on.
+now_state=$(head_state "$REPO" "$now_branch")
+
+# The one fact the ALERT below has to branch on, decided by the shared predicate rather than by a
+# copy of its test in each guard — see head_state_unreadable in _assert-branch.sh for why it reads
+# both values.
+unreadable=0
+if head_state_unreadable "$now_branch" "$now_state"; then unreadable=1; fi
+
+# Reads as "the branch does not exist / is at no commit" — but on an unreadable repo it reads that
+# way because the READ failed, which is a different fact, so the ALERT's use of it below is gated
+# on $unreadable. The check AFTER the ALERT needs no such gate: it only runs when HEAD still reads
+# as '$EXPECTED', which is already proof this repo can be read.
 expected_now=$(git -C "$REPO" rev-parse --quiet --verify "refs/heads/$EXPECTED" 2>/dev/null || true)
 
 if [ "$now_branch" != "$EXPECTED" ]; then
@@ -160,19 +175,33 @@ if [ "$now_branch" != "$EXPECTED" ]; then
   # commit is reachable from no ref at all and will eventually be garbage-collected, so it is
   # precisely the case where withholding the sha loses the work — yet it is also the case where
   # "$now_branch" is empty and a branch-name-shaped message has nothing to say.
-  new_sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '<unreadable>')
+  # Through the shared reader, then rendered — the rendering is a step of its own so that this
+  # spelling cannot drift from the receipt's at the bottom of the file, which is how the two came
+  # to disagree in the first place (#129). The rendered text is unchanged.
+  head_now=$(head_sha_of "$REPO")
+  new_sha=${head_now:-<unreadable>}
   {
-    echo "guarded-commit: ALERT — the commit was made, but HEAD is now '${now_branch:-detached}',"
-    echo "                not '$EXPECTED'. HEAD moved while this commit was being written."
+    echo "guarded-commit: ALERT — the commit was made, but HEAD is now '$now_state',"
+    echo "                not '$EXPECTED'. Something moved under this command while the commit"
+    echo "                was being written."
     echo "                The new commit is: $new_sha"
     if [ -n "$now_branch" ]; then
       echo "                It is on branch '$now_branch'."
-    else
+    elif [ "$unreadable" -eq 0 ]; then
       echo "                HEAD is DETACHED, so no branch points at it — it is reachable from"
       echo "                nothing and will be garbage-collected. Save it NOW:"
       echo "                    git -C $REPO branch <rescue-name> $new_sha"
+    else
+      # The third answer, which used to be printed as the second one. Everything the branch above
+      # says would be false here: the commit is most likely sitting exactly where it was asked to
+      # go, and the thing that vanished is the PATH. Say what is known and stop.
+      echo "                $REPO can no longer be read as a git repository, so this guard cannot"
+      echo "                say where the commit went, and must not guess. What moved may well be"
+      echo "                the worktree itself — removed or renamed under this command — in which"
+      echo "                case the commit is on '$EXPECTED' exactly as asked. Find the worktree"
+      echo "                before you reset, revert or force-push anything."
     fi
-    if [ "$expected_now" = "$before_sha" ]; then
+    if [ "$unreadable" -eq 0 ] && [ "$expected_now" = "$before_sha" ]; then
       echo "                '$EXPECTED' did NOT advance — the work is on the wrong branch."
       echo "                Recover by cherry-picking $new_sha onto '$EXPECTED' and reverting it"
       echo "                on '${now_branch:-the branch that took it}'. Never force-push a branch"
@@ -183,9 +212,19 @@ if [ "$now_branch" != "$EXPECTED" ]; then
 fi
 
 if [ -n "$before_sha" ] && [ "$expected_now" = "$before_sha" ]; then
+  # Abbreviated through the shared reader, in a statement of its own, with the fallback spelled
+  # out — never inlined into the printf. `$EXPECTED` and not HEAD: this ALERT is about the branch
+  # that failed to move, which is what head_sha_of's optional <rev> argument exists for.
+  stalled_sha=$(head_sha_of "$REPO" "$EXPECTED")
   printf 'guarded-commit: ALERT — git commit reported success but %s did not advance (%s).\n' \
-    "$EXPECTED" "$(git -C "$REPO" rev-parse --short "$EXPECTED")" >&2
+    "$EXPECTED" "${stalled_sha:-<unreadable>}" >&2
   exit 3
 fi
 
-printf 'guarded-commit: %s@%s\n' "$EXPECTED" "$(git -C "$REPO" rev-parse --short HEAD)"
+# The receipt is this guard's strongest claim — the sentence the caller is asked to believe
+# instead of git's exit code — so it is the worst possible place for a substitution that can fail
+# in silence. Interpolated inline it rendered `guarded-commit: a@` on an unreadable HEAD, exit 0,
+# naming no commit (measured, #129; the same defect #116 removed from guarded-push.sh's receipt).
+# Read in its own statement, rendered with an explicit fallback.
+receipt_sha=$(head_sha_of "$REPO")
+printf 'guarded-commit: %s@%s\n' "$EXPECTED" "${receipt_sha:-<unreadable>}"

@@ -16,7 +16,11 @@
 #      and tolerate a starting path that does not exist instead of aborting the caller (#98);
 #   7. sourcing is loud when the helper is missing — a suite must never run unguarded;
 #   8. no suite hand-rolls the EXIT trap again — the anti-recurrence check;
-#   9. a suite that uses the helper takes its scratch from it, per occurrence.
+#   9. a suite that uses the helper takes its scratch from it, per occurrence;
+#  10. a suite that does NOT use it still leaves no temp directory behind — so §9 and §10 together
+#      cover every suite in the tree, and nothing falls between them (#128);
+#  11. `kit_source` loads a helper and refuses, by name, one it cannot;
+#  12. no suite sources a shared helper unguarded — the anti-recurrence check for §11.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -212,43 +216,202 @@ echo "  [8] no suite hand-rolls the EXIT trap (tests/lib is the documented excep
 # ---------------------------------------------------------------------------
 # 9. A suite that USES the helper must take its scratch from it.
 #
-#    Scoped to the suites that source `_lib.sh`, deliberately — not to every suite that calls
-#    `mktemp -d`. Five others (preflight, release-title-gate, repo-profile, report-dashboard,
-#    worktrees-ignored) manage their own with an inline `rm -rf`, and measured, they do not leak.
-#    Converting them is tidying, not a fix, and #72 is about the duplicated PREAMBLE rather than
-#    about every temp directory. Reproduce that measurement — a number kept without the command
-#    that produced it is not a measurement:
+#    Membership is DECLARED BY BEHAVIOUR: a suite is audited when it CALLS kit_init, the thing that
+#    actually arms the handler. It used to be inferred from whether the text of the file happened to
+#    contain the string `_lib.sh` (#128). That was cheap while there was one shared file with one
+#    obvious name; #51 added tests/_lib/py.sh, whose name differs by one character in a position
+#    nobody reads, and the audit's reach then depended on spelling. Both halves were wrong, and both
+#    were measured:
 #
-#      before=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tmp.*' | wc -l)
-#      for s in preflight repo-profile worktrees-ignored; do bash "tests/$s/test.sh" >/dev/null; done
-#      after=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tmp.*' | wc -l)
-#      echo "$before -> $after"      # observed 234 -> 234 when this was written
+#      * appending the comment `# voir tests/_lib.sh` to a suite that manages its own scratch turned
+#        THIS file red — four offenders — for a reason unrelated to the edit;
+#      * tests/report-dashboard/test.sh deliberately avoided the substring, and sat in the audit's
+#        blind spot while leaking a directory on every run. §9 exists to catch exactly that, and by
+#        construction never could. That leak is fixed in the same change.
 #
-#    The real difference, for whoever does convert them: an inline `rm -rf` at the end runs only on
-#    the success path, so a suite that fails midway leaves its directory behind. kit_scratch's is
-#    removed on every exit path. Worth doing; not worth failing this check over.
+#    A suite may legitimately want py_module without the preamble, so sourcing tests/_lib/py.sh is
+#    NOT membership — another distinction a filename match cannot draw.
 #
-#    Within a converted suite, though, a stray `mktemp -d` IS a leak — kit_cleanup only removes
-#    what lives under its own parent directory.
-# ---------------------------------------------------------------------------
+#    Not every suite is a member. Those that manage their own scratch with an inline `rm -rf` are
+#    out of scope here; the real difference, for whoever converts one, is that an inline `rm -rf` at
+#    the end runs only on the success path, so a suite that fails midway leaves its directory
+#    behind, whereas kit_scratch's is removed on every exit path. Worth doing; the audit does not
+#    fail over it.
+#
+#    Within a member suite, though, a stray `mktemp -d` IS a leak — kit_cleanup only removes what
+#    lives under its own parent directory.
+#
 #    Checked PER OCCURRENCE, not per file. Exempting a whole file the moment it mentions
 #    `kit_scratch` anywhere is the opposite of the leak described above, and it had a live
 #    instance: tests/audit-inventory ran `( cd "$(mktemp -d)" && … )` for its foreign-cwd case, a
 #    directory outside KIT_LIB_TMP that nothing removes, in a suite this change converted.
+#
+#    Both halves are FUNCTIONS so the fixtures below can drive them directly. The real tree cannot
+#    tell a right rule from a wrong one here: every live suite answers the same way under either,
+#    which is precisely how a wrong rule survived (#128).
+
+# Is $1 a member of the shared library — i.e. does it CALL kit_init?
+#
+# A call, never a mention. BOTH kinds of comment are dropped first — the whole-line kind and the
+# trailing kind — and the name must then sit at a command position, so prose about the helper (this
+# file is full of it, and so are the suites) cannot decide who gets audited. That is the defect
+# class #128 is about, so reproducing it here would be a poor joke, and dropping only whole-line
+# comments would have reproduced exactly half of it: a mention pushed to the end of a code line
+# still sits after whitespace, which is a command position to any pattern that looks for one.
+#
+# The trailing strip keys on whitespace before the `#`, which is what keeps it from eating the
+# shell's other uses of that character: `${x#*|}`, `$((n + 1))`-style arithmetic and quoted paths
+# have no space in front of theirs. The residue it accepts is a `kit_init` written AFTER a quoted
+# `#` on one line — a false NEGATIVE, so a suite would have to hide itself from an audit it opted
+# into, and no suite in the tree writes anything of the sort.
+#
+# Pipe-free on purpose. `grep -v … | grep -q …` lets the reader exit on the first hit; under the
+# `set -o pipefail` at the top of this file the writer's SIGPIPE (141) becomes the pipeline's
+# status, and "found it" reads back as "not a member" (#48). An audit is the last place that should
+# go unnoticed: the failure mode is a silently empty roster, which looks exactly like a clean run.
+suite_is_member() {
+  local body
+  body=$(sed -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*$//' "$1")
+  grep -qE '(^|[[:space:];&|(){}])kit_init([[:space:]]|$)' <<<"$body"
+}
+
+# The `mktemp -d` calls in $1 that sit outside kit_scratch's tree, one "    <file>: <n>:<text>"
+# line each. A `mktemp -d` rooted under a kit_scratch result is fine — that IS inside KIT_LIB_TMP.
+#
+# Comments are dropped the SAME two ways suite_is_member drops them, and for the same reason: a
+# call and a mention of a call must not look alike. The glob this replaces — `[[:space:]]*\#*` —
+# read as "one whitespace character, anything, a `#`, anything", because `*` after a bracket
+# expression is a wildcard and not a repetition. Measured: `    d=$(mktemp -d) # note` was skipped
+# AS A COMMENT while the same line unindented was flagged, so an indented stray directory escaped
+# the audit the moment anyone appended a trailing note to its line. That is a false NEGATIVE in the
+# section whose entire job is to find leaks — the failure it produces is a clean-looking run.
+stray_scratch() {
+  local line text lead
+  while IFS= read -r line; do
+    # `<n>:<text>` from grep -n. Strip the leading whitespace properly (`${text%%[![:space:]]*}` is
+    # the run of it), then a first char of `#` means the whole line is prose about mktemp.
+    text=${line#*:}
+    lead=${text%%[![:space:]]*}
+    text=${text#"$lead"}
+    case "$text" in \#*) continue ;; esac
+    # Then the trailing kind. Keyed on whitespace before the `#` exactly as suite_is_member is, so
+    # `${x#*|}` and friends survive. If what is left no longer says `mktemp -d`, the match was in
+    # the comment and there is no call here.
+    text=${text%%[[:space:]]#*}
+    case "$text" in *'mktemp -d'*) : ;; *) continue ;; esac
+    # The exemptions read the CODE, not the comment — otherwise a line could exempt itself by
+    # mentioning kit_scratch in a note, which is the same defect one column over.
+    case "$text" in
+      *kit_scratch*|*'$WORK'*|*'$scratch'*) continue ;;
+      *) printf '%s\n' "    $1: $line" ;;
+    esac
+  done < <(grep -n 'mktemp -d' "$1" || true)
+}
+
+# --- the predicate, driven on fixtures rather than on the tree ---------------
+# Each of these two fails under a substring rule, in OPPOSITE directions — which is what makes
+# them worth writing: one is dragged in by prose, the other is invisible despite being a member.
+mentions_only="$scratch/mentions-only.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo '# Prose naming tests/_lib.sh and kit_init, calling neither. A comment is not a call.'
+  echo 'd=$(mktemp -d); rm -rf "$d"'
+} > "$mentions_only"
+
+# The same mention, moved to the END of a code line. Dropping whole-line comments alone does not
+# reach it, and the mention then sits at a command position for any `kit_init` pattern to match —
+# so this fixture enrolls a non-member unless trailing comments are stripped too. It is the
+# original defect at one remove: prose still deciding who gets audited, just further right.
+trailing_mention="$scratch/trailing-mention.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'd=$(mktemp -d)   # the shared preamble would arm kit_init here'
+  echo 'rm -rf "$d"'
+} > "$trailing_mention"
+
+# Sources the helper through a VARIABLE, so its filename never appears literally: a real member
+# that a substring rule cannot see. That is the shape the leak §9 exists to catch was hiding in.
+calls_it="$scratch/calls-kit-init.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'lib="$KIT/tests/$helper"'
+  echo '. "$lib"'
+  echo 'kit_init "$PWD"'
+  echo 'd=$(mktemp -d)'
+} > "$calls_it"
+
+uses_helper="$scratch/uses-kit-scratch.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'kit_init "$PWD"'
+  echo 'd=$(kit_scratch)'
+} > "$uses_helper"
+
+if suite_is_member "$mentions_only"; then
+  echo "FAIL: a suite that only MENTIONS the shared helper was enrolled in the scratch audit."
+  echo "      Membership must follow a kit_init CALL; a filename in the text is not a declaration,"
+  echo "      and keying on one turns an unrelated comment into a red run."
+  exit 1
+fi
+if suite_is_member "$trailing_mention"; then
+  echo "FAIL: a mention of kit_init in a TRAILING comment enrolled the suite. Dropping whole-line"
+  echo "      comments is not enough — a comment that starts mid-line is still a comment, and the"
+  echo "      audit's reach would again depend on prose an editor added for unrelated reasons."
+  exit 1
+fi
+if ! suite_is_member "$calls_it"; then
+  echo "FAIL: a suite that CALLS kit_init was left out of the scratch audit — the blind spot a"
+  echo "      leaking directory sat in for as long as its file avoided spelling the helper's name."
+  exit 1
+fi
+[ -n "$(stray_scratch "$calls_it")" ] || {
+  echo "FAIL: the per-occurrence audit missed a bare 'mktemp -d'"; exit 1; }
+[ -z "$(stray_scratch "$uses_helper")" ] || {
+  echo "FAIL: the per-occurrence audit flagged a directory taken from kit_scratch"; exit 1; }
+
+# The same comment/call distinction, now for the OCCURRENCE audit rather than for membership, and
+# in both directions. These two fixtures differ by one trailing note and must come out opposite.
+#
+# An INDENTED stray directory whose line carries a trailing comment. Under the glob this replaces it
+# was skipped as though the whole line were a comment — measured — so appending a note to a leaky
+# line removed it from the audit. Every real suite indents; this is the shape the defect had.
+indented_trailing="$scratch/indented-trailing-comment.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'kit_init "$PWD"'
+  echo 'if true; then'
+  echo '    d=$(mktemp -d) # kept until the end of the block'
+  echo 'fi'
+} > "$indented_trailing"
+[ -n "$(stray_scratch "$indented_trailing")" ] || {
+  echo "FAIL: an INDENTED 'mktemp -d' with a trailing comment was skipped as if the whole line"
+  echo "      were a comment. A note appended to a leaky line must not remove it from the audit —"
+  echo "      that is a false negative in the one section whose job is to find leaks."
+  exit 1; }
+
+# And the converse: `mktemp -d` named only inside a trailing comment is prose, not a call. Without
+# this the fix above could be "flag everything", which passes the fixture above and fails the tree.
+comment_only="$scratch/mktemp-only-in-comment.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'kit_init "$PWD"'
+  echo '    d=$(kit_scratch)   # never a bare mktemp -d here'
+} > "$comment_only"
+[ -z "$(stray_scratch "$comment_only")" ] || {
+  echo "FAIL: the audit flagged a 'mktemp -d' that appears only inside a trailing comment — prose"
+  echo "      about the rule read as a breach of it: $(stray_scratch "$comment_only")"
+  exit 1; }
+
+# --- and now the tree -------------------------------------------------------
 leaky=""
 for f in tests/*/test.sh; do
   [ "$f" = "tests/lib/test.sh" ] && continue
-  grep -q '_lib\.sh' "$f" || continue
-  # A `mktemp -d` rooted under a kit_scratch result is fine — that IS inside KIT_LIB_TMP.
-  while IFS= read -r line; do
-    # `<n>:<text>` from grep -n; a comment line is prose about mktemp, not a call.
-    case "${line#*:}" in [[:space:]]*\#*|\#*) continue ;; esac
-    case "$line" in
-      *kit_scratch*|*'$WORK'*|*'$scratch'*) continue ;;
-      *) leaky="$leaky
-    $f: $line" ;;
-    esac
-  done < <(grep -n 'mktemp -d' "$f")
+  suite_is_member "$f" || continue
+  # Command substitution eats trailing newlines, so the separator is added here rather than
+  # relying on one surviving the capture — otherwise two offenders would print on one line.
+  hits=$(stray_scratch "$f")
+  [ -n "$hits" ] && leaky="$leaky
+$hits"
 done
 if [ -n "$leaky" ]; then
   echo "FAIL: these mktemp -d calls sit outside kit_scratch's tree, so kit_cleanup cannot remove"
@@ -256,5 +419,416 @@ if [ -n "$leaky" ]; then
   exit 1
 fi
 echo "  [9] a suite that uses the helper takes its scratch from it"
+
+# ---------------------------------------------------------------------------
+# 10. A suite that is NOT a member must not leak temp directories either.
+#
+#     §9 covers the members: kit_cleanup removes what kit_scratch took, on every exit path. A suite
+#     that manages its own scratch is outside that guarantee, and nothing ever measured it — which
+#     is how tests/report-dashboard/test.sh came to leak a directory on every single run, unnoticed
+#     (#128). It was in §9's blind spot by construction, since §9 keyed on a filename that suite
+#     deliberately avoided spelling. The two sections together now cover every suite, so a change
+#     that moves a suite from one side to the other cannot drop it out of both.
+#
+#     BEHAVIOURAL, not textual: the suite is run for real, every path `mktemp` hands it is recorded,
+#     and the ones that still exist afterwards are the leak. A suite that cleans up correctly comes
+#     out clean whichever spelling it used, and there is no pattern to keep in step with the code —
+#     which is the whole point, after a rule keyed on spelling missed a real leak.
+#
+#     The live loop visits every NON-MEMBER, with no further gate — the `grep -q mktemp` that used
+#     to stand in front of it is gone, because deciding who gets measured by whether four letters
+#     appear in the file is the inference #128 exists to delete, and it had already reduced this
+#     loop to zero suites (see the roster note below).
+#
+#     The FIXTURES are what keep this honest when that roster is empty, which it legitimately can
+#     be: convert every suite and §9 owns them all. Driving a deliberately leaky suite through the
+#     same harness proves the detector still detects — and it earned its place twice during #128,
+#     catching both of the wrong mechanisms tried before this one. The count of suites actually
+#     inspected is printed, so a section that measured nothing says so instead of implying it did.
+# ---------------------------------------------------------------------------
+# What NOT to do, both measured rather than reasoned about:
+#
+#   * "run it with TMPDIR pointing somewhere private, then look in there." `mktemp -d` with no
+#     template — the form every self-managing suite uses — honours $TMPDIR under GNU coreutils and
+#     IGNORES it under BSD/macOS, which takes the per-user temp dir regardless. On a maintainer's
+#     Mac the check would have measured an empty directory and printed OK.
+#   * "…and re-root it with -p so both mktemps comply." That works, but everything ELSE that reads
+#     TMPDIR writes there too: probing for `node` and `dotnet` in tests/preflight deposited
+#     `node-compile-cache` and `NuGetScratch`, and the suite was accused of leaking them.
+#
+# So the ledger: a one-file `mktemp` shim, first on PATH, appends every path the real mktemp returns
+# and otherwise behaves identically. Attribution is then exact — these are the paths THIS suite was
+# handed — and it needs no environment override at all, so the suite runs in its normal conditions.
+shim_dir="$scratch/shim"
+mkdir -p "$shim_dir"
+real_mktemp=$(command -v mktemp)
+{
+  echo '#!/usr/bin/env bash'
+  echo 'set -euo pipefail'
+  echo "real='$real_mktemp'"
+  # Status and stderr are the real mktemp's; only stdout is observed on the way past. `-u` names a
+  # path without creating it, which simply never shows up as a leftover — no special case needed.
+  echo 'out=$("$real" "$@")'
+  # `:-` and an `if`, not a bare `$MKTEMP_SHIM_LEDGER`. The shim runs under `set -u` inside whatever
+  # environment the suite hands its children, and a suite that drops the variable while keeping the
+  # shim on PATH (`env -u`, an explicit `unset`, `env -i PATH="$PATH"`) made it abort with
+  # `MKTEMP_SHIM_LEDGER: unbound variable` — measured. leftovers_of discards both streams, so that
+  # surfaced only as a non-zero rc, and the message below then blamed the SUITE for a defect the
+  # harness had created. A measurement apparatus must never be able to fail its subject.
+  #
+  # Passing the path through unrecorded is the lesser wrong: what is lost is attribution for that
+  # one call, and the warning names the shim so the loss is not silent. Being aborted by the ruler
+  # you are being measured with is not recoverable from at all.
+  #
+  # An `if`, because `[ -n "$l" ] && printf …` IS the whole statement here: with an empty ledger the
+  # compound returns 1 and `set -e` kills the shim — reintroducing the abort by another route.
+  echo 'ledger="${MKTEMP_SHIM_LEDGER:-}"'
+  echo 'if [ -n "$ledger" ]; then'
+  echo '  printf "%s\n" "$out" >> "$ledger"'
+  echo 'else'
+  echo '  echo "mktemp shim: MKTEMP_SHIM_LEDGER is not set; this path is NOT attributed" >&2'
+  echo 'fi'
+  echo 'printf "%s\n" "$out"'
+} > "$shim_dir/mktemp"
+chmod +x "$shim_dir/mktemp"
+
+# Prints "<rc>|<leftover paths, newline-separated>" for the suite at $1. Whatever it leaked is
+# REMOVED here: a leak detector that leaves the leak behind makes every later run of this file
+# noisier than the last, and tests/lib is a prerequisite of ten other suites.
+leftovers_of() {
+  local ledger rc left p
+  ledger=$(mktemp "$scratch/ledger.XXXXXX")
+  set +e
+  PATH="$shim_dir:$PATH" MKTEMP_SHIM_LEDGER="$ledger" bash "$1" >/dev/null 2>&1
+  rc=$?
+  set -e
+  left=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    [ -e "$p" ] || continue
+    if [ -n "$left" ]; then left="$left
+$p"; else left="$p"; fi
+    rm -rf "$p"
+  done < "$ledger"
+  rm -f "$ledger"
+  printf '%s|%s' "$rc" "$left"
+}
+
+# The exact shape the leak had: the directory is never even bound to a variable, so no `rm -rf`
+# anywhere in the file could have removed it.
+leaky_suite="$scratch/leaks-a-tmpdir.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'set -euo pipefail'
+  echo 'f="$(mktemp -d)/artifact.html"'
+  echo ': > "$f"'
+} > "$leaky_suite"
+r=$(leftovers_of "$leaky_suite")
+[ "${r%%|*}" = "0" ] || { echo "FAIL: the leaky fixture did not even run: ${r#*|}"; exit 1; }
+[ -n "${r#*|}" ] || {
+  echo "FAIL: the leak detector saw nothing under a suite that never removes its mktemp -d."
+  echo "      Every OK line this section prints would then be meaningless."
+  exit 1; }
+
+tidy_suite="$scratch/removes-its-tmpdir.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'set -euo pipefail'
+  echo 'd=$(mktemp -d)'
+  echo 'rm -rf "$d"'
+} > "$tidy_suite"
+r=$(leftovers_of "$tidy_suite")
+[ "${r%%|*}" = "0" ] || { echo "FAIL: the tidy fixture did not even run: ${r#*|}"; exit 1; }
+[ -z "${r#*|}" ] || { echo "FAIL: the detector flagged a suite that removes what it took: ${r#*|}"; exit 1; }
+
+# A suite that drops MKTEMP_SHIM_LEDGER from a child's environment while the shim is still on PATH.
+# The shim runs under `set -u`, so it used to abort with `unbound variable` — and because
+# leftovers_of discards both streams, that reached the loop below as a bare non-zero rc and was
+# reported as the SUITE having failed. The apparatus must not be able to fail its subject: the run
+# is expected to succeed, and to be reported clean.
+scrubbing_suite="$scratch/scrubs-the-ledger.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'set -euo pipefail'
+  echo 'd=$(env -u MKTEMP_SHIM_LEDGER mktemp -d)'
+  echo 'rm -rf "$d"'
+} > "$scrubbing_suite"
+r=$(leftovers_of "$scrubbing_suite")
+[ "${r%%|*}" = "0" ] || {
+  echo "FAIL: a suite that drops MKTEMP_SHIM_LEDGER from a child's environment was aborted by the"
+  echo "      ledger shim (exit ${r%%|*}) — and would then be blamed below for a failure the"
+  echo "      measurement created. The shim must pass the path through unrecorded instead."
+  exit 1; }
+
+# --- the tree, and the roster it actually inspected -------------------------
+# NO `grep -q mktemp` gate here any more. That gate was the same spelling-keyed inference #128 was
+# filed to delete: a non-member taking its scratch through `python3 -c 'tempfile.mkdtemp()'`,
+# `install -d` or a wrapper was skipped because the four letters did not appear, which is exactly
+# the blind spot report-dashboard's leak lived in. The ledger costs nothing on a suite that takes no
+# temp directory — an empty ledger is an empty answer — so there is nothing to gate on.
+#
+# `inspected` is counted and REPORTED. Every suite is claimed by exactly one of §9 and §10, and both
+# rosters are printed, because the state this section reached in review was a loop over zero suites
+# that still printed a confident OK line: `tests/followups` was the only non-member and it does not
+# spell `mktemp`, so the gate skipped the one suite the section existed for while the header claimed
+# the two sections covered the tree between them. An empty roster is legitimate — convert every
+# suite and §9 owns them all — but it must SAY it inspected nothing rather than let the OK line
+# imply otherwise. The fixtures above are what still assert in that state.
+inspected=0
+for f in tests/*/test.sh; do
+  [ "$f" = "tests/lib/test.sh" ] && continue
+  suite_is_member "$f" && continue           # §9 owns the members
+  inspected=$((inspected + 1))
+  r=$(leftovers_of "$f")
+  [ "${r%%|*}" = "0" ] || {
+    echo "FAIL: $f exited ${r%%|*} under the mktemp ledger shim — a run that failed proves nothing"
+    echo "      about what it cleans up. Fix that suite first; this section measures successful"
+    echo "      runs. (The shim only records what mktemp returned; it overrides no TMPDIR, so a"
+    echo "      failure here is the suite's own and not an artefact of how it was measured.)"
+    exit 1; }
+  [ -z "${r#*|}" ] || {
+    echo "FAIL: $f manages its own scratch and left this behind after a SUCCESSFUL run:"
+    printf '%s\n' "${r#*|}" | sed 's/^/        /'
+    echo "      Remove it before the suite returns, or take it from kit_scratch, which is removed"
+    echo "      on every exit path including the failing one."
+    exit 1; }
+done
+if [ "$inspected" -eq 0 ]; then
+  echo "  [10] no suite manages its own scratch — every suite is a member, so §9 covers the tree"
+  echo "       on its own. The leak detector itself is still asserted, on fixtures."
+else
+  echo "  [10] $inspected suite(s) manage their own scratch and leave no temp directory behind"
+fi
+
+# ---------------------------------------------------------------------------
+# 11. kit_source: a helper that cannot be loaded stops the suite, by name.
+#
+#     The guarded-source preamble
+#
+#         . "$KIT/tests/_lib.sh" || {
+#           echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+#
+#     was copy-pasted across ten suites, in four spellings of the root variable and two languages,
+#     and tests/xunit-v3/test.sh guarded one of its two shared sources and left the other bare —
+#     inconsistent inside a single file (#128). Same argument as py_module (#42, #51) and the trap
+#     handler (#72), applied to the mechanism that loads them.
+#
+#     One source per suite must still be spelled out: kit_source lives in the file it would have to
+#     load. That bootstrap line is the only one, and every source AFTER it is one call.
+#
+#     Driven through run_suite, so the refusal is observed as a suite would experience it — the exit
+#     status AND the fact that the body never ran. A guard that printed and continued would be worse
+#     than none, since the suite would then assert nothing and say OK.
+# ---------------------------------------------------------------------------
+r=$(run_suite 'kit_source "'"$scratch"'/no-such-helper.sh"; echo "the suite kept going"')
+[ "${r%%|*}" != "0" ] || {
+  echo "FAIL: kit_source exited 0 on a helper that does not exist: ${r#*|}"; exit 1; }
+case "${r#*|}" in *"the suite kept going"*)
+  echo "FAIL: kit_source printed a complaint and let the suite run on unguarded: ${r#*|}"; exit 1 ;;
+esac
+case "${r#*|}" in *no-such-helper.sh*) : ;; *)
+  echo "FAIL: kit_source refused without naming the file it could not load: ${r#*|}"; exit 1 ;;
+esac
+
+# A helper that is READABLE but does not PARSE — what a dropped `fi` or an unclosed quote produces.
+# The `|| {` after the source cannot reach it: bash aborts inside the source itself (measured on
+# 3.2 — exit 2, the branch never runs), which is why kit_source parses in a child shell FIRST.
+#
+# The assertion worth making is not "it stopped": bash stops too, and names the file while it is at
+# it. It is that NOTHING IN THE HELPER RAN. `source` executes a file as it parses it, so with the
+# error on line 3 the top-level commands on lines 1-2 have already taken effect by the time the
+# shell dies — measured, the fixture's side effect printed and THEN the syntax error. A
+# half-executed helper is the state this file exists to make impossible, and not reaching it is the
+# one thing the pre-parse buys. Key the fixture on that, or it passes with or without the guard.
+printf 'echo "HELPER SIDE EFFECT RAN"\nkit_source_probe() { echo hi; }\nthis is a ( parse error\n' \
+  > "$scratch/unparsable-helper.sh"
+r=$(run_suite 'kit_source "'"$scratch"'/unparsable-helper.sh"; echo "the suite kept going"')
+[ "${r%%|*}" != "0" ] || {
+  echo "FAIL: kit_source exited 0 on a helper that does not parse: ${r#*|}"; exit 1; }
+case "${r#*|}" in *"the suite kept going"*)
+  echo "FAIL: kit_source let the suite run on after a helper that does not parse: ${r#*|}"; exit 1 ;;
+esac
+case "${r#*|}" in *"HELPER SIDE EFFECT RAN"*)
+  echo "FAIL: an unparsable helper's top-level commands ran before the shell noticed. source"
+  echo "      executes as it parses, so the helper took effect up to the broken line and left the"
+  echo "      suite in a state nobody wrote down. Parse it before sourcing it: ${r#*|}"
+  exit 1 ;;
+esac
+case "${r#*|}" in *unparsable-helper.sh*) : ;; *)
+  echo "FAIL: kit_source refused an unparsable helper without naming it: ${r#*|}"; exit 1 ;;
+esac
+
+# The passing path, or the refusal above proves only that kit_source can say no. A helper it loads
+# must actually have taken effect — a definition from it is callable afterwards.
+printf 'kit_source_probe() { echo "probe-loaded"; }\n' > "$scratch/loadable-helper.sh"
+r=$(run_suite 'kit_source "'"$scratch"'/loadable-helper.sh"; kit_source_probe')
+[ "${r%%|*}" = "0" ] || { echo "FAIL: kit_source refused a readable helper: ${r#*|}"; exit 1; }
+case "${r#*|}" in *probe-loaded*) : ;; *)
+  echo "FAIL: kit_source returned 0 but the helper's definitions are not in scope: ${r#*|}"; exit 1 ;;
+esac
+
+# bash is DYNAMICALLY scoped, so every `local` in kit_source is in scope while the helper is being
+# sourced. A helper setting a top-level global that collides with one of those locals writes the
+# local instead, and the value evaporates the moment kit_source returns — the helper appears to load
+# fine and its global is simply not there, which surfaces far away as an unset variable. `f` was the
+# collision in reach: it is what kit_source's own parameter used to be called and what every loop in
+# this repo calls its file. Measured before the rename: `f` came out UNSET after a helper set it.
+printf 'f=helper-global\n' > "$scratch/sets-f-helper.sh"
+r=$(run_suite 'kit_source "'"$scratch"'/sets-f-helper.sh"; echo "f=[${f:-<unset>}]"')
+[ "${r%%|*}" = "0" ] || { echo "FAIL: kit_source refused a helper that sets a global: ${r#*|}"; exit 1; }
+case "${r#*|}" in *"f=[helper-global]"*) : ;; *)
+  echo "FAIL: a global the helper set did not survive kit_source — one of its locals shadowed the"
+  echo "      name while the helper was sourced, and bash's dynamic scoping put the assignment"
+  echo "      there instead: ${r#*|}"
+  exit 1 ;;
+esac
+echo "  [11] kit_source loads a helper, and refuses one it cannot read or parse, naming it"
+
+# ---------------------------------------------------------------------------
+# 12. No suite loads a shared helper unguarded.
+#
+#     §11 proves kit_source refuses; this proves nothing skipped it. The failure it prevents is
+#     silent by construction: `. missing.sh` under `set -e` stops the suite with bash's own
+#     line-number complaint and no mention of which helper — but a suite that sources a helper
+#     BARE and keeps going asserts less than it claims to while still printing OK, which is the
+#     outcome this whole file exists to make impossible.
+#
+#     It had a live instance when this was written: tests/xunit-v3/test.sh guarded one of its two
+#     shared sources and left the other bare, sixty lines apart, in a file its own author had just
+#     written both halves of (#128) — the same "copy-paste is not a thing people decide to do"
+#     argument §8 makes about the trap.
+#
+#     Enumerated from the filesystem, never from a list here (#45), and over the shared helpers as
+#     well as the suites — a rule its own subjects are exempt from is not a rule. tests/lib/test.sh
+#     is the one exemption: it sources the file under test deliberately, guarded by its own `[ -r ]`
+#     check at the top, and the illustrative preamble in §11's comment above would otherwise match.
+# ---------------------------------------------------------------------------
+# The unguarded sources in $1, one "<n>:<text>" line each.
+#
+# Three things this pattern deliberately does NOT key on, each of them a way the check could have
+# held for the form nobody types and lapsed for the form they do — the shape of #128's original
+# defect, which would be a poor thing to reproduce in the section written to prevent recurrence:
+#
+#   * the SPELLING of the builtin. Both `.` and `source`; `source` is what a newcomer reaches for.
+#   * the PATH. The old pattern required the literal text `tests/_lib` on the line, so
+#     `lib="$KIT/tests/_lib.sh"; . "$lib"` — the variable form, and the very shape §9's `calls_it`
+#     fixture uses to show a member hiding from a substring rule — sailed through unguarded. There
+#     is no reason to source anything in a suite without a guard, so the rule is now simply "every
+#     source is guarded" and there is no path to be blind to.
+#   * WHICH FILES get scanned. tests/_lib.sh and tests/_lib/*.sh are shared helpers that may source
+#     shared helpers; scanning only tests/*/test.sh left them out of their own rule.
+#
+# What it must not catch is `source = open(…)` inside a Python heredoc — an assignment, not a
+# builtin — hence the "next character is neither `=` nor blank" tail.
+bare_sources() {
+  local hit n text guarded probe stop line trimmed
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    n=${hit%%:*}
+    text=${hit#*:}
+    guarded=0
+    # A guard may sit on the source line itself, or open with `|| {` and close some lines later.
+    # The lookahead runs to the end of that block rather than to the next line: kit_source's own
+    # guarded source carries three comment lines before its `exit 1`, and a one-line lookahead
+    # reported the kit's canonical guarded form as unguarded the moment this rule reached it.
+    case "$text" in *"exit 1"*) guarded=1 ;; esac
+    if [ "$guarded" -eq 0 ]; then
+      case "$text" in *'|| {'*)
+        probe=$((n + 1)); stop=$((n + 20))
+        while [ "$probe" -le "$stop" ]; do
+          line=$(sed -n "${probe}p" "$1")
+          case "$line" in *"exit 1"*) guarded=1; break ;; esac
+          trimmed=${line#"${line%%[![:space:]]*}"}
+          case "$trimmed" in '}'*) break ;; esac
+          probe=$((probe + 1))
+        done ;;
+      esac
+    fi
+    if [ "$guarded" -eq 1 ]; then continue; fi
+    printf '%s\n' "    $1:$hit"
+  done < <(grep -nE '^[[:space:]]*(\.|source)[[:space:]]+[^=[:space:]]' "$1" || true)
+}
+
+# Fixtures first, for the same reason as §9 and §10: the tree currently answers "all guarded", so
+# it cannot tell a working check from one that matches nothing at all.
+bare_fixture="$scratch/sources-bare.sh"
+printf '. "$KIT/tests/_lib.sh"\nkit_init "$PWD"\n' > "$bare_fixture"
+[ -n "$(bare_sources "$bare_fixture")" ] || {
+  echo "FAIL: the bare-source check did not flag a bare '. \$KIT/tests/_lib.sh'"; exit 1; }
+
+# `source` is bash's other spelling of `.`, and it is the one a newcomer reaches for. A check that
+# polices only the dot leaves the commoner spelling unpoliced, so the anti-recurrence guarantee
+# would hold for the form nobody types and lapse for the form they do — the same "the reach depends
+# on how it was written" hole §9 was rewritten to close.
+bare_keyword_fixture="$scratch/sources-bare-keyword.sh"
+printf 'source "$KIT/tests/_lib.sh"\nkit_init "$PWD"\n' > "$bare_keyword_fixture"
+[ -n "$(bare_sources "$bare_keyword_fixture")" ] || {
+  echo "FAIL: the bare-source check did not flag a bare 'source \$KIT/tests/_lib.sh' — only the"
+  echo "      dot spelling was policed, so the guard lapses on the form most people write."
+  exit 1; }
+
+# The path in a VARIABLE, so the helper's filename never appears on the source line. The old rule
+# required the literal text `tests/_lib` there and so could not see this at all — the identical
+# blind spot §9 was rewritten to remove, sitting in the section whose job is to prevent its return.
+# It is not a hypothetical shape: §9's own `calls_it` fixture is written exactly this way, because
+# it is how the leak that started #128 stayed invisible.
+bare_variable_fixture="$scratch/sources-bare-variable.sh"
+printf 'lib="$KIT/tests/_lib.sh"\n. "$lib"\nkit_init "$PWD"\n' > "$bare_variable_fixture"
+[ -n "$(bare_sources "$bare_variable_fixture")" ] || {
+  echo "FAIL: a bare source of a path held in a VARIABLE was not flagged. The check still keys on"
+  echo "      the helper's name appearing literally on the line, which is the inference #128 exists"
+  echo "      to delete — and the one shape a suite hiding from this rule would actually use."
+  exit 1; }
+
+guarded_fixture="$scratch/sources-guarded.sh"
+{
+  echo '. "$KIT/tests/_lib.sh" || {'
+  echo '  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }'
+} > "$guarded_fixture"
+[ -z "$(bare_sources "$guarded_fixture")" ] || {
+  echo "FAIL: the bare-source check flagged the guarded bootstrap form"; exit 1; }
+
+# The guard block may run to several lines — kit_source's own does, with comments between the `|| {`
+# and its `exit 1`. A one-line lookahead called that unguarded, i.e. reported the kit's canonical
+# form as a breach of the kit's own rule.
+guarded_block_fixture="$scratch/sources-guarded-block.sh"
+{
+  echo 'lib="$KIT/tests/_lib.sh"'
+  echo '. "$lib" || {'
+  echo '  # why this refuses rather than warns'
+  echo '  echo "FAIL: cannot source $lib"'
+  echo '  exit 1'
+  echo '}'
+} > "$guarded_block_fixture"
+[ -z "$(bare_sources "$guarded_block_fixture")" ] || {
+  echo "FAIL: a source guarded by a multi-line '|| { … exit 1; }' block was flagged as bare:"
+  echo "      $(bare_sources "$guarded_block_fixture")"
+  exit 1; }
+
+# `source = open(…)` in a Python heredoc is an assignment, not the builtin. Broadening the rule to
+# every source line is only safe if it can still tell those apart — tests/xunit-v3/test.sh has one.
+python_assignment_fixture="$scratch/python-source-assignment.sh"
+printf 'python3 <<PY\nsource = open("x").read()\nPY\n' > "$python_assignment_fixture"
+[ -z "$(bare_sources "$python_assignment_fixture")" ] || {
+  echo "FAIL: 'source = open(…)' in a Python heredoc was read as the shell's source builtin:"
+  echo "      $(bare_sources "$python_assignment_fixture")"
+  exit 1; }
+
+# Suites AND the shared helpers themselves. tests/_lib.sh sources through kit_source, and a rule
+# that exempts the file defining the rule is not one.
+unguarded=""
+for f in tests/*/test.sh tests/_lib.sh tests/_lib/*.sh; do
+  [ "$f" = "tests/lib/test.sh" ] && continue
+  [ -f "$f" ] || continue
+  hits=$(bare_sources "$f")
+  [ -n "$hits" ] && unguarded="$unguarded
+$hits"
+done
+if [ -n "$unguarded" ]; then
+  echo "FAIL: these files source another file without refusing to run when it cannot be loaded."
+  echo "      Use kit_source, or the two-line bootstrap form, but never a bare dot:$unguarded"
+  exit 1
+fi
+echo "  [12] every source is guarded — kit_source, or the bootstrap form (helpers included)"
 
 echo "tests/_lib.sh golden test OK"

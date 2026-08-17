@@ -101,6 +101,20 @@ jobs:
       - name: Every golden test suite PARSES (the macOS bash 3.2 sweep)
         run: ./scripts/parse-sweep.sh
 
+      # The pinned xunit.v3 version is spelled in a dozen lines beyond the constant Renovate bumps,
+      # and #69's `[7e]` sweep covered two files of them on purpose — the rest needed a policy, not
+      # a wider regex (#90). This is that policy's gate: every spelling is either MARKED as derived
+      # from XUNIT_V3_VERSION (and held to it) or RECORDED as historical with a reason; a new,
+      # unmarked copy fails here by name. Loud by default, because the alternative — an exclusion
+      # list — would instead sweep the next copy into agreement, and the deliberately-historical
+      # spellings (the xunit.v3.mtp-v2 enumerations, the scratch .csproj the transform test feeds
+      # itself) must never move.
+      #
+      # Cheap and structural — stdlib Python and `git ls-files`, no toolchain — so it sits with the
+      # other fast gates rather than behind the builds. Its golden test runs below, with the suites.
+      - name: Every spelling of the pinned version is marked or recorded
+        run: python3 scripts/pinned-literals-check.py
+
       # Ten suites now get their EXIT trap from tests/_lib.sh (#72), so a bug in that handler would
       # silently weaken all of them at once — the `local rc=$?`-first invariant is the difference
       # between a failing suite reporting failure and reporting success. It sits AHEAD of every
@@ -132,6 +146,15 @@ jobs:
       # bare non-zero exit — otherwise they would pass on this runner for the wrong reason.
       - name: Parse sweep golden test (the #131 construct, driven to red)
         run: ./tests/parse-sweep/test.sh
+
+      # The pinned-literals guard's own refusal paths (#90). A guard is worth exactly what its
+      # refusal path is worth, and this one's refusals are the whole design: an unmarked new copy
+      # must FAIL rather than be swept into agreement, and the deliberately-historical spellings
+      # (the xunit.v3.mtp-v2 enumerations, the scratch .csproj the transform test feeds itself)
+      # must be left alone. Both directions are driven over fixtures here. Sources tests/_lib.sh,
+      # so it sits after that helper's own test, like the two golden tests above it.
+      - name: Pinned-literals golden test (an unmarked copy refuses; a historical one is left alone)
+        run: ./tests/pinned-literals/test.sh
 
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo

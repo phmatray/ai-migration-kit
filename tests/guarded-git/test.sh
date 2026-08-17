@@ -1390,4 +1390,270 @@ run unborn-merge "$MERGE" -C "$MUNBORN" a -- m
 grep -q "^guarded-merge: a@" "$OUT" || fail unborn-merge "the receipt must name the branch and its new tip"
 echo "  ok: unborn merge — the first sync into a fresh branch still lands (0), not refused"
 
+# ------------------------------------------- 32. the SUCCESS RECEIPT, with an unreadable HEAD
+#
+# The receipt is the strongest claim a guard makes — the sentence a caller is asked to believe
+# INSTEAD of git's exit code. It was built by interpolating a bare `$(git … rev-parse --short
+# HEAD)` straight into a `printf` argument, and a command substitution that FAILS there is
+# neither aborted by `set -e` nor reflected in the statement's status. Measured on main at
+# 02bbfb6, under the `set -euo pipefail` every guard sets:
+#
+#     $ printf 'receipt: %s@%s\n' "a" "$(git -C /nonexistent rev-parse --short HEAD 2>/dev/null)"
+#     receipt: a@
+#     $ echo $?
+#     0
+#
+# So `guarded-commit: a@` — a receipt with the amount left blank, and a zero exit saying it is
+# fine. #116 removed exactly this from guarded-push.sh's receipt; its two siblings were outside
+# that issue's Area and kept it (#129).
+#
+# Nothing caught it because no case had ever reached a guard's SUCCESS path with an unreadable
+# HEAD: case 31's unborn coverage sits on the REFUSAL paths, which return long before any
+# receipt is printed. That gap is what this case closes, for both guards that print one.
+#
+# The fixture, and why it is shaped this way: a `post-commit` hook runs
+# `git update-ref -d refs/heads/a`. HEAD stays SYMBOLIC on `a`, so the post-write re-assert
+# agrees and the guard walks all the way to its receipt; `a` no longer exists, so HEAD is
+# UNBORN and `rev-parse --short HEAD` exits 128 with nothing on stdout (measured — and the
+# reason the abbreviating form is the one used here: the BARE form prints the literal string
+# "HEAD" instead, which is #92's separate trap).
+
+R=$(new_repo receipt-unreadable)
+git -C "$R" checkout -q a
+printf '#!/bin/sh\ngit update-ref -d refs/heads/a\n' > "$R/.git/hooks/post-commit"
+chmod +x "$R/.git/hooks/post-commit"
+echo "task work" >> "$R/seed.txt"
+
+run receipt-unreadable "$COMMIT" -C "$R" a -- -am "feat: work whose receipt cannot name it"
+
+# The fixture, before the verdict: a hook that quietly did nothing would leave `a` readable, the
+# receipt would render a real sha, and every assertion below would pass while testing nothing.
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail receipt-unreadable "fixture broken: HEAD must still be symbolic on a, or the re-assert diverts the guard before its receipt"
+[ -z "$(git -C "$R" rev-parse --quiet --verify refs/heads/a || true)" ] \
+  || fail receipt-unreadable "fixture broken: refs/heads/a survived, so HEAD is readable and the blank is never exercised"
+
+[ "$RC" -eq 0 ] || fail receipt-unreadable "the commit was made and the re-assert passed, so this is the SUCCESS path — got $RC"
+receipt=$(grep '^guarded-commit: ' "$OUT" || true)
+[ -n "$receipt" ] || fail receipt-unreadable "the guard printed no receipt at all"
+# Two assertions on purpose, as at case 18b: the first names the REGRESSION in the words an
+# operator would search for, the second pins the prescribed RENDERING so changing `<unreadable>`
+# is a deliberate act. Collapsing them keeps the coverage and loses which of the two broke.
+case "$receipt" in
+  *@) fail receipt-unreadable "the receipt names no commit: $receipt" ;;
+esac
+case "$receipt" in
+  *"a@<unreadable>"*) : ;;
+  *) fail receipt-unreadable "an unreadable HEAD must be rendered explicitly in the receipt, got: $receipt" ;;
+esac
+echo "  ok: receipt-unreadable — guarded-commit's success receipt never leaves the sha field blank"
+
+# 32b. …and the same for guarded-merge.sh's receipt, which carries the identical defect.
+#
+# `post-merge` and not `post-commit`: measured, `git merge` does not run the post-commit hook for
+# the merge commit it writes, so the sibling fixture would silently no-op — leaving `a` readable
+# and this case green for the wrong reason.
+
+R=$(new_merge_repo receipt-unreadable-merge)
+printf '#!/bin/sh\ngit update-ref -d refs/heads/a\n' > "$R/.git/hooks/post-merge"
+chmod +x "$R/.git/hooks/post-merge"
+
+run receipt-unreadable-merge "$MERGE" -C "$R" a -- m
+
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail receipt-unreadable-merge "fixture broken: HEAD must still be symbolic on a"
+[ -z "$(git -C "$R" rev-parse --quiet --verify refs/heads/a || true)" ] \
+  || fail receipt-unreadable-merge "fixture broken: refs/heads/a survived, so the post-merge hook never ran"
+
+[ "$RC" -eq 0 ] || fail receipt-unreadable-merge "the merge succeeded and HEAD never left a, so this is the SUCCESS path — got $RC"
+receipt=$(grep '^guarded-merge: ' "$OUT" || true)
+[ -n "$receipt" ] || fail receipt-unreadable-merge "the guard printed no receipt at all"
+case "$receipt" in
+  *@) fail receipt-unreadable-merge "the receipt names no commit: $receipt" ;;
+esac
+case "$receipt" in
+  *"a@<unreadable>"*) : ;;
+  *) fail receipt-unreadable-merge "an unreadable HEAD must be rendered explicitly in the receipt, got: $receipt" ;;
+esac
+echo "  ok: receipt-unreadable-merge — guarded-merge's success receipt never leaves the sha field blank"
+
+# ---------------------------------------------------------------- 33. ONE spelling for the read
+#
+# The two cases above pin the OUTPUT. This one pins the reason the output was wrong, because the
+# blank receipt was never really a typo: reading HEAD's branch had a home (head_branch_of, #44)
+# and reading HEAD's SHA had none, so every message that wanted one respelled the read. Four
+# spellings across four files, and the fourth — a bare `$(git … rev-parse …)` interpolated into a
+# printf argument — is the defect. That there were four at all is why a fifth is cheap to add,
+# which is what this case makes expensive.
+#
+# It is a STATIC scan on purpose. A behavioural case can only reach a spelling that some fixture
+# happens to exercise; the whole lesson of #44/#72/#78/#92/#129 is that the copy nobody exercises
+# is the one that keeps the bug. So the assertion is over the source itself.
+#
+# Whole-line comments are excluded, and have to be: these guards carry long prose headers that
+# QUOTE the very spellings under test — that is what the headers are for — and a scan that read
+# them would be permanently red with no way to fix it that did not delete the reasoning.
+guard_code() {
+  awk -v f="$(basename "$1")" '!/^[[:space:]]*#/ { print f ":" NR ": " $0 }' "$1"
+}
+
+# 33a. The ABBREVIATING read — `rev-parse … --short` — has exactly one home, and it is the
+# helper. This is the read-kind that carried the defect, in three of its four spellings.
+spellings=""
+for g in "$COMMIT" "$PUSH" "$MERGE"; do
+  hits=$(guard_code "$g" | grep -E 'rev-parse.*--short' || true)
+  [ -z "$hits" ] || spellings="$spellings$hits
+"
+done
+if [ -n "$spellings" ]; then
+  OUT="$WORK/out.one-spelling"
+  printf '%s' "$spellings" > "$OUT"
+  fail one-spelling "abbreviating a sha belongs to head_sha_of in _assert-branch.sh; these guards still spell it themselves:"
+fi
+
+helper_homes=$(guard_code "$HELPER" | grep -cE 'rev-parse.*--short' || true)
+OUT=""
+[ "$helper_homes" -eq 1 ] || fail one-spelling-home \
+  "the abbreviating read must have exactly ONE home in _assert-branch.sh, found $helper_homes"
+
+# 33b. …and no message may build one inline. This is the shape of the bug rather than one of its
+# instances: a command substitution that fails inside a `printf`/`echo` argument is neither
+# aborted by `set -e` nor reflected in the statement's status, so the field renders empty and the
+# guard exits 0 having named no commit. Reading into a variable first is what makes the failure
+# observable, which is why the rule is about WHERE the substitution sits, not about which flags
+# it carries.
+inlined=""
+for g in "$COMMIT" "$PUSH" "$MERGE" "$HELPER"; do
+  hits=$(guard_code "$g" | grep -E '(printf|echo).*\$\(git' || true)
+  [ -z "$hits" ] || inlined="$inlined$hits
+"
+done
+if [ -n "$inlined" ]; then
+  OUT="$WORK/out.inlined-substitution"
+  printf '%s' "$inlined" > "$OUT"
+  fail inlined-substitution "a git read inside a printf/echo argument fails invisibly — read it into a variable first:"
+fi
+
+# 33c. …and the FULL-sha witness read keeps its safe spelling. Different read-kind, same file,
+# and green the day it is written — which is its job, exactly as case 31b's is. `rev-parse HEAD`
+# with no `--verify` prints the literal string "HEAD" on an unborn branch and exits 128, so
+# `|| true` hands the caller "HEAD" as though it were a sha; that is #92, and it is one careless
+# edit away from coming back in a file that now invites people to touch its sha reads.
+unsafe=""
+for g in "$COMMIT" "$PUSH" "$MERGE" "$HELPER"; do
+  hits=$(guard_code "$g" | grep -E 'rev-parse[[:space:]]+HEAD' || true)
+  [ -z "$hits" ] || unsafe="$unsafe$hits
+"
+done
+if [ -n "$unsafe" ]; then
+  OUT="$WORK/out.unsafe-head-read"
+  printf '%s' "$unsafe" > "$OUT"
+  fail unsafe-head-read "a bare 'rev-parse HEAD' answers with the literal string HEAD on an unborn branch (#92) — use --verify --quiet:"
+fi
+OUT=""
+echo "  ok: one-spelling — the sha read has one home, no message builds one inline, and #92's spelling stays out"
+
+# ---------------------------------------------------------------- 34. `detached` is a MEASUREMENT
+#
+# head_branch_of() answers with nothing in TWO situations — HEAD is genuinely detached, and the
+# repo cannot be read at all — and every post-write re-assert rendered `${now_branch:-detached}`,
+# which turns the second into a definite claim about the first.
+#
+# In assert_branch's PRE-FLIGHT that conflation is harmless, and deliberately so: it has proven
+# the path is a git repository two lines earlier, so empty there really does mean detached. After
+# the write nothing has proven any such thing — and "the worktree is gone" is precisely the
+# concurrency class these guards exist for (#129, the same "cannot tell nothing from failed"
+# shape as #124).
+#
+# What it cost, measured before the fix: the commit below lands safely on `a`, HEAD never leaves
+# `a`, and the guard tells the operator HEAD is detached, that the commit "is reachable from
+# nothing and will be garbage-collected", and hands them a rescue command ending in
+# `<unreadable>`. Every word of that is false, and it is the sentence they act on.
+#
+# The fixture points the guard at a SYMLINK and has the hook remove it. git resolves its
+# directories once, at startup, so the write itself completes untouched while every later
+# `git -C <link>` the guard makes fails — the shape of a worktree pruned or moved under a running
+# command. Nothing is destroyed, which is what lets each case also assert where the work really
+# went, and so prove the old message was wrong rather than merely differently worded.
+
+R=$(new_repo unreadable-commit)
+git -C "$R" checkout -q a
+LINK="$WORK/unreadable-commit-link"
+ln -s "$R" "$LINK"
+# Quoted inside the generated hook: $WORK comes from mktemp, and a TMPDIR with a space in it
+# would otherwise turn `rm -f <path>` into two arguments — the hook would no-op, the repo would
+# stay readable, and the case would pass while testing nothing.
+printf "#!/bin/sh\nrm -f '%s'\n" "$LINK" > "$R/.git/hooks/post-commit"
+chmod +x "$R/.git/hooks/post-commit"
+before_a=$(tip "$R" a)
+echo "task work" >> "$R/seed.txt"
+
+run unreadable-commit "$COMMIT" -C "$LINK" a -- -am "feat: work whose worktree is pruned under it"
+
+[ ! -e "$LINK" ] || fail unreadable-commit "fixture broken: the hook left the symlink in place, so the repo is still readable"
+[ "$(tip "$R" a)" != "$before_a" ] || fail unreadable-commit "fixture broken: the commit never landed, so there is nothing to mis-describe"
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail unreadable-commit "fixture broken: HEAD really did leave a — this case must be about the PATH, not about HEAD"
+
+[ "$RC" -eq 3 ] || fail unreadable-commit "expected exit 3 when the repo cannot be re-read, got $RC"
+grep -qi 'detached' "$OUT" \
+  && fail unreadable-commit "the ALERT claims HEAD is detached — HEAD is on 'a' and the commit is safely there; the PATH is what vanished"
+grep -qi 'cannot be read\|could not be read\|no longer be read' "$OUT" \
+  || fail unreadable-commit "the ALERT must say the repository could not be read"
+grep -q "HEAD is now '<unreadable>'" "$OUT" \
+  || fail unreadable-commit "the branch field must render <unreadable>, not a state nothing measured"
+echo "  ok: unreadable-commit — a vanished worktree is reported as unreadable, never as detached"
+
+# 34b. …the same for guarded-merge.sh's post-write re-assert.
+
+R=$(new_merge_repo unreadable-merge)
+LINK="$WORK/unreadable-merge-link"
+ln -s "$R" "$LINK"
+printf "#!/bin/sh\nrm -f '%s'\n" "$LINK" > "$R/.git/hooks/post-merge"
+chmod +x "$R/.git/hooks/post-merge"
+before_a=$(tip "$R" a)
+
+run unreadable-merge "$MERGE" -C "$LINK" a -- m
+
+[ ! -e "$LINK" ] || fail unreadable-merge "fixture broken: the hook left the symlink in place"
+[ "$(tip "$R" a)" != "$before_a" ] || fail unreadable-merge "fixture broken: the merge never landed"
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail unreadable-merge "fixture broken: HEAD really did leave a"
+
+[ "$RC" -eq 3 ] || fail unreadable-merge "expected exit 3 when the repo cannot be re-read, got $RC"
+grep -qi 'detached' "$OUT" \
+  && fail unreadable-merge "the ALERT claims HEAD is detached for a repo whose PATH is simply gone"
+grep -qi 'cannot be read\|could not be read\|no longer be read' "$OUT" \
+  || fail unreadable-merge "the ALERT must say the repository could not be read"
+grep -q "HEAD is now '<unreadable>'" "$OUT" \
+  || fail unreadable-merge "the branch field must render <unreadable>, not a state nothing measured"
+echo "  ok: unreadable-merge — a vanished worktree is reported as unreadable, never as detached"
+
+# 34c. …and guarded-push.sh, whose re-assert renders the same two fields side by side. Its sha
+# half already said `<unreadable>` (#92 fixed that one); the branch half beside it still said
+# `detached`, so the line read `HEAD is now  detached @ <unreadable>` — one measured field and
+# one invented, in the same sentence.
+
+R=$(new_repo_with_origin unreadable-push)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work on a"
+LINK="$WORK/unreadable-push-link"
+ln -s "$R" "$LINK"
+with_prepush_hook "$R" "rm -f '$LINK'"
+
+run unreadable-push "$PUSH" -C "$LINK" a
+
+[ ! -e "$LINK" ] || fail unreadable-push "fixture broken: the hook left the symlink in place"
+[ "$(remote_tip unreadable-push a)" = "$(tip "$R" a)" ] \
+  || fail unreadable-push "fixture broken: the push never reached the remote, so the re-assert is not what is under test"
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail unreadable-push "fixture broken: HEAD really did leave a"
+
+[ "$RC" -eq 4 ] || fail unreadable-push "expected exit 4 when the repo cannot be re-read, got $RC"
+grep -qi 'detached' "$OUT" \
+  && fail unreadable-push "the ALERT claims HEAD is detached for a repo whose PATH is simply gone"
+grep -q '<unreadable> @' "$OUT" \
+  || fail unreadable-push "the branch field must render <unreadable> beside the sha field, not a state nothing measured"
+echo "  ok: unreadable-push — a vanished worktree is reported as unreadable, never as detached"
+
 echo "guarded-git golden test OK"

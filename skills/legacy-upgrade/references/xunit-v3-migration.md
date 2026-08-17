@@ -62,7 +62,7 @@ exists in prerelease. Pick the stable one unless the target has a reason not to.
 | **add `Microsoft.Testing.Extensions.CodeCoverage`** | **coverage does not survive the move without it** — see below |
 
 **On the `OutputType` trap.** The documented failure mode is a v3 project left as a library, which
-would compile and execute nothing. Measured on **xunit.v3 3.2.2**, the package guards this itself
+would compile and execute nothing. Measured on **xunit.v3 3.2.2**, <!-- pinned:xunit-v3 --> the package guards this itself
 and fails the build:
 
 ```
@@ -132,7 +132,7 @@ you nothing. Measured on nuget.org (`*.nuspec` via `api.nuget.org/v3-flatcontain
 
 | xunit test package | resolves through | Microsoft.Testing.Platform | Microsoft.Testing.Extensions.CodeCoverage |
 |---|---|---|---|
-| **`xunit.v3`** 3.2.2 | `xunit.v3.mtp-v1` | 1.9.1 | **17.x** |
+| **`xunit.v3`** 3.2.2 | `xunit.v3.mtp-v1` | 1.9.1 | **17.x** <!-- pinned:xunit-v3 --> |
 | **`xunit.v3.mtp-v2`** 3.2.2 | `xunit.v3.core.mtp-v2` | 2.0.2 | **18.x** |
 
 **CodeCoverage is not the only package bound to that line** — the whole

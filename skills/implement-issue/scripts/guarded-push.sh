@@ -155,11 +155,30 @@ fi
 now_branch=$(head_branch_of "$REPO")
 now_sha=$(git -C "$REPO" rev-parse --verify --quiet HEAD 2>/dev/null || true)
 
+# The sha field already said `<unreadable>` rather than inventing something (#92). The branch
+# field beside it still said `detached`, which is not the same kind of answer: head_branch_of is
+# empty both for a genuinely detached HEAD and for a path that can no longer be read at all, and
+# after the push nothing here has ruled the second one out — so the line read
+# `HEAD is now  detached @ <unreadable>`, one measured field and one invented (#129).
+#
+# head_state renders it; head_state_unreadable is the shared decision the correction below
+# branches on, kept in _assert-branch.sh rather than written out again here.
+now_state=$(head_state "$REPO" "$now_branch")
+unreadable=0
+if head_state_unreadable "$now_branch" "$now_state"; then unreadable=1; fi
+
 if [ "$now_branch" != "$EXPECTED" ] || [ "$now_sha" != "$head_sha" ]; then
   {
     echo "guarded-push: ALERT — git push exited 0, but HEAD moved while it ran."
     echo "              pushed from  $EXPECTED @ $head_sha"
-    echo "              HEAD is now  ${now_branch:-detached} @ ${now_sha:-<unreadable>}"
+    echo "              HEAD is now  $now_state @ ${now_sha:-<unreadable>}"
+    if [ "$unreadable" -eq 1 ]; then
+      # The correction has to sit here rather than replace the line above, because the line above
+      # is still the honest summary of what the guard can no longer confirm.
+      echo "              …but that reading is itself unavailable: $REPO can no longer be read as"
+      echo "              a git repository, so HEAD may never have moved at all — a worktree"
+      echo "              removed or renamed under this command reads exactly the same way."
+    fi
     echo "              git push sends the CURRENT branch, so what reached $REMOTE may not be"
     echo "              your work. Check the remote before pushing again."
   } >&2
@@ -273,6 +292,12 @@ fi
 # defect #92 removed from the ALERT above, on the success path, which is the worse place for it.
 # The fallback is the full `$head_sha`, which the pre-flight witness check above already required
 # to be non-empty — named rather than cited by line, for the reason given at the re-assert.
-short_sha=$(git -C "$REPO" rev-parse --short "$head_sha" 2>/dev/null || true)
+#
+# The read itself is head_sha_of() from _assert-branch.sh, which is where abbreviating a sha now
+# lives for all three guards (#129): this line was the third of four spellings, and the fix that
+# landed here first stayed here while the two siblings kept theirs — the same "repair it where you
+# saw it" shape as #44/#78/#92. head_sha_of takes the <rev> as its second argument, so `$head_sha`
+# still names the sha the remote was actually compared against.
+short_sha=$(head_sha_of "$REPO" "$head_sha")
 printf 'guarded-push: %s/%s == %s, verified on the remote\n' \
   "$REMOTE" "$EXPECTED" "${short_sha:-$head_sha}"
