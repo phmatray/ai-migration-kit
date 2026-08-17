@@ -457,18 +457,56 @@ jobs:
             esac
           done
 
+          # Normaliser APRÈS les refus ci-dessus, jamais avant : ceux-ci portent sur la forme
+          # ÉCRITE dans le fichier (chemin absolu, `..`, caractère interdit), donc ils doivent voir
+          # la valeur telle que l'auteur l'a tapée, et la nommer telle quelle dans le message.
+          # Ici, au contraire, on compare deux chemins : `./web`, `web` et `web/` désignent le même
+          # répertoire, et sans normalisation le test d'égalité juste en dessous se contournerait
+          # par une simple orthographe (`src: "web"`, `dist: "web/"`).
+          # Le `./` compte : le message de remédiation de l'étape de détection propose
+          # `{ "src": "<le répertoire qui porte package.json>", "dist": "<le bundle, sous src>" }`,
+          # ce qui pour un front à la RACINE se lit `"."` et `"dist"`. Suivre à la lettre la
+          # remédiation livrée et se faire refuser par le validateur livré est pire que l'un ou
+          # l'autre séparément.
+          src=${src#./}; dist=${dist#./}
+          while [ "$src" != "${src%/}" ]; do src=${src%/}; done
+          while [ "$dist" != "${dist%/}" ]; do dist=${dist%/}; done
+          # `.` et `./` s'effondrent sur la racine, qui est un `src` légitime (front à la racine) —
+          # mais jamais un `dist` : un bundle qui EST le dépôt n'est pas un bundle.
+          [ -n "$src" ] || src=.
+          [ -n "$dist" ] || refuse "\"dist\" désigne la racine du dépôt : le bundle doit être un sous-répertoire de ses sources."
+
           # La corrélation, vérifiée sur le FICHIER et avant que npm n'ait reconstruit quoi que ce
           # soit. La garde elle-même la revérifie sur ses propres entrées : valider ici évite de
           # payer une installation Node pour rien, revérifier là-bas garde l'invariant vrai même
           # si un jour les chemins arrivaient d'ailleurs.
-          case "$dist/" in
-            "$src"/*) : ;;
-            *) refuse "\"dist\" ('$dist') n'est pas sous \"src\" ('$src'). npm reconstruirait un arbre pendant que la garde en examine un autre : aucune dérive vue, vert sur un bundle périmé." ;;
-          esac
+          #
+          # L'ÉGALITÉ est dite à part, et en premier. `case "$dist/" in "$src"/*)` l'acceptait —
+          # `*` matche la chaîne VIDE, donc `web/` matche `web/*` — et c'est le seul contrôle entre
+          # une configuration absurde et une garde armée. Le coût n'est pas théorique : la
+          # reconstruction lance `npm ci` dans `web/`, ce qui y crée `web/node_modules` ; la garde
+          # fait ensuite `git status --porcelain --ignored -- web`, et comme `--ignored` est
+          # délibérément là, elle liste tout l'arbre ignoré et rougit à CHAQUE run en conseillant
+          # « reconstruire, puis committer » — un conseil qui ne peut jamais la faire verdir.
+          [ "$dist" != "$src" ] || refuse "\"dist\" et \"src\" désignent le même répertoire ('$src'). Le bundle doit être un SOUS-répertoire de ses sources : sinon 'npm ci' crée node_modules dans l'arbre même que la garde inspecte (elle liste les fichiers ignorés, volontairement), et l'étape rougit à chaque run sans remédiation possible."
+          # `.` est le seul `src` dont TOUT chemin relatif est un sous-arbre — l'absolu et le `..`
+          # ayant déjà été refusés plus haut, il n'y a rien de plus à vérifier pour lui.
+          if [ "$src" != "." ]; then
+            # `?*` et non `*`, par ceinture et bretelles : le refus d'égalité ci-dessus dit
+            # l'invariant, ce motif fait qu'aucune réécriture future ne puisse le reperdre ici.
+            case "$dist/" in
+              "$src"/?*) : ;;
+              *) refuse "\"dist\" ('$dist') n'est pas sous \"src\" ('$src'). npm reconstruirait un arbre pendant que la garde en examine un autre : aucune dérive vue, vert sur un bundle périmé." ;;
+            esac
+          fi
 
           # `src` est le répertoire où tourne 'npm ci'. Sans package.json suivi, la reconstruction
           # échouerait plus tard avec un message qui accuse npm, alors que la faute est ici.
-          git ls-files --error-unmatch -- "$src/package.json" > /dev/null 2>&1 \
+          # `$src/package.json` s'écrirait `./package.json` à la racine : git l'accepte, mais la
+          # forme sans préfixe est celle que `ls-files` rend, donc celle qu'un lecteur reconnaîtra
+          # dans un message d'erreur. Même idiome que l'étape de détection plus bas.
+          if [ "$src" = "." ]; then src_pkg=package.json; else src_pkg="$src/package.json"; fi
+          git ls-files --error-unmatch -- "$src_pkg" > /dev/null 2>&1 \
             || refuse "\"src\" ('$src') ne porte pas de package.json suivi par git : la reconstruction n'aurait pas lieu là où vit le bundle."
 
           {
@@ -510,13 +548,29 @@ jobs:
             echo "La reconstruction n'a donc pas eu lieu là où vit le bundle."
             exit 1
           fi
-          case "$BUNDLE_DIST/" in
-            "$BUNDLE_SRC"/*) : ;;
-            *) echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')."
-               echo "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :"
-               echo "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé."
-               exit 1 ;;
-          esac
+          # L'égalité d'abord, et nommée. `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` l'acceptait
+          # (`*` matche la chaîne vide, donc `web/` matche `web/*`) : `npm ci` vient de créer
+          # node_modules DANS l'arbre que cette garde inspecte, et comme elle liste volontairement
+          # les fichiers ignorés (voir plus bas), elle rougirait à chaque run avec un conseil —
+          # « reconstruire, puis committer » — qui ne peut pas la faire verdir.
+          if [ "$BUNDLE_DIST" = "$BUNDLE_SRC" ]; then
+            echo "::error::BUNDLE_DIST et BUNDLE_SRC désignent le même répertoire ('$BUNDLE_SRC')."
+            echo "Le bundle doit être un SOUS-répertoire de ses sources : 'npm ci' vient d'y créer"
+            echo "node_modules, que cette garde liste (--ignored), et elle rougirait à chaque run"
+            echo "en réclamant une reconstruction qui ne peut rien y changer."
+            exit 1
+          fi
+          # `.` — un front à la racine du dépôt — est le seul BUNDLE_SRC dont tout chemin relatif
+          # est un sous-arbre. L'étape de configuration a déjà écarté l'absolu et le `..`.
+          if [ "$BUNDLE_SRC" != "." ]; then
+            case "$BUNDLE_DIST/" in
+              "$BUNDLE_SRC"/?*) : ;;
+              *) echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')."
+                 echo "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :"
+                 echo "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé."
+                 exit 1 ;;
+            esac
+          fi
           # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
           # inexistant>` sort en 0 avec une sortie VIDE : un chemin mal renseigné, ou un répertoire
           # renommé six mois plus tard, donnerait donc une étape verte à chaque run qui ne vérifie
@@ -595,8 +649,13 @@ jobs:
               # aussi `mypackage.json`. Sans ce filtre, un tel fichier ferait tomber `dir` sur la
               # racine et la détection irait chercher un `dist/` racine sans rapport — un
               # avertissement sur un dépôt qui n'a rien demandé.
+              # Les DEUX branches de l'alternative sont nécessaires : `*/node_modules/*` exige un
+              # `/` AVANT `node_modules`, donc un `node_modules/` à la RACINE du dépôt lui
+              # échappait. Un `node_modules` vendoré à la racine est une forme réelle dans les
+              # dépôts .NET hérités que ce kit vise, et le csproj qui l'embarque suffisait alors à
+              # produire un avertissement sur un dépôt qui n'a pas de bundle à lui.
               case "$pkg" in
-                (*/node_modules/*) continue ;;
+                (node_modules/*|*/node_modules/*) continue ;;
                 (package.json) dir=. ;;
                 (*/package.json) dir=${pkg%/package.json} ;;
                 (*) continue ;;

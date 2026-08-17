@@ -315,9 +315,63 @@ config_refuses "an empty dist"      '{ "src": "web", "dist": "" }'
 config_refuses "dist outside src"   '{ "src": "docs-site", "dist": "web/dist" }'
 config_refuses "an absolute dist"   '{ "src": "/web", "dist": "/web/dist" }'
 config_refuses "a dot-dot escape"   '{ "src": "web", "dist": "web/../../etc" }'
-config_refuses "a src with no package.json" '{ "src": "web/dist", "dist": "web/dist" }'
+# `web/dist/assets`, not `web/dist`, so this case exercises the missing-package.json path and only
+# that: spelled with dist == src it is now refused one check earlier, by the equality rule below,
+# and would have stopped covering the check its label names.
+config_refuses "a src with no package.json" '{ "src": "web/dist", "dist": "web/dist/assets" }'
 config_refuses "an untracked config" '{ "src": "web", "dist": "web/dist" }' untracked
+# dist == src is the one nonsense configuration that used to ARM the gate: the containment test
+# was `case "$dist/" in "$src"/*)`, and `*` matches the empty string, so `web/` matched `web/*`.
+# It is not a harmless typo. The rebuild runs `npm ci` in `web/`, creating `web/node_modules`; the
+# guard then runs `git status --porcelain --ignored -- web`, and because `--ignored` is
+# deliberately on it lists that whole ignored tree. The step goes red on EVERY run advising
+# "reconstruire, puis committer" — advice that can never make it green. Refusing the config is the
+# only place this can be caught before Node has been installed for nothing.
+config_refuses "dist equal to src"  '{ "src": "web", "dist": "web" }'
+# …and the same tree spelled differently, which is why the values are normalised before comparing.
+config_refuses "dist equal to src by a trailing slash" '{ "src": "web", "dist": "web/" }'
+config_refuses "dist equal to src by a ./ prefix"      '{ "src": "web", "dist": "./web" }'
+# A bundle that IS the repository is not a bundle — and `.` is the one value the root-project
+# support below makes acceptable for `src`, so it must stay refused for `dist`.
+config_refuses "a dist that is the repository root"    '{ "src": "web", "dist": "." }'
 echo "  [1c] refuses every malformed, self-inconsistent or uncommitted config instead of arming"
+
+# A front-end project at the REPOSITORY ROOT. Until now it had no spelling the template's own
+# guidance accepted: the detection step's remediation text prints
+#   { "src": "<le répertoire qui porte package.json>", "dist": "<le bundle committé, sous src>" }
+# which for such a repo reads `"."` and `"dist"` — and the validator refused exactly that, because
+# `dist/` is not under `./`. Shipped guidance contradicting the shipped validator is worse than
+# either alone, so both spellings must arm the gate and both must publish the SAME normalised
+# pair: `working-directory:` and the guard consume that pair, and two spellings reaching them
+# would be the two-sources-of-truth trap again, one layer down.
+root_n=0
+for cfg_text in '{ "src": ".", "dist": "dist" }' '{ "src": "./", "dist": "./dist/" }'; do
+  root_n=$((root_n + 1))
+  CROOT="$scratch/config-root-$root_n"
+  mkdir -p "$CROOT/dist/assets"
+  git init -q "$CROOT"
+  printf '{ "name": "root-app", "private": true }\n' > "$CROOT/package.json"
+  printf 'console.log(1)\n' > "$CROOT/dist/assets/index-MMMMMMMM.js"
+  mkdir -p "$CROOT/$(dirname "$CONFIG")"
+  printf '%s\n' "$cfg_text" > "$CROOT/$CONFIG"
+  git -C "$CROOT" add -A
+  git -C "$CROOT" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+      commit -qm "a front-end project at the repository root"
+  run_config "$CROOT"
+  if [ "$config_rc" -ne 0 ]; then
+    echo "FAIL: the config step refused $cfg_text — a front-end project at the repository root,"
+    echo "      which is the exact pair its own detection step tells an adopter to commit:"
+    cat "$scratch/out-config.txt"; exit 1
+  fi
+  # -F throughout: `src=.` as a regex would match `src=web` and prove nothing.
+  grep -qxF 'src=.' "$CROOT/gh-output.txt" || {
+    echo "FAIL: $cfg_text did not publish the normalised src=. :"
+    cat "$CROOT/gh-output.txt"; exit 1; }
+  grep -qxF 'dist=dist' "$CROOT/gh-output.txt" || {
+    echo "FAIL: $cfg_text did not publish the normalised dist=dist :"
+    cat "$CROOT/gh-output.txt"; exit 1; }
+done
+echo "  [1c] a front-end project at the repository root arms the gate, './' or not"
 
 # ---------------------------------------------------------------------------
 # 1d. A repo that never wanted the gate and one that LOST its config must stop being the same
@@ -459,6 +513,37 @@ if grep -qE '::(warning|error)::' "$scratch/out-detect.txt"; then
   cat "$scratch/out-detect.txt"; exit 1
 fi
 echo "  [1d] 'mypackage.json' is not a project — git's *package.json glob is not the filter"
+
+# The fourth way, and one the node_modules filter introduced itself: `*/node_modules/*` requires a
+# `/` BEFORE node_modules, so a vendored `node_modules/` at the repository ROOT slipped past it. A
+# vendored root node_modules is a real shape in the legacy .NET repos this template targets, and a
+# csproj that embeds one of its packages' `dist/` was enough to have the detector report a
+# dependency's bundle as this repository's own.
+DNM="$scratch/detect-root-node-modules"
+mkdir -p "$DNM/node_modules/pkg/dist"
+git init -q "$DNM"
+printf '{ "name": "pkg" }\n' > "$DNM/node_modules/pkg/package.json"
+printf 'console.log(1)\n' > "$DNM/node_modules/pkg/dist/bundle.js"
+printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <Content Include="node_modules\\pkg\\dist\\**" />\n  </ItemGroup>\n</Project>\n' \
+  > "$DNM/App.csproj"
+# `-f`: a global core.excludesFile ignoring node_modules is common on a developer machine, and
+# without it this repo would commit nothing under node_modules — the suite would then pass here
+# for the wrong reason, on every machine that has such a file and no other.
+git -C "$DNM" add -A -f
+git -C "$DNM" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+    commit -qm "a vendored node_modules at the repository root"
+run_detect "$DNM"
+if [ "$detect_rc" -ne 0 ]; then
+  echo "FAIL: the detection step failed on a repo with a vendored root node_modules:"
+  cat "$scratch/out-detect.txt"; exit 1
+fi
+if grep -qE '::(warning|error)::' "$scratch/out-detect.txt"; then
+  echo "FAIL: a dependency's own bundle under a ROOT node_modules/ was reported as this repo's"
+  echo "      committed front-end bundle — '*/node_modules/*' needs a slash before it, so the"
+  echo "      root-level case needs its own alternative:"
+  cat "$scratch/out-detect.txt"; exit 1
+fi
+echo "  [1d] a vendored node_modules at the repository root is not a front-end project"
 
 # ---------------------------------------------------------------------------
 # 2. The content-hash rename: the old asset disappears and a differently-named one
@@ -656,6 +741,47 @@ fi
 grep -q "BUNDLE_SRC" "$scratch/out-mismatch.txt" || {
   echo "FAIL: refused, but never named the mismatch:"; cat "$scratch/out-mismatch.txt"; exit 1; }
 echo "  [5d] refuses when BUNDLE_DIST is not under BUNDLE_SRC — the two-sources-of-truth trap"
+
+# The same hole in the guard's own copy of the check, and the reason "not under" has to be said as
+# "not under AND not equal": `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` accepted equality, because
+# `*` matches the empty string. Equality is the case with teeth — npm has just created
+# node_modules inside the very tree this guard inspects, and it lists ignored files on purpose, so
+# the step would be permanently red while telling the reader to rebuild and commit.
+EQ="$scratch/dist-equals-src"
+mk_repo "$EQ" "index-EEEEEEEE.js"
+set +e
+( cd "$EQ" && BUNDLE_SRC=web BUNDLE_DIST=web bash "$scratch/guard.sh" ) \
+  > "$scratch/out-equal.txt" 2>&1
+rc=$?
+set -e
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: the guard accepted BUNDLE_DIST == BUNDLE_SRC. 'npm ci' creates node_modules in that"
+  echo "      tree and this guard lists ignored files deliberately, so the step would go red on"
+  echo "      every run with advice that cannot make it green:"
+  cat "$scratch/out-equal.txt"
+  exit 1
+fi
+grep -q "BUNDLE_SRC" "$scratch/out-equal.txt" || {
+  echo "FAIL: refused, but never named the two variables:"; cat "$scratch/out-equal.txt"; exit 1; }
+echo "  [5d] refuses BUNDLE_DIST == BUNDLE_SRC — '*' used to match the empty string"
+
+# And the positive control that keeps the fix from being "refuse a bit more": a front-end project
+# at the repository ROOT (src '.') is a legitimate arming, so the guard must fall through to the
+# real drift measurement rather than reject its own configuration step's output.
+RT="$scratch/root-src-guard"
+mk_repo "$RT" "index-RRRRRRRR.js"
+set +e
+( cd "$RT" && BUNDLE_SRC=. BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) \
+  > "$scratch/out-rootsrc.txt" 2>&1
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "FAIL: the guard rejected BUNDLE_SRC='.', a front-end project at the repository root — the"
+  echo "      very shape the config step now accepts, so the two would disagree:"
+  cat "$scratch/out-rootsrc.txt"
+  exit 1
+fi
+echo "  [5d] BUNDLE_SRC='.' — a root-level front-end — still reaches the drift measurement"
 
 # ---------------------------------------------------------------------------
 # 5. As shipped the four steps are PRESENT but INERT — and inert by the one mechanism GitHub
