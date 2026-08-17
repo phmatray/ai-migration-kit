@@ -120,4 +120,30 @@ grep -qF 'ignored on this machine only' <<<"$sec" \
   || fail "detect: a machine-local rule was recorded as a property of the repo:
 $sec"
 
+# 6. THIS repository's own profile must be TRACKED (#157). Every case above fixtures a profile into
+#    a scratch repo, so all of them passed while the kit itself carried none: the file existed in
+#    exactly one checkout and reached no clone, no CI job and — the common case — no linked worktree,
+#    where a lifecycle skill then read empty output and inferred the repo's facts instead.
+#
+#    The kit tells consumer repos to version it (get-repo-profile: "Run once per repo, commit the
+#    profile"), .gitignore says so in its own comment, and scripts/worktrees-ignored.sh reserves this
+#    exact path as MUST_STAY_VISIBLE — a guard with a dedicated exit code for "your ignore rule is
+#    too broad to carry a committed profile", shipped by a repo that never committed one.
+#
+#    `ls-files --error-unmatch` and not `[ -f ]`: on disk is not the property under test — the file
+#    was on disk in the generating checkout the whole time. Tracked is what makes it travel.
+PROFILE=".claude/skills/repo-profile.md"
+git -C "$KIT" ls-files --error-unmatch -- "$PROFILE" >/dev/null 2>&1 \
+  || fail "the kit's own $PROFILE is not tracked. get-repo-profile tells consumer repos to commit
+      it and worktrees-ignored.sh keeps the path visible for exactly that; generate it with
+      \`skills/get-repo-profile/scripts/repo-profile.sh detect\` FROM THE MAIN WORKING TREE (#125:
+      a linked worktree records a false ignore verdict) and commit the result"
+
+# Tracked but empty would satisfy the line above and still leave every skill inferring, so assert the
+# content the lifecycle skills actually open the file for. One section, named in the template's
+# schema — enough to prove a filled profile, few enough not to re-test get-repo-profile's own output.
+grep -qF '## Commit identity' "$KIT/$PROFILE" \
+  || fail "$PROFILE is tracked but carries no '## Commit identity' section — the lifecycle skills
+      read it there; fill the schema in skills/get-repo-profile/references/profile-template.md"
+
 echo "repo-profile golden test OK"
