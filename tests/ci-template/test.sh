@@ -841,6 +841,95 @@ for shape in empty missing; do
   done
 done
 
+# WHAT QUALIFIES AS ONE MATCH (#126). The two shapes above vary how MANY entries `coverage/` holds;
+# these vary what KIND of entry it holds, which the guard used not to ask about at all. `find`
+# matches by NAME and has no opinion about type, so ANY entry called `*.cobertura.xml` satisfied a
+# bare `-name` test — a directory a collector left behind, or a symlink pointing nowhere on a
+# self-hosted runner reusing its workspace (the reason the sibling step opens with
+# `rm -rf coverage && mkdir -p coverage`). The step then went green having proved only that a NAME
+# exists, and the artifact shipped with nothing parsable in it: the very fail-open this guard was
+# written to close, and the same shape as #96 — a green run indistinguishable from a healthy one.
+#
+# The middle row is why the fix is `find -L … -type f` and NOT the obvious `-type f`. `find` does
+# not follow symlinks by default, so `-type f` alone would start refusing a LEGITIMATE report
+# reached through a symlink — trading a fail-open for a fail-closed, which is strictly worse
+# because the new failure is loud, misleading, and hits working setups. Measured (#126) against
+# the shipped expression and both candidates:
+#
+#     entry under coverage/            no -type      -type f     -L … -type f
+#     directory  bogus.cobertura.xml   matches       rejected    rejected
+#     symlink → a real report          matches       REJECTED    matches
+#     dangling symlink                 matches       rejected    rejected
+#
+# so the symlinked-report row is the one that distinguishes the two candidates, and the regression
+# a later "simplification" to a bare `-type f` would introduce. Presence semantics are untouched:
+# #31 settled that this guard tests presence and not COUNT, and nothing here compares reports to
+# projects.
+#
+# The symlink's TARGET deliberately lives OUTSIDE `coverage/`. Put it inside and `find` would reach
+# the real file directly, the case would pass for a reason that has nothing to do with following
+# the link, and a bare `-type f` would survive it — leaving the one row that matters unpinned.
+mkdir -p "$cov/real"
+: > "$cov/real/genuine.cobertura.xml"
+
+for entry in directory dangling-symlink symlinked-report; do
+  rm -rf "$cov/coverage" && mkdir -p "$cov/coverage"
+  case "$entry" in
+    directory)
+      mkdir -p "$cov/coverage/bogus.cobertura.xml"
+      target="$cov/coverage/bogus.cobertura.xml"; expect=refuse
+      [ -d "$target" ] && [ ! -f "$target" ] || {
+        echo "FAIL: fixture broken — $target is not a directory, so the case below would assert"
+        echo "      nothing about the entry type it is named for."; exit 1; } ;;
+    dangling-symlink)
+      ln -s ../nowhere/absent.cobertura.xml "$cov/coverage/dangling.cobertura.xml"
+      target="$cov/coverage/dangling.cobertura.xml"; expect=refuse
+      [ -L "$target" ] && [ ! -e "$target" ] || {
+        echo "FAIL: fixture broken — $target must be a symlink whose target does NOT exist;"
+        echo "      a resolvable one would be testing the row below instead."; exit 1; } ;;
+    symlinked-report)
+      ln -s ../real/genuine.cobertura.xml "$cov/coverage/linked.cobertura.xml"
+      target="$cov/coverage/linked.cobertura.xml"; expect=accept
+      [ -L "$target" ] && [ -f "$target" ] || {
+        echo "FAIL: fixture broken — $target must be a symlink that RESOLVES to a regular file;"
+        echo "      that is the row separating \`-L -type f\` from a bare \`-type f\`."; exit 1; } ;;
+  esac
+
+  for opts in "${COV_SHELLS[@]}"; do
+    tag=$(printf '%s' "$opts" | tr -d ' -')
+    log="$scratch/cov-$entry-$tag.log"
+    # shellcheck disable=SC2086
+    if run_cov_guard "$log" $opts; then rc=0; else rc=1; fi
+
+    if [ "$expect" = refuse ]; then
+      [ "$rc" -ne 0 ] || {
+        echo "FAIL: under \`bash $opts\` the guard ACCEPTED a coverage/ holding only a $entry named"
+        echo "      *.cobertura.xml. \`find\` matches by NAME, so a name alone passed it and the run"
+        echo "      ships an artifact with no parsable report in it. Require a regular file, and"
+        echo "      FOLLOW symlinks so the legitimate symlinked report keeps working:"
+        echo "          found=\$(find -L coverage -name '*.cobertura.xml' -type f -print -quit 2>/dev/null || true)"
+        echo "      Guard output:"
+        sed 's/^/        /' "$log"; exit 1; }
+      grep -q 'Aucun rapport de couverture produit' "$log" || {
+        echo "FAIL: under \`bash $opts\` the guard refused a coverage/ holding only a $entry WITHOUT"
+        echo "      its diagnosis — it died on find's own error under errexit instead. Keep the"
+        echo "      \`2>/dev/null || true\` tolerance so the emptiness test decides. Output:"
+        sed 's/^/        /' "$log"; exit 1; }
+    else
+      [ "$rc" -eq 0 ] || {
+        echo "FAIL: under \`bash $opts\` the guard REFUSED a coverage/ whose only entry is a symlink"
+        echo "      to a real report — a working repo told its coverage was never produced. This is"
+        echo "      what a bare \`-type f\` does: \`find\` does not follow symlinks by default, so the"
+        echo "      \`-L\` is load-bearing and not decoration. Guard output:"
+        sed 's/^/        /' "$log"; exit 1; }
+      grep -q 'Aucun rapport de couverture produit' "$log" && {
+        echo "FAIL: under \`bash $opts\` the guard exited 0 over a symlinked report but still PRINTED"
+        echo "      its missing-coverage diagnosis — a green step carrying a false message."
+        sed 's/^/        /' "$log"; exit 1; }
+    fi
+  done
+done
+
 # The fix leans on `-print -quit`, so the shipped step must SAY SO when the host's find lacks it.
 # tests/_lib.sh:kit_require_find_quit exists for exactly this reason on the kit's own side — on a
 # find without `-quit` (busybox, minimal containers) the probe answers "nothing found" with the
@@ -850,13 +939,48 @@ done
 # check itself.
 grep -q -- '-print -quit' templates/ci-dotnet.yml || {
   echo "FAIL: the coverage guard no longer uses '-print -quit'"; exit 1; }
-grep -q 'maxdepth 0 -print -quit' templates/ci-dotnet.yml || {
+
+cov_expr=$(grep -m1 -F 'found=$(find ' templates/ci-dotnet.yml)
+cov_probe=$(grep -m1 -F 'maxdepth 0' templates/ci-dotnet.yml)
+[ -n "$cov_expr" ] || {
+  echo "FAIL: could not locate the coverage guard's find expression in templates/ci-dotnet.yml, so"
+  echo "      the probe assertion below would silently prove nothing. Re-point this extraction."
+  exit 1; }
+[ -n "$cov_probe" ] || {
   echo "FAIL: the guard depends on '-print -quit' but never proves this runner's find supports it."
   echo "      Without that probe an unsupported predicate is indistinguishable from absent"
   echo "      coverage, and the step blames the collector for the runner's find — see"
   echo "      tests/_lib.sh:kit_require_find_quit, which exists for that exact failure."; exit 1; }
+
+# The probe must cover EVERY predicate the expression it guards leans on, not just the last one to
+# be added (#126). A probe NARROWER than its expression guards nothing: on a find that rejects `-L`
+# or `-type`, the expression exits non-zero, the `2>/dev/null || true` swallows the error, `$found`
+# comes back empty — and the probe still SUCCEEDS, so the step skips its "your find lacks the
+# predicate" branch and tells a repo with perfectly good coverage that its collector was silently
+# skipped. That is the exact misdiagnosis the probe exists to prevent, reopened by widening the
+# expression without widening the probe. Derived from the shipped expression rather than a hardcoded
+# list, so a future predicate is covered the day it is added.
+for pred in '-L' '-type' '-print -quit'; do
+  case " $cov_expr " in *" $pred"*) ;; *) continue ;; esac
+  case " $cov_probe " in
+    *" $pred"*) ;;
+    *)
+      echo "FAIL: the coverage guard's expression uses '$pred' but its capability probe does not."
+      echo "      A find rejecting '$pred' fails the expression, the '2>/dev/null || true' hides it,"
+      echo "      and the probe still passes — so the step prints its missing-coverage diagnosis at"
+      echo "      a repo whose coverage WAS produced. Widen the probe with every predicate the"
+      echo "      expression depends on."
+      echo "      expression: $cov_expr"
+      echo "      probe:      $cov_probe"; exit 1 ;;
+  esac
+done
 echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
      "— $cov_files reports ($cov_bytes bytes, naive pipeline confirmed inverting) accepted;"\
      "empty and missing coverage/ still refused, with their diagnosis"
+echo "  [10b] and it asks what KIND of entry it found: a directory and a dangling symlink named"\
+     "*.cobertura.xml are refused, a symlink to a real report is accepted — the row that keeps"\
+     "the -L on the -type f"
+echo "  [10c] and its capability probe tests every predicate that expression depends on"\
+     "(-L, -type, -print -quit), so an unsupported one cannot masquerade as absent coverage"
 
 echo "ci-dotnet template opt-in bundle gate golden test OK"
