@@ -680,6 +680,14 @@ echo "  [9] .gitkeep and README are not vendored libraries; the real asset still
 #     on whether the host's TMPDIR happens to sit inside someone else's checkout. Everything else —
 #     `repo` included, which is why the fixture directory is named rather than left to mktemp — is
 #     compared exactly as emitted.
+#
+#     ⚠ THE THREE PROJECTS HAVE THREE DIFFERENT LINE COUNTS ON PURPOSE — do not "tidy" them to one
+#     line each. `projectDetails` is emitted `sorted(key=-loc)` and nothing breaks a tie, so equal
+#     LOCs leave the order to Python's stable sort over `os.walk` discovery order — which is
+#     `os.scandir` order, i.e. the FILESYSTEM's. Three one-line projects passed here on APFS and
+#     would have been a coin flip on CI's ext4. Distinct LOCs (App 4, One 2, App.Tests 1) make the
+#     sort total, so this section pins the document rather than this machine. It is the same hazard
+#     5g pins for `coveredBy`, one key over.
 # ---------------------------------------------------------------------------
 G="$(kit_scratch)/inventory-golden"
 mk_app "$G/src/App"
@@ -689,7 +697,12 @@ cat > "$G/src/App/App.csproj" <<'XML'
   <ItemGroup><PackageReference Include="Serilog" Version="4.0.0" /></ItemGroup>
 </Project>
 XML
-echo 'namespace App { public class Real { public int X() { return 1; } } }' > "$G/src/App/Real.cs"
+cat > "$G/src/App/Real.cs" <<'CS'
+namespace App
+{
+    public class Real { public int X() { return 1; } }
+}
+CS
 
 mkdir -p "$G/tests/App.Tests"
 cat > "$G/tests/App.Tests/App.Tests.csproj" <<'XML'
@@ -720,7 +733,10 @@ echo "gitdir: /elsewhere/.git/worktrees/agent" > "$G/.claude/worktrees/agent/.gi
 mkdir -p "$G/packages/Newtonsoft.Json.13.0.1"
 echo 'namespace Third { public class Junk { } }' > "$G/packages/Newtonsoft.Json.13.0.1/Junk.cs"
 mk_lib "$G/packages/one" One
-echo 'namespace One { public class Svc { public int N() { return 2; } } }' > "$G/packages/one/Svc.cs"
+cat > "$G/packages/one/Svc.cs" <<'CS'
+namespace One;
+public class Svc { public int N() { return 2; } }
+CS
 
 # The two values read from outside the tree, neutralised — see the header of this section. A line
 # edit, not a re-serialisation: re-dumping the JSON would make "byte-identical" mean nothing.
@@ -750,9 +766,9 @@ golden_expected=$(cat <<'JSON'
   ],
   "projectDetails": [
     {
-      "name": "App.Tests",
+      "name": "App",
       "csFiles": 1,
-      "loc": 1,
+      "loc": 4,
       "targetFramework": "net10.0",
       "zombie": false,
       "skeleton": true
@@ -760,13 +776,13 @@ golden_expected=$(cat <<'JSON'
     {
       "name": "One",
       "csFiles": 1,
-      "loc": 1,
+      "loc": 2,
       "targetFramework": "net10.0",
       "zombie": false,
       "skeleton": true
     },
     {
-      "name": "App",
+      "name": "App.Tests",
       "csFiles": 1,
       "loc": 1,
       "targetFramework": "net10.0",
@@ -785,9 +801,9 @@ golden_expected=$(cat <<'JSON'
   "xamlOther": 0,
   "xamlPageNames": [],
   "csFiles": 3,
-  "locTotal": 3,
+  "locTotal": 7,
   "locCodeBehind": 0,
-  "locLogic": 3,
+  "locLogic": 7,
   "windowsApiClusters": {},
   "packages": [
     "Serilog",

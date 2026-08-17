@@ -202,14 +202,23 @@ def paquet_restaure(nom, chemin):
 # Le script parcourt l'arbre plusieurs fois — `_tous_les_fichiers()`, le scan vendorisé, puis
 # `count_files()` sur chaque candidat — et `prune()` re-posait donc les MÊMES questions au disque à
 # chaque passage. Mesuré avant ce cache, sur les sept plus gros dépôts locaux : le rapport
-# sondes/répertoires distincts vaut exactement 2.00 partout — Elliot 5976 `stat` pour 2988
-# répertoires, Koine 3836 pour 1918 — et `bsca/monorepo` faisait 752 verdicts `paquet_restaure()`,
-# chacun un `scandir` et parfois une sonde en profondeur, pour 376 enfants de `packages/`.
+# sondes/répertoires distincts vaut 2.00 sur six d'entre eux — Elliot 5976 `stat` pour 2988
+# répertoires, Koine 3836 pour 1918 — et 2.01 sur `bsca/monorepo`, le seul qui ait des répertoires
+# vendorisés à compter, donc la troisième passe. Ce même dépôt faisait 752 verdicts
+# `paquet_restaure()`, chacun un `scandir` et parfois une sonde en profondeur, pour 376 enfants de
+# `packages/`.
 #
 # Les deux sondes sont des FONCTIONS DU RÉPERTOIRE seul : rien dans le passage en cours n'entre
 # dans la réponse (`garder_vendor` décide de ce qu'on FAIT du verdict, pas du verdict). Elles se
 # mémoïsent donc sans changer un seul chiffre — ce que la section 10 de tests/audit-inventory
 # vérifie sur le document entier, pas seulement sur les clés que ce cache pourrait faire bouger.
+#
+# CE QUE ÇA NE FAIT PAS, mesuré et consigné pour que le prochain lecteur ne le redécouvre pas : le
+# temps de mur ne bouge pas (horizon-hub 3.155 s -> 3.085 s, dans le bruit). Les sondes n'étaient
+# pas le coût. Des minuteurs par phase le situent ailleurs — le balayage `API_CLUSTERS` plus la
+# passe LOC de `projectDetails` font 2.82 s des 2.93 s de horizon-hub, parce que chaque `.cs` est
+# RELU plusieurs fois. Le second parcours, lui, ne pèse que 1.6 à 4.8 % là où le script est lent :
+# c'est ce chiffre qui a fermé la tâche « un seul parcours » de #94 plutôt que de la construire.
 #
 # Clé : le chemin tel que le parcours l'écrit (`./a/b`). Le script fait son unique `cd` en bash,
 # avant que python démarre, et ne change jamais de répertoire courant ensuite — une clé relative est
