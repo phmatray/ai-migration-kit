@@ -187,6 +187,52 @@ out=$(printf '%s' "$(pay Read "$CS/Kill.cs" "$CS" ks)" | ROSELINE_GATE=off bash 
 [ -z "$out" ] || { echo "FAIL: ROSELINE_GATE=off did not disable the gate"; exit 1; }
 echo "ok: ROSELINE_GATE=off disables the gate"
 
+# ------------------------------------------------- 3c. ROSELINE_GATE=on — the user's own testimony
+# The probe above is a proxy, and the case it cannot see is the one that matters most to the people
+# who invested most: roseline reached by any route other than the shipped `dnx` launcher — a
+# hand-added MCP server, a locally built binary, a wrapper — leaves the gate permanently fail-open
+# for them (#155). Preflight settles that class by OBSERVING (a live `mcp_ok` beats every floor); a
+# PreToolUse hook is handed only the tool payload and has no such channel, so where it cannot
+# observe, the user has to be able to declare. `on` is that declaration.
+#
+# Driven on the SAME dnx-less shim PATH that fails open two cases above, so the deny here can only
+# have come from the override.
+ONREPO=$(csharp_repo)
+ONP=$(pay Read "$ONREPO/Forced.cs" "$ONREPO" force-session)
+
+out=$(printf '%s' "$ONP" | env PATH="$NODNX" ROSELINE_GATE=on bash "$GATE" 2>/dev/null || true)
+printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null | grep -qx deny \
+  || { echo "FAIL: ROSELINE_GATE=on did not enforce past the failed probe"; echo "$out"; exit 1; }
+printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' | grep -qF search_symbols \
+  || { echo "FAIL: the forced deny does not name the roseline tool that replaces the Read"; exit 1; }
+echo "ok: ROSELINE_GATE=on enforces where the probe cannot see the server"
+
+# `off` stays the MASTER switch — it is checked first, so a host with `dnx` present (where the probe
+# alone would deny) still passes. A user who disabled the gate is never overridden.
+OFFP=$(pay Read "$ONREPO/Spared.cs" "$ONREPO" off-session)
+out=$(printf '%s' "$OFFP" | env PATH="$WITHDNX" ROSELINE_GATE=off bash "$GATE" 2>/dev/null || true)
+[ -z "$out" ] || { echo "FAIL: ROSELINE_GATE=off did not win over a passing probe"; echo "$out"; exit 1; }
+echo "ok: ROSELINE_GATE=off outranks a probe that would have denied"
+
+# ROSELINE_GATE holds one value, so `off` and `on` cannot literally both be set; what the spec calls
+# "off wins" is the ORDER of the two branches inside the gate. Asserted at the source, because it is
+# the only place the invariant exists: with `on` first, a stale `on` in someone's shell rc would
+# quietly override the `off` they just typed.
+off_line=$(grep -n 'off|0|false|no|disabled' "$GATE" | head -1 | cut -d: -f1)
+on_line=$(grep -n 'on|1|true|yes|enabled' "$GATE" | head -1 | cut -d: -f1)
+[ -n "$off_line" ] && [ -n "$on_line" ] \
+  || { echo "FAIL: the gate does not carry both switch branches (off=$off_line on=$on_line)"; exit 1; }
+[ "$off_line" -lt "$on_line" ] \
+  || { echo "FAIL: the 'on' branch (line $on_line) precedes 'off' (line $off_line); off must stay the master switch"; exit 1; }
+echo "ok: the off branch is checked before the on branch"
+
+# An unrecognised value is neither switch: it falls through to the probe, exactly as an unset
+# variable does. Without this, `ROSELINE_GATE=maybe` could match a sloppy `on*` pattern and enforce.
+MAYBE=$(pay Read "$ONREPO/Maybe.cs" "$ONREPO" maybe-session)
+out=$(printf '%s' "$MAYBE" | env PATH="$NODNX" ROSELINE_GATE=maybe bash "$GATE" 2>/dev/null || true)
+[ -z "$out" ] || { echo "FAIL: an unrecognised ROSELINE_GATE value must fall through to the probe"; echo "$out"; exit 1; }
+echo "ok: an unrecognised ROSELINE_GATE value falls through to the probe"
+
 # --------------------------------------------------------------------- 4. the hook registration
 HJ="$KIT/hooks/hooks.json"
 [ -f "$HJ" ] || { echo "FAIL: $HJ missing"; exit 1; }
@@ -216,6 +262,50 @@ echo "ok: requirements.json records that roseline ships with the plugin"
 jq -e '.tools[] | select(.name | test("jq"))' "$REQ" >/dev/null \
   || { echo "FAIL: requirements.json does not declare jq, which hooks/roseline-gate.sh requires"; exit 1; }
 echo "ok: requirements.json declares jq"
+
+# The manifest declares WHAT starts the server (`launcher`), and preflight probes exactly that. The
+# gate reaches the same conclusion by hand, with the name hardcoded, because a PreToolUse hook on
+# the hot path of every C# Read cannot afford a file read plus a `jq` to look it up — requirements
+# .json says so in its own description. The duplication is necessary; unpinned, it is #155: two
+# components answering one question from two facts, free to disagree with nothing red anywhere.
+# So it is pinned here, the shape scripts/ci-wiring-check.py and tests/skills/check-frontmatter.py
+# already use for the duplications they cannot remove either.
+launcher=$(python3 - "$REQ" <<'PY'
+import json, sys
+req = json.load(open(sys.argv[1]))
+print(next((m.get("launcher", "") for m in req["mcps"] if m["match"] == "roseline"), ""))
+PY
+)
+[ -n "$launcher" ] || {
+  echo "FAIL: requirements.json declares no launcher for the roseline mcps entry — preflight has nothing to probe"
+  exit 1; }
+
+# `command -v` on a name containing a slash tests that literal path instead of searching PATH, so a
+# manifest value with one in it would quietly stop being the same question the gate asks.
+case "$launcher" in
+  */*) echo "FAIL: launcher '$launcher' is a path, not a bare command name"; exit 1 ;;
+esac
+
+# Comment lines are stripped before matching: a gate that merely MENTIONS the probe in prose while
+# testing something else would satisfy a plain grep, which is precisely the drift being guarded.
+gate_probes() { # $1 gate file  $2 launcher name
+  grep -v '^[[:space:]]*#' "$1" | grep -qF "command -v $2"
+}
+gate_probes "$GATE" "$launcher" || {
+  echo "FAIL: hooks/roseline-gate.sh does not probe 'command -v $launcher', the launcher requirements.json declares"
+  exit 1; }
+
+# ...and the pin measures something. A scratch gate that probes a different name must fail the same
+# check, or a green above would be saying nothing at all about the real pair. Written into the
+# suite's scratch, so kit_cleanup discards it however this run ends.
+DRIFT="$WORK/drifted-gate.sh"
+sed "s/command -v $launcher/command -v kit-drifted-launcher/" "$GATE" > "$DRIFT"
+grep -qF 'command -v kit-drifted-launcher' "$DRIFT" \
+  || { echo "FAIL: the drift fixture did not actually change the probe"; exit 1; }
+if gate_probes "$DRIFT" "$launcher"; then
+  echo "FAIL: the launcher pin passes a gate that probes something else — it measures nothing"; exit 1
+fi
+echo "ok: the gate's hardcoded probe is pinned to requirements.json's launcher ($launcher)"
 
 grep -qF 'roseline-gate' "$KIT/README.md" \
   || { echo "FAIL: README does not document the roseline gate"; exit 1; }

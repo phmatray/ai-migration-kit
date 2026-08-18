@@ -74,6 +74,7 @@ cat > "$tmp/requirements.json" <<'JSON'
   ],
   "mcps": [
     { "name": "floored server", "match": "floored", "level": "required", "requiresSdk": "10", "hint": "launched with a newer-SDK launcher" },
+    { "name": "launched server", "match": "launched", "level": "recommended", "requiresSdk": "10", "launcher": "kit-stub-launcher", "hint": "its own launcher starts it" },
     { "name": "unfloored server", "match": "unfloored", "level": "recommended", "hint": "no floor declared" }
   ],
   "sessionSkills": []
@@ -102,12 +103,90 @@ assert floored["status"] == "absent", \
 assert "10" in floored["hint"], f"the report must name the required version: {floored['hint']!r}"
 assert "9" in floored["hint"], f"...and what this host actually has: {floored['hint']!r}"
 
+# The launcher is the VERDICT, the floor is the REMEDY — a host missing both must be told both, in
+# that order. "kit-stub-launcher not on PATH" says the server cannot have started; "needs a .NET
+# SDK >= 10, this host has 9" says what to install about it. Either alone leaves the reader stuck.
+launched = checks["launched server"]
+assert launched["status"] == "absent", \
+    f"a declared launcher missing from PATH must degrade loudly, got {launched['status']!r}"
+assert "kit-stub-launcher" in launched["hint"], \
+    f"the report must name the launcher it probed: {launched['hint']!r}"
+assert launched["hint"].index("kit-stub-launcher") < launched["hint"].index("10"), \
+    f"the launcher verdict comes before the SDK remedy: {launched['hint']!r}"
+
 # No floor declared ⇒ byte-for-byte the behaviour that shipped before this field existed.
 unfloored = checks["unfloored server"]
 assert unfloored["status"] == "unknown", \
     f"an entry without requiresSdk must be unaffected, got {unfloored['status']!r}"
 assert "claude CLI absent" in unfloored["hint"], \
     f"an entry without requiresSdk must keep its old hint: {unfloored['hint']!r}"
+PY
+
+# 5b. The launcher probe on a host that CLEARS the floor — which is the case the floor cannot see,
+#     and the reason `launcher` exists as a field of its own (#155). A .NET 10 SDK is present, so
+#     `requiresSdk` is satisfied and says nothing; the only remaining question is whether the
+#     executable that starts the server is on PATH, and preflight must answer it.
+#
+#     A second synthetic root rather than a second `dotnet` stub in the first: section 6 re-runs
+#     against `$tmp` and asserts the .NET 9 floor note is still there, so raising that host's SDK
+#     would quietly delete section 6's subject. Same manifest, copied — one source, two hosts.
+tmp10=$(kit_scratch)
+mkdir -p "$tmp10/scripts" "$tmp10/bin"
+cp ./scripts/preflight.sh "$tmp10/scripts/preflight.sh"
+cp "$tmp/requirements.json" "$tmp10/requirements.json"
+cat > "$tmp10/bin/dotnet" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = "--list-sdks" ] && echo "10.0.100 [/stub/sdk]"
+exit 0
+SH
+chmod +x "$tmp10/bin/dotnet"
+for c in bash python3 dirname awk grep; do ln -s "$(command -v "$c")" "$tmp10/bin/$c"; done
+
+# `kit-stub-launcher` is a name no host has, so "absent" here is a measurement and not a bet on
+# what the machine running the suite happens to have installed.
+if ! out=$(PATH="$tmp10/bin" bash "$tmp10/scripts/preflight.sh" --json 2>/dev/null); then
+  echo "a launcher the host misses is a documented degradation, not a phase-0 hard fail"; exit 1
+fi
+python3 - "$out" <<'PY'
+import json, sys
+checks = {c["name"]: c for c in json.loads(sys.argv[1])["checks"]}
+
+launched = checks["launched server"]
+assert launched["status"] == "absent", \
+    f"an SDK above the floor does not prove the launcher is on PATH, got {launched['status']!r}"
+assert "kit-stub-launcher" in launched["hint"], \
+    f"the report must name the launcher it probed: {launched['hint']!r}"
+assert "this host has" not in launched["hint"], \
+    f"the floor is met here, so it must not be offered as the remedy: {launched['hint']!r}"
+
+# The floor's own entry declares no launcher, so on a host that clears the floor it is back to the
+# shrug — proving 5b's `absent` came from the launcher probe and from nothing else.
+floored = checks["floored server"]
+assert floored["status"] == "unknown", \
+    f"a met floor with no launcher declared must be unaffected, got {floored['status']!r}"
+assert "claude CLI absent" in floored["hint"], f"...with its old hint: {floored['hint']!r}"
+
+unfloored = checks["unfloored server"]
+assert unfloored["status"] == "unknown", \
+    f"an entry with neither field must be unaffected, got {unfloored['status']!r}"
+PY
+
+# ...and the companion: put that same launcher ON the PATH and the entry is byte-for-byte what it
+# was before the field existed. Without this, "absent" above would be equally well explained by
+# preflight reporting every entry that declares a launcher as absent.
+printf '#!/bin/sh\nexit 0\n' > "$tmp10/bin/kit-stub-launcher"
+chmod +x "$tmp10/bin/kit-stub-launcher"
+if ! out=$(PATH="$tmp10/bin" bash "$tmp10/scripts/preflight.sh" --json 2>/dev/null); then
+  echo "a launcher present on PATH must not fail the preflight"; exit 1
+fi
+python3 - "$out" <<'PY'
+import json, sys
+checks = {c["name"]: c for c in json.loads(sys.argv[1])["checks"]}
+launched = checks["launched server"]
+assert launched["status"] == "unknown", \
+    f"a launcher on PATH restores the prior behaviour, got {launched['status']!r}"
+assert "claude CLI absent" in launched["hint"], \
+    f"...including its hint, unprefixed: {launched['hint']!r}"
 PY
 
 # 6. The floor EXPLAINS an absence; it does not excuse one. Give the same host a `claude` that can

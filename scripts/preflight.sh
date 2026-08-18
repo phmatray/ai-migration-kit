@@ -65,28 +65,56 @@ floor_note() {
   printf 'needs a .NET SDK >= %s to start, this host has %s — ' "$1" "$SDK_MAJOR"
 }
 
+# An mcps entry may also declare `launcher`: the executable that starts it, spelled as .mcp.json
+# invokes it. The floor is a PROXY for this — an SDK at or above roseline's 10 is the only way `dnx`
+# gets installed — and a proxy only holds in one direction. The converse does not: a host can carry
+# the .NET 10 SDK and still not have `dnx` on the PATH that matters, at which point the floor says
+# nothing and the server is just as unstartable (#155). So the launcher is probed directly.
+#
+# Same uncertainty rule as sdk_below_floor: an absent field ("-") or an empty one is not a launcher
+# named "", it is no declaration at all, and it leaves the entry's behaviour exactly as it was.
+launcher_missing() {
+  local launcher="$1"
+  [ "$launcher" != "-" ] || return 1
+  [ -n "$launcher" ] || return 1
+  ! command -v "$launcher" >/dev/null 2>&1
+}
+
+# Where the launcher is missing, this is the VERDICT — the shipped launcher cannot have started the
+# server — and it goes FIRST, before floor_note's remedy. "dnx not on PATH" is what is wrong;
+# "needs a .NET SDK >= 10, this host has 9" is what to do about it. On a host that clears the floor
+# only the first half prints, which is precisely the gap this closes: nothing else would have spoken.
+launcher_note() {
+  launcher_missing "$1" || return 0
+  printf '%s not on PATH — ' "$1"
+}
+
 # requirements.json → one tab-separated line per entry: kind, level, name, test/match, requiredBy,
-# requiresSdk, hint. "-" placeholder where a field is empty: an empty field would be swallowed by
-# read (tab = IFS whitespace). hint stays LAST because `read` gives the trailing field the remainder.
+# requiresSdk, launcher, hint. "-" placeholder where a field is empty: an empty field would be
+# swallowed by read (tab = IFS whitespace). Every kind prints the SAME number of columns, including
+# the ones that can never carry the field, so the `read` below binds the same name to the same
+# position on every line. hint stays LAST because `read` gives the trailing field the remainder.
 manifest() {
 python3 - "$REQ" <<'PY'
 import json, sys
 req = json.load(open(sys.argv[1]))
 def reqby(e): return ", ".join(e.get("requiredBy", [])) or "-"
 for t in req.get("tools", []):
-    print("\t".join(["tool", t["level"], t["name"], t["test"], reqby(t), "-", t.get("hint", "")]))
+    print("\t".join(["tool", t["level"], t["name"], t["test"], reqby(t), "-", "-", t.get("hint", "")]))
 for m in req.get("mcps", []):
     print("\t".join(["mcp", m["level"], m["name"], m["match"], reqby(m),
-                     str(m.get("requiresSdk") or "-"), m.get("hint", "")]))
+                     str(m.get("requiresSdk") or "-"), str(m.get("launcher") or "-"),
+                     m.get("hint", "")]))
 for s in req.get("sessionSkills", []):
-    print("\t".join(["skill", s["level"], "skill " + s["name"], "-", reqby(s), "-", s.get("when", "")]))
+    print("\t".join(["skill", s["level"], "skill " + s["name"], "-", reqby(s), "-", "-",
+                     s.get("when", "")]))
 PY
 }
 
 CLAUDE_CLI=1
 command -v claude >/dev/null 2>&1 || CLAUDE_CLI=0
 
-while IFS=$'\t' read -r kind level name test reqby floor hint; do
+while IFS=$'\t' read -r kind level name test reqby floor launcher hint; do
   case "$kind" in
     tool)
       if eval "$test" >/dev/null 2>&1; then record ok "$name" "$reqby" ""
@@ -94,15 +122,16 @@ while IFS=$'\t' read -r kind level name test reqby floor hint; do
       else record absent "$name" "$reqby" "$hint"; fi
       ;;
     mcp)
-      # A live server is checked FIRST, so an observed connection always beats the floor: the floor
-      # is a proxy for "the shipped launcher cannot start it", and a server the user brought up by
-      # some other route is running whatever this host's SDK says.
-      note=$(floor_note "$floor")
+      # A live server is checked FIRST, so an observed connection always beats both probes: they are
+      # proxies for "the shipped launcher cannot start it", and a server the user brought up by some
+      # other route is running whatever this host's SDK and PATH say.
+      note="$(launcher_note "$launcher")$(floor_note "$floor")"
       if [ "$CLAUDE_CLI" -eq 1 ] && mcp_ok "$test"; then record ok "$name" "$reqby" ""
       elif [ "$CLAUDE_CLI" -eq 0 ]; then
         # Nothing can be observed here — but "unknown, confirm in session" is the wrong answer to a
-        # question this host has already settled: below the launcher's floor the server cannot
-        # start, whoever confirms it. That is the silent pass #112 filed, so name it instead.
+        # question this host has already settled: with the launcher off PATH, or below the floor it
+        # needs, the server cannot start, whoever confirms it. That is the silent pass #112 filed
+        # and #155 widened, so name it instead.
         if [ -n "$note" ]; then record absent "$name" "$reqby" "$note$hint"
         else record unknown "$name" "$reqby" "claude CLI absent (normal in CI) — confirm in session"; fi
       elif [ "$level" = required ]; then record missing "$name" "$reqby" "$note$hint"; FAIL=1
