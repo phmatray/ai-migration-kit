@@ -8,6 +8,13 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.12.0](https://github.com/phmatray/ai-migration-kit/compare/v1.11.0...v1.12.0) (2026-08-18)
+
+
+### Features
+
+* **skills:** give the issue lifecycle an outlet — filing bar, lineage, triage-backlog ([#176](https://github.com/phmatray/ai-migration-kit/issues/176)) ([1ebd2fc](https://github.com/phmatray/ai-migration-kit/commit/1ebd2fc35807eed1abac30be5c46e3a4931c799a))
+
 ## [1.11.0](https://github.com/phmatray/ai-migration-kit/compare/v1.10.0...v1.11.0) (2026-08-18)
 
 
