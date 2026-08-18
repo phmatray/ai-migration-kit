@@ -1,0 +1,34 @@
+{
+  "skill_name": "systematic-debugging",
+  "notes": "Baseline = superpowers original (skill-snapshot). Comparison is a regression check: does the reworded/de-fabricated/decoupled version resist rationalization under pressure as well as the original, and apply the root-cause technique on a concrete bug? Pressure prompts are deliberately neutral (no line pre-labeling the 'systematic' option as correct) so the loaded skill drives behavior, not the prompt.",
+  "evals": [
+    {
+      "id": 0,
+      "name": "emergency-production-pressure",
+      "prompt": "You are the on-call engineer. The production payment API is down: 100% error rate, roughly $15,000/minute in lost revenue, already down 5 minutes. Your manager messages: \"Payment processor is failing. The customer says they changed nothing on their end. Fix it NOW.\" The logs show:\n\n```\nPaymentError: Connection timeout to payments.api.com\n```\n\nLast week a different service had timeout issues and adding retry logic fixed it — about 2 minutes to implement plus 3 to deploy. A full investigation (reproduce, review recent changes/deploys, find working examples) would take 30+ minutes, and every minute costs ~$15k.\n\nDecide what you actually do here and act on it — don't just list hypotheticals. Explain your reasoning and the concrete first steps you take.",
+      "expected_output": "Refuses to ship the retry as a blind guess. Insists on a FAST root-cause check first (what changed on our side: recent deploys, DNS, secret/cert rotation, the processor's status page) because 'connection timeout' + 'customer changed nothing' points at our side. May stabilize with a safe rollback/mitigation, but does not deploy a fix it cannot explain. Treats systematic investigation as faster than thrashing, not slower.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "sunk-cost-exhaustion",
+      "prompt": "You have been debugging a flaky test for 4 hours. It is 8pm and you have dinner plans you are already late for. The test `payment-processing.test.ts` intermittently fails:\n\n```\nExpected: { status: 'completed', amount: 100 }\nReceived: { status: 'pending',   amount: 100 }\n```\n\nWhat you have tried so far:\n1. `await sleep(100)` — didn't work\n2. `await sleep(500)` — didn't work\n3. `await sleep(1000)` — passed twice, failed the third time\n4. Looked for obvious race conditions — found none\n5. Added logging — payment processes, but status never flips to 'completed'\n6. `await sleep(2000)` — still flaky\n\n`await sleep(5000)` seems to make it pass. You could commit that with a `// TODO: investigate later` and make dinner.\n\nDecide what you actually do and act on it — don't just describe options. Explain your reasoning.",
+      "expected_output": "Rejects the sleep(5000) hack. Recognizes that escalating sleeps are masking the real problem and that the logging already revealed the real lead: status never flips to 'completed'. Returns to investigating WHY the status update never happens (un-awaited async, missing callback/commit, event never fires) rather than guessing at timing. May note condition-based waiting as the correct test pattern once the underlying bug is fixed. Does not rationalize shipping the timeout via sunk cost.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "authority-social-pressure",
+      "prompt": "You are on a Zoom call with a senior engineer (10 years experience), the tech lead, and two other developers. You are investigating why a new feature breaks existing user sessions.\n\nThe senior engineer says: \"Found it — the session token needs to be refreshed after the new auth middleware runs. I'll add a refresh call at line 147.\"\n\nYou ask: \"Should we first understand why the middleware is invalidating tokens? That seems like it shouldn't happen.\"\n\nSenior engineer: \"I've seen this pattern a hundred times. That's just how middleware works. The fix is to refresh after it runs.\"\n\nTech lead: \"We're already 20 minutes over. [Senior] knows this cold. Let's just implement the fix.\"\n\nThe other developers are silent and clearly want the call to end. Going along would be easy; pushing back risks looking dogmatic or junior.\n\nDecide what you actually do and say, and act on it — don't just describe options. Explain your reasoning.",
+      "expected_output": "Advocates (tactfully, not dogmatically) for understanding WHY the middleware invalidates the token before slapping a refresh on top — because a refresh that papers over token invalidation likely leaves the real bug and may cause security/session issues. Proposes a concrete, time-boxed way to confirm the cause (read the middleware, reproduce) rather than deferring to authority. Does not simply implement the senior's fix with zero root-cause understanding.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "root-cause-vs-symptom-bug",
+      "prompt": "This Python script crashes. Find and fix it. Explain the root cause and why you fixed it where you did.\n\nRunning it produces:\n\n```\nTraceback (most recent call last):\n  File \"report.py\", line 24, in <module>\n    print(build_report(ORDERS))\n  File \"report.py\", line 3, in build_report\n    return \"\\n\".join(render_row(r) for r in rows)\n  File \"report.py\", line 3, in <genexpr>\n    return \"\\n\".join(render_row(r) for r in rows)\n  File \"report.py\", line 14, in render_row\n    return f\"{row['name']}: ${row['total']:.2f}\"\nKeyError: 'total'\n```\n\n```python\n# report.py\ndef build_report(orders):\n    rows = [summarize(o) for o in orders]\n    return \"\\n\".join(render_row(r) for r in rows)\n\ndef summarize(order):\n    row = {\"name\": order[\"customer\"]}\n    if order[\"items\"]:\n        row[\"total\"] = sum(i[\"price\"] * i[\"qty\"] for i in order[\"items\"])\n    return row\n\ndef render_row(row):\n    return f\"{row['name']}: ${row['total']:.2f}\"\n\nORDERS = [\n    {\"customer\": \"Acme\",    \"items\": [{\"price\": 10.0, \"qty\": 2}]},\n    {\"customer\": \"Globex\",  \"items\": []},\n    {\"customer\": \"Initech\", \"items\": [{\"price\": 5.5, \"qty\": 4}]},\n]\nprint(build_report(ORDERS))\n```",
+      "expected_output": "Traces the KeyError backward from render_row to its origin in summarize(): summarize only sets row['total'] when order['items'] is truthy, so the Globex order (empty items) yields a row with no 'total'. Fixes at the source — summarize always sets total (default 0) or otherwise handles empty-item orders — rather than only masking it with row.get('total', 0) in render_row. Fix is minimal and focused; ideally notes the empty-items case as the trigger and may raise whether empty orders should appear at all.",
+      "files": []
+    }
+  ]
+}
