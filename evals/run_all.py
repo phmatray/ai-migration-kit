@@ -14,7 +14,7 @@ from pathlib import Path
 
 import trigger_eval as te
 
-SKILLS = ["create-issue", "implement-issue", "merge-pr", "get-repo-profile"]
+SKILLS = ["create-issue", "implement-issue", "merge-pr", "get-repo-profile", "triage-backlog"]
 EVALS_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EVALS_DIR / "results"
 

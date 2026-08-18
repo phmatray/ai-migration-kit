@@ -30,8 +30,9 @@ graph TD
         CI[create-issue]
         II[implement-issue]
         MP[merge-pr]
+        TB[triage-backlog]
         RP[get-repo-profile]
-        SH["_shared/<br>preconditions · sync-with-main"]
+        SH["_shared/<br>preconditions · sync-with-main · filing-bar"]
     end
 
     PROF[("repo-profile.md<br>(committed in the target repo)")]
@@ -52,14 +53,27 @@ graph TD
     CI -- "reads at step 1" --> PROF
     II -- "reads at step 1" --> PROF
     MP -- "reads at step 1" --> PROF
+    MP -- "reopens an incomplete ancestor" --> TB
+    TB -- "folds · rescopes · closes by decision" --> CI
+    TB -- "reads at step 1" --> PROF
     CI --- SH
     II --- SH
     MP --- SH
+    TB --- SH
 ```
 
 The `followups → create-issue → implement-issue → merge-pr → create-issue` chain is deliberate:
 `merge-pr` files the follow-ups it discovers, which feeds the queue again — the backlog stays
 truthful instead of evaporating in chat.
+
+**That chain is a cycle, and `triage-backlog` is what keeps it from being a closed one.** Three
+inlets write to the queue — `merge-pr` Step 6, `auto-dev`'s off-scope capture, and direct
+`create-issue` runs — while for a long time the only way out was to build the thing, so the queue
+could only drain at the speed of implementation, which is also what fills it. `triage-backlog` is the
+outlet: it re-decides what is already there, and closing by decision is a documented state there just
+as it has always been in `followups`. The two inlets and the outlet share one criterion —
+[`skills/_shared/filing-bar.md`](skills/_shared/filing-bar.md) — so what earns an issue and what
+earns continued residence are the same question, asked at different times.
 
 ## External dependencies — MCP servers, plugins, tools
 
@@ -79,6 +93,7 @@ graph LR
         CI[create-issue]
         II[implement-issue]
         MP[merge-pr]
+        TB[triage-backlog]
         RP[get-repo-profile]
         SD[systematic-debugging]
     end
@@ -125,6 +140,8 @@ graph LR
     MP --> GH
     MP --> GIT
 
+    TB --> GH
+
     RP --> GIT
     RP -.-> GH
 
@@ -146,6 +163,7 @@ why no arrow leaves it.
 | `implement-issue` | — | superpowers (worktrees, TDD, subagent/executing-plans, verification, receiving-code-review) · code-review | **gh**, **git** | — |
 | `merge-pr` | — | superpowers (receiving-code-review) | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
+| `triage-backlog` | — | — | **gh** (issue write) | — |
 | `systematic-debugging` | — | — | — | `find-polluter.sh` (bundled in the skill) |
 | `get-repo-profile` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
 

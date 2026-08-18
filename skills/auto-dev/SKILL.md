@@ -37,7 +37,7 @@ The value is the orchestration a naive "run them in a loop" lacks:
 - **Conflict avoidance** — each concurrent worker gets an issue in a *different* code area, so branches rarely collide.
 - **Ordering** — small self-contained issues first (fast wins, fewer conflicts), then medium. L/XL and manual-QA excluded by default.
 - **Mandatory merge** — workers love to stop at "PR ready" (half a job). auto-dev verifies the *real* merge state from GitHub on every signal and re-drives any worker that stalled.
-- **Off-scope capture** — a worker that trips over an unrelated bug files it via `create-issue` instead of fixing it inline (scope-creep) or dropping it. The backlog stays truthful.
+- **Off-scope capture** — a worker that trips over an unrelated bug files it via `create-issue` instead of fixing it inline (scope-creep) or dropping it, against the shared filing bar ([`../_shared/filing-bar.md`](../_shared/filing-bar.md)) so a fleet of N workers doesn't file at N different standards. The backlog stays truthful *and* drainable.
 - **Lifecycle hygiene** — finished agents are shut down; a state file survives restarts so the fleet is resumable.
 
 ## Autonomy contract
@@ -349,6 +349,15 @@ workers don't hold — exactly what breaks a same-area logjam. Re-run the Step 2
 merges (or sooner if refills cluster into one area or the queue looks empty), fold newcomers in (small-
 first, area-tagged, eligibility-checked), and note what changed. Keep a **merge counter** in the state
 file (record the count at the last refresh) so a `loop` re-fire knows when the next refresh is due.
+
+**Report the pressure, don't act on it.** At each re-survey, note two numbers since the run started:
+issues **closed by merges** and issues **filed by the fleet**. When filings meet or exceed closes, the
+run is treading water — the fleet is converting one queue into another, and no amount of parallelism
+fixes that. Say it in the next report (*"12 merged, 13 filed — the queue is not draining"*) and let the
+owner decide; the fix is a triage pass (`triage-backlog`) or a rescoped root, and both are decisions
+that belong to them. Don't respond by suppressing filings — a worker that silently drops off-scope
+finds breaks the guarantee that makes the backlog truthful, and trades a visible problem for an
+invisible one.
 
 **Keep your own context lean** (Token economics lever 2): the state file is your only working memory
 (**no per-issue TaskList**), worker reports stay terse, and **compact or `/clear` ~every 20 merges**.

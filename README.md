@@ -186,7 +186,7 @@ Two properties fall out of the gate discipline. **Resume**: re-running `/migrate
 
 ## The issue/PR lifecycle skills
 
-The kit also ships five generic GitHub workflow skills — usable on any repo, not just migrations:
+The kit also ships six generic GitHub workflow skills — usable on any repo, not just migrations:
 
 | Skill | Job |
 |---|---|
@@ -194,6 +194,7 @@ The kit also ships five generic GitHub workflow skills — usable on any repo, n
 | `implement-issue` | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
 | `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
 | `auto-dev` | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
+| `triage-backlog` | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
 | `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
@@ -224,9 +225,10 @@ skills/create-issue/    generic issue/PR lifecycle: seeded issue (brainstorm →
 skills/implement-issue/ generic issue/PR lifecycle: plan → draft PR → ready
 skills/merge-pr/        generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
 skills/auto-dev/        fleet supervisor above the lifecycle skills: N parallel workers burning down the backlog
+skills/triage-backlog/  the queue's outlet: verify, cluster and re-decide open issues — owner confirms every close
 skills/systematic-debugging/ root-cause-before-fix process, harness-agnostic
 skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
-skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main)
+skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar)
 scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
 tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired

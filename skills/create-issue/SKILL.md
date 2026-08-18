@@ -94,21 +94,37 @@ are phrased in terms of what the user saw, so the two share almost no vocabulary
 search above structurally cannot find the issue that already owns this work:
 
 ```bash
-gh issue list --state open --search "ExportService in:title,body" --limit 10 \
-  --json number,title --jq '.[] | "#\(.number) \(.title)"'
+gh issue list --state all --search "ExportService in:title,body" --limit 15 \
+  --json number,title,state --jq '.[] | "#\(.number) [\(.state)] \(.title)"'
 gh issue list --state open --label "type:refactor" --limit 30 \
   --json number,title --jq '.[] | "#\(.number) \(.title)"'
 ```
 
+The file search spans **closed** issues too: ideas that arrive while working in a subsystem usually
+land on code a recent fix touched, and that fix closed its issue on the way in. An open-only search
+can't see that ancestor, so the idea files as a sibling and one unfinished job spreads across a row
+per attempt.
+
 Then decide (don't interrogate):
 
 - **Clear duplicate** (open issue already captures it): don't refile. Report *"#N already covers this — skipped"* and move on; file anyway only if asked.
+- **The same job as a recently closed issue** — the fix landed but didn't finish the job. **Reopen it** (`gh issue reopen <N> --comment "<what still fails>"`) instead of filing a sibling, and report *"reopened #N"*. If the idea is genuinely a different job in the same code, proceed — but open the body with `Continues #N.` so the lineage stays one thread. A chain already two deep means the root is mis-scoped: say so and let the owner rescope it rather than adding attempt four.
 - **An instance of a tracked root cause** — an open issue owns the *cause* and this idea is one of its symptoms (it converges two code paths, and this is one more attribute that drifted; it replaces a parser, and this is one more input it mishandles). Don't file a leaf: add it to that issue as a `- [ ]` checklist item, or as a comment when it has no plan, and report *"folded into #N"*. Filing it separately splits one piece of work across two trackers and buries the issue that would actually close it.
 - **Related but distinct**: proceed, carry the links forward — add a `**Related:** #N, #M` line near the top of the body in Step 7 (GitHub auto-renders the cross-references, and it's where your brainstorm's prior art gets cited).
 - **Nothing similar**: proceed clean.
 
 The bar is *"would resolving the existing issue resolve this too?"* — if yes, it's an instance, however
 different the two read.
+
+**If the idea is one you discovered rather than one you were handed**, it also faces the filing bar at
+[`../_shared/filing-bar.md`](../_shared/filing-bar.md) — the same standard `merge-pr` and the
+`auto-dev` workers apply, so the backlog means one thing regardless of which inlet fed it. An idea
+that names a consequence, points at an instance in the tree, or was already committed to earns its
+issue; one that does none of the three is a record, not a queue item.
+
+**A direct request from the user clears the bar by definition.** Someone asking for an issue *is* the
+commitment — file it, and if it looks thin, say so in a sentence rather than refusing. The bar governs
+the pipeline's own initiative, which is the only channel that can outrun the work.
 
 ## Step 4 — Build the template-compliant body fields
 
