@@ -1,7 +1,8 @@
 # Architecture
 
 One plugin, two cooperating suites — the **migration pipeline** (legacy-upgrade, followups) and the
-**issue/PR lifecycle** (create-issue, implement-issue, merge-pr, get-repo-profile) — bridged where a
+**issue/PR lifecycle** (create-issue, implement-issue, merge-pr, get-repo-profile, and the `auto-dev`
+fleet supervisor above them) — bridged where a
 migration's deferred work becomes tracked GitHub issues. Every skill carries
 `metadata.suite: ai-migration-kit` in its frontmatter; in Claude Code the plugin namespaces them as
 `ai-migration-kit:<skill>`.
@@ -16,6 +17,7 @@ graph TD
     subgraph commands ["Commands"]
         M["/migrate · /migrate-assess<br>/migrate-verify · /migrate-audit"]
         MF["/migrate-followups"]
+        AW["/auto-dev-worker<br>/auto-dev-merge"]
     end
 
     subgraph migration ["Migration suite"]
@@ -24,6 +26,7 @@ graph TD
     end
 
     subgraph lifecycle ["Issue/PR lifecycle suite"]
+        AD[auto-dev]
         CI[create-issue]
         II[implement-issue]
         MP[merge-pr]
@@ -40,6 +43,11 @@ graph TD
     CI -. "next step: /implement-issue #N" .-> II
     II -. "hand-off: /merge-pr #PR" .-> MP
     MP -- "files deferred work" --> CI
+    AD -- "dispatches N workers" --> AW
+    AW -- "phase 1" --> II
+    AW -- "phase 2" --> MP
+    AD -- "off-scope finds" --> CI
+    AD -- "reads at step 1" --> PROF
     RP -- "generates (run once per repo)" --> PROF
     CI -- "reads at step 1" --> PROF
     II -- "reads at step 1" --> PROF
@@ -67,10 +75,12 @@ graph LR
     subgraph skills ["Kit skills"]
         LU[legacy-upgrade]
         FU[followups]
+        AD[auto-dev]
         CI[create-issue]
         II[implement-issue]
         MP[merge-pr]
         RP[get-repo-profile]
+        SD[systematic-debugging]
     end
 
     subgraph mcp ["MCP servers"]
@@ -117,7 +127,14 @@ graph LR
 
     RP --> GIT
     RP -.-> GH
+
+    AD --> GH
+    AD --> GIT
+    AD --> PY
 ```
+
+`systematic-debugging` (SD) has no external dependency at all — it is a pure process skill, which is
+why no arrow leaves it.
 
 ## Dependency matrix
 
@@ -128,10 +145,13 @@ graph LR
 | `create-issue` | — | superpowers (brainstorming, writing-plans) | **gh** | — |
 | `implement-issue` | — | superpowers (worktrees, TDD, subagent/executing-plans, verification, receiving-code-review) · code-review | **gh**, **git** | — |
 | `merge-pr` | — | superpowers (receiving-code-review) | **gh** (merge rights), **git** | — |
+| `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
+| `systematic-debugging` | — | — | — | `find-polluter.sh` (bundled in the skill) |
 | `get-repo-profile` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
 
-**Bold = required.** The lifecycle trio additionally *reads* `.claude/skills/repo-profile.md` in the
-target repo — generated once by `get-repo-profile`, committed, then consumed with a plain `cat`.
+**Bold = required.** The lifecycle trio — and `auto-dev` above them — additionally *reads*
+`.claude/skills/repo-profile.md` in the target repo — generated once by `get-repo-profile`,
+committed, then consumed with a plain `cat`.
 
 ## Where each concern lives
 
