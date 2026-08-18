@@ -85,12 +85,18 @@ python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json -
 # Sans -o, la sortie atterrit À CÔTÉ du report.json — jamais dans le cwd (vague 3 : le
 # dashboard de pokedexg s'était retrouvé à la racine du repo migré).
 #
-# C'est le SEUL fichier que cette suite écrit hors de son scratch, et la disposition testée
-# l'impose : le trap de kit_init ne peut donc pas le reprendre. Il était supprimé par un `rm -f`
-# placé APRÈS les deux assertions ci-dessous — c'est-à-dire seulement sur le chemin vert. Mesuré :
-# une panne entre la génération et ce `rm` laissait `tests/report-dashboard/report.html` non suivi
-# dans l'arbre, un run rouge après l'autre. C'est la fuite que #104 décrit pour les arbres
-# temporaires (#128 les a, elles, déjà mises sous trap), sur le dernier chemin qui y échappait.
+# Ce sont les DEUX seuls chemins hors scratch que cette suite peut se retrouver à écrire, et la
+# disposition testée l'impose : le trap de kit_init ne peut donc reprendre ni l'un ni l'autre.
+# `$defaut` était supprimé par un `rm -f` placé APRÈS les deux assertions ci-dessous —
+# c'est-à-dire seulement sur le chemin vert. Mesuré : une panne entre la génération et ce `rm`
+# laissait `tests/report-dashboard/report.html` non suivi dans l'arbre, un run rouge après l'autre.
+# C'est la fuite que #104 décrit pour les arbres temporaires (#128 les a, elles, déjà mises sous
+# trap), sur le dernier chemin qui y échappait.
+#
+# `$KIT/report.html` est nettoyé par la même garde : c'est le fichier dont la SECONDE assertion
+# ci-dessous nie l'existence, donc le seul chemin où il apparaît est justement un run rouge — celui
+# que la garde existe pour ne pas salir. Le nettoyer seulement sur le chemin vert aurait laissé
+# ouverte, à la ligne suivante, exactement la fuite que ce bloc referme.
 #
 # La suppression est donc ENREGISTRÉE comme les autres gardes, pour tourner sur CHAQUE chemin de
 # sortie ; `$KIT` et pas un chemin relatif, parce qu'un gestionnaire de sortie ne peut rien
@@ -98,7 +104,7 @@ python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json -
 # PRÉCONDITION — sans lui, le `[ -f ]` juste après pourrait être satisfait par le fichier d'un run
 # précédent et n'assurerait plus que CE run l'a écrit.
 defaut="tests/report-dashboard/report.html"
-nettoie_sortie_par_defaut() { rm -f "$KIT/$defaut"; }
+nettoie_sortie_par_defaut() { rm -f "$KIT/$defaut" "$KIT/report.html"; }
 kit_guard nettoie_sortie_par_defaut
 rm -f "$defaut"
 python3 scripts/report-dashboard.py tests/report-dashboard/fixture-report.json 2>/dev/null
@@ -379,11 +385,22 @@ esac
 # ---------------------------------------------------------------------------
 doc_case="$(kit_scratch)"
 
-# Le nom du répertoire de couverture est RENDU par le bloc python (seule chose qu'il écrit sur sa
-# sortie standard) et la disposition est construite à partir de lui, plus bas. Écrire ici
-# `mkdir -p "$doc_case/coverage"` remettrait la copie que ce cas existe pour supprimer.
-ci_cov_dir=$(python3 - "$doc_case" <<'PY'
-import json, pathlib, re, sys, yaml
+# Le bloc python MONTE la disposition lui-même — répertoire de couverture et fixtures compris —
+# à partir du nom qu'il dérive. Écrire ici `mkdir -p "$doc_case/coverage"` remettrait la copie que
+# ce cas existe pour supprimer.
+#
+# Et il la monte lui-même plutôt que de RENDRE ce nom sur sa sortie standard, ce qui obligeait à
+# l'envelopper dans `$( … )`. C'est la forme que #131 traque : bash 3.2 (celui de macOS) analyse
+# l'intérieur d'un `$( … )` sans honorer le quoting d'un heredoc, si bien que les apostrophes de la
+# prose française ci-dessous devaient toutes s'apparier — par chance, elles s'appariaient. En
+# ajouter ou en retirer UNE, dans un simple commentaire, rendait la suite entière inanalysable sur
+# macOS (« unexpected EOF »). scripts/parse-sweep.sh existe pour interdire ce couplage : il ne
+# fallait pas le réintroduire pour un aller-retour d'une seule valeur.
+#
+# Le nom dérivé revient donc par un fichier, lu plus bas SANS substitution de commande, et ne sert
+# plus qu'au diagnostic du shell.
+python3 - "$doc_case" <<'PY'
+import json, pathlib, re, shutil, sys, yaml
 
 # --- moitié « valeur » : le snippet documenté ------------------------------------------------
 # Le bloc ```json de report-template.md qui porte "cobertura". C'est un FRAGMENT d'objet, donc on
@@ -402,7 +419,15 @@ documented = json.loads("{" + blocks[0].strip().rstrip(",") + "}")["coverage"]
 # --- moitié « disposition » : le répertoire où la CI écrit -------------------------------------
 ETAPE = "Tests + couverture"
 tpl = yaml.safe_load(pathlib.Path("templates/ci-dotnet.yml").read_text(encoding="utf-8"))
-etape = next((s for s in tpl["jobs"]["test"]["steps"] if s.get("name") == ETAPE), None)
+# Le job et sa liste d'étapes sont VÉRIFIÉS avant d'être indexés. `tpl["jobs"]["test"]["steps"]`
+# lève un KeyError nu si le job est renommé — une trace qui ne nomme ni ce fichier ni le template,
+# trois lignes au-dessus d'une assertion qui prend justement la peine d'expliquer ce renommage-là.
+job = (tpl.get("jobs") or {}).get("test")
+assert isinstance(job, dict) and isinstance(job.get("steps"), list), (
+    "templates/ci-dotnet.yml n'a plus de job `test` porteur d'une liste `steps` — c'est lui qui "
+    f"porte l'étape {ETAPE!r} produisant la couverture que le snippet documenté prétend lire ; "
+    "renommer ici ET dans skills/legacy-upgrade/references/report-template.md")
+etape = next((s for s in job["steps"] if s.get("name") == ETAPE), None)
 assert etape is not None, (
     f"templates/ci-dotnet.yml n'a plus d'étape nommée {ETAPE!r} — c'est elle qui produit la "
     "couverture que le snippet documenté prétend lire ; renommer ici ET dans "
@@ -415,7 +440,7 @@ assert etape is not None, (
 # `defaults.run.working-directory` du workflow, puis du job, puis celui de l'étape.
 for ou, valeur in (
     ("l'étape " + ETAPE, etape.get("working-directory")),
-    ("le job test", ((tpl["jobs"]["test"].get("defaults") or {}).get("run") or {}).get("working-directory")),
+    ("le job test", ((job.get("defaults") or {}).get("run") or {}).get("working-directory")),
     ("le workflow", ((tpl.get("defaults") or {}).get("run") or {}).get("working-directory")),
 ):
     assert valeur is None, (
@@ -425,10 +450,34 @@ for ou, valeur in (
 
 # Les DEUX branches de l'étape (MTP et VSTest) passent un `--results-directory` ; un unique chemin
 # relatif documenté ne peut être correct que si elles écrivent au même endroit.
-bruts = re.findall(r'--results-directory\s+"?([^"\s]+)"?', etape.get("run") or "")
-assert bruts, (
-    f"l'étape {ETAPE!r} ne passe plus de --results-directory : ce test ne peut plus dériver la "
-    "disposition que la CI produit, et le cas documenté ne pinnerait plus que lui-même")
+#
+# Les lignes de COMMENTAIRE du script shell sont écartées AVANT toute recherche. Le `run:` de cette
+# étape en porte déjà deux qui nomment `--results-directory`, et elles ne passent à travers que
+# parce qu'un backtick les suit : reformuler l'une d'elles — un changement sans le moindre effet
+# sur la CI — ferait dériver un troisième répertoire de la prose et virer cette suite au rouge en
+# prétendant que les branches divergent. Ce qui reste hors de portée : un commentaire de FIN de
+# ligne, qu'aucune règle textuelle ne distingue d'un `#` en chaîne sans analyser le shell. C'est le
+# bon sens de l'erreur — il rougit, il ne se tait pas.
+script = "\n".join(
+    l for l in (etape.get("run") or "").splitlines() if not l.lstrip().startswith("#"))
+
+# Les DEUX orthographes du drapeau — `--results-directory VALEUR` et `--results-directory=VALEUR` —
+# et la valeur éventuellement entre guillemets, auquel cas elle peut contenir une espace.
+# N'accepter que la première laissait la seconde INVISIBLE : réécrite avec `=`, la branche VSTest
+# sortait de la mesure sans rien rougir, et le cas restait vert pendant que la moitié des
+# consommateurs écrivait ailleurs.
+DRAPEAU = re.compile(r"""--results-directory(?:\s+|=)(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))""")
+bruts = [next(g for g in m.groups() if g is not None) for m in DRAPEAU.finditer(script)]
+
+# Un COMPTE, pas une simple présence. `assert bruts` se contentait d'UNE branche : supprimer le
+# drapeau de l'autre — coverlet retombe alors sur `TestResults/` — la faisait sortir de la mesure
+# sans rien rougir, et le désaccord que ce bloc existe pour voir devenait invisible. Deux, parce
+# que l'étape a exactement deux branches productrices de couverture ; une troisième serait une
+# vraie évolution du template, à lire ici plutôt qu'à absorber en silence.
+assert len(bruts) == 2, (
+    f"l'étape {ETAPE!r} passe {len(bruts)} --results-directory ({bruts}) au lieu des 2 branches "
+    "productrices attendues (MTP et VSTest) : ce test ne peut plus dériver la disposition que la "
+    "CI produit, et le cas documenté ne pinnerait plus que lui-même")
 
 def segment(valeur):
     # `"$PWD/coverage"` (branche MTP) et `coverage` (branche VSTest) désignent le même répertoire à
@@ -437,7 +486,11 @@ def segment(valeur):
     # disposition que la CI ne produit pas, c'est-à-dire exactement le silence qu'il rompt.
     nom = re.sub(r"^\$\{?PWD\}?/", "", valeur)
     nom = re.sub(r"^\./", "", nom)
-    assert re.fullmatch(r"[A-Za-z0-9._-]+", nom), (
+    nom = nom.rstrip("/")          # `coverage/` et `coverage` désignent le même répertoire
+    # `.` et `..` passent `[A-Za-z0-9._-]+` tout en ne nommant AUCUN répertoire de couverture : le
+    # premier ferait monter les rapports à la racine du fixture, le second au-dessus. Refusés
+    # nommément, comme tout le reste de ce qui n'est pas un nom de répertoire.
+    assert re.fullmatch(r"[A-Za-z0-9._-]+", nom) and nom not in (".", ".."), (
         f"--results-directory {valeur!r} n'est plus un simple répertoire à la racine du repo ; "
         "ce test ne peut plus en dériver la disposition documentée — l'adapter, et adapter "
         "skills/legacy-upgrade/references/report-template.md avec lui")
@@ -481,13 +534,23 @@ migration = pathlib.Path(sys.argv[1], "migration")
 migration.mkdir(parents=True, exist_ok=True)
 (migration / "report.json").write_text(json.dumps(r))
 
-print(ci_dir)
-PY
-)
+# La moitié « disposition » est montée ICI, à partir du nom dérivé — jamais recopiée en shell.
+couverture = pathlib.Path(sys.argv[1], ci_dir)
+couverture.mkdir(parents=True, exist_ok=True)
+for source, cible in (
+    ("tests/report-dashboard/fixture-cobertura.xml",   "projet-un.cobertura.xml"),
+    ("tests/report-dashboard/fixture-cobertura-b.xml", "projet-deux.cobertura.xml"),
+):
+    shutil.copyfile(source, couverture / cible)
 
-mkdir -p "$doc_case/$ci_cov_dir"
-cp tests/report-dashboard/fixture-cobertura.xml   "$doc_case/$ci_cov_dir/projet-un.cobertura.xml"
-cp tests/report-dashboard/fixture-cobertura-b.xml "$doc_case/$ci_cov_dir/projet-deux.cobertura.xml"
+# Le nom dérivé, pour le seul diagnostic du shell. Par fichier et non par stdout : voir le
+# commentaire au-dessus du heredoc — c'est ce qui garde ce bloc hors d'un `$( … )`, donc hors de
+# la classe de danger bash 3.2 de #131.
+pathlib.Path(sys.argv[1], ".repertoire-couverture").write_text(ci_dir + "\n", encoding="utf-8")
+PY
+
+# `read`, pas `$(cat …)` : aucune substitution de commande ici non plus.
+IFS= read -r ci_cov_dir < "$doc_case/.repertoire-couverture"
 
 if ! err=$(python3 scripts/report-dashboard.py "$doc_case/migration/report.json" \
              -o "$doc_case/migration/report.html" 2>&1); then
