@@ -1,8 +1,15 @@
 # Skill-triggering evals
 
-A **safe, repeatable** regression check for the four lifecycle skills' *descriptions* —
+A **safe, repeatable** regression check for the five lifecycle skills' *descriptions* —
 [`create-issue`](../skills/create-issue), [`implement-issue`](../skills/implement-issue),
-[`merge-pr`](../skills/merge-pr), [`get-repo-profile`](../skills/get-repo-profile).
+[`merge-pr`](../skills/merge-pr), [`get-repo-profile`](../skills/get-repo-profile),
+[`triage-backlog`](../skills/triage-backlog).
+
+`triage-backlog` joined in the same shape as the others (`triage-backlog-trigger-eval.json`, in
+`SKILLS` and `DEFAULT_KNOWN`). Its close boundaries — against `create-issue` (open work) and
+`merge-pr` (file at the inlet, mid-merge) — are carried as negatives inside its own set rather than
+in `boundary-trigger-eval.json`, which is specifically the `implement-issue` ↔ `merge-pr` pair and
+whose runner is written around exactly those two.
 
 > **Moved here from `Atypical-Consulting/Koine` on 2026-07-25**, when these four skills were
 > consolidated into this repo as the canonical, profile-driven copies and Koine switched to

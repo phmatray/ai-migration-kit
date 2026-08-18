@@ -324,20 +324,32 @@ that share one are *instances of a single defect*, not N defects: "the numeric p
 "date item fields still discard the adornment" and "`Mask` is inert on both paths" are one duplicated
 render path reported three times. Name the shared cause — that, not the symptom, is the unit of work.
 
-**6b — Look for a root that's already tracked.** For each cluster, search open issues for one that
-already owns the cause — typically a `type:refactor` issue naming the same file (commands in
-`references/merge-mechanics.md` §6). Search by **file and subsystem**, not by the symptom's wording:
-a root issue and its symptoms share almost no vocabulary, which is exactly why `create-issue`'s own
-duplicate check won't surface it. This search has to happen here.
+**6b — Look for a root that's already tracked, open *or* just closed.** For each cluster, search for
+the issue that already owns the cause — typically a `type:refactor` issue naming the same file
+(commands in `references/merge-mechanics.md` §6). Search by **file and subsystem**, not by the
+symptom's wording: a root issue and its symptoms share almost no vocabulary, which is exactly why
+`create-issue`'s own duplicate check won't surface it. This search has to happen here.
 
-**6c — Route each cluster to one channel:**
+**Include closed issues in that search** — the findings came out of the PR you just merged, so they
+land in code a recent fix touched, and that fix closed its issue on the way in. An open-only search
+cannot see the ancestor, so the finding files as a sibling and one unfinished job becomes a row per
+attempt (`#93 → #166 → #172`). A closed ancestor whose scope still describes the work gets
+**reopened**, not re-filed; a genuinely different job in the same code opens with
+`Continues #<ancestor>.` in the body.
+
+**6c — Put each cluster to the filing bar, then route it.** The bar — what earns an issue versus what
+earns a record — lives at [`../_shared/filing-bar.md`](../_shared/filing-bar.md), shared with
+`create-issue` and the `auto-dev` workers so all three inlets file to the same standard. Read it and
+apply it per *cluster*, not per symptom; the routing table below is what happens after each cluster
+has passed or failed:
 
 | The cluster is | Channel | Why |
 |---|---|---|
 | an instance of a **root issue that exists** | a `- [ ]` item or comment **on that issue** | the work is already committed to; this sharpens its scope instead of lengthening the queue |
+| the same job as a **root that was just closed** | **reopen** that issue with the evidence | a fix that didn't finish the job is one issue still open, not two issues — and the reopen is the honest record of it |
 | ≥2 findings sharing a **root not yet tracked** | **one** `create-issue` run for the *root*, citing the instances as evidence | fixing symptoms one by one in code the root refactor deletes is work thrown away twice — once writing it, once resolving its conflict |
 | genuinely **independent** deferred work | its own `create-issue` run | this is what the channel is for |
-| an observation worth **recording, not doing** | a comment on the merged PR | retrievable later, and costs nothing to ignore |
+| a cluster that **fails the filing bar** (no consequence, no named instance, nobody asked) | a comment on the merged PR | retrievable later, and costs nothing to ignore — and it earns an issue the day a real instance shows up |
 
 **6d — Budget: at most 3 new issues per merge.** Past that, the tail goes into **one** issue named for
 the PR ("Findings from #279") listing the rest, or onto the root from 6b. The cap isn't a quality
@@ -387,7 +399,8 @@ delete the main checkout or an unrelated worktree — match the path to the PR's
 Short and concrete:
 - The merged PR — URL and confirmation it's `MERGED` (with the squash commit sha); the branch it closed.
 - **Corrections applied** — one line each: red checks fixed, conflicts resolved (which files, how), review addressed. "None needed — merged clean" is a fine report.
-- **Follow-ups** — how the findings were routed: each new issue's title + URL, each one **folded** into an existing issue (`#N`), each recorded as a PR comment, or "none." If the 6d budget capped anything, say so and name the overflow issue.
+- **Follow-ups** — lead with the tally the filing bar produced (*"7 observations · 2 filed · 1 folded · 1 reopened · 3 recorded"*), then the detail: each new issue's title + URL, each one **folded** into an existing issue (`#N`), each **reopened** ancestor (`#N`), each recorded as a PR comment, or "none." If the 6d budget capped anything, say so and name the overflow issue. The tally is what lets the owner see whether the bar is calibrated — all-filed means it isn't being applied.
+- **Scope** — say plainly that the PR's own scope is complete. Findings are discovery, not unfinished business: a merge whose plan is ticked and whose CI is green is *done*, and the follow-up tally above is a separate fact about what was noticed along the way.
 - **Cleanup** — worktree removed and local branch deleted (or "already gone").
 - Anything assumed, deferred, or unverifiable (e.g. full suite skipped for a missing local prerequisite the profile flags). Keep detail in the PR/issues; the report points there.
 

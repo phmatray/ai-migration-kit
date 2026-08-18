@@ -1,0 +1,23 @@
+[
+  {"query": "triage the backlog", "should_trigger": true, "note": "bare canonical phrasing"},
+  {"query": "we're at 30 open issues and it climbs every time I merge something — go through them and tell me which ones we should just close", "should_trigger": true, "note": "the symptom that motivates the skill, no keyword"},
+  {"query": "groom the issue list before the release, I want it under 20", "should_trigger": true, "note": "'groom' + a target count"},
+  {"query": "half these issues are probably already fixed by PRs we landed last week. can you check and clean up?", "should_trigger": true, "note": "verify-then-close, the Step 4 job"},
+  {"query": "why does the backlog keep growing even though we merge every day?", "should_trigger": true, "note": "diagnostic phrasing — the arrival/departure question"},
+  {"query": "prune the open issues, anything stale or duplicated should go", "should_trigger": true, "note": "'prune' + dedupe"},
+  {"query": "take stock of what's open and propose what to drop — I'll decide", "should_trigger": true, "note": "explicitly propose-then-confirm"},
+  {"query": "there are like four issues all about the same bundle gate, can we consolidate them into one?", "should_trigger": true, "note": "clustering by root cause across the queue"},
+  {"query": "fais le tri dans les issues ouvertes, on n'y arrive plus", "should_trigger": true, "note": "FR — 'fais le tri'"},
+  {"query": "le backlog ne descend jamais, qu'est-ce qu'on ferme ?", "should_trigger": true, "note": "FR — never-shrinking queue"},
+
+  {"query": "create an issue for the coverage guard inverting under pipefail", "should_trigger": false, "note": "→ create-issue (opening work)"},
+  {"query": "file these three ideas as issues, one each: retry on 429, cache the profile read, document the bundle config", "should_trigger": false, "note": "→ create-issue (batch filing)"},
+  {"query": "implement issue 158 — the pinned-literals check only covers one pin", "should_trigger": false, "note": "→ implement-issue"},
+  {"query": "merge PR 279 and open follow-ups for the deferred bits", "should_trigger": false, "note": "→ merge-pr (filing at the inlet, mid-merge)"},
+  {"query": "burn down the backlog with 3 agents, small issues first", "should_trigger": false, "note": "→ auto-dev (drains by BUILDING, not by deciding)"},
+  {"query": "what's still open across the migrated repos — the next_steps from the reports?", "should_trigger": false, "note": "→ followups (report.json queues, not GitHub issues)"},
+  {"query": "close issue 158 for me", "should_trigger": false, "note": "one explicit close — a bare gh call, no triage pass"},
+  {"query": "clean up the local branches that are gone on the remote", "should_trigger": false, "note": "git housekeeping, shares 'clean up'"},
+  {"query": "review this PR for correctness bugs before I merge it", "should_trigger": false, "note": "→ code-review"},
+  {"query": "our sprint board in Jira is a mess, can you reprioritize the tickets?", "should_trigger": false, "note": "near-miss: grooming, but not the repo's GitHub issues"}
+]

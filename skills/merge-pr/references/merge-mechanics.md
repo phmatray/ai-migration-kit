@@ -255,10 +255,33 @@ the two share almost no vocabulary and a keyword search on the symptom misses th
 gh issue list --state open --label "type:refactor" --limit 30 \
   --json number,title --jq '.[] | "#\(.number) \(.title)"'
 
-# then search on the file the findings land in
-gh issue list --state open --search "<TheFile> in:title,body" --limit 10 \
-  --json number,title,url --jq '.[] | "#\(.number) \(.title)"'
+# then search on the file the findings land in — CLOSED ones too (see below)
+gh issue list --state all --search "<TheFile> in:title,body" --limit 15 \
+  --json number,title,state,url --jq '.[] | "#\(.number) [\(.state)] \(.title)"'
 ```
+
+**Why this one search spans closed issues.** The findings you are triaging came out of the PR you
+just merged, so they land in code a *recent fix* touched — and that fix closed its issue on the way
+in. Restricted to open issues the search structurally cannot see that ancestor, so the finding files
+as a sibling: `#93 → #166 (merged) → #172` is three rows for one unfinished job. Widening the state
+is what makes the chain visible; `create-issue` Step 3 already spans `all` on its keyword search for
+exactly this reason.
+
+**A closed ancestor means the fix was incomplete — say so rather than starting over.** When the match
+is closed and the finding is that same job resurfacing:
+
+```bash
+gh issue reopen "$ANCESTOR" \
+  --comment "Reopening: #$PR closed this, but <what still fails> — \`<file>:<symbol>\`."
+```
+
+Reopen when the original scope still describes the work. File fresh only when the finding is a
+genuinely *different* job in the same code — and then open its body with `Continues #<ancestor>.`, so
+the lineage reads as one thread instead of N unrelated rows.
+
+**Two ancestors deep is a scope problem, not a filing problem.** If the chain already runs
+`root → fix → finding → fix → finding`, the root is mis-scoped and a fourth issue fails the same way.
+That is an owner decision (hand it to `triage-backlog`), not another `create-issue` run.
 
 **Fold an instance into that root** instead of filing a leaf — the comment carries the evidence:
 
