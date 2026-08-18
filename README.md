@@ -54,6 +54,8 @@ A Claude Code plugin that upgrades legacy .NET applications through a seven-phas
 - **Resumable migrations** — gate commits and `migration/` artifacts let an interrupted `/migrate` re-enter at the last green phase instead of starting over.
 - **Generated executive dashboard** — phase 6 emits `migration/report.html` and `report.json` with measured per-phase timings derived from gate commits, not a manual stopwatch.
 - **Issue/PR lifecycle skills** — portable `create-issue`, `implement-issue`, `merge-pr` and `get-repo-profile` skills usable on any repo, driven by a committed per-repo profile.
+- **Backlog burn-down at scale** — `auto-dev` supervises a fleet of N parallel workers, each taking one issue from plan to merged PR, with conflict-avoiding area isolation and a measured token budget.
+- **Root-cause debugging** — `systematic-debugging` fires before any fix is proposed, so a failure is explained before it is patched.
 - **Preflight safety gate** — `scripts/preflight.sh` verifies required/recommended tools, MCP servers and session skills declared in `requirements.json` before phase 1 starts.
 - **CI/deployment templates** — `templates/ci-dotnet.yml` and `templates/deploy-pages-blazor.yml` wire a migrated app straight into GitHub Actions and Pages.
 
@@ -184,14 +186,15 @@ Two properties fall out of the gate discipline. **Resume**: re-running `/migrate
 
 ## The issue/PR lifecycle skills
 
-The kit also ships four generic GitHub workflow skills — usable on any repo, not just migrations:
+The kit also ships five generic GitHub workflow skills — usable on any repo, not just migrations:
 
 | Skill | Job |
 |---|---|
 | `create-issue` | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
 | `implement-issue` | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
 | `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
-| `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the three skills above consume. Run once per repo, commit the profile. |
+| `auto-dev` | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
+| `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
 conflict hot-spots) lives in that committed per-repo profile — the skills themselves stay portable
@@ -214,12 +217,14 @@ keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Thei
 .claude-plugin/         plugin + marketplace manifests
 ARCHITECTURE.md         skill call graph + dependency matrix (mermaid)
 requirements.json       single source for prerequisites (tools, MCPs, session skills) — read by preflight.sh
-commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit, /migrate-followups
+commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit, /migrate-followups, /auto-dev-worker, /auto-dev-merge
 skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
 skills/followups/       consolidated follow-up queue across migrated repos, updated at the source
 skills/create-issue/    generic issue/PR lifecycle: seeded issue (brainstorm → spec → plan)
 skills/implement-issue/ generic issue/PR lifecycle: plan → draft PR → ready
 skills/merge-pr/        generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
+skills/auto-dev/        fleet supervisor above the lifecycle skills: N parallel workers burning down the backlog
+skills/systematic-debugging/ root-cause-before-fix process, harness-agnostic
 skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
 skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main)
 scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release)
