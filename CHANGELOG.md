@@ -8,6 +8,44 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.11.0](https://github.com/phmatray/ai-migration-kit/compare/v1.10.0...v1.11.0) (2026-08-18)
+
+
+### Features
+
+* **roseline:** ship and enforce the MCP server the kit requires ([#109](https://github.com/phmatray/ai-migration-kit/issues/109)) ([#110](https://github.com/phmatray/ai-migration-kit/issues/110)) ([47f6c1e](https://github.com/phmatray/ai-migration-kit/commit/47f6c1efcef3d7045e6e82c814b8ca0ac9e09095))
+* **skills:** add the auto-dev fleet supervisor and systematic-debugging ([#173](https://github.com/phmatray/ai-migration-kit/issues/173)) ([ce23b73](https://github.com/phmatray/ai-migration-kit/commit/ce23b73152029a118728a3ba64750a7b3e1e3339))
+* **templates:** arm the bundle gate from a committed config, not repo state ([#96](https://github.com/phmatray/ai-migration-kit/issues/96)) ([#151](https://github.com/phmatray/ai-migration-kit/issues/151)) ([1c8947e](https://github.com/phmatray/ai-migration-kit/commit/1c8947efb221e706e3177c0266b6e550cf1286db))
+* **tests:** one marker convention for every spelling of the pinned version ([#90](https://github.com/phmatray/ai-migration-kit/issues/90)) ([#152](https://github.com/phmatray/ai-migration-kit/issues/152)) ([8c4752c](https://github.com/phmatray/ai-migration-kit/commit/8c4752cbf0b252e4606af1b783c202ced1d69459))
+
+
+### Bug Fixes
+
+* **audit:** walk a first-party packages/ child however deep its project sits ([#107](https://github.com/phmatray/ai-migration-kit/issues/107)) ([#140](https://github.com/phmatray/ai-migration-kit/issues/140)) ([4a71090](https://github.com/phmatray/ai-migration-kit/commit/4a71090fe0ee073f9ce709c4ce1f6148af668e7b))
+* **ci-wiring:** require a push-to-main trigger before calling a suite enforced ([#133](https://github.com/phmatray/ai-migration-kit/issues/133)) ([#138](https://github.com/phmatray/ai-migration-kit/issues/138)) ([2685961](https://github.com/phmatray/ai-migration-kit/commit/2685961bb3d875b0ef9212c5938e9175d1df5283))
+* **ci:** gate every shipped path, not just skills/** ([#55](https://github.com/phmatray/ai-migration-kit/issues/55)) ([#117](https://github.com/phmatray/ai-migration-kit/issues/117)) ([fbb89ab](https://github.com/phmatray/ai-migration-kit/commit/fbb89aba76cc5281b4a5bbc5ec41bc4623bfbd72))
+* **guarded-push:** read the post-push HEAD with the spelling the helper documents ([#92](https://github.com/phmatray/ai-migration-kit/issues/92)) ([#116](https://github.com/phmatray/ai-migration-kit/issues/116)) ([02bbfb6](https://github.com/phmatray/ai-migration-kit/commit/02bbfb6ba80ee5afe51d645643bbe1694b13dffb))
+* **guarded-push:** tell exit 4's three conditions apart ([#93](https://github.com/phmatray/ai-migration-kit/issues/93)) ([#166](https://github.com/phmatray/ai-migration-kit/issues/166)) ([6d76efd](https://github.com/phmatray/ai-migration-kit/commit/6d76efded66972882f490f69e6ee45db4dc82756))
+* **guards:** give reading HEAD's sha one home, so no receipt can name no commit ([#129](https://github.com/phmatray/ai-migration-kit/issues/129)) ([#148](https://github.com/phmatray/ai-migration-kit/issues/148)) ([55ce4a1](https://github.com/phmatray/ai-migration-kit/commit/55ce4a1bb2712e844775f1ba4290e070e8324297))
+* **lib:** let first_match report a find failure that is not a missing path ([#124](https://github.com/phmatray/ai-migration-kit/issues/124)) ([#164](https://github.com/phmatray/ai-migration-kit/issues/164)) ([c215c3f](https://github.com/phmatray/ai-migration-kit/commit/c215c3f07af0348ac525f23950c7560ad2c29c07))
+* **report:** name the base a relative path resolves against ([#102](https://github.com/phmatray/ai-migration-kit/issues/102)) ([#139](https://github.com/phmatray/ai-migration-kit/issues/139)) ([e7de524](https://github.com/phmatray/ai-migration-kit/commit/e7de524a3d3b636e25a2659523661e49c968cfba))
+* **report:** render the measured coverage in the KPI, not a transcribed one ([#50](https://github.com/phmatray/ai-migration-kit/issues/50)) ([#106](https://github.com/phmatray/ai-migration-kit/issues/106)) ([d4b4dd6](https://github.com/phmatray/ai-migration-kit/commit/d4b4dd6bfe61835dfeee4754d8e47fc099789712))
+* **roseline:** fail the gate open when the server cannot run on this host ([#112](https://github.com/phmatray/ai-migration-kit/issues/112)) ([#153](https://github.com/phmatray/ai-migration-kit/issues/153)) ([34266a8](https://github.com/phmatray/ai-migration-kit/commit/34266a8b76801f5802855416d98f7a5871b24241))
+* **roseline:** probe the launcher the manifest declares, and let the user force enforcement ([#155](https://github.com/phmatray/ai-migration-kit/issues/155)) ([#167](https://github.com/phmatray/ai-migration-kit/issues/167)) ([3d6c802](https://github.com/phmatray/ai-migration-kit/commit/3d6c802ed6b8b72d5ca501064973080dfc60230a))
+* **skills:** commit the repo profile and name its absence ([#157](https://github.com/phmatray/ai-migration-kit/issues/157)) ([#165](https://github.com/phmatray/ai-migration-kit/issues/165)) ([ff43e1c](https://github.com/phmatray/ai-migration-kit/commit/ff43e1cac4ff7d14bbb691bc27f32de426911fcd))
+* **skills:** verify the worktree home before using a worktree, not only creating one ([#86](https://github.com/phmatray/ai-migration-kit/issues/86)) ([#120](https://github.com/phmatray/ai-migration-kit/issues/120)) ([4110889](https://github.com/phmatray/ai-migration-kit/commit/4110889b3bc755ddaca5b4e3d89d09baa5a306e1))
+* **templates:** require a regular file before declaring coverage produced ([#126](https://github.com/phmatray/ai-migration-kit/issues/126)) ([#136](https://github.com/phmatray/ai-migration-kit/issues/136)) ([b51a28a](https://github.com/phmatray/ai-migration-kit/commit/b51a28a9f13a8b738c8a76f5d65dd52f1db25abe))
+* **templates:** stop the coverage guard inverting under pipefail ([#97](https://github.com/phmatray/ai-migration-kit/issues/97)) ([#121](https://github.com/phmatray/ai-migration-kit/issues/121)) ([6016b4a](https://github.com/phmatray/ai-migration-kit/commit/6016b4a6f81239d81dfed8f169ecd5104a690943))
+* **tests:** let every suite parse under macOS's bash 3.2 ([#131](https://github.com/phmatray/ai-migration-kit/issues/131)) ([#137](https://github.com/phmatray/ai-migration-kit/issues/137)) ([5a2ef78](https://github.com/phmatray/ai-migration-kit/commit/5a2ef78296bfb5452dbb2b37ac137f93417e5bd2))
+* **tests:** let the first-match probe reach its own diagnostics ([#98](https://github.com/phmatray/ai-migration-kit/issues/98)) ([#118](https://github.com/phmatray/ai-migration-kit/issues/118)) ([fdcee07](https://github.com/phmatray/ai-migration-kit/commit/fdcee07491eec86ef96013282d502e27eb981ba7))
+* **tick-plan:** return from the plan PATCH in seconds, not half an hour ([#113](https://github.com/phmatray/ai-migration-kit/issues/113)) ([#134](https://github.com/phmatray/ai-migration-kit/issues/134)) ([88a363f](https://github.com/phmatray/ai-migration-kit/commit/88a363f9860b159812c0f840fc525afaf4691e49))
+* **xunit-v3:** make section 9 refuse the configs it cannot evaluate ([#99](https://github.com/phmatray/ai-migration-kit/issues/99)) ([#154](https://github.com/phmatray/ai-migration-kit/issues/154)) ([03508a1](https://github.com/phmatray/ai-migration-kit/commit/03508a1c2305ed5eec0e8c97d850164847cdb58b))
+
+
+### Performance Improvements
+
+* **audit:** probe each directory once ([#94](https://github.com/phmatray/ai-migration-kit/issues/94)) ([#147](https://github.com/phmatray/ai-migration-kit/issues/147)) ([478e749](https://github.com/phmatray/ai-migration-kit/commit/478e7490925a411a9275eadfed17a8264e1c2c7d))
+
 ## [1.10.0](https://github.com/phmatray/ai-migration-kit/compare/v1.9.1...v1.10.0) (2026-08-11)
 
 
