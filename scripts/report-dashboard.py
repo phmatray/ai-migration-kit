@@ -42,6 +42,10 @@ SCREENSHOT_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"
                     "svg": "image/svg+xml", "webp": "image/webp", "gif": "image/gif"}
 
 
+def screenshot_ext(path):
+    return Path(path).suffix.lstrip(".").lower()
+
+
 def unsupported_screenshot_format(ext, path):
     """SystemExit nommé pour une extension de capture hors de SCREENSHOT_MIME (#142).
 
@@ -292,7 +296,7 @@ def resolve_cobertura(entry, base):
 
 
 def data_uri(path):
-    ext = Path(path).suffix.lstrip(".").lower()
+    ext = screenshot_ext(path)
     mime = SCREENSHOT_MIME.get(ext)
     if mime is None:
         # Garde défensive : le vrai contrôle vit dans main(), avant tout rendu (voir #142). Si un
@@ -588,7 +592,7 @@ def main():
             raise SystemExit(f"capture introuvable : {path}{resolution_hint(item, base)}")
         # Le vrai contrôle du format vit ici, avant tout rendu — jamais dans `data_uri`, appelée
         # depuis `render()` (#142). `data_uri` garde le même contrôle en second filet défensif.
-        ext = path.suffix.lstrip(".").lower()
+        ext = screenshot_ext(path)
         if ext not in SCREENSHOT_MIME:
             unsupported_screenshot_format(ext, path)
         r["screenshot"]["path"] = str(path)

@@ -774,4 +774,34 @@ assert_in "$webp_gif_dir/migration/report.html" 'src="data:image/gif;base64,'
 assert_in "$webp_gif_dir/migration/report.html" 'Page de connexion migrée'
 assert_in "$webp_gif_dir/migration/report.html" 'alt="Capture de la page de connexion"'
 
+# ---------------------------------------------------------------------------
+# Une capture SANS extension du tout : le piège que le docstring de
+# unsupported_screenshot_format nomme explicitement (#142) — le message doit dire « sans
+# extension », jamais « format « . » non supporté ».
+# ---------------------------------------------------------------------------
+noext_dir="$(cd "$(kit_scratch)" && pwd -P)"
+mkdir -p "$noext_dir/migration/captures"
+cp tests/report-dashboard/fixture-cobertura.xml "$noext_dir/migration/"
+python3 - "$noext_dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura.xml", "exclude": ["Fixture.Web"]}
+r["screenshot"] = {"path": "captures/app", "caption": "Page de connexion migrée",
+                   "alt": "Capture de la page de connexion"}
+(d / "migration" / "report.json").write_text(json.dumps(r))
+PY
+: > "$noext_dir/migration/captures/app"
+if err=$(python3 scripts/report-dashboard.py "$noext_dir/migration/report.json" \
+           -o "$noext_dir/migration/report.html" 2>&1); then
+  echo "ÉCHEC : une capture sans extension doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *'format « . »'*) echo "ÉCHEC : le message nomme un caractère au lieu d'une absence : $err"; exit 1 ;;
+esac
+case "$err" in
+  *'format sans extension non supporté'*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas l'absence d'extension : $err"; exit 1 ;;
+esac
+
 echo "OK test golden report-dashboard"
