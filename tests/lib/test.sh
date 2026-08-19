@@ -17,10 +17,12 @@
 #   7. sourcing is loud when the helper is missing — a suite must never run unguarded;
 #   8. no suite hand-rolls the EXIT trap again — the anti-recurrence check;
 #   9. a suite that uses the helper takes its scratch from it, per occurrence;
-#  10. a suite that does NOT use it still leaves no temp directory behind — so §9 and §10 together
-#      cover every suite in the tree, and nothing falls between them (#128);
+#  10. a suite that does NOT use it still leaves no scratch obtained from `mktemp` behind — so §9
+#      and §10 together cover every suite's `mktemp` usage, and nothing falls between them (#128);
+#      narrowed to that instrument in #160, which is also what §13 exists to cover the remainder of;
 #  11. `kit_source` loads a helper and refuses, by name, one it cannot;
-#  12. no suite sources a shared helper unguarded — the anti-recurrence check for §11.
+#  12. no suite sources a shared helper unguarded — the anti-recurrence check for §11;
+#  13. no suite writes a literal `/tmp/…` path — a text-keyed lint, not a coverage claim (#160).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -370,23 +372,30 @@ suite_is_member() {
 # AS A COMMENT while the same line unindented was flagged, so an indented stray directory escaped
 # the audit the moment anyone appended a trailing note to its line. That is a false NEGATIVE in the
 # section whose entire job is to find leaks — the failure it produces is a clean-looking run.
+# The CODE portion of a single line of text (no leading `<n>:`), comments stripped — empty when the
+# whole line is a comment. Strip the leading whitespace properly (`${text%%[![:space:]]*}` is the
+# run of it), then a first char of `#` means the whole line is prose. Then the TRAILING kind, keyed
+# on whitespace before the `#` so `${x#*|}` and friends survive.
+#
+# Shared by stray_scratch and (#160) literal_tmp_paths, so the call/mention distinction — a comment
+# must never count as code — has one home instead of a second copy that could drift from the first.
+code_only() {
+  local text="$1" lead
+  lead=${text%%[![:space:]]*}
+  text=${text#"$lead"}
+  case "$text" in \#*) return 0 ;; esac
+  printf '%s' "${text%%[[:space:]]#*}"
+}
+
 stray_scratch() {
-  local line text lead
+  local line code
   while IFS= read -r line; do
-    # `<n>:<text>` from grep -n. Strip the leading whitespace properly (`${text%%[![:space:]]*}` is
-    # the run of it), then a first char of `#` means the whole line is prose about mktemp.
-    text=${line#*:}
-    lead=${text%%[![:space:]]*}
-    text=${text#"$lead"}
-    case "$text" in \#*) continue ;; esac
-    # Then the trailing kind. Keyed on whitespace before the `#` exactly as suite_is_member is, so
-    # `${x#*|}` and friends survive. If what is left no longer says `mktemp -d`, the match was in
-    # the comment and there is no call here.
-    text=${text%%[[:space:]]#*}
-    case "$text" in *'mktemp -d'*) : ;; *) continue ;; esac
+    # `<n>:<text>` from grep -n.
+    code=$(code_only "${line#*:}")
+    case "$code" in *'mktemp -d'*) : ;; *) continue ;; esac
     # The exemptions read the CODE, not the comment — otherwise a line could exempt itself by
     # mentioning kit_scratch in a note, which is the same defect one column over.
-    case "$text" in
+    case "$code" in
       *kit_scratch*|*'$WORK'*|*'$scratch'*) continue ;;
       *) printf '%s\n' "    $1: $line" ;;
     esac
@@ -506,14 +515,22 @@ fi
 echo "  [9] a suite that uses the helper takes its scratch from it"
 
 # ---------------------------------------------------------------------------
-# 10. A suite that is NOT a member must not leak temp directories either.
+# 10. A suite that is NOT a member must not leak scratch obtained from `mktemp` either.
+#
+#     NARROWED (#160): this section's instrument is the `mktemp` shim below, so its claim is about
+#     scratch obtained THAT WAY, not about every temp artefact a suite might produce. That gap had a
+#     live instance — tests/followups/test.sh wrote two FIXED `/tmp` paths, calling `mktemp` never,
+#     so this section's ledger stayed empty and it reported clean while the suite leaked on every
+#     run. §9 does not cover it either (it audits `mktemp -d` calls inside members). A fixed path is
+#     invisible to both, by construction, until it is spelled literally — which is what §13's lint is
+#     for; that is a text-keyed anti-recurrence measure, not a wider version of this section's claim.
 #
 #     §9 covers the members: kit_cleanup removes what kit_scratch took, on every exit path. A suite
 #     that manages its own scratch is outside that guarantee, and nothing ever measured it — which
 #     is how tests/report-dashboard/test.sh came to leak a directory on every single run, unnoticed
 #     (#128). It was in §9's blind spot by construction, since §9 keyed on a filename that suite
-#     deliberately avoided spelling. The two sections together now cover every suite, so a change
-#     that moves a suite from one side to the other cannot drop it out of both.
+#     deliberately avoided spelling. The two sections together now cover every suite's `mktemp`
+#     scratch, so a change that moves a suite from one side to the other cannot drop it out of both.
 #
 #     BEHAVIOURAL, not textual: the suite is run for real, every path `mktemp` hands it is recorded,
 #     and the ones that still exist afterwards are the leak. A suite that cleans up correctly comes
@@ -915,5 +932,94 @@ if [ -n "$unguarded" ]; then
   exit 1
 fi
 echo "  [12] every source is guarded — kit_source, or the bootstrap form (helpers included)"
+
+# ---------------------------------------------------------------------------
+# 13. No suite writes a literal `/tmp/…` path — the lint §10 was narrowed FOR (#160).
+#
+#     Text-keyed, not behavioural: it greps for the four characters `/tmp/`, so a suite that hides
+#     the same string in a variable (`t=/tmp; f="$t/x"`) sails through unseen. §10 does NOT close
+#     that gap either: its instrument is the `mktemp` shim, so a suite that builds a hidden path this
+#     way and creates it with anything other than `mktemp` (`mkdir -p "$f"`, `install -d`, …) leaves
+#     no trace in either section's ledger — both report clean while the directory leaks forever. That
+#     residual gap is real and unclosed; catching it would need value tracking through variables,
+#     which is a taint-analysis problem this text-keyed lint does not attempt. What THIS section does
+#     catch is the hazard at the moment a fixed path is WRITTEN LITERALLY, whether or not the run that
+#     follows happens to leak or collide on it. A lint, not a coverage claim, and it must not be read
+#     as a wider one than §10 was just narrowed to.
+#
+#     A line may carry the `tmp-lint:allow` marker — a bare token, the same shape as
+#     pinned-literals-check.py's `pinned:<pin>` — to record a DELIBERATE literal. The marker sits on
+#     the line it excuses, in a trailing comment, so the exemption cannot drift out of step with what
+#     it is exempting: tests/renovate-config/test.sh sets a config's `baseDir` to `/tmp/renovate` to
+#     prove the validator rejects it — the string is test DATA, not a path this suite writes to.
+# ---------------------------------------------------------------------------
+# The literal `/tmp/…` occurrences in $1 that are CODE, not prose or an exempted deliberate case —
+# one "    <file>:<n>:<text>" line each. The marker is read from the RAW line, not the comment-
+# stripped code: it typically lives inside the very trailing comment code_only would strip, e.g.
+# `cfg["baseDir"] = "/tmp/renovate"  # tmp-lint:allow — …`.
+literal_tmp_paths() {
+  local line text code
+  while IFS= read -r line; do
+    text=${line#*:}
+    case "$text" in *'tmp-lint:allow'*) continue ;; esac
+    code=$(code_only "$text")
+    case "$code" in *'/tmp/'*) printf '%s\n' "    $1: $line" ;; esac
+  done < <(grep -n '/tmp/' "$1" || true)
+}
+
+tmp_literal_fixture="$scratch/writes-tmp-literal.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'f=/tmp/x'
+  echo ': > "$f"'
+} > "$tmp_literal_fixture"
+[ -n "$(literal_tmp_paths "$tmp_literal_fixture")" ] || {
+  echo "FAIL: literal_tmp_paths did not flag a bare '/tmp/x'"; exit 1; }
+
+# Prose mentioning /tmp only inside a comment is not a path the suite writes — the same call/mention
+# distinction §9's suite_is_member draws, one level down.
+tmp_prose_fixture="$scratch/mentions-tmp-in-comment.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo '# scratch used to live under /tmp/whatever before kit_scratch existed'
+  echo 'd=$(kit_scratch)'
+} > "$tmp_prose_fixture"
+[ -z "$(literal_tmp_paths "$tmp_prose_fixture")" ] || {
+  echo "FAIL: literal_tmp_paths flagged a '/tmp/' mentioned only in a comment: $(literal_tmp_paths "$tmp_prose_fixture")"
+  exit 1; }
+
+# The marker exempts a deliberate literal — a config value under test, not a path this suite writes.
+tmp_exempt_fixture="$scratch/exempted-tmp-literal.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'cfg_baseDir=/tmp/renovate  # tmp-lint:allow — a config VALUE under test, not a written path'
+} > "$tmp_exempt_fixture"
+[ -z "$(literal_tmp_paths "$tmp_exempt_fixture")" ] || {
+  echo "FAIL: literal_tmp_paths flagged a line carrying its own exemption marker: $(literal_tmp_paths "$tmp_exempt_fixture")"
+  exit 1; }
+
+# And the converse of the marker: without it, the very same literal must still be flagged — otherwise
+# the fixture above proves nothing about the marker specifically.
+tmp_unexempt_fixture="$scratch/unexempted-tmp-literal.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'cfg_baseDir=/tmp/renovate'
+} > "$tmp_unexempt_fixture"
+[ -n "$(literal_tmp_paths "$tmp_unexempt_fixture")" ] || {
+  echo "FAIL: literal_tmp_paths did not flag the same literal once the marker was removed"; exit 1; }
+
+tmp_offenders=""
+for f in tests/*/test.sh; do
+  [ "$f" = "tests/lib/test.sh" ] && continue
+  hits=$(literal_tmp_paths "$f")
+  [ -n "$hits" ] && tmp_offenders="$tmp_offenders
+$hits"
+done
+if [ -n "$tmp_offenders" ]; then
+  echo "FAIL: these lines write a literal /tmp/… path — move it into kit_scratch, or mark the line"
+  echo "      'tmp-lint:allow' with a reason if it is deliberate:$tmp_offenders"
+  exit 1
+fi
+echo "  [13] no suite writes an un-exempted literal /tmp/… path"
 
 echo "tests/_lib.sh golden test OK"
