@@ -12,7 +12,7 @@ export LAST_COMMIT="$(git log -1 --format=%cs 2>/dev/null || echo unknown)"
 export FIRST_COMMIT="$(git log --reverse --format=%cs 2>/dev/null | head -1 || echo unknown)"
 
 python3 - <<'PY'
-import fnmatch, json, os, re, subprocess
+import fnmatch, json, os, re, subprocess, sys
 from pathlib import Path
 
 # ── LA règle de parcours, unique ────────────────────────────────────────────────────────────────
@@ -356,6 +356,27 @@ cs = [p for p in files('*.cs')
       if not re.search(r'(\.g\.|\.g\.i\.|Designer|AssemblyInfo|TemporaryGeneratedFile)', p.name)]
 code_behind = [p for p in cs if p.name.endswith('.xaml.cs')]
 logic = [p for p in cs if not p.name.endswith('.xaml.cs')]
+
+# ── Un seul passage de lecture (#169) ────────────────────────────────────────────────────────────
+# Chaque `.cs` était ouvert QUATRE À CINQ fois : le balayage API_CLUSTERS, `has_tests`, `loc(own)`
+# par projet, puis `locTotal` et l'un de `locCodeBehind`/`locLogic`. Mesuré : ces passes font 96 %
+# du temps de horizon-hub (2.82 s sur 2.93 s). Le parcours de l'arbre, lui, n'en fait que 1.6-4.8 %
+# — c'est pourquoi #94 a fermé sa tâche « un seul parcours » sans la construire, et pourquoi le
+# budget de changement va ICI.
+#
+# `loc()` ne comptait PAS les lignes vides (`if line.strip()`) et avalait `OSError` par chemin : un
+# fichier illisible vaut 0 plutôt que d'interrompre l'audit sur un arbre de travail vivant. Les deux
+# comportements sont reproduits tels quels — la section 10 compare le document entier, octet par
+# octet, donc tout écart se voit.
+cs_texts = {}
+for p in cs:
+    try:
+        cs_texts[p] = p.read_text(encoding='utf-8', errors='ignore')
+    except OSError:
+        cs_texts[p] = ''
+cs_lines = {p: sum(1 for line in t.splitlines() if line.strip()) for p, t in cs_texts.items()}
+if os.environ.get('AUDIT_TRACE_READS'):
+    sys.stderr.write('cs-reads=%d\n' % len(cs_texts))
 
 API_CLUSTERS = ['Windows.Storage', 'Windows.UI', 'Windows.ApplicationModel', 'Windows.Networking',
                 'Windows.Media', 'Windows.Devices', 'Windows.Security', 'Windows.System',
