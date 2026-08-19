@@ -120,18 +120,81 @@ when a draft-gated job re-triggers), so its verdict can't be trusted directly:
 SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
 # --slurp piped to a separate jq (gh's --jq can't combine with --slurp) flattens every page's
 # {total_count, check_runs:[...]} into one list — safe even if check-runs ever exceed a page.
-runs=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp \
-         | jq '[.[].check_runs[] | {name, state: (.conclusion // .status)}]')
+verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp | jq '
+  # >>> merge-gate verdict — extracted verbatim and run over fixtures by tests/merge-gate/test.sh >>>
+  # One SHA carries a HISTORY PER JOB, not one run per job, so reduce before judging: keep the
+  # newest run of each job and apply the rules to that alone.
+  [ .[].check_runs[] | {name, id, app: .app.id, started_at, state: (.conclusion // .status)} ]
+  # A job is identified by the check name AND the app that posted it. Two products can both
+  # publish a check called build — GitHub Actions and a CI app — and grouping on the name alone
+  # would let whichever posted later silently retire the other one verdict.
+  | group_by([.name, .app])
+  # Ordered by .id, not .started_at. A check-run id is assigned when the run is CREATED, so the
+  # greatest id is the newest run of that job, which is the question being asked. started_at is
+  # weaker on three counts: it is nullable, so a queued run that has not begun sorts FIRST and
+  # loses to the stale success it is meant to supersede; it is compared here as a string, so a
+  # producer emitting a UTC offset rather than Z orders wrongly; and a job held behind needs: can
+  # start later than a job from a newer run.
+  | map(sort_by(.id)
+        # A skipped run is not a verdict, so it must not become one by arriving last. Prefer the
+        # newest run that reached a real conclusion, and fall back to a skipped one only when the
+        # job has nothing else — the path-filter case, which stays a non-event.
+        | ((map(select(.state != "skipped")) | last) // last))
+  | { latest: .,
+      failed:  [ .[] | select(.state == "failure" or .state == "cancelled" or .state == "timed_out" or .state == "action_required") ],
+      pending: [ .[] | select(.state == "queued" or .state == "in_progress") ] }
+  # <<< merge-gate verdict <<<
+')
 
-failed=$(printf '%s' "$runs"  | jq '[.[] | select(.state=="failure" or .state=="cancelled" or .state=="timed_out" or .state=="action_required")]')
-pending=$(printf '%s' "$runs" | jq '[.[] | select(.state=="queued" or .state=="in_progress")]')
+# A failed query prints nothing, and without `pipefail` the pipeline still exits 0 — at which point
+# an empty verdict reads as "this SHA has no check-runs", i.e. as a pass. No verdict is not a pass.
+[ -n "$verdict" ] || { echo "check-runs query returned nothing — no verdict; do not merge"; exit 1; }
+
+latest=$(printf '%s' "$verdict"  | jq .latest)   # one run per job — the set the rules apply to
+failed=$(printf '%s' "$verdict"  | jq .failed)
+pending=$(printf '%s' "$verdict" | jq .pending)
+
+# Ask the JSON how many, never the shell string: an empty set is the four bytes `[]`, which every
+# `[ -z "$x" ]` test in sight reports as non-empty.
+n_latest=$(printf  '%s' "$verdict" | jq '.latest  | length')
+n_failed=$(printf  '%s' "$verdict" | jq '.failed  | length')
+n_pending=$(printf '%s' "$verdict" | jq '.pending | length')
 ```
 
 Merge is permitted (CI-wise) when `failed` is empty **and** `pending` is empty **and** the PR is not a
 draft — not when one named job reports `success`. A `skipped` check-run is neither `failed` nor
 `pending`, so it's simply not evidence of anything; treating it as a blanket "CI didn't run" hangs
 forever when a workflow path filter legitimately skips a job the PR's files don't touch (see
-`SKILL.md` Step 3 for the full three-way breakdown of why a check reads `skipped`).
+`SKILL.md` Step 3 for the full breakdown of why a check-run may not be its job's verdict).
+
+**Why the runs are reduced first (#91).** GitHub attaches a *history per job* to a SHA, not one run
+per job — and this repo's own `ci.yml` manufactures those histories deliberately: `cancel-in-progress`
+(#27/#29) exists so a retitle cannot leave two runs racing to publish the same `kit` check. Its
+unavoidable consequence is that a **superseded `cancelled` stays attached to the head SHA forever**,
+beside the real `success` for the same job. Pushing twice in quick succession, editing a PR body, or
+retargeting a stacked PR all produce one.
+
+Measured on PR #85 — head sha `8c58eb2` carried three check-runs, all named `kit`:
+
+| started | conclusion | what it was |
+|---|---|---|
+| 09:34:38 | `cancelled` | superseded when the next push landed |
+| 09:35:07 | `success` | the real verdict |
+| 09:48:09 | `success` | re-run after the base retargeted to `main` when #76 merged |
+
+GitHub itself reported `mergeStateStatus: CLEAN` / `mergeable: MERGEABLE` throughout. Read as a flat
+set that PR is **failed**: §4's corrections loop would have gone hunting for a red check, found
+nothing to fix, exhausted its rounds and refused a PR that was green on two separate runs. The
+symmetric hazard was equally unguarded and is the worse one — a stale `success` sitting beside a
+newer `failure` for the same job, where "some run succeeded" reads as fine. One reduction closes
+both, and it is the argument `SKILL.md` Step 3 already makes about phantom `skipped` runs applied to
+the case it used to miss.
+
+⚠️ **This is not "ignore `cancelled`".** A cancellation *superseded by a later run of the same job* is
+noise; a cancellation that **is** the job's latest run — a human pressing Cancel, a job cancelled on
+timeout — is a genuine non-verdict and still blocks. `tests/merge-gate/test.sh` extracts the program
+above from this file and drives both cases over fixtures, so a rewrite that weakens the gate into
+blanket-ignoring cancellations goes red instead of quiet.
 
 Inspect failures via the rollup (gives the log URL to read):
 
@@ -140,8 +203,11 @@ gh pr view "$PR" --json statusCheckRollup \
   --jq '.statusCheckRollup[] | select(.conclusion=="FAILURE") | {name, detailsUrl}'
 ```
 
-- **`runs` is empty** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let
-  `mergeStateStatus` (§4) be the only gate.
+- **`n_latest` is 0** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let
+  `mergeStateStatus` (§4) be the only gate. This is the *reduced* set, so it is 0 exactly when the
+  SHA carries no check-runs — every run belongs to some job. It is 0 only when the query above
+  actually answered; that is what the `-n "$verdict"` refusal is for, since "the call failed" and
+  "there is no CI" are opposite verdicts that an unguarded empty string spells identically.
 - **Long pipelines** → re-poll the check-runs recipe rather than busy-looping. If you'd rather not hold
   the turn open, come back later (e.g. via `ScheduleWakeup`).
 - `gh pr checks "$PR" --watch` is still useful as a **human-facing** progress view in a terminal, but
