@@ -54,7 +54,7 @@ A finished follow-up disappears from `next_steps` — history lives in git, not 
 3. Regenerate the dashboard: `python3 "<kit>/scripts/report-dashboard.py" migration/report.json`
    (the output lands next to the report.json). `coverage/` is never committed — if it is not
    already on disk from the migration run, re-run the coverage-collecting test command first
-   (`legacy-upgrade/references/phase-6-verify.md` step 2), or regeneration fails with "rapport
+   (`legacy-upgrade/references/phase-6-verify.md` step 2), or regeneration fails with "répertoire
    de couverture introuvable".
 4. Commit in that repo: `chore: follow-up closed — <item summary>`.
 

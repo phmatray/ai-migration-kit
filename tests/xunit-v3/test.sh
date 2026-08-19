@@ -2205,8 +2205,13 @@ echo "  [10] the find probes report what they found, not how the reader exited"
 #     future edit to step 2 is what this case tracks, never a copy that can quietly drift from it.
 # ---------------------------------------------------------------------------
 cd "$KIT"
-PHASE6_STEP2=$(grep -oE '`dotnet test[^`]*`' skills/legacy-upgrade/references/phase-6-verify.md \
-  | head -1 | sed 's/^`//; s/`$//')
+# `|| true` INSIDE the pipeline, same reason as the knob-scan at the top of this file: grep exits 1
+# on no match, and under `set -o pipefail` that failing exit status — not head's or sed's — is what
+# the assignment sees, so it would abort HERE under `set -e`, before the diagnostic on the next line
+# ever ran. A bare `x=$(grep … | head -1 | sed …)` on a doc that has lost its command would die
+# silently instead of naming what broke — exactly the hazard first_match/any_match exist to close.
+PHASE6_STEP2=$({ grep -oE '`dotnet test[^`]*`' skills/legacy-upgrade/references/phase-6-verify.md \
+  || true; } | head -1 | sed 's/^`//; s/`$//')
 [ -n "$PHASE6_STEP2" ] || {
   echo "FAIL: phase-6-verify.md step 2 no longer carries a backtick-quoted dotnet test command"
   exit 1
