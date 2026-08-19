@@ -252,8 +252,41 @@ fi
 
 # Verify against what GitHub now actually holds — a successful PATCH is not proof of content,
 # and a bounded one is not proof of failure. Either way this read-back is the authority.
-if got=$(gh api "$endpoint" --jq .body 2>/dev/null); then
-  if [ -z "${got//[[:space:]]/}" ]; then
+#
+# It runs under the SAME deadline as the PATCH (#135). Bounding only the write does not remove
+# #113's failure mode, it relocates it: expiry on the write is a deliberate handover to this call,
+# so the bounded path *guarantees* this one runs next — and an unbounded authority is exactly
+# where the stall then lands.
+readback_file=$(mktemp "${TMPDIR:-/tmp}/tick-plan-readback.XXXXXX") \
+  || die "could not create a temp file for the read-back"
+trap 'rm -f "$payload_file" "$readback_file"' EXIT
+
+# A wrapper, because run_bounded takes an argv and this leg keeps gh's own stderr suppressed.
+quiet_gh() { gh "$@" 2>/dev/null; }
+
+run_bounded "$readback_file" quiet_gh api "$endpoint" --jq .body
+read_bounded=$BOUNDED
+read_rc=$RC
+
+# A read-back that was cut short is a read-back that FAILED: in both cases the authority did not
+# answer, so both route to the outcome the contract already defines for "no answer" rather than to
+# a fourth verdict. Decided BEFORE the body is looked at — a killed call leaves an empty or
+# truncated file, and reading that as "GitHub now holds an empty body" would fire the loudest
+# alarm in this script on no evidence whatsoever.
+if [ "$read_bounded" -eq 0 ] && [ "$read_rc" -eq 0 ]; then
+  got=$(cat "$readback_file")
+
+  # `case`, and NOT `[ -z "${got//[[:space:]]/}" ]`. bash 3.2's pattern substitution is O(n^2) in
+  # the subject length, and the subject here is the entire issue body. Measured against a live
+  # 15.8KB body: 4KB took 5s, 8KB 33s, 15.8KB 247s — all of it pure CPU, *after* the PATCH has
+  # already landed, and with no deadline over it because it is not a `gh` call at all. That is the
+  # "hangs after a successful PATCH, needs kill -9" report behind #135, and it grows with every
+  # box the plan gains. The glob answers the same question — is there one non-blank character? —
+  # in constant time.
+  body_is_blank=1
+  case "$got" in *[![:space:]]*) body_is_blank=0 ;; esac
+
+  if [ "$body_is_blank" -eq 1 ]; then
     printf 'tick-plan: ALERT — %s now has an EMPTY body. Restore at once from %s\n' \
       "$endpoint" "$BEFORE" >&2
     exit 1
@@ -274,15 +307,17 @@ if got=$(gh api "$endpoint" --jq .body 2>/dev/null); then
     exit 1
   fi
 elif [ "$bounded" -eq 1 ]; then
-  # The one path with no evidence at all: the call was cut short AND the authority is unreachable.
-  # Reporting success here would be a claim with nothing behind it.
-  printf 'tick-plan: ALERT — the PATCH was bounded at %ss and the read-back failed, so nothing\n' \
+  # The one path with no evidence at all: the call was cut short AND the authority did not answer
+  # — whether it failed outright or was itself bounded, which are the same thing here.
+  # Reporting success would be a claim with nothing behind it.
+  printf 'tick-plan: ALERT — the PATCH was bounded at %ss and the read-back failed or was bounded,\n' \
     "$PATCH_TIMEOUT" >&2
-  printf '           confirms what %s now holds. Re-run to find out; pre-edit copy: %s\n' \
+  printf '           so nothing confirms what %s now holds. Re-run to find out; pre-edit copy: %s\n' \
     "$endpoint" "$BEFORE" >&2
   exit 1
 else
-  printf 'tick-plan: WARNING — PATCH reported success but the read-back failed; content unverified.\n' >&2
+  printf 'tick-plan: WARNING — PATCH reported success but the read-back failed or was bounded;\n' >&2
+  printf '           content unverified.\n' >&2
   verified=0
 fi
 
@@ -292,7 +327,7 @@ fi
 if [ "${verified:-1}" -eq 1 ]; then
   state="body verified intact"
 else
-  state="body NOT verified — the read-back failed"
+  state="body NOT verified — the read-back failed or was bounded"
 fi
 
 bounded_note=""

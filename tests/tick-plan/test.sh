@@ -68,6 +68,9 @@ if [[ "$*" == *PATCH* ]]; then
   exit 0
 else
   [ -n "${GH_READ_FAIL:-}" ] && exit 3
+  # $GH_READ_SLEEP stalls the READ-BACK — the leg that decides the verdict and that #135 found
+  # unbounded. `exec` so the sleep inherits this pid and a kill on it actually ends the call.
+  [ -n "${GH_READ_SLEEP:-}" ] && exec sleep "$GH_READ_SLEEP"
   [ -f "$GH_STORE" ] && cat "$GH_STORE"
 fi
 STUB
@@ -243,7 +246,9 @@ run_bounded_defs=$(grep -c '^run_bounded()' "$TICK" || true)
 [ "$run_bounded_defs" -eq 1 ] \
   || { echo "FAIL [helper-single-home]: expected exactly 1 run_bounded() definition in $TICK, found
         $run_bounded_defs — the deadline must have one home, not a copy per call site"; exit 1; }
-kill9_lines=$(grep -c 'kill -9' "$TICK" || true)
+# Comment lines are stripped first: the script quotes the phrase "needs kill -9" when explaining
+# the report it was written against, and counting prose as an escalation is a false positive.
+kill9_lines=$(grep -v '^[[:space:]]*#' "$TICK" | grep -c 'kill -9' || true)
 [ "$kill9_lines" -eq 1 ] \
   || { echo "FAIL [helper-single-home]: expected exactly 1 line carrying the SIGKILL escalation in
         $TICK, found $kill9_lines — the deadline has been copied rather than shared"; exit 1; }
@@ -368,6 +373,73 @@ grep -q 'jq .body' "$GH_CALL_LOG" \
   && { echo "FAIL [patch-failed]: read back a body after a PATCH that never landed"
        cat "$GH_CALL_LOG"; exit 1; }
 echo "  ok: patch-failed — a failing PATCH still REFUSES, with no read-back"
+
+# 15a. The read-back is bounded too, after a PATCH that succeeded on its own. Bounding one of the
+#      two `gh` calls does not remove #113's failure mode, it relocates it — and the bounded PATCH
+#      path *guarantees* the read-back runs next, because expiry is a deliberate handover to it.
+#      A cut-short read-back is a FAILED read-back: the authority did not answer, so this routes to
+#      the existing WARNING (the PATCH itself reported success, so the write almost certainly
+#      landed) rather than inventing a fourth verdict.
+export GH_READ_SLEEP=20
+run_bounded readback-bounded-clean-patch 2 \
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_READ_SLEEP
+[ "$RC" -eq 0 ] || { echo "FAIL [readback-bounded-clean-patch]: a successful PATCH must not fail on a
+        bounded read-back, got exit $RC"; cat "$WORK/out.readback-bounded-clean-patch"; exit 1; }
+[ "$ELAPSED" -lt 10 ] || { echo "FAIL [readback-bounded-clean-patch]: took ${ELAPSED}s of a 20s
+        read-back — the read-back is still unbounded, so #113's stall just moved one line down"
+                           cat "$WORK/out.readback-bounded-clean-patch"; exit 1; }
+grep -q 'NOT verified' "$WORK/out.readback-bounded-clean-patch" \
+  || { echo "FAIL [readback-bounded-clean-patch]: a bounded read-back verified nothing, so the
+        summary must not claim it did"; cat "$WORK/out.readback-bounded-clean-patch"; exit 1; }
+echo "  ok: readback-bounded-clean-patch — bounded read-back = failed read-back (${ELAPSED}s of 20s)"
+
+# 15b. Both legs cut short: nothing establishes what GitHub now holds, so this is the ALERT the
+#      contract already defines for "bounded PATCH + no answer", not a success and not a warning.
+export GH_PATCH_IGNORE_TERM=1 GH_PATCH_SLEEP=20 GH_READ_SLEEP=20
+run_bounded readback-bounded-after-bounded-patch 2 \
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_PATCH_IGNORE_TERM GH_READ_SLEEP GH_PATCH_SLEEP
+[ "$RC" -ne 0 ] || { echo "FAIL [readback-bounded-after-bounded-patch]: claimed success with nothing
+        confirming either leg"; cat "$WORK/out.readback-bounded-after-bounded-patch"; exit 1; }
+grep -q 'ALERT' "$WORK/out.readback-bounded-after-bounded-patch" \
+  || { echo "FAIL [readback-bounded-after-bounded-patch]: no ALERT"
+       cat "$WORK/out.readback-bounded-after-bounded-patch"; exit 1; }
+[ "$ELAPSED" -lt 20 ] || { echo "FAIL [readback-bounded-after-bounded-patch]: took ${ELAPSED}s of two
+        20s calls — at least one leg ran unbounded"
+                           cat "$WORK/out.readback-bounded-after-bounded-patch"; exit 1; }
+echo "  ok: readback-bounded-after-bounded-patch — both legs bounded, ALERT stands (${ELAPSED}s)"
+
+# 15c. A REAL body must not cost minutes of CPU. The emptiness check ran the whole fetched body
+#      through `${got//[[:space:]]/}`, and bash 3.2's pattern substitution is O(n^2) in the subject
+#      length — measured on a live 15.8KB issue body: 4KB 5s, 8KB 33s, 15.8KB 247s, all of it pure
+#      CPU *after* the PATCH has landed, with no deadline over it because it is not a `gh` call at
+#      all. That is the "hangs after a successful PATCH, needs kill -9" report behind #135. The
+#      bodies elsewhere in this suite are a few hundred bytes, which is why it never showed here.
+fresh_log big-body-is-not-quadratic
+big_before="$WORK/big-before.md"; big_after="$WORK/big-after.md"
+{
+  echo '## Implementation plan'
+  echo
+  i=0
+  while [ "$i" -lt 120 ]; do
+    echo "- [ ] **Step $i:** a step whose text is long enough to make this body realistic, because"
+    echo "      the defect is quadratic in body size and a toy body cannot show it."
+    i=$(( i + 1 ))
+  done
+} > "$big_before"
+sed '3s/^- \[ \]/- [x]/' "$big_before" > "$big_after"
+[ "$(wc -c < "$big_before" | tr -d ' ')" -ge 8000 ] \
+  || { echo "FAIL [big-body-is-not-quadratic]: fixture body is too small to exercise the defect"; exit 1; }
+run_bounded big-body-is-not-quadratic 60 "$TICK" --repo o/r --issue 42 \
+  --before "$big_before" --after "$big_after"
+[ "$RC" -eq 0 ] || { echo "FAIL [big-body-is-not-quadratic]: expected success, got exit $RC"
+                     cat "$WORK/out.big-body-is-not-quadratic"; exit 1; }
+[ "$ELAPSED" -lt 10 ] || { echo "FAIL [big-body-is-not-quadratic]: a $(wc -c < "$big_before" | tr -d ' ')-byte
+        body took ${ELAPSED}s with a stub that answers instantly — the script is spending it in
+        pure bash, not on the network. This is the post-PATCH stall no deadline can see"
+                           cat "$WORK/out.big-body-is-not-quadratic"; exit 1; }
+echo "  ok: big-body-is-not-quadratic — $(wc -c < "$big_before" | tr -d ' ') bytes ticked in ${ELAPSED}s"
 
 # 15. The deadline must be a sane number: a junk value is caught before anything is sent.
 refuses bad-timeout env TICK_PLAN_PATCH_TIMEOUT=soon \
