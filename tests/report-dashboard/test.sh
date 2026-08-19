@@ -734,4 +734,44 @@ if [ -e "$bad_ext_dir/migration/report.html" ]; then
   echo "ÉCHEC : un report.json invalide a quand même produit un report.html"; exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# `.webp` et `.gif` s'embarquent comme `.png` (#142) — formats légitimes, pas seulement tolérés.
+# ---------------------------------------------------------------------------
+webp_gif_dir="$(cd "$(kit_scratch)" && pwd -P)"
+mkdir -p "$webp_gif_dir/migration/captures"
+cp tests/report-dashboard/fixture-cobertura.xml "$webp_gif_dir/migration/"
+python3 - "$webp_gif_dir" <<'PY'
+import base64, json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura.xml", "exclude": ["Fixture.Web"]}
+r["screenshot"] = {"path": "captures/app.webp", "caption": "Page de connexion migrée",
+                   "alt": "Capture de la page de connexion"}
+(d / "migration" / "report.json").write_text(json.dumps(r))
+# WEBP 1x1 valide (lossless, VP8L) — le plus petit fichier qui prouve que les octets sont lus.
+webp = base64.b64decode(
+    "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAAAAAAAAAAAWlA4IAgAAAAwAQCdASoBAAEAAA"
+    "AAJaQAA3AA/vFAAAA=".replace("\n", ""))
+(d / "migration" / "captures" / "app.webp").write_bytes(webp)
+gif = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7")
+(d / "migration" / "captures" / "app.gif").write_bytes(gif)
+PY
+python3 scripts/report-dashboard.py "$webp_gif_dir/migration/report.json" \
+  -o "$webp_gif_dir/migration/report.html" 2>/dev/null
+assert_in "$webp_gif_dir/migration/report.html" 'src="data:image/webp;base64,'
+assert_in "$webp_gif_dir/migration/report.html" 'Page de connexion migrée'
+assert_in "$webp_gif_dir/migration/report.html" 'alt="Capture de la page de connexion"'
+python3 - "$webp_gif_dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path(d, "migration", "report.json").read_text(encoding="utf-8"))
+r["screenshot"]["path"] = "captures/app.gif"
+pathlib.Path(d, "migration", "report.json").write_text(json.dumps(r))
+PY
+python3 scripts/report-dashboard.py "$webp_gif_dir/migration/report.json" \
+  -o "$webp_gif_dir/migration/report.html" 2>/dev/null
+assert_in "$webp_gif_dir/migration/report.html" 'src="data:image/gif;base64,'
+assert_in "$webp_gif_dir/migration/report.html" 'Page de connexion migrée'
+assert_in "$webp_gif_dir/migration/report.html" 'alt="Capture de la page de connexion"'
+
 echo "OK test golden report-dashboard"

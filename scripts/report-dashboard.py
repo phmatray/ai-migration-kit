@@ -10,7 +10,8 @@ fichiers, un RÉPERTOIRE, ou un motif glob ; sous Microsoft Testing Platform cha
 projet de test écrit son propre rapport sous un nom généré, donc **pointer sur le
 répertoire de couverture** est la forme durable — un chemin littéral serait périmé au
 run suivant. Les rapports sont agrégés (cf. parse_cobertura), jamais concaténés.
-La capture est embarquée en data URI.
+La capture (`screenshot.path`) est embarquée en data URI ; formats acceptés : png, jpg/jpeg, svg,
+webp, gif — toute autre extension sort un `SystemExit` nommé plutôt qu'un `KeyError` (#142).
 
 ⚠ TOUT chemin relatif du report.json — `coverage.cobertura` comme `screenshot.path` — se résout
 contre LE RÉPERTOIRE DU REPORT.JSON, jamais contre le cwd ni contre la racine du repo. Dans la
@@ -37,7 +38,8 @@ PALETTE_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500"]
 
 # Formats de capture acceptés dans un `<img src="data:…">` — voir #142. La liste affichée dans le
 # diagnostic d'un format non supporté dérive de ce dict, jamais recopiée à côté.
-SCREENSHOT_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}
+SCREENSHOT_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                    "svg": "image/svg+xml", "webp": "image/webp", "gif": "image/gif"}
 
 
 def unsupported_screenshot_format(ext, path):
