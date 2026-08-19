@@ -38,6 +38,19 @@ VENDOR_PARENTS = (('wwwroot', 'lib'), ('wwwroot', 'vendor'))
 # derrière un nombre plus petit.
 ECARTES = {}
 
+# ── L'invariant « une lecture » ─────────────────────────────────────────────────────────────────
+# Chaque `.cs` retenu dans `cs` est ouvert EXACTEMENT UNE FOIS par run, dans le passage qui construit
+# `cs_texts`/`cs_lines` juste après que `cs` est défini (#169). Avant #169, cinq consommateurs
+# indépendants rouvraient chacun le même fichier — le balayage API_CLUSTERS, `has_tests`, `loc(own)`
+# par projet, `locTotal`, et l'un de `locCodeBehind`/`locLogic` — pour un total de quatre à cinq
+# ouvertures par fichier. Mesuré : ces passes faisaient 96 % du temps d'exécution sur le plus gros
+# dépôt local testé (2.82 s sur 2.93 s), alors que le parcours de l'arbre lui-même n'en fait que
+# 1.6-4.8 % (#94).
+#
+# Un nouveau consommateur de contenu `.cs` DOIT lire `cs_texts`/`cs_lines`, jamais le disque — la
+# section 11 de `tests/audit-inventory/test.sh` échoue sinon (`AUDIT_TRACE_READS=1` compte les
+# ouvertures réelles et exige exactement `len(cs)`).
+
 
 def sous_vendor(parts):
     """`parts` est À OU SOUS un répertoire `wwwroot/{lib,vendor}`."""
