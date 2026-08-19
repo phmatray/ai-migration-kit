@@ -349,6 +349,9 @@ jobs:
       - name: Guarded git golden test (a commit cannot land on the wrong branch)
         run: ./tests/guarded-git/test.sh
 
+      - name: Merge-gate golden test (the latest run per job decides, over fixtures)
+        run: ./tests/merge-gate/test.sh
+
       - name: Release-title gate golden test (pass AND fail paths)
         run: ./tests/release-title-gate/test.sh
 
