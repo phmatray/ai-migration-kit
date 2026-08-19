@@ -8,6 +8,23 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.12.1](https://github.com/phmatray/ai-migration-kit/compare/v1.12.0...v1.12.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* **merge-pr:** decide the merge on GitHub's state, not gh's exit code ([#178](https://github.com/phmatray/ai-migration-kit/issues/178)) ([#181](https://github.com/phmatray/ai-migration-kit/issues/181)) ([bf4a1c8](https://github.com/phmatray/ai-migration-kit/commit/bf4a1c84468cfcc15698b1ce9e3f5614da60da03))
+* **merge-pr:** judge the latest run per job, not every run on the SHA ([#91](https://github.com/phmatray/ai-migration-kit/issues/91)) ([#190](https://github.com/phmatray/ai-migration-kit/issues/190)) ([0ecb0e1](https://github.com/phmatray/ai-migration-kit/commit/0ecb0e1897bcf79ec31fe2fe39822d7cbe25353b))
+* **phase-6:** collect coverage where the local flow's report reads it ([#103](https://github.com/phmatray/ai-migration-kit/issues/103)) ([#189](https://github.com/phmatray/ai-migration-kit/issues/189)) ([1d60509](https://github.com/phmatray/ai-migration-kit/commit/1d60509783ee107d9d153501e3d6524e7fd43336))
+* **report:** name an unsupported screenshot format instead of raising KeyError ([#142](https://github.com/phmatray/ai-migration-kit/issues/142)) ([#183](https://github.com/phmatray/ai-migration-kit/issues/183)) ([312924b](https://github.com/phmatray/ai-migration-kit/commit/312924b4a1be715040a17ad100b62806b86b71fe))
+* **tests:** followups takes its scratch from the shared library ([#160](https://github.com/phmatray/ai-migration-kit/issues/160)) ([#186](https://github.com/phmatray/ai-migration-kit/issues/186)) ([310340e](https://github.com/phmatray/ai-migration-kit/commit/310340e9a50304f2eac7ef37ab9514c549d3c686))
+* **tick-plan:** bound every gh call, and make the bound release the caller ([#135](https://github.com/phmatray/ai-migration-kit/issues/135)) ([#179](https://github.com/phmatray/ai-migration-kit/issues/179)) ([7d2fbd7](https://github.com/phmatray/ai-migration-kit/commit/7d2fbd7b8dd17aa439464b88e0878b43cedb1074))
+
+
+### Performance Improvements
+
+* **audit:** read every .cs file once instead of four to five times ([#169](https://github.com/phmatray/ai-migration-kit/issues/169)) ([#182](https://github.com/phmatray/ai-migration-kit/issues/182)) ([8d1fdd6](https://github.com/phmatray/ai-migration-kit/commit/8d1fdd668b1bcfda751836652da3dce58fc67209))
+
 ## [1.12.0](https://github.com/phmatray/ai-migration-kit/compare/v1.11.0...v1.12.0) (2026-08-18)
 
 
