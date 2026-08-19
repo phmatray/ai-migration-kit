@@ -690,4 +690,48 @@ assert_in "$shot_dir/migration/report.html" 'alt="Capture de la page de connexio
 
 # Le chemin n'est plus affiché : il est supprimé à la sortie, et annoncer un artefact qui n'existe
 # plus était la moitié visible de la fuite (#128).
+
+# ---------------------------------------------------------------------------
+# Une extension de capture non supportée sort une phrase nommée, pas un KeyError (#142).
+#
+# Avant #142, `data_uri` indexait le dict MIME par une subscript sans repli : toute extension hors
+# des quatre connues (png/jpg/jpeg/svg) faisait planter le rendu avec un KeyError trois frames plus
+# loin — alors que #139 venait tout juste de garantir que la capture EXISTE. `.webp`/`.gif` sont des
+# formats de capture légitimes qu'un navigateur ou un outil devtools écrit par défaut (#102) ; ce cas
+# prouve qu'une extension encore non supportée (`.bmp`) échoue proprement, avant tout rendu.
+# ---------------------------------------------------------------------------
+bad_ext_dir="$(cd "$(kit_scratch)" && pwd -P)"   # cf. la note sur pwd -P plus haut
+mkdir -p "$bad_ext_dir/migration/captures"
+cp tests/report-dashboard/fixture-cobertura.xml "$bad_ext_dir/migration/"
+python3 - "$bad_ext_dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura.xml", "exclude": ["Fixture.Web"]}
+r["screenshot"] = {"path": "captures/app.bmp", "caption": "Page de connexion migrée",
+                   "alt": "Capture de la page de connexion"}
+(d / "migration" / "report.json").write_text(json.dumps(r))
+PY
+: > "$bad_ext_dir/migration/captures/app.bmp"
+if err=$(python3 scripts/report-dashboard.py "$bad_ext_dir/migration/report.json" \
+           -o "$bad_ext_dir/migration/report.html" 2>&1); then
+  echo "ÉCHEC : une extension de capture non supportée doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *Traceback*) echo "ÉCHEC : une extension non supportée crache une trace Python : $err"; exit 1 ;;
+esac
+case "$err" in
+  *'format « .bmp » non supporté'*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le format comme non supporté : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"$bad_ext_dir/migration/captures/app.bmp"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la capture résolue : $err"; exit 1 ;;
+esac
+# La validation précède le rendu : un report.json invalide ne doit jamais produire de report.html
+# partiel, même incomplet (#142 — la même invariance que #128 pour la couverture).
+if [ -e "$bad_ext_dir/migration/report.html" ]; then
+  echo "ÉCHEC : un report.json invalide a quand même produit un report.html"; exit 1
+fi
+
 echo "OK test golden report-dashboard"

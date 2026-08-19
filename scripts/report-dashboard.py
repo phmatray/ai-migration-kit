@@ -35,6 +35,21 @@ from pathlib import Path
 PALETTE_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 PALETTE_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500"]
 
+# Formats de capture acceptés dans un `<img src="data:…">` — voir #142. La liste affichée dans le
+# diagnostic d'un format non supporté dérive de ce dict, jamais recopiée à côté.
+SCREENSHOT_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}
+
+
+def unsupported_screenshot_format(ext, path):
+    """SystemExit nommé pour une extension de capture hors de SCREENSHOT_MIME (#142).
+
+    `ext` vide (fichier sans suffixe) ne doit jamais rendre « format « . » non supporté » — un
+    message qui nomme un caractère au lieu d'une absence.
+    """
+    label = f"« .{ext} »" if ext else "sans extension"
+    accepted = ", ".join(f".{e}" for e in SCREENSHOT_MIME)
+    raise SystemExit(f"capture : format {label} non supporté (acceptés : {accepted}) — {path}")
+
 
 def esc(s):
     return html.escape(str(s), quote=True)
@@ -276,7 +291,12 @@ def resolve_cobertura(entry, base):
 
 def data_uri(path):
     ext = Path(path).suffix.lstrip(".").lower()
-    mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}[ext]
+    mime = SCREENSHOT_MIME.get(ext)
+    if mime is None:
+        # Garde défensive : le vrai contrôle vit dans main(), avant tout rendu (voir #142). Si un
+        # second appelant apparaît un jour sans passer par cette validation, ce SystemExit reste le
+        # filet — jamais un KeyError brut.
+        unsupported_screenshot_format(ext, path)
     return f"data:{mime};base64," + base64.b64encode(Path(path).read_bytes()).decode()
 
 
