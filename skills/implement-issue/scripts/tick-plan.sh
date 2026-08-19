@@ -21,18 +21,27 @@
 #
 # The pipe was the last surviving piece of that original recipe, and it was expensive: `gh api …
 # --input -` fed from `printf | gh` took 25–35 MINUTES to return on a ~30KB body that GitHub had
-# already stored in seconds (#113). So the payload now travels in a FILE, and the call runs under a
-# deadline — TICK_PLAN_PATCH_TIMEOUT seconds, default 60, implemented in pure bash because stock
-# macOS ships no `timeout(1)`. Killing a PATCH does not un-send it, so expiry is a handover to the
-# read-back rather than a failure:
+# already stored in seconds (#113). So the payload now travels in a FILE, and EVERY `gh` call runs
+# under a deadline — TICK_PLAN_PATCH_TIMEOUT seconds, default 60, implemented in pure bash because
+# stock macOS ships no `timeout(1)`. Both calls, not just the write: bounding one leg only
+# relocates the stall to the other, and expiry on the write is a deliberate handover to the read-
+# back, so the bounded path guarantees the unbounded one runs next (#135). Killing a call does not
+# un-send it, so expiry is a handover rather than a failure — and a read-back that was cut short is
+# a read-back that FAILED, since either way the authority did not answer:
 #
-#   PATCH returns 0, stored body matches  → success
-#   PATCH returns 0, stored body differs  → ALERT, exit 1
-#   PATCH bounded,   stored body matches  → success, and the output says the call was bounded
-#   PATCH bounded,   stored body differs  → ALERT, exit 1
-#   PATCH bounded,   read-back failed     → ALERT, exit 1 — nothing confirms anything either way
-#   PATCH exits non-zero on its own       → REFUSED; nothing was sent
-#   payload validation fails              → REFUSED; nothing was sent, nothing was bounded
+#   PATCH returns 0, stored body matches         → success
+#   PATCH returns 0, stored body differs         → ALERT, exit 1
+#   PATCH returns 0, read-back failed or bounded → WARNING, rc 0 — content unverified
+#   PATCH bounded,   stored body matches         → success, and the output says the call was bounded
+#   PATCH bounded,   stored body differs         → ALERT, exit 1
+#   PATCH bounded,   read-back failed or bounded → ALERT, exit 1 — nothing confirms anything either way
+#   PATCH exits non-zero on its own              → REFUSED; nothing was sent
+#   payload validation fails                     → REFUSED; nothing was sent, nothing was bounded
+#
+# The deadline bounds the whole JOB, not the one pid: it launches under `set -m` so the call gets a
+# process group of its own and the escalation signals the group. Killing only the pid leaves a
+# descendant holding the inherited stdout/stderr, and a caller reading this script through a pipe
+# then waits out the very call the deadline reported bounding (#135).
 #
 # Usage:
 #   tick-plan.sh --repo <owner/repo> --issue <n> --before <file> --after <file>
@@ -43,7 +52,9 @@
 #   --comment-id  plan lives in a comment (numeric REST id) instead of the issue description
 #   --dry-run  validate and print the payload; touch nothing on GitHub
 #
-#   TICK_PLAN_PATCH_TIMEOUT  seconds the PATCH may run before it is bounded (default 60)
+#   TICK_PLAN_PATCH_TIMEOUT  seconds any single `gh` call may run before it is bounded (default 60).
+#                            The name predates the read-back being bounded too; it is kept because
+#                            the contract was published under it.
 #
 # Exits non-zero, having called nothing, on any failed check.
 

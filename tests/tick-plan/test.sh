@@ -441,6 +441,17 @@ run_bounded big-body-is-not-quadratic 60 "$TICK" --repo o/r --issue 42 \
                            cat "$WORK/out.big-body-is-not-quadratic"; exit 1; }
 echo "  ok: big-body-is-not-quadratic — $(wc -c < "$big_before" | tr -d ' ') bytes ticked in ${ELAPSED}s"
 
+# 15d. The knob is named where the agent actually reads it. The script header and
+#      references/github-mechanics.md document `TICK_PLAN_PATCH_TIMEOUT`, but SKILL.md Step 6 — the
+#      text an agent has open while ticking — did not, so the exit-1 bounded paths had no
+#      documented recovery at the point of use. A run that stalls despite a documented timeout is
+#      also indistinguishable from one with no timeout at all, which is how #135 was first
+#      misdiagnosed as "the deadline shells out to timeout(1), which macOS lacks".
+grep -q 'TICK_PLAN_PATCH_TIMEOUT' skills/implement-issue/SKILL.md \
+  || { echo "FAIL [docs-name-the-knob]: SKILL.md never names TICK_PLAN_PATCH_TIMEOUT, so the agent
+        ticking a box cannot tell a bounded call from a broken one"; exit 1; }
+echo "  ok: docs-name-the-knob — SKILL.md names the deadline knob"
+
 # 15. The deadline must be a sane number: a junk value is caught before anything is sent.
 refuses bad-timeout env TICK_PLAN_PATCH_TIMEOUT=soon \
   "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
