@@ -220,9 +220,13 @@ run_bounded() {
       while kill -0 "$pid" 2>/dev/null && [ "$(date +%s)" -lt "$grace_until" ]; do
         sleep 0.1 2>/dev/null || sleep 1
       done
-      if kill -0 "$pid" 2>/dev/null; then
-        kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
-      fi
+      # UNCONDITIONALLY, and to the group. Gating this on `kill -0 "$pid"` asks after the group
+      # LEADER, which is the wrong question: the read-back is launched through a shell function, so
+      # the leader is a subshell that dies on TERM within milliseconds however stubborn the call
+      # beneath it is. The escalation would then be skipped in precisely the case it exists for,
+      # leaving the child alive holding what it inherited. A group SIGKILL costs nothing when the
+      # group has already gone, and "SIGKILL cannot be ignored" only holds if it is actually sent.
+      kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
       BOUNDED=1
       break
     fi
@@ -242,7 +246,14 @@ run_bounded() {
 # host reads the same issue back in 0.4s. A file has no pipe handshake to get stuck in.
 payload_file=$(mktemp "${TMPDIR:-/tmp}/tick-plan-payload.XXXXXX") \
   || die "could not create a temp file for the payload. Nothing sent"
-trap 'rm -f "$payload_file"' EXIT
+# The read-back's scratch file is created HERE, before the write, even though it is not used until
+# after it. `die` prints REFUSED, and REFUSED is documented as "nothing was sent" — so it may only
+# be reached while that is still true. A failing mktemp between the PATCH and the read-back would
+# announce a refusal for a write that had already landed, and the documented response to REFUSED
+# is to restore from --before, which would un-tick it.
+readback_file=$(mktemp "${TMPDIR:-/tmp}/tick-plan-readback.XXXXXX") \
+  || die "could not create a temp file for the read-back. Nothing sent"
+trap 'rm -f "$payload_file" "$readback_file"' EXIT
 printf '%s' "$payload" > "$payload_file"
 [ -s "$payload_file" ] || die "the payload file came out empty. Nothing sent"
 
@@ -268,10 +279,6 @@ fi
 # #113's failure mode, it relocates it: expiry on the write is a deliberate handover to this call,
 # so the bounded path *guarantees* this one runs next — and an unbounded authority is exactly
 # where the stall then lands.
-readback_file=$(mktemp "${TMPDIR:-/tmp}/tick-plan-readback.XXXXXX") \
-  || die "could not create a temp file for the read-back"
-trap 'rm -f "$payload_file" "$readback_file"' EXIT
-
 # A wrapper, because run_bounded takes an argv and this leg keeps gh's own stderr suppressed.
 quiet_gh() { gh "$@" 2>/dev/null; }
 

@@ -68,6 +68,16 @@ if [[ "$*" == *PATCH* ]]; then
   exit 0
 else
   [ -n "${GH_READ_FAIL:-}" ] && exit 3
+  # The adversarial read-back: records its pid, then refuses to die on TERM and does NOT exec, so
+  # this process and its `sleep` both outlive the group leader. That is the shape the read-back
+  # actually has in production — it is launched through a shell function, so the leader is a
+  # subshell and `gh` is its child.
+  if [ -n "${GH_READ_IGNORE_TERM:-}" ]; then
+    echo $$ > "$GH_READ_PID"
+    trap '' TERM
+    sleep "${GH_READ_SLEEP:-25}"
+    exit 0
+  fi
   # $GH_READ_SLEEP stalls the READ-BACK — the leg that decides the verdict and that #135 found
   # unbounded. `exec` so the sleep inherits this pid and a kill on it actually ends the call.
   [ -n "${GH_READ_SLEEP:-}" ] && exec sleep "$GH_READ_SLEEP"
@@ -440,6 +450,56 @@ run_bounded big-body-is-not-quadratic 60 "$TICK" --repo o/r --issue 42 \
         pure bash, not on the network. This is the post-PATCH stall no deadline can see"
                            cat "$WORK/out.big-body-is-not-quadratic"; exit 1; }
 echo "  ok: big-body-is-not-quadratic — $(wc -c < "$big_before" | tr -d ' ') bytes ticked in ${ELAPSED}s"
+
+# 15e. The escalation must reach the GROUP even once the group LEADER has gone. The read-back runs
+#      through a shell function, so bash forks a subshell as leader with `gh` as its child — and a
+#      subshell dies on SIGTERM in milliseconds no matter how stubborn the call underneath it is.
+#      Gating SIGKILL on `kill -0 "$leader"` therefore skips the escalation in exactly the case it
+#      exists for, and the surviving child keeps whatever it inherited open. "SIGKILL cannot be
+#      ignored, which is what makes the bound a bound" is only true if the signal is actually sent.
+export GH_READ_IGNORE_TERM=1 GH_READ_SLEEP=25 GH_READ_PID="$WORK/read.pid"
+rm -f "$WORK/read.pid"
+run_bounded readback-escalates-to-the-group 2 \
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_READ_IGNORE_TERM GH_READ_SLEEP
+[ "$ELAPSED" -lt 12 ] || { echo "FAIL [readback-escalates-to-the-group]: took ${ELAPSED}s of a 25s
+        read-back"; cat "$WORK/out.readback-escalates-to-the-group"; exit 1; }
+read_pid=$(cat "$WORK/read.pid" 2>/dev/null || true)
+[ -n "$read_pid" ] || { echo "FAIL [readback-escalates-to-the-group]: the stub never recorded a pid,
+        so this case proves nothing"; exit 1; }
+sleep 1
+if kill -0 "$read_pid" 2>/dev/null; then
+  kill -9 -- -"$read_pid" 2>/dev/null || kill -9 "$read_pid" 2>/dev/null || true
+  echo "FAIL [readback-escalates-to-the-group]: the read-back call (pid $read_pid) outlived the
+        deadline. Its group leader exited on TERM, so the SIGKILL gated on the leader never fired
+        and the group was never escalated — the orphan lives on holding what it inherited"
+  exit 1
+fi
+echo "  ok: readback-escalates-to-the-group — the whole group dies, not just the leader"
+
+# 15f. `die` prints REFUSED, and REFUSED is documented — in this script's header and in
+#      references/github-mechanics.md — as "nothing was sent". After the PATCH has left, that
+#      message is a lie with teeth: the documented response to REFUSED is to leave the issue alone
+#      or restore from --before, which would un-tick a write that actually landed. So no `die` may
+#      appear after the write.
+patch_line=$(grep -n 'run_bounded /dev/null' "$TICK" | head -1 | cut -d: -f1)
+[ -n "$patch_line" ] || { echo "FAIL [refused-means-nothing-sent]: cannot locate the PATCH call in
+        $TICK, so this case cannot check anything"; exit 1; }
+# Exactly ONE die() is legitimate after that point: the one reached only when `gh` itself reported
+# the PATCH failed, where "nothing was sent" is still true. Any other — a scratch file that could
+# not be created, a validation added later — fires on a path where the write may already have
+# landed, and that is the lie. So pin the count and pin which one it is.
+post_write_dies=$(tail -n "+$patch_line" "$TICK" | grep -c 'die "' || true)
+[ "$post_write_dies" -eq 1 ] || { echo "FAIL [refused-means-nothing-sent]: $post_write_dies die()
+        calls appear after the PATCH is sent (line $patch_line), expected exactly 1. REFUSED means
+        'nothing was sent'; reached after the write has left, it tells the agent to restore — and
+        that un-ticks a write that landed"
+                                  tail -n "+$patch_line" "$TICK" | grep -n 'die "' | sed 's/^/        /'
+                                  exit 1; }
+tail -n "+$patch_line" "$TICK" | grep 'die "' | grep -q 'NOT changed' \
+  || { echo "FAIL [refused-means-nothing-sent]: the one post-write die() is no longer the
+        failed-PATCH one, so it may fire on a path where the write already landed"; exit 1; }
+echo "  ok: refused-means-nothing-sent — the only post-write die() is the failed-PATCH one"
 
 # 15d. The knob is named where the agent actually reads it. The script header and
 #      references/github-mechanics.md document `TICK_PLAN_PATCH_TIMEOUT`, but SKILL.md Step 6 — the
