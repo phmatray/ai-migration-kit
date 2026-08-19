@@ -120,11 +120,25 @@ when a draft-gated job re-triggers), so its verdict can't be trusted directly:
 SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
 # --slurp piped to a separate jq (gh's --jq can't combine with --slurp) flattens every page's
 # {total_count, check_runs:[...]} into one list — safe even if check-runs ever exceed a page.
-runs=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp \
-         | jq '[.[].check_runs[] | {name, state: (.conclusion // .status)}]')
+verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp | jq '
+  # >>> merge-gate verdict — extracted verbatim and run over fixtures by tests/merge-gate/test.sh >>>
+  # One SHA carries a HISTORY PER JOB, not one run per job, so reduce before judging: keep the
+  # LATEST run of each name and apply the rules to that set alone.
+  [ .[].check_runs[] | {name, id, started_at, state: (.conclusion // .status)} ]
+  | group_by(.name)
+  # sort_by([...]) — the array form, which every jq version accepts. .id breaks a started_at tie
+  # deterministically: two runs of one job can start in the same second, and letting the response
+  # order decide would make the verdict depend on what the API felt like returning first.
+  | map(sort_by([.started_at, .id]) | last)
+  | { latest: .,
+      failed:  [ .[] | select(.state == "failure" or .state == "cancelled" or .state == "timed_out" or .state == "action_required") ],
+      pending: [ .[] | select(.state == "queued" or .state == "in_progress") ] }
+  # <<< merge-gate verdict <<<
+')
 
-failed=$(printf '%s' "$runs"  | jq '[.[] | select(.state=="failure" or .state=="cancelled" or .state=="timed_out" or .state=="action_required")]')
-pending=$(printf '%s' "$runs" | jq '[.[] | select(.state=="queued" or .state=="in_progress")]')
+latest=$(printf '%s' "$verdict"  | jq .latest)   # one run per job — the set the rules apply to
+failed=$(printf '%s' "$verdict"  | jq .failed)
+pending=$(printf '%s' "$verdict" | jq .pending)
 ```
 
 Merge is permitted (CI-wise) when `failed` is empty **and** `pending` is empty **and** the PR is not a
