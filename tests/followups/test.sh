@@ -3,6 +3,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+KIT="$PWD"
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT"
+# kit_guard_samples_unchanged non enregistré : cette suite lit ses propres fixtures sous
+# tests/followups/, jamais samples/.
+scratch=$(kit_scratch)
+
 out="$(python3 scripts/followups.py tests/followups/fixture-a tests/followups/fixture-b --backlog docs/backlog.md)" || {
   echo "ÉCHEC : l'agrégateur a renvoyé un code non nul sur les fixtures — sortie :"; echo "$out"; exit 1; }
 
@@ -27,11 +35,14 @@ assert 'Synchronisation des artefacts'
 assert 'Différé A'
 assert 'Différé B'
 
-# Repo sans rapport : erreur signalée, code de sortie non nul.
-if python3 scripts/followups.py /tmp/repo-inexistant-followups > /tmp/followups-err.out 2>&1; then
+# Repo sans rapport : erreur signalée, code de sortie non nul. Le chemin est un enfant de $scratch
+# délibérément non créé, pour que « le repo n'existe pas » soit un fait établi plutôt qu'une
+# supposition sur l'état de /tmp (#160).
+repo_inexistant="$scratch/repo-inexistant"
+if python3 scripts/followups.py "$repo_inexistant" > "$scratch/err.out" 2>&1; then
   echo "ÉCHEC : un repo sans migration/report.json doit produire un code de sortie non nul"; exit 1
 fi
-grep -q 'introuvable' /tmp/followups-err.out || { echo "ÉCHEC : l'erreur doit nommer le rapport introuvable"; exit 1; }
+grep -q 'introuvable' "$scratch/err.out" || { echo "ÉCHEC : l'erreur doit nommer le rapport introuvable"; exit 1; }
 
 # Sortie --json : structure valide et comptes cohérents.
 python3 scripts/followups.py tests/followups/fixture-a tests/followups/fixture-b --json | python3 -c "
