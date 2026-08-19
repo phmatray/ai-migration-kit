@@ -278,15 +278,38 @@ gh pr merge "$PR" --squash --delete-branch \
 subject is that title with `(#PR)` appended — giving the canonical `… (#issue) (#PR)` shape
 automatically. If you override it, keep the `(#issue)` or you drop the link to the originating issue.
 
-`--delete-branch` removes the **remote** branch and tidies the local ref where it can; Step 7 still
-handles the local worktree + branch (gh can't delete a branch checked out in a worktree). Confirm:
+### The exit code doesn't decide — GitHub's state does
+
+`gh pr merge` does **two unrelated things**: it merges the PR **on GitHub**, then tidies up **locally**
+(check out the base branch, delete the merged branch). One exit code covers both, so a failure of the
+local half is indistinguishable from a rejected merge — and the local half fails on this kit's *normal*
+layout, not on an exotic one. `implement-issue` gives every issue its own worktree while the primary
+checkout sits on `main` — which is exactly the branch gh switches to after merging, and git refuses to
+check out a branch another worktree already holds:
+
+```
+$ gh pr merge 176 --squash --delete-branch
+failed to run git: fatal: 'main' is already used by worktree at '<path>/ai-migration-kit'
+```
+
+That merge **landed**: the squash was on `main` and the remote branch was already gone. Only gh's
+post-merge `git checkout` failed. So treat the merge call's exit status as **advisory** — its stderr is
+worth reporting, it does not conclude anything. Read the PR back, and let *that* decide:
 
 ```bash
 gh pr view "$PR" --json state,mergedAt,mergeCommit --jq '{state, mergedAt, mergeCommit:.mergeCommit.oid}'
 ```
 
-If the merge is rejected for a reason the loop didn't catch, do **not** reach for `--admin` — surface
-the rejection and stop.
+| readback | what it means | what to do |
+|---|---|---|
+| `state == MERGED` | the merge landed, whatever the exit code said | continue to **Step 6**. If the merge call exited non-zero, report that in Step 8 as *local cleanup deferred to Step 7*, not as a failed merge |
+| `state == OPEN` | a real rejection the loop didn't catch | do **not** reach for `--admin` — surface the rejection and stop |
+| the readback itself fails | inconclusive — this says neither merged nor rejected | re-read before concluding anything. Re-running the skill is safe: Step 1 routes an already-`MERGED` PR straight on to Steps 6-7 |
+
+`--delete-branch` removes the **remote** branch and tidies the local ref where it can — but its having
+succeeded is not cleanup being finished. The local worktree and branch still exist and Step 7 owns
+them (gh can't delete a branch checked out in a worktree; Step 7's Case B is this same collision, one
+step later). `references/merge-mechanics.md` §8 carries the row keyed on the literal message.
 
 ### Multi-issue PRs: keep the changelog honest
 
@@ -398,7 +421,7 @@ delete the main checkout or an unrelated worktree — match the path to the PR's
 
 Short and concrete:
 - The merged PR — URL and confirmation it's `MERGED` (with the squash commit sha); the branch it closed.
-- **Corrections applied** — one line each: red checks fixed, conflicts resolved (which files, how), review addressed. "None needed — merged clean" is a fine report.
+- **Corrections applied** — one line each: red checks fixed, conflicts resolved (which files, how), review addressed. "None needed — merged clean" is a fine report. A non-zero `gh pr merge` exit whose readback said `MERGED` is **not** a correction — report it as *local cleanup deferred to Step 7*.
 - **Follow-ups** — lead with the tally the filing bar produced (*"7 observations · 2 filed · 1 folded · 1 reopened · 3 recorded"*), then the detail: each new issue's title + URL, each one **folded** into an existing issue (`#N`), each **reopened** ancestor (`#N`), each recorded as a PR comment, or "none." If the 6d budget capped anything, say so and name the overflow issue. The tally is what lets the owner see whether the bar is calibrated — all-filed means it isn't being applied.
 - **Scope** — say plainly that the PR's own scope is complete. Findings are discovery, not unfinished business: a merge whose plan is ticked and whose CI is green is *done*, and the follow-up tally above is a separate fact about what was noticed along the way.
 - **Cleanup** — worktree removed and local branch deleted (or "already gone").
