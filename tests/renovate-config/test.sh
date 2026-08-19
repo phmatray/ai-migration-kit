@@ -220,7 +220,7 @@ import json, sys
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 # Both are self-hosted/global options, meaningless inside a repository's renovate.json.
 cfg["autodiscover"] = True
-cfg["baseDir"] = "/tmp/renovate"
+cfg["baseDir"] = "/tmp/renovate"  # tmp-lint:allow — a config VALUE under test, not a path this suite writes
 json.dump(cfg, open(sys.argv[2], "w", encoding="utf-8"))
 PY
 if run_validator "$scratch/global-only.json" "$scratch/global-only.txt"; then
