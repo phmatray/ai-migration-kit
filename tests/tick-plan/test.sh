@@ -219,6 +219,36 @@ run_bounded() {
   ELAPSED=$(( $(date +%s) - start ))
 }
 
+# Same, but captures through a PIPE — which is how a caller actually runs this script (a command
+# substitution, an agent harness reading stdout/stderr). The distinction is the whole of #135: a
+# file has no EOF to wait on, so redirecting to one cannot observe a descendant of a bounded call
+# still holding the inherited stdout/stderr open. Measured before the fix, same 2s deadline against
+# the same 60s call: 4s to a file, 60s to a pipe, byte-identical output and exit 0 either way.
+run_bounded_piped() {
+  local name="$1" timeout="$2"; shift 2
+  fresh_log "$name"
+  local start; start=$(date +%s)
+  RC=0
+  local out
+  out=$(TICK_PLAN_PATCH_TIMEOUT="$timeout" "$@" 2>&1) || RC=$?
+  ELAPSED=$(( $(date +%s) - start ))
+  printf '%s\n' "$out" > "$WORK/out.$name"
+}
+
+# 9b. The deadline has exactly ONE home. Two `gh` calls need bounding (#135), and this repo's grain
+#     says a shared mechanism lives in one place — `tests/_lib.sh` exists because ten copies of a
+#     preamble had already diverged (#72). A hand-copied second escalation would satisfy every
+#     behavioural case below and still be the defect, so assert the shape directly.
+run_bounded_defs=$(grep -c '^run_bounded()' "$TICK" || true)
+[ "$run_bounded_defs" -eq 1 ] \
+  || { echo "FAIL [helper-single-home]: expected exactly 1 run_bounded() definition in $TICK, found
+        $run_bounded_defs — the deadline must have one home, not a copy per call site"; exit 1; }
+kill9_lines=$(grep -c 'kill -9' "$TICK" || true)
+[ "$kill9_lines" -eq 1 ] \
+  || { echo "FAIL [helper-single-home]: expected exactly 1 line carrying the SIGKILL escalation in
+        $TICK, found $kill9_lines — the deadline has been copied rather than shared"; exit 1; }
+echo "  ok: helper-single-home — one run_bounded(), one SIGKILL escalation"
+
 export GH_PATCH_SLEEP=6
 
 # 10. Bounded, and GitHub holds what was sent → success, and back in a couple of seconds rather
@@ -267,6 +297,27 @@ export GH_PATCH_SLEEP=6
 [ "$ELAPSED" -lt 10 ] || { echo "FAIL [bounded-stubborn]: took ${ELAPSED}s of a 20s call — SIGTERM was
         ignored and nothing escalated, so the deadline is advisory"; cat "$WORK/out.bounded-stubborn"; exit 1; }
 echo "  ok: bounded-stubborn — a TERM-ignoring call is escalated and still bounded (${ELAPSED}s of 20s)"
+
+# 11c. The bound must release the CALLER, not merely the script's own control flow. Killing the one
+#      pid bash returns leaves any descendant of the bounded call alive, still holding the stdout
+#      and stderr it inherited — so a caller reading this script through a pipe blocks for the full
+#      duration of the very call the deadline reported bounding, and reports success at the end of
+#      it (#135). The stubborn stub is the right shape here because it spawns `sleep` as a child.
+export GH_PATCH_IGNORE_TERM=1 GH_PATCH_SLEEP=20
+run_bounded_piped bounded-releases-the-caller 2 \
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
+unset GH_PATCH_IGNORE_TERM
+export GH_PATCH_SLEEP=6
+[ "$RC" -eq 0 ] || { echo "FAIL [bounded-releases-the-caller]: expected success from the read-back, got exit $RC"
+                     cat "$WORK/out.bounded-releases-the-caller"; exit 1; }
+[ "$ELAPSED" -lt 10 ] || { echo "FAIL [bounded-releases-the-caller]: the caller waited ${ELAPSED}s of a
+        20s call. The deadline bounded the script's control flow but not the job — a surviving
+        descendant still holds the pipe, so the bound buys the caller nothing"
+                           cat "$WORK/out.bounded-releases-the-caller"; exit 1; }
+grep -q 'body verified intact' "$WORK/out.bounded-releases-the-caller" \
+  || { echo "FAIL [bounded-releases-the-caller]: no verified-intact verdict"
+       cat "$WORK/out.bounded-releases-the-caller"; exit 1; }
+echo "  ok: bounded-releases-the-caller — a piped caller is released at the deadline (${ELAPSED}s of 20s)"
 
 # 12. Bounded AND the read-back failed → nothing at all confirms what GitHub holds, so the script
 #     must not report success. This is the one path where the sole authority is unavailable.

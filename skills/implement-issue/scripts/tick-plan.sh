@@ -163,6 +163,66 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
+# ---------------------------------------------------------------- the call deadline, once
+
+# THE one home for the deadline (#135). Runs its argv in the background, bounded to
+# TICK_PLAN_PATCH_TIMEOUT seconds, escalating SIGTERM → 2s grace → SIGKILL, and reports both the
+# command's exit status and whether the deadline had to fire.
+#
+# It is a function rather than two inline copies because both `gh` calls below need bounding, and
+# hand-copied machinery is precisely what drifts — `tests/_lib.sh` exists because ten copies of a
+# preamble had already diverged (#72). `timeout(1)` is absent on stock macOS, so the deadline is
+# pure bash; that is what makes it the kind of block someone would otherwise paste twice.
+#
+#   run_bounded <stdout-file> <cmd> [args...]
+#     <cmd>'s stdout goes to <stdout-file>; its stderr is left alone.
+#     Sets RC      — the command's exit status, from `wait`.
+#     Sets BOUNDED — 1 if the deadline fired, 0 if the command finished on its own.
+run_bounded() {
+  local out_file="$1"; shift
+
+  # `set -m` gives the background job a process group of its own (pgid == pid), which is what lets
+  # the escalation below signal the whole JOB rather than the single pid bash hands back. That
+  # distinction is the difference between bounding this script and bounding the caller: a
+  # descendant that outlives the kill still holds the stdout and stderr it inherited, so a caller
+  # reading this script through a pipe blocks until the descendant exits — the full duration of the
+  # very call the deadline just reported bounding. Measured at 4s to a file against 60s to a pipe
+  # for one 2s deadline (#135). bash 3.2 ships no `setsid`, so job control is the way in.
+  set -m
+  "$@" > "$out_file" &
+  local pid=$!
+  set +m
+
+  BOUNDED=0
+  local deadline_at grace_until
+  deadline_at=$(( $(date +%s) + PATCH_TIMEOUT ))
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "$deadline_at" ]; then
+      # SIGTERM, then ESCALATE. A deadline that only asks politely is advisory: the `wait` below
+      # blocks until the child really exits, so anything that ignores or blocks TERM would hold the
+      # run open for exactly as long as the unbounded call did. SIGKILL cannot be ignored, which is
+      # what makes the bound a bound.
+      # Both signals go to the process GROUP (`-- -"$pid"`), falling back to the bare pid if the
+      # group has already gone — the group is what carries the descendants holding the pipe.
+      kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+      grace_until=$(( $(date +%s) + 2 ))
+      while kill -0 "$pid" 2>/dev/null && [ "$(date +%s)" -lt "$grace_until" ]; do
+        sleep 0.1 2>/dev/null || sleep 1
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+      fi
+      BOUNDED=1
+      break
+    fi
+    # Fine-grained where the platform allows it, so a healthy call pays ~0.1s, not a whole second.
+    sleep 0.1 2>/dev/null || sleep 1
+  done
+
+  RC=0
+  wait "$pid" 2>/dev/null || RC=$?
+}
+
 # ---------------------------------------------------------------- write, then read back
 
 # The payload goes to gh in a FILE, not down a stdin pipe. `--input -` was the last piece of the
@@ -175,37 +235,11 @@ trap 'rm -f "$payload_file"' EXIT
 printf '%s' "$payload" > "$payload_file"
 [ -s "$payload_file" ] || die "the payload file came out empty. Nothing sent"
 
-# The PATCH runs under a deadline, in the background, because an unbounded one has stalled a run
-# for half an hour. The deadline is pure bash — `timeout(1)` is absent on stock macOS, so depending
-# on it would make the guard unavailable exactly where it was needed.
-gh api "$endpoint" -X PATCH --input "$payload_file" >/dev/null &
-patch_pid=$!
-
-bounded=0
-deadline_at=$(( $(date +%s) + PATCH_TIMEOUT ))
-while kill -0 "$patch_pid" 2>/dev/null; do
-  if [ "$(date +%s)" -ge "$deadline_at" ]; then
-    # SIGTERM, then ESCALATE. A deadline that only asks politely is advisory: the `wait` below
-    # blocks until the child really exits, so anything that ignores or blocks TERM would hold the
-    # run open for exactly as long as the unbounded call did. SIGKILL cannot be ignored, which is
-    # what makes the bound a bound.
-    kill "$patch_pid" 2>/dev/null || true
-    grace_until=$(( $(date +%s) + 2 ))
-    while kill -0 "$patch_pid" 2>/dev/null && [ "$(date +%s)" -lt "$grace_until" ]; do
-      sleep 0.1 2>/dev/null || sleep 1
-    done
-    if kill -0 "$patch_pid" 2>/dev/null; then
-      kill -9 "$patch_pid" 2>/dev/null || true
-    fi
-    bounded=1
-    break
-  fi
-  # Fine-grained where the platform allows it, so a healthy PATCH pays ~0.1s, not a whole second.
-  sleep 0.1 2>/dev/null || sleep 1
-done
-
-patch_rc=0
-wait "$patch_pid" 2>/dev/null || patch_rc=$?
+# The PATCH runs under the deadline above, because an unbounded one has stalled a run for half an
+# hour (#113).
+run_bounded /dev/null gh api "$endpoint" -X PATCH --input "$payload_file"
+bounded=$BOUNDED
+patch_rc=$RC
 
 if [ "$bounded" -eq 1 ]; then
   # Killing the call does NOT un-send it: GitHub may well have stored the body already — that is
