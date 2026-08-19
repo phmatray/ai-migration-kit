@@ -387,7 +387,7 @@ for p in cs:
         cs_texts[p] = p.read_text(encoding='utf-8', errors='ignore')
     except OSError:
         cs_texts[p] = ''
-cs_lines = {p: sum(1 for line in t.splitlines() if line.strip()) for p, t in cs_texts.items()}
+cs_lines = {p: sum(1 for line in t.split('\n') if line.strip()) for p, t in cs_texts.items()}
 if os.environ.get('AUDIT_TRACE_READS'):
     sys.stderr.write('cs-reads=%d\n' % len(cs_texts))
 
