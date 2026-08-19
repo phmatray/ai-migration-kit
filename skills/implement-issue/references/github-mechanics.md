@@ -154,12 +154,33 @@ brainstorm/spec untouched. After the write, the issue re-renders with this task'
 because the plan is in the body, the progress meter advances too. The script then re-reads the issue
 and asserts the stored body matches what it sent.
 
-The PATCH also runs under a deadline — `TICK_PLAN_PATCH_TIMEOUT` seconds, default **60**, overridable
-mainly so the golden suite need not wait a minute per case. **Expiry is not failure.** Killing the
-call does not un-send it, so the script falls through to the read-back and *that* decides: a bounded
-call whose stored body matches is a success (the output says it was bounded), one whose body differs
-is an `ALERT`, and one that cannot be read back at all is an `ALERT` too, because then nothing
-confirms anything. The read-back — not the PATCH's exit status — is the authority.
+**Every `gh` call** in the script runs under a deadline — `TICK_PLAN_PATCH_TIMEOUT` seconds, default
+**60**, overridable mainly so the golden suite need not wait a minute per case. **Expiry is not
+failure.** Killing the call does not un-send it, so the script falls through to the read-back and
+*that* decides: a bounded call whose stored body matches is a success (the output says it was
+bounded), one whose body differs is an `ALERT`, and one that cannot be read back at all is an
+`ALERT` too, because then nothing confirms anything. The read-back — not the PATCH's exit status —
+is the authority.
+
+Both legs, not just the write (#135). Bounding one call does not remove #113's failure mode, it
+relocates it: expiry on the PATCH is a *deliberate* handover to the read-back, so the bounded path
+guarantees the read-back runs next — and an unbounded authority is precisely where the stall then
+lands. A read-back that was cut short is therefore treated as a read-back that **failed**: either
+way the authority did not answer, so it routes to the outcome the contract already defines for "no
+answer" rather than to a fourth verdict.
+
+Two properties of that deadline are easy to assume and were both wrong before #135:
+
+- **It bounds the whole job, not the pid.** The call is launched under `set -m` so it gets a process
+  group of its own, and the TERM/grace/KILL escalation signals the group. Killing only the pid bash
+  returns leaves any descendant alive holding the stdout/stderr it inherited, so a caller reading
+  the script *through a pipe* — which is how an agent harness runs it — blocks for the full duration
+  of the call the deadline just reported bounding.
+- **It cannot bound what is not a `gh` call.** The stall that actually produced "hangs after a
+  successful PATCH, needs `kill -9`" was `[ -z "${got//[[:space:]]/}" ]` on the fetched body: bash
+  3.2's pattern substitution is O(n²) in the subject, measured at 5s for 4KB, 33s for 8KB and 247s
+  for a live 15.8KB issue body — pure CPU, after the write had landed, with no deadline over it.
+  It is a `case` glob now. Keep body-sized work out of bash string operators.
 
 ### ⛔ Never pipe `jq` straight into a mutating `gh api`
 
@@ -329,7 +350,10 @@ the normal outcome of a real sync, not an error.** Resolve them and *complete* t
 | `tick-plan: REFUSED — no checkbox was ticked` | The per-line Edit didn't land (step text drifted from what the plan actually says) | Re-read the working file, match the real step text, re-flip. A no-op write would look like progress |
 | `tick-plan: the PATCH to … exceeded Ns and was bounded` | **Not an error, and not a failure** (#113). The PATCH outran `TICK_PLAN_PATCH_TIMEOUT` (default 60s) and was killed, which does not un-send it | **Nothing to do — read the next line.** The read-back decides; if it printed `body verified intact … [PATCH bounded …]` the tick landed and the run continues |
 | `tick-plan: ALERT — … does not hold what was sent, and the PATCH was cut short` | The call was bounded *and* GitHub still holds the old body — most likely the write never left | **Re-run the tick** (`--before`/`--after` unchanged; it is idempotent). Do **not** restore from `/tmp/plan-$ISSUE.orig.md` — the write may still arrive and the restore would un-tick it |
-| `tick-plan: ALERT — the PATCH was bounded at Ns and the read-back failed` | The call was cut short **and** the authority is unreachable, so nothing establishes what the issue now holds | Re-run the tick once connectivity is back; it reports the true state. Never assume either outcome — that is the whole reason this path refuses rather than warns |
+| `tick-plan: ALERT — the PATCH was bounded at Ns and the read-back failed or was bounded` | The write was cut short **and** the authority did not answer — it errored, or it outran the same deadline. Nothing establishes what the issue now holds | Re-run the tick once connectivity is back; it reports the true state. Never assume either outcome — that is the whole reason this path refuses rather than warns |
+| `tick-plan: WARNING — PATCH reported success but the read-back failed or was bounded` | The write went through on its own, but the verification call did not answer. The body almost certainly landed; nothing *proved* it | **Not a failure** — rc is 0 and the run continues. The summary says `body NOT verified`, so don't quote it as verified. Re-run the tick (idempotent) if you need the proof |
+| `tick-plan` returns, but the *caller* hangs for minutes after it | Pre-#135 shape: the escalation killed only the launched pid, so a descendant kept the inherited stdout/stderr open and a piped caller waited out the whole call | Fixed by launching under `set -m` and signalling the process group. If you see it again, check that `run_bounded` still has exactly one escalation and that it targets `-"$pid"`, not `"$pid"` |
+| The tick burns minutes of **CPU** after the PATCH has landed | Pre-#135 shape: `[ -z "${got//[[:space:]]/}" ]` on the whole body — bash 3.2 pattern substitution is O(n²) (247s on a 15.8KB body). No deadline covers it; it is not a `gh` call | Fixed by the `case` glob. The tell is `time` reporting ~100% CPU with almost no system time — a network stall shows the opposite |
 | `tick-plan: REFUSED — TICK_PLAN_PATCH_TIMEOUT must be …` | The deadline override is not a whole number of seconds ≥ 1 | **Nothing was sent.** Unset it for the 60s default, or pass whole seconds |
 | A commit landed on **another branch** (and a push carried it into someone else's PR) | A concurrent checkout switched HEAD in a shared working tree between the branch creation and the commit. `git commit` never re-checks the branch, so it exits 0 | Cherry-pick the commit onto the branch it belongs to, then `git revert` it on the branch it wrongly landed on. **Never force-push a branch you do not own** — its author may already have built on it. Then move to this issue's own worktree (Step 4) and route every write through the guards |
 | `guarded-commit: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: something checked out `X` in this worktree | **Nothing was committed.** Check out `Y` — better, move to `Y`'s own worktree — and re-run. Do not "just commit anyway" |

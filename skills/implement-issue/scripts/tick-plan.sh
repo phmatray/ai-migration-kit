@@ -21,18 +21,27 @@
 #
 # The pipe was the last surviving piece of that original recipe, and it was expensive: `gh api …
 # --input -` fed from `printf | gh` took 25–35 MINUTES to return on a ~30KB body that GitHub had
-# already stored in seconds (#113). So the payload now travels in a FILE, and the call runs under a
-# deadline — TICK_PLAN_PATCH_TIMEOUT seconds, default 60, implemented in pure bash because stock
-# macOS ships no `timeout(1)`. Killing a PATCH does not un-send it, so expiry is a handover to the
-# read-back rather than a failure:
+# already stored in seconds (#113). So the payload now travels in a FILE, and EVERY `gh` call runs
+# under a deadline — TICK_PLAN_PATCH_TIMEOUT seconds, default 60, implemented in pure bash because
+# stock macOS ships no `timeout(1)`. Both calls, not just the write: bounding one leg only
+# relocates the stall to the other, and expiry on the write is a deliberate handover to the read-
+# back, so the bounded path guarantees the unbounded one runs next (#135). Killing a call does not
+# un-send it, so expiry is a handover rather than a failure — and a read-back that was cut short is
+# a read-back that FAILED, since either way the authority did not answer:
 #
-#   PATCH returns 0, stored body matches  → success
-#   PATCH returns 0, stored body differs  → ALERT, exit 1
-#   PATCH bounded,   stored body matches  → success, and the output says the call was bounded
-#   PATCH bounded,   stored body differs  → ALERT, exit 1
-#   PATCH bounded,   read-back failed     → ALERT, exit 1 — nothing confirms anything either way
-#   PATCH exits non-zero on its own       → REFUSED; nothing was sent
-#   payload validation fails              → REFUSED; nothing was sent, nothing was bounded
+#   PATCH returns 0, stored body matches         → success
+#   PATCH returns 0, stored body differs         → ALERT, exit 1
+#   PATCH returns 0, read-back failed or bounded → WARNING, rc 0 — content unverified
+#   PATCH bounded,   stored body matches         → success, and the output says the call was bounded
+#   PATCH bounded,   stored body differs         → ALERT, exit 1
+#   PATCH bounded,   read-back failed or bounded → ALERT, exit 1 — nothing confirms anything either way
+#   PATCH exits non-zero on its own              → REFUSED; nothing was sent
+#   payload validation fails                     → REFUSED; nothing was sent, nothing was bounded
+#
+# The deadline bounds the whole JOB, not the one pid: it launches under `set -m` so the call gets a
+# process group of its own and the escalation signals the group. Killing only the pid leaves a
+# descendant holding the inherited stdout/stderr, and a caller reading this script through a pipe
+# then waits out the very call the deadline reported bounding (#135).
 #
 # Usage:
 #   tick-plan.sh --repo <owner/repo> --issue <n> --before <file> --after <file>
@@ -43,7 +52,9 @@
 #   --comment-id  plan lives in a comment (numeric REST id) instead of the issue description
 #   --dry-run  validate and print the payload; touch nothing on GitHub
 #
-#   TICK_PLAN_PATCH_TIMEOUT  seconds the PATCH may run before it is bounded (default 60)
+#   TICK_PLAN_PATCH_TIMEOUT  seconds any single `gh` call may run before it is bounded (default 60).
+#                            The name predates the read-back being bounded too; it is kept because
+#                            the contract was published under it.
 #
 # Exits non-zero, having called nothing, on any failed check.
 
@@ -163,6 +174,70 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
+# ---------------------------------------------------------------- the call deadline, once
+
+# THE one home for the deadline (#135). Runs its argv in the background, bounded to
+# TICK_PLAN_PATCH_TIMEOUT seconds, escalating SIGTERM → 2s grace → SIGKILL, and reports both the
+# command's exit status and whether the deadline had to fire.
+#
+# It is a function rather than two inline copies because both `gh` calls below need bounding, and
+# hand-copied machinery is precisely what drifts — `tests/_lib.sh` exists because ten copies of a
+# preamble had already diverged (#72). `timeout(1)` is absent on stock macOS, so the deadline is
+# pure bash; that is what makes it the kind of block someone would otherwise paste twice.
+#
+#   run_bounded <stdout-file> <cmd> [args...]
+#     <cmd>'s stdout goes to <stdout-file>; its stderr is left alone.
+#     Sets RC      — the command's exit status, from `wait`.
+#     Sets BOUNDED — 1 if the deadline fired, 0 if the command finished on its own.
+run_bounded() {
+  local out_file="$1"; shift
+
+  # `set -m` gives the background job a process group of its own (pgid == pid), which is what lets
+  # the escalation below signal the whole JOB rather than the single pid bash hands back. That
+  # distinction is the difference between bounding this script and bounding the caller: a
+  # descendant that outlives the kill still holds the stdout and stderr it inherited, so a caller
+  # reading this script through a pipe blocks until the descendant exits — the full duration of the
+  # very call the deadline just reported bounding. Measured at 4s to a file against 60s to a pipe
+  # for one 2s deadline (#135). bash 3.2 ships no `setsid`, so job control is the way in.
+  set -m
+  "$@" > "$out_file" &
+  local pid=$!
+  set +m
+
+  BOUNDED=0
+  local deadline_at grace_until
+  deadline_at=$(( $(date +%s) + PATCH_TIMEOUT ))
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "$deadline_at" ]; then
+      # SIGTERM, then ESCALATE. A deadline that only asks politely is advisory: the `wait` below
+      # blocks until the child really exits, so anything that ignores or blocks TERM would hold the
+      # run open for exactly as long as the unbounded call did. SIGKILL cannot be ignored, which is
+      # what makes the bound a bound.
+      # Both signals go to the process GROUP (`-- -"$pid"`), falling back to the bare pid if the
+      # group has already gone — the group is what carries the descendants holding the pipe.
+      kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+      grace_until=$(( $(date +%s) + 2 ))
+      while kill -0 "$pid" 2>/dev/null && [ "$(date +%s)" -lt "$grace_until" ]; do
+        sleep 0.1 2>/dev/null || sleep 1
+      done
+      # UNCONDITIONALLY, and to the group. Gating this on `kill -0 "$pid"` asks after the group
+      # LEADER, which is the wrong question: the read-back is launched through a shell function, so
+      # the leader is a subshell that dies on TERM within milliseconds however stubborn the call
+      # beneath it is. The escalation would then be skipped in precisely the case it exists for,
+      # leaving the child alive holding what it inherited. A group SIGKILL costs nothing when the
+      # group has already gone, and "SIGKILL cannot be ignored" only holds if it is actually sent.
+      kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+      BOUNDED=1
+      break
+    fi
+    # Fine-grained where the platform allows it, so a healthy call pays ~0.1s, not a whole second.
+    sleep 0.1 2>/dev/null || sleep 1
+  done
+
+  RC=0
+  wait "$pid" 2>/dev/null || RC=$?
+}
+
 # ---------------------------------------------------------------- write, then read back
 
 # The payload goes to gh in a FILE, not down a stdin pipe. `--input -` was the last piece of the
@@ -171,41 +246,22 @@ fi
 # host reads the same issue back in 0.4s. A file has no pipe handshake to get stuck in.
 payload_file=$(mktemp "${TMPDIR:-/tmp}/tick-plan-payload.XXXXXX") \
   || die "could not create a temp file for the payload. Nothing sent"
-trap 'rm -f "$payload_file"' EXIT
+# The read-back's scratch file is created HERE, before the write, even though it is not used until
+# after it. `die` prints REFUSED, and REFUSED is documented as "nothing was sent" — so it may only
+# be reached while that is still true. A failing mktemp between the PATCH and the read-back would
+# announce a refusal for a write that had already landed, and the documented response to REFUSED
+# is to restore from --before, which would un-tick it.
+readback_file=$(mktemp "${TMPDIR:-/tmp}/tick-plan-readback.XXXXXX") \
+  || die "could not create a temp file for the read-back. Nothing sent"
+trap 'rm -f "$payload_file" "$readback_file"' EXIT
 printf '%s' "$payload" > "$payload_file"
 [ -s "$payload_file" ] || die "the payload file came out empty. Nothing sent"
 
-# The PATCH runs under a deadline, in the background, because an unbounded one has stalled a run
-# for half an hour. The deadline is pure bash — `timeout(1)` is absent on stock macOS, so depending
-# on it would make the guard unavailable exactly where it was needed.
-gh api "$endpoint" -X PATCH --input "$payload_file" >/dev/null &
-patch_pid=$!
-
-bounded=0
-deadline_at=$(( $(date +%s) + PATCH_TIMEOUT ))
-while kill -0 "$patch_pid" 2>/dev/null; do
-  if [ "$(date +%s)" -ge "$deadline_at" ]; then
-    # SIGTERM, then ESCALATE. A deadline that only asks politely is advisory: the `wait` below
-    # blocks until the child really exits, so anything that ignores or blocks TERM would hold the
-    # run open for exactly as long as the unbounded call did. SIGKILL cannot be ignored, which is
-    # what makes the bound a bound.
-    kill "$patch_pid" 2>/dev/null || true
-    grace_until=$(( $(date +%s) + 2 ))
-    while kill -0 "$patch_pid" 2>/dev/null && [ "$(date +%s)" -lt "$grace_until" ]; do
-      sleep 0.1 2>/dev/null || sleep 1
-    done
-    if kill -0 "$patch_pid" 2>/dev/null; then
-      kill -9 "$patch_pid" 2>/dev/null || true
-    fi
-    bounded=1
-    break
-  fi
-  # Fine-grained where the platform allows it, so a healthy PATCH pays ~0.1s, not a whole second.
-  sleep 0.1 2>/dev/null || sleep 1
-done
-
-patch_rc=0
-wait "$patch_pid" 2>/dev/null || patch_rc=$?
+# The PATCH runs under the deadline above, because an unbounded one has stalled a run for half an
+# hour (#113).
+run_bounded /dev/null gh api "$endpoint" -X PATCH --input "$payload_file"
+bounded=$BOUNDED
+patch_rc=$RC
 
 if [ "$bounded" -eq 1 ]; then
   # Killing the call does NOT un-send it: GitHub may well have stored the body already — that is
@@ -218,8 +274,37 @@ fi
 
 # Verify against what GitHub now actually holds — a successful PATCH is not proof of content,
 # and a bounded one is not proof of failure. Either way this read-back is the authority.
-if got=$(gh api "$endpoint" --jq .body 2>/dev/null); then
-  if [ -z "${got//[[:space:]]/}" ]; then
+#
+# It runs under the SAME deadline as the PATCH (#135). Bounding only the write does not remove
+# #113's failure mode, it relocates it: expiry on the write is a deliberate handover to this call,
+# so the bounded path *guarantees* this one runs next — and an unbounded authority is exactly
+# where the stall then lands.
+# A wrapper, because run_bounded takes an argv and this leg keeps gh's own stderr suppressed.
+quiet_gh() { gh "$@" 2>/dev/null; }
+
+run_bounded "$readback_file" quiet_gh api "$endpoint" --jq .body
+read_bounded=$BOUNDED
+read_rc=$RC
+
+# A read-back that was cut short is a read-back that FAILED: in both cases the authority did not
+# answer, so both route to the outcome the contract already defines for "no answer" rather than to
+# a fourth verdict. Decided BEFORE the body is looked at — a killed call leaves an empty or
+# truncated file, and reading that as "GitHub now holds an empty body" would fire the loudest
+# alarm in this script on no evidence whatsoever.
+if [ "$read_bounded" -eq 0 ] && [ "$read_rc" -eq 0 ]; then
+  got=$(cat "$readback_file")
+
+  # `case`, and NOT `[ -z "${got//[[:space:]]/}" ]`. bash 3.2's pattern substitution is O(n^2) in
+  # the subject length, and the subject here is the entire issue body. Measured against a live
+  # 15.8KB body: 4KB took 5s, 8KB 33s, 15.8KB 247s — all of it pure CPU, *after* the PATCH has
+  # already landed, and with no deadline over it because it is not a `gh` call at all. That is the
+  # "hangs after a successful PATCH, needs kill -9" report behind #135, and it grows with every
+  # box the plan gains. The glob answers the same question — is there one non-blank character? —
+  # in constant time.
+  body_is_blank=1
+  case "$got" in *[![:space:]]*) body_is_blank=0 ;; esac
+
+  if [ "$body_is_blank" -eq 1 ]; then
     printf 'tick-plan: ALERT — %s now has an EMPTY body. Restore at once from %s\n' \
       "$endpoint" "$BEFORE" >&2
     exit 1
@@ -240,15 +325,17 @@ if got=$(gh api "$endpoint" --jq .body 2>/dev/null); then
     exit 1
   fi
 elif [ "$bounded" -eq 1 ]; then
-  # The one path with no evidence at all: the call was cut short AND the authority is unreachable.
-  # Reporting success here would be a claim with nothing behind it.
-  printf 'tick-plan: ALERT — the PATCH was bounded at %ss and the read-back failed, so nothing\n' \
+  # The one path with no evidence at all: the call was cut short AND the authority did not answer
+  # — whether it failed outright or was itself bounded, which are the same thing here.
+  # Reporting success would be a claim with nothing behind it.
+  printf 'tick-plan: ALERT — the PATCH was bounded at %ss and the read-back failed or was bounded,\n' \
     "$PATCH_TIMEOUT" >&2
-  printf '           confirms what %s now holds. Re-run to find out; pre-edit copy: %s\n' \
+  printf '           so nothing confirms what %s now holds. Re-run to find out; pre-edit copy: %s\n' \
     "$endpoint" "$BEFORE" >&2
   exit 1
 else
-  printf 'tick-plan: WARNING — PATCH reported success but the read-back failed; content unverified.\n' >&2
+  printf 'tick-plan: WARNING — PATCH reported success but the read-back failed or was bounded;\n' >&2
+  printf '           content unverified.\n' >&2
   verified=0
 fi
 
@@ -258,7 +345,7 @@ fi
 if [ "${verified:-1}" -eq 1 ]; then
   state="body verified intact"
 else
-  state="body NOT verified — the read-back failed"
+  state="body NOT verified — the read-back failed or was bounded"
 fi
 
 bounded_note=""

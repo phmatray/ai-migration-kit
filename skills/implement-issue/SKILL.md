@@ -298,6 +298,18 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
    changed, so a missing, empty or truncated file can never reach GitHub. The PR mirror is a
    plain `gh pr edit --body-file`. Exact recipes for both paths: `references/github-mechanics.md` §4.
 
+   **Both of its `gh` calls run under `TICK_PLAN_PATCH_TIMEOUT` (default 60s), and expiry is not
+   failure** — killing a call does not un-send it, so the read-back decides (#135). Two lines to
+   recognise, neither of which means the tick is lost:
+   - `the PATCH … exceeded 60s and was bounded` — informational; **read the next line** for the
+     verdict.
+   - `ALERT … re-run the tick` (exit 1) — **re-run it, unchanged; it is idempotent.** Do **not**
+     restore from `/tmp/plan-$ISSUE.orig.md`: a write that was cut short may still arrive, and the
+     restore would silently un-tick it.
+
+   If a tick ever takes minutes, that is a bug in the script and not a slow network — it was one
+   until #135. Say so rather than raising the timeout.
+
 5. **Push** so the PR reflects the new commit — through `guarded-push.sh`, which reads the remote
    back and requires it to equal this HEAD:
    ```bash
