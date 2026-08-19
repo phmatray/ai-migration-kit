@@ -584,6 +584,11 @@ def main():
         path = Path(item) if Path(item).is_absolute() else base / item
         if not path.is_file():
             raise SystemExit(f"capture introuvable : {path}{resolution_hint(item, base)}")
+        # Le vrai contrôle du format vit ici, avant tout rendu — jamais dans `data_uri`, appelée
+        # depuis `render()` (#142). `data_uri` garde le même contrôle en second filet défensif.
+        ext = path.suffix.lstrip(".").lower()
+        if ext not in SCREENSHOT_MIME:
+            unsupported_screenshot_format(ext, path)
         r["screenshot"]["path"] = str(path)
     output = Path(args.output) if args.output else base / "report.html"
     output.write_text(render(r))
