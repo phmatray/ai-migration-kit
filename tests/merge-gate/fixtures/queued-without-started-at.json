@@ -1,0 +1,9 @@
+[
+  {
+    "total_count": 2,
+    "check_runs": [
+      { "id": 901, "name": "kit", "status": "completed", "conclusion": "success", "started_at": "2025-09-11T16:00:00Z" },
+      { "id": 902, "name": "kit", "status": "queued", "conclusion": null, "started_at": null }
+    ]
+  }
+]

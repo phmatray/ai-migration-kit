@@ -176,8 +176,9 @@ action_required) and `pending` (queued / in_progress).
 While `pending` is non-empty, wait (re-poll, or come back later via `ScheduleWakeup` rather than
 busy-looping) — then judge:
 
-- **`latest` is empty** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let Step 4's
-  merge-state be the gate.
+- **`n_latest` is 0** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let Step 4's
+  merge-state be the gate. Ask the JSON for the count — an empty set is the string `[]`, and a
+  *failed* query is the empty string, which is a missing answer rather than a green one.
 - `failed` non-empty → read which and why before reacting; the failure feeds Step 4's correction (below).
 - `failed` empty → Step 4 to confirm mergeability (nothing-failed ≠ mergeable; `main` may have moved).
 
@@ -190,10 +191,18 @@ cases, and what actually guards each:
 | Why a check-run is not the job's verdict | Safe to merge? | What actually guards it |
 |---|---|---|
 | A draft PR was flipped to ready and its checks never re-ran (`skipped`) | **No** — genuinely untested | The PR being a **draft** — when CI re-triggers on `ready_for_review`, a non-draft PR always has real check-runs for the jobs that were going to run (Step 1 already assumes ready) |
-| A phantom `skipped` check-run posted alongside a real one for the same job (GitHub Actions can't retroactively void an already-completed `skipped` run when the job re-triggers) | Yes — the phantom is noise | The *real* check-run for that job also exists and reports its own conclusion |
+| A phantom `skipped` check-run posted alongside a real one for the same job (GitHub Actions can't retroactively void an already-completed `skipped` run when the job re-triggers) | Yes — the phantom is noise | The *real* check-run for that job also exists and reports its own conclusion. The reduction prefers it **whichever order the two arrive in**: a `skipped` run is only ever kept when a job has nothing else, so it cannot become a verdict by landing last |
 | A workflow path filter correctly skips a job the PR's files don't touch (e.g. the back-end test job on a front-end-only PR) | Yes — by design, there's nothing for that job to test | Nothing — this is the legitimate case a naive gate hangs on |
 | A run **superseded by a later run of the same job** — `cancel-in-progress` cancels it, and that `cancelled` stays attached to the SHA forever, beside the real conclusion (#91) | Yes, if the job's latest run is green — the superseded run never reached a verdict | The **reduction**: only the newest run per job name is in the set the rules see, so the superseded one cannot vote. Reference §3 records the measurement (three `kit` runs on one SHA, PR #85) |
 | A job whose **latest** run is `cancelled` — a human pressing Cancel, or a job cancelled on timeout | **No** — a real cancellation is a non-verdict | Nothing else, which is why the fix is a reduction rather than dropping `cancelled` from the blocking set: after reducing, a latest `cancelled` is still in `failed` and still blocks |
+
+⏳ **Re-poll a latest `cancelled` once before believing it.** `cancel-in-progress` flips the old
+run's check-runs to `cancelled` the moment the new push lands, and the replacement run's check-runs
+appear a beat later — later still for a job behind a `needs:` chain. A poll that lands in that
+window sees `failed=[<job>]` for a PR that is about to go green, which walks Step 4 into hunting for
+a red check that does not exist: the #85 shape again, narrowed to a race. So on a `cancelled` that
+is a job's newest run, wait one poll interval and re-derive before entering the corrections loop. If
+it is still the newest run, it is a real cancellation and it blocks.
 
 So never hard-code "wait for `<job-name> == success`" — that hangs forever on the path-filter case
 and reintroduces the same bug the moment another job grows a path filter. Gate on the shape instead:

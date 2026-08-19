@@ -87,11 +87,26 @@ if ! jq -f "$PROG" < /dev/null > /dev/null 2>"$WORK/parse.err"; then
   exit 1
 fi
 
-# The pagination note is load-bearing and easy to lose in a rewrite: without --paginate --slurp the
-# gate judges the first page and calls a PR green on the strength of the checks it happened to see.
-grep -q -F -- '--paginate --slurp' "$RECIPE" || \
-  note_fail "$RECIPE no longer pipes the check-runs through \`--paginate --slurp\` — the gate would
-      judge one page of a multi-page SHA."
+# Pagination is load-bearing and easy to lose in a rewrite: without --paginate --slurp the gate
+# judges the first page and calls a PR green on the strength of the checks it happened to see.
+#
+# Asked of the `gh api` INVOCATION, not of the file. A whole-file grep passes while the flags
+# survive only in a comment or in prose — including the comment two lines above the call, which
+# spells `--slurp` — so it would go green over exactly the regression it names.
+CALL=$(grep -F -- 'gh api' "$RECIPE" | grep -F -- 'check-runs' || true)
+if [ -z "$CALL" ]; then
+  note_fail "$RECIPE has no \`gh api\` line fetching check-runs — the gate has lost its input."
+elif ! printf '%s' "$CALL" | grep -q -F -- '--paginate --slurp'; then
+  note_fail "the check-runs call in $RECIPE no longer carries \`--paginate --slurp\`, so the gate
+      would judge one page of a multi-page SHA:
+      $CALL"
+fi
+
+# The refusal that keeps a failed query from reading as "no CI". `gh api` writes nothing on
+# failure and the pipeline still exits 0 without pipefail, so an unguarded empty verdict is a pass.
+grep -q -F -- 'no verdict; do not merge' "$RECIPE" || \
+  note_fail "$RECIPE no longer refuses an empty verdict — a failed check-runs query would be
+      indistinguishable from a SHA that carries no CI, and the second one merges."
 
 # ------------------------------------------------------------------------------- 2. the verdicts
 #
@@ -147,13 +162,35 @@ verdict skipped-only.json 1 - - \
 verdict no-checks.json 0 - - \
   'zero check-runs reduce to zero jobs, so nothing is failed or pending'
 
-# Two runs of one job starting in the same second. Order in the API response is NOT a tiebreak —
-# both fixtures list the loser last, so a reduction that took the array tail would answer wrongly
-# in one direction and right-by-accident in the other. Greatest id decides, deterministically.
+# Order in the API response is NOT the tiebreak — both fixtures list the loser last, so a reduction
+# that took the array tail would answer wrongly in one direction and right-by-accident in the other.
+# The greatest id decides, deterministically, because an id is assigned when a run is created.
 verdict tie-greatest-id-blocks.json 1 kit - \
-  'on a started_at tie the greatest id wins — here a failure, despite a success later in the array'
+  'the greatest id wins — here a failure, despite a success later in the array'
 verdict tie-greatest-id-passes.json 1 - - \
-  'on a started_at tie the greatest id wins — here a success, despite a failure later in the array'
+  'the greatest id wins — here a success, despite a failure later in the array'
+
+# Why the key is .id and not .started_at. A job held behind `needs:` in an older run can START
+# after a job from a newer run, so started_at does not order the RUNS. The newer run here (id
+# 1202) began an hour earlier than the stale one it supersedes.
+verdict newer-run-started-earlier.json 1 - - \
+  'the newest run wins even when an older run started later'
+
+# The nullable half of the same argument, and the one that fails open: a queued run has no
+# started_at at all, so ordering on it sinks the run to the bottom and the gate reports the stale
+# success it was created to supersede.
+verdict queued-without-started-at.json 1 - kit \
+  'a queued run with no started_at still supersedes the older success, and blocks as pending'
+
+# The reduction must not hand a job identity away. Two products can publish a check of the same
+# name; grouping on the name alone drops one of them, and it is a real failure that disappears.
+verdict same-name-different-app.json 2 build - \
+  'two apps posting the same check name are separate jobs, so neither retires the other'
+
+# skipped is a non-event, which has to hold in BOTH orderings. Arriving last must not let it
+# become a job entire verdict and erase the only real run there was.
+verdict failure-then-skipped.json 1 kit - \
+  'a later skipped run does not erase an earlier real failure for the same job'
 
 # `pending` is derived from the same reduced set: an older success must not retire a running job.
 verdict latest-in-progress.json 1 - kit \

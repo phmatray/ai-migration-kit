@@ -1,0 +1,9 @@
+[
+  {
+    "total_count": 2,
+    "check_runs": [
+      { "id": 1001, "name": "build", "app": { "id": 55, "slug": "circleci-checks" }, "status": "completed", "conclusion": "failure", "started_at": "2025-09-11T09:00:00Z" },
+      { "id": 1002, "name": "build", "app": { "id": 15368, "slug": "github-actions" }, "status": "completed", "conclusion": "success", "started_at": "2025-09-11T09:01:00Z" }
+    ]
+  }
+]
