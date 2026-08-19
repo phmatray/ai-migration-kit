@@ -2196,4 +2196,56 @@ if [ -n "$strays" ]; then
 fi
 echo "  [10] the find probes report what they found, not how the reader exited"
 
+# ---------------------------------------------------------------------------
+# 11. The prescribed LOCAL flow reaches a report, not just templates/ci-dotnet.yml's CI step
+#     (#103, follow-up from #49/#95). #49 aligned report-template.md's documented "../coverage"
+#     with where the CI template writes; nothing ever proved phase-6-verify.md's own step 2, run
+#     on an agent's machine, produces that directory at all. The command is EXTRACTED from the
+#     doc and actually executed against a real (transformed) project — not retyped here — so a
+#     future edit to step 2 is what this case tracks, never a copy that can quietly drift from it.
+# ---------------------------------------------------------------------------
+cd "$KIT"
+PHASE6_STEP2=$(grep -oE '`dotnet test[^`]*`' skills/legacy-upgrade/references/phase-6-verify.md \
+  | head -1 | sed 's/^`//; s/`$//')
+[ -n "$PHASE6_STEP2" ] || {
+  echo "FAIL: phase-6-verify.md step 2 no longer carries a backtick-quoted dotnet test command"
+  exit 1
+}
+
+cp -R "$FIXTURE" "$scratch/local-flow"
+python3 "$KIT/tests/xunit-v3/apply-transform.py" "$scratch/local-flow" > /dev/null
+cd "$scratch/local-flow"
+rm -rf coverage
+local_flow_log="$scratch/local-flow-test.log"
+if ! bash -c "$PHASE6_STEP2" > "$local_flow_log" 2>&1; then
+  echo "FAIL: phase-6-verify.md step 2's own command ($PHASE6_STEP2) did not run green:"
+  tail -25 "$local_flow_log"; exit 1
+fi
+lcount=$(sed -n 's/.*Total: \([0-9][0-9]*\).*/\1/p' "$local_flow_log" | head -1)
+if [ "${lcount:-0}" -lt "$BASELINE_TESTS" ]; then
+  echo "FAIL: phase-6-verify.md step 2's command ran ${lcount:-0} tests, baseline is $BASELINE_TESTS:"
+  tail -25 "$local_flow_log"; exit 1
+fi
+
+# The documented disposition (report-template.md, #49): migration/report.json + "../coverage".
+mkdir -p migration
+python3 - "$KIT" <<'PY'
+import json, pathlib, sys
+kit = pathlib.Path(sys.argv[1])
+r = json.loads((kit / "tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "../coverage"}
+pathlib.Path("migration/report.json").write_text(json.dumps(r))
+PY
+
+report_log="$scratch/local-flow-report.log"
+if python3 "$KIT/scripts/report-dashboard.py" migration/report.json -o migration/report.html \
+     > "$report_log" 2>&1; then
+  echo "  [11] phase-6-verify.md's own local procedure — run as documented — reaches a report"
+else
+  echo "FAIL: phase-6-verify.md step 2, run exactly as documented, does not reach a report — the"
+  echo "      local flow the kit prescribes still can't produce what the config it prescribes reads:"
+  cat "$report_log"; exit 1
+fi
+cd "$KIT"
+
 echo "xunit v3 golden test OK"
