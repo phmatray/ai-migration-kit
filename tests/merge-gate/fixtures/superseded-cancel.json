@@ -1,0 +1,11 @@
+[
+  {
+    "total_count": 4,
+    "check_runs": [
+      { "id": 101, "name": "kit", "status": "completed", "conclusion": "cancelled", "started_at": "2025-09-11T09:34:38Z" },
+      { "id": 102, "name": "kit", "status": "completed", "conclusion": "success", "started_at": "2025-09-11T09:35:07Z" },
+      { "id": 103, "name": "kit", "status": "completed", "conclusion": "success", "started_at": "2025-09-11T09:48:09Z" },
+      { "id": 104, "name": "title-gate", "status": "completed", "conclusion": "success", "started_at": "2025-09-11T09:48:10Z" }
+    ]
+  }
+]

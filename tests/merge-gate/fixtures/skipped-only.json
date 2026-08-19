@@ -1,0 +1,8 @@
+[
+  {
+    "total_count": 1,
+    "check_runs": [
+      { "id": 401, "name": "backend-tests", "status": "completed", "conclusion": "skipped", "started_at": "2025-09-11T12:00:00Z" }
+    ]
+  }
+]
