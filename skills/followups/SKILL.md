@@ -52,7 +52,10 @@ A finished follow-up disappears from `next_steps` — history lives in git, not 
 1. In the affected repo: remove the entry from `next_steps` in `migration/report.json`.
 2. In `migration/report.md`, tick the matching line (`- [x] …`) — the readable trace.
 3. Regenerate the dashboard: `python3 "<kit>/scripts/report-dashboard.py" migration/report.json`
-   (the output lands next to the report.json).
+   (the output lands next to the report.json). `coverage/` is never committed — if it is not
+   already on disk from the migration run, re-run the coverage-collecting test command first
+   (`legacy-upgrade/references/phase-6-verify.md` step 2), or regeneration fails with "rapport
+   de couverture introuvable".
 4. Commit in that repo: `chore: follow-up closed — <item summary>`.
 
 If the accomplishment deserves proof (e.g. "PWA installed on device"), ask for it or note it in
@@ -67,7 +70,8 @@ Abandoning a follow-up is a legitimate, **documented** state, never a silent del
    { "strong": "Not pursued by decision (YYYY-MM-DD)", "text": "<the original item — and the reason if given>" }
    ```
 2. Tick/annotate the line in `report.md` (`- [x] ~~…~~ — not pursued by decision`).
-3. Regenerate the dashboard, commit: `chore: follow-up closed by decision — <summary>`.
+3. Regenerate the dashboard (see the "done" protocol above for the `coverage/` caveat), commit:
+   `chore: follow-up closed by decision — <summary>`.
 
 The precedent: popcorn-time, "not pursued by decision, not by lack of capability".
 
