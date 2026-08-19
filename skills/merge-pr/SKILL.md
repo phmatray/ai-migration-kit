@@ -168,27 +168,32 @@ Let the checks finish before judging — a half-run pipeline tells you nothing. 
 check-runs on the PR's head SHA, not `gh pr checks` — GitHub can surface a *phantom* `skipped`
 check-run alongside the real one for the same job (a known GitHub Actions behavior when a draft-gated
 job re-triggers), so don't act on its verdict directly. **Run the check-runs recipe from
-`references/merge-mechanics.md` §3**: it collects every check-run on the head SHA (paginated) and
-derives two sets — `failed` (failure / cancelled / timed_out / action_required) and `pending`
-(queued / in_progress).
+`references/merge-mechanics.md` §3**: it collects every check-run on the head SHA (paginated),
+**reduces them to the latest run of each job** — a SHA carries a *history per job*, not one run per
+job (#91) — and derives two sets from that reduced set: `failed` (failure / cancelled / timed_out /
+action_required) and `pending` (queued / in_progress).
 
 While `pending` is non-empty, wait (re-poll, or come back later via `ScheduleWakeup` rather than
 busy-looping) — then judge:
 
-- **`runs` is empty** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let Step 4's
+- **`latest` is empty** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let Step 4's
   merge-state be the gate.
 - `failed` non-empty → read which and why before reacting; the failure feeds Step 4's correction (below).
 - `failed` empty → Step 4 to confirm mergeability (nothing-failed ≠ mergeable; `main` may have moved).
 
-**A `skipped` check-run is not evidence of anything** — it's neither `failed` nor `pending`, so the
-recipe above already treats it as a non-event. That's deliberate: `skipped` has three common causes,
-and only the gate above tells them apart correctly:
+**Not every check-run on a SHA is a verdict**, and the ways that bites share one cause: the SHA
+carries a job's *history*, and only its newest entry speaks for it. A `skipped` run is neither
+`failed` nor `pending`, so the recipe treats it as a non-event; a run that a later run of the same
+job superseded never reaches the rules at all, because the reduction has already dropped it. The
+cases, and what actually guards each:
 
-| Why a check reads `skipped` | Safe to merge? | What actually guards it |
+| Why a check-run is not the job's verdict | Safe to merge? | What actually guards it |
 |---|---|---|
-| A draft PR was flipped to ready and its checks never re-ran | **No** — genuinely untested | The PR being a **draft** — when CI re-triggers on `ready_for_review`, a non-draft PR always has real check-runs for the jobs that were going to run (Step 1 already assumes ready) |
+| A draft PR was flipped to ready and its checks never re-ran (`skipped`) | **No** — genuinely untested | The PR being a **draft** — when CI re-triggers on `ready_for_review`, a non-draft PR always has real check-runs for the jobs that were going to run (Step 1 already assumes ready) |
 | A phantom `skipped` check-run posted alongside a real one for the same job (GitHub Actions can't retroactively void an already-completed `skipped` run when the job re-triggers) | Yes — the phantom is noise | The *real* check-run for that job also exists and reports its own conclusion |
 | A workflow path filter correctly skips a job the PR's files don't touch (e.g. the back-end test job on a front-end-only PR) | Yes — by design, there's nothing for that job to test | Nothing — this is the legitimate case a naive gate hangs on |
+| A run **superseded by a later run of the same job** — `cancel-in-progress` cancels it, and that `cancelled` stays attached to the SHA forever, beside the real conclusion (#91) | Yes, if the job's latest run is green — the superseded run never reached a verdict | The **reduction**: only the newest run per job name is in the set the rules see, so the superseded one cannot vote. Reference §3 records the measurement (three `kit` runs on one SHA, PR #85) |
+| A job whose **latest** run is `cancelled` — a human pressing Cancel, or a job cancelled on timeout | **No** — a real cancellation is a non-verdict | Nothing else, which is why the fix is a reduction rather than dropping `cancelled` from the blocking set: after reducing, a latest `cancelled` is still in `failed` and still blocks |
 
 So never hard-code "wait for `<job-name> == success`" — that hangs forever on the path-filter case
 and reintroduces the same bug the moment another job grows a path filter. Gate on the shape instead:

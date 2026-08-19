@@ -145,7 +145,36 @@ Merge is permitted (CI-wise) when `failed` is empty **and** `pending` is empty *
 draft — not when one named job reports `success`. A `skipped` check-run is neither `failed` nor
 `pending`, so it's simply not evidence of anything; treating it as a blanket "CI didn't run" hangs
 forever when a workflow path filter legitimately skips a job the PR's files don't touch (see
-`SKILL.md` Step 3 for the full three-way breakdown of why a check reads `skipped`).
+`SKILL.md` Step 3 for the full breakdown of why a check-run may not be its job's verdict).
+
+**Why the runs are reduced first (#91).** GitHub attaches a *history per job* to a SHA, not one run
+per job — and this repo's own `ci.yml` manufactures those histories deliberately: `cancel-in-progress`
+(#27/#29) exists so a retitle cannot leave two runs racing to publish the same `kit` check. Its
+unavoidable consequence is that a **superseded `cancelled` stays attached to the head SHA forever**,
+beside the real `success` for the same job. Pushing twice in quick succession, editing a PR body, or
+retargeting a stacked PR all produce one.
+
+Measured on PR #85 — head sha `8c58eb2` carried three check-runs, all named `kit`:
+
+| started | conclusion | what it was |
+|---|---|---|
+| 09:34:38 | `cancelled` | superseded when the next push landed |
+| 09:35:07 | `success` | the real verdict |
+| 09:48:09 | `success` | re-run after the base retargeted to `main` when #76 merged |
+
+GitHub itself reported `mergeStateStatus: CLEAN` / `mergeable: MERGEABLE` throughout. Read as a flat
+set that PR is **failed**: §4's corrections loop would have gone hunting for a red check, found
+nothing to fix, exhausted its rounds and refused a PR that was green on two separate runs. The
+symmetric hazard was equally unguarded and is the worse one — a stale `success` sitting beside a
+newer `failure` for the same job, where "some run succeeded" reads as fine. One reduction closes
+both, and it is the argument `SKILL.md` Step 3 already makes about phantom `skipped` runs applied to
+the case it used to miss.
+
+⚠️ **This is not "ignore `cancelled`".** A cancellation *superseded by a later run of the same job* is
+noise; a cancellation that **is** the job's latest run — a human pressing Cancel, a job cancelled on
+timeout — is a genuine non-verdict and still blocks. `tests/merge-gate/test.sh` extracts the program
+above from this file and drives both cases over fixtures, so a rewrite that weakens the gate into
+blanket-ignoring cancellations goes red instead of quiet.
 
 Inspect failures via the rollup (gives the log URL to read):
 
@@ -154,8 +183,9 @@ gh pr view "$PR" --json statusCheckRollup \
   --jq '.statusCheckRollup[] | select(.conclusion=="FAILURE") | {name, detailsUrl}'
 ```
 
-- **`runs` is empty** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let
-  `mergeStateStatus` (§4) be the only gate.
+- **`latest` is empty** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let
+  `mergeStateStatus` (§4) be the only gate. Note this is the *reduced* set: it is empty exactly when
+  the SHA carries no check-runs, since every run belongs to some job.
 - **Long pipelines** → re-poll the check-runs recipe rather than busy-looping. If you'd rather not hold
   the turn open, come back later (e.g. via `ScheduleWakeup`).
 - `gh pr checks "$PR" --watch` is still useful as a **human-facing** progress view in a terminal, but
