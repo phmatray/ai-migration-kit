@@ -12,7 +12,7 @@ export LAST_COMMIT="$(git log -1 --format=%cs 2>/dev/null || echo unknown)"
 export FIRST_COMMIT="$(git log --reverse --format=%cs 2>/dev/null | head -1 || echo unknown)"
 
 python3 - <<'PY'
-import fnmatch, json, os, re, subprocess
+import fnmatch, json, os, re, subprocess, sys
 from pathlib import Path
 
 # ── LA règle de parcours, unique ────────────────────────────────────────────────────────────────
@@ -37,6 +37,19 @@ VENDOR_PARENTS = (('wwwroot', 'lib'), ('wwwroot', 'vendor'))
 # `excludedFromWalk` rend le choix visible au lecteur de la phase 1 au lieu de le lui cacher
 # derrière un nombre plus petit.
 ECARTES = {}
+
+# ── L'invariant « une lecture » ─────────────────────────────────────────────────────────────────
+# Chaque `.cs` retenu dans `cs` est ouvert EXACTEMENT UNE FOIS par run, dans le passage qui construit
+# `cs_texts`/`cs_lines` juste après que `cs` est défini (#169). Avant #169, cinq consommateurs
+# indépendants rouvraient chacun le même fichier — le balayage API_CLUSTERS, `has_tests`, `loc(own)`
+# par projet, `locTotal`, et l'un de `locCodeBehind`/`locLogic` — pour un total de quatre à cinq
+# ouvertures par fichier. Mesuré : ces passes faisaient 96 % du temps d'exécution sur le plus gros
+# dépôt local testé (2.82 s sur 2.93 s), alors que le parcours de l'arbre lui-même n'en fait que
+# 1.6-4.8 % (#94).
+#
+# Un nouveau consommateur de contenu `.cs` DOIT lire `cs_texts`/`cs_lines`, jamais le disque — la
+# section 11 de `tests/audit-inventory/test.sh` échoue sinon (`AUDIT_TRACE_READS=1` compte les
+# ouvertures réelles et exige exactement `len(cs)`).
 
 
 def sous_vendor(parts):
@@ -309,13 +322,13 @@ def files(pattern):
     return [p for p in TOUS_FICHIERS if fnmatch.fnmatch(p.name, pattern)]
 
 def loc(paths):
-    total = 0
-    for p in paths:
-        try:
-            total += sum(1 for line in p.open(encoding='utf-8', errors='ignore') if line.strip())
-        except OSError:
-            pass
-    return total
+    """Lignes non vides — lues UNE fois dans `cs_lines`, plus jamais sur le disque (#169).
+
+    La signature ne bouge pas : `proj_details` (loc(own)) et les trois clés `loc*` appellent encore
+    ceci tel quel. `.get(p, 0)` couvre le seul cas non-`cs` possible, un chemin qu'un appelant futur
+    passerait sans être dans le map — même valeur que l'ancien `except OSError: pass`.
+    """
+    return sum(cs_lines.get(p, 0) for p in paths)
 
 csproj = files('*.csproj')
 proj_texts = {p: p.read_text(encoding='utf-8', errors='ignore') for p in csproj}
@@ -357,12 +370,32 @@ cs = [p for p in files('*.cs')
 code_behind = [p for p in cs if p.name.endswith('.xaml.cs')]
 logic = [p for p in cs if not p.name.endswith('.xaml.cs')]
 
+# ── Un seul passage de lecture (#169) ────────────────────────────────────────────────────────────
+# Chaque `.cs` était ouvert QUATRE À CINQ fois : le balayage API_CLUSTERS, `has_tests`, `loc(own)`
+# par projet, puis `locTotal` et l'un de `locCodeBehind`/`locLogic`. Mesuré : ces passes font 96 %
+# du temps de horizon-hub (2.82 s sur 2.93 s). Le parcours de l'arbre, lui, n'en fait que 1.6-4.8 %
+# — c'est pourquoi #94 a fermé sa tâche « un seul parcours » sans la construire, et pourquoi le
+# budget de changement va ICI.
+#
+# `loc()` ne comptait PAS les lignes vides (`if line.strip()`) et avalait `OSError` par chemin : un
+# fichier illisible vaut 0 plutôt que d'interrompre l'audit sur un arbre de travail vivant. Les deux
+# comportements sont reproduits tels quels — la section 10 compare le document entier, octet par
+# octet, donc tout écart se voit.
+cs_texts = {}
+for p in cs:
+    try:
+        cs_texts[p] = p.read_text(encoding='utf-8', errors='ignore')
+    except OSError:
+        cs_texts[p] = ''
+cs_lines = {p: sum(1 for line in t.split('\n') if line.strip()) for p, t in cs_texts.items()}
+if os.environ.get('AUDIT_TRACE_READS'):
+    sys.stderr.write('cs-reads=%d\n' % len(cs_texts))
+
 API_CLUSTERS = ['Windows.Storage', 'Windows.UI', 'Windows.ApplicationModel', 'Windows.Networking',
                 'Windows.Media', 'Windows.Devices', 'Windows.Security', 'Windows.System',
                 'Microsoft.Phone', 'System.Windows', 'System.Net.Http']
 clusters = {}
-for p in cs:
-    t = p.read_text(encoding='utf-8', errors='ignore')
+for p, t in cs_texts.items():
     for c in API_CLUSTERS:
         n = len(re.findall(r'\b' + re.escape(c) + r'\b', t))
         if n:
@@ -379,8 +412,8 @@ for p in files('project.json'):
 for t in proj_texts.values():
     packages |= set(re.findall(r'PackageReference Include="([^"]+)"', t))
 
-has_tests = any(re.search(r'\[(Fact|Test|TestMethod)\]', p.read_text(encoding='utf-8', errors='ignore'))
-                for p in cs) or any('Test' in p.stem for p in csproj)
+has_tests = any(re.search(r'\[(Fact|Test|TestMethod)\]', t) for t in cs_texts.values()) \
+    or any('Test' in p.stem for p in csproj)
 
 # Un « projet-squelette » (échafaudage vide : un Class1.cs, presque zéro LOC) ne vaut rien
 # dans un chiffrage — leçon vague 2 : 5 projets « architecture en couches » vides avaient

@@ -33,9 +33,11 @@
 #   9. a loose file is a finding only when it is an asset — `.gitkeep` and `README.md` are not;
 #  10. the WHOLE emitted document, byte for byte, on one tree that exercises every traversal
 #      decision at once — the characterisation net a traversal refactor is measured against (#94);
+#  11. every `.cs` file in the audited tree is opened EXACTLY ONCE per run — the read-count
+#      invariant #169 established, checked via `AUDIT_TRACE_READS`;
 #   6. the output is still valid JSON, including from a foreign working directory.
 #
-# Sections 7-10 are new and sit before 6, which is the historical tail. The numbering is the order
+# Sections 7-11 are new and sit before 6, which is the historical tail. The numbering is the order
 # they were added, not the order they run — the list above is in FILE order so it stays a map.
 #
 # Every branch of the `packages/` detector is mutation-tested: break one and this suite fails.
@@ -864,6 +866,23 @@ if [ "$golden_run1" != "$golden_expected" ]; then
   exit 1
 fi
 echo "  [10] the whole document is byte-identical to the golden, and stable across two runs"
+
+# ---------------------------------------------------------------------------
+# 11. Every .cs file is opened exactly once per run (#169). Four to five re-reads of the same
+#     content — the API-cluster scan, has_tests, loc(own) per project, locTotal, and one of
+#     locCodeBehind/locLogic — were where the run actually went (96% of one measured repo's wall
+#     clock). AUDIT_TRACE_READS makes the read count observable without an strace dependency.
+# ---------------------------------------------------------------------------
+R="$(kit_scratch)/read-once"
+mk_app "$R/src/App"
+printf 'namespace A { public class X { } }\n' > "$R/src/App/One.cs"
+printf 'namespace A { public class Y { } }\n' > "$R/src/App/Two.cs"
+reads=$(AUDIT_TRACE_READS=1 "$INV" "$R" 2>&1 >/dev/null | sed -n 's/^cs-reads=//p')
+if [ "$reads" != "2" ]; then
+  echo "FAIL: expected 2 .cs reads (one per file), got '$reads'"
+  exit 1
+fi
+echo "  [11] every .cs file is opened exactly once"
 
 # ---------------------------------------------------------------------------
 # 6. Still valid JSON, including from a foreign working directory — CI runs this
