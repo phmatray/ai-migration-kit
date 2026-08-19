@@ -349,9 +349,12 @@ the post-merge tree (e.g. to keep working).
 ### Both cases
 
 Guards matter — this step runs after the irreversible merge, so it must never *fail the run* just
-because something was already cleaned up. "Already gone" is success. The **remote** branch is already
-gone via Step 5's `--delete-branch`; gh leaves the **local** side untouched when the branch is checked
-out in a worktree (you'll see `failed to delete local branch … used by worktree` or `'main' is already
+because something was already cleaned up. "Already gone" is success. The **remote** branch is *usually*
+gone by now — via Step 5's `--delete-branch`, or GitHub's own `delete_branch_on_merge` — but don't
+bank on it: when gh's local step fails first, `--delete-branch` may never reach the remote side (SKILL
+Step 5, *The exit code doesn't decide*). Check with `git ls-remote --heads origin <headRefName>`
+rather than assume. gh leaves the **local** side untouched when the branch is checked out in a
+worktree (you'll see `failed to delete local branch … used by worktree` or `'main' is already
 used by worktree`), which is exactly why this step exists.
 
 **Safety:** never remove `$MAIN` or a worktree whose branch isn't the PR's head. Match the path to the
@@ -365,7 +368,7 @@ else's in-progress work.
 | Error | Cause | Solution |
 |---|---|---|
 | `Failed to connect to github.com port 443` on `git push`/`fetch` while `gh` works | Sandbox blocks raw git network traffic (not an outage — `gh` proves the host is reachable) | Re-run just that command with the sandbox disabled; local git (merge, commit, worktree remove, branch -D) needs no network |
-| `fatal: '<base>' is already used by worktree at …` — a non-zero exit from `gh pr merge` | `gh pr merge` merges on GitHub and *then* checks the base branch out locally; git refuses because another worktree — normally the primary checkout, sitting on `main` — already holds it. One exit code covers both halves, so it cannot say which one failed | **The merge landed** — this is local cleanup, not a rejection. Read the PR back (`gh pr view "$PR" --json state,mergedAt,mergeCommit`) and decide on `state`, per SKILL Step 5; then let Step 7 tidy up. Step 7's **Case B** is this very collision one step later — same base branch held elsewhere, the feature branch instead of the base |
+| `fatal: '<base>' is already used by worktree at …` — a non-zero exit from `gh pr merge` | `gh pr merge` merges on GitHub and *then* checks the base branch out locally; git refuses because another worktree — normally the primary checkout, sitting on `main` — already holds it. One exit code covers both halves, so it cannot say which one failed | **Don't read this as a rejection** — it is local cleanup. Read the PR back (`gh pr view "$PR" --json state,mergedAt,mergeCommit`) and decide on `state`, per SKILL Step 5; then let Step 7 tidy up. Step 7's **Case B** is this very collision one step later — same base branch held elsewhere, the feature branch instead of the base |
 | `failed to delete local branch … used by worktree` after the merge | `gh pr merge --delete-branch` can't touch a branch checked out in a worktree | Expected — that's what Step 7 handles: remove the worktree, then `git branch -D` |
 | `git branch -d` refuses: "not fully merged" | After a squash-merge the branch isn't "merged" by git's reckoning | Use `-D` (force) — the squash commit on `main` carries the work |
 | `mergeable=UNKNOWN` right after `main` moved | GitHub is recomputing the merge state | Not a blocker — re-poll shortly; nudge a main-sync only if it persists |
