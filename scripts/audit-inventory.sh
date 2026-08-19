@@ -309,13 +309,13 @@ def files(pattern):
     return [p for p in TOUS_FICHIERS if fnmatch.fnmatch(p.name, pattern)]
 
 def loc(paths):
-    total = 0
-    for p in paths:
-        try:
-            total += sum(1 for line in p.open(encoding='utf-8', errors='ignore') if line.strip())
-        except OSError:
-            pass
-    return total
+    """Lignes non vides — lues UNE fois dans `cs_lines`, plus jamais sur le disque (#169).
+
+    La signature ne bouge pas : `proj_details` (loc(own)) et les trois clés `loc*` appellent encore
+    ceci tel quel. `.get(p, 0)` couvre le seul cas non-`cs` possible, un chemin qu'un appelant futur
+    passerait sans être dans le map — même valeur que l'ancien `except OSError: pass`.
+    """
+    return sum(cs_lines.get(p, 0) for p in paths)
 
 csproj = files('*.csproj')
 proj_texts = {p: p.read_text(encoding='utf-8', errors='ignore') for p in csproj}
@@ -382,8 +382,7 @@ API_CLUSTERS = ['Windows.Storage', 'Windows.UI', 'Windows.ApplicationModel', 'Wi
                 'Windows.Media', 'Windows.Devices', 'Windows.Security', 'Windows.System',
                 'Microsoft.Phone', 'System.Windows', 'System.Net.Http']
 clusters = {}
-for p in cs:
-    t = p.read_text(encoding='utf-8', errors='ignore')
+for p, t in cs_texts.items():
     for c in API_CLUSTERS:
         n = len(re.findall(r'\b' + re.escape(c) + r'\b', t))
         if n:
@@ -400,8 +399,8 @@ for p in files('project.json'):
 for t in proj_texts.values():
     packages |= set(re.findall(r'PackageReference Include="([^"]+)"', t))
 
-has_tests = any(re.search(r'\[(Fact|Test|TestMethod)\]', p.read_text(encoding='utf-8', errors='ignore'))
-                for p in cs) or any('Test' in p.stem for p in csproj)
+has_tests = any(re.search(r'\[(Fact|Test|TestMethod)\]', t) for t in cs_texts.values()) \
+    or any('Test' in p.stem for p in csproj)
 
 # Un « projet-squelette » (échafaudage vide : un Class1.cs, presque zéro LOC) ne vaut rien
 # dans un chiffrage — leçon vague 2 : 5 projets « architecture en couches » vides avaient
