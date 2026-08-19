@@ -937,11 +937,15 @@ echo "  [12] every source is guarded — kit_source, or the bootstrap form (help
 # 13. No suite writes a literal `/tmp/…` path — the lint §10 was narrowed FOR (#160).
 #
 #     Text-keyed, not behavioural: it greps for the four characters `/tmp/`, so a suite that hides
-#     the same string in a variable (`t=/tmp; f="$t/x"`) sails through unseen. That is not a defect
-#     to fix here — §10 already measures the BEHAVIOUR (what a suite actually leaves behind); this
-#     catches the hazard earlier, at the moment a fixed path is WRITTEN, whether or not the run that
+#     the same string in a variable (`t=/tmp; f="$t/x"`) sails through unseen. §10 does NOT close
+#     that gap either: its instrument is the `mktemp` shim, so a suite that builds a hidden path this
+#     way and creates it with anything other than `mktemp` (`mkdir -p "$f"`, `install -d`, …) leaves
+#     no trace in either section's ledger — both report clean while the directory leaks forever. That
+#     residual gap is real and unclosed; catching it would need value tracking through variables,
+#     which is a taint-analysis problem this text-keyed lint does not attempt. What THIS section does
+#     catch is the hazard at the moment a fixed path is WRITTEN LITERALLY, whether or not the run that
 #     follows happens to leak or collide on it. A lint, not a coverage claim, and it must not be read
-#     as restating what §10 was just narrowed out of claiming.
+#     as a wider one than §10 was just narrowed to.
 #
 #     A line may carry the `tmp-lint:allow` marker — a bare token, the same shape as
 #     pinned-literals-check.py's `pinned:<pin>` — to record a DELIBERATE literal. The marker sits on
