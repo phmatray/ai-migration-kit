@@ -203,6 +203,12 @@ fi
 EOF
 )"
 
+# --- One-line notes for anything the flags left out of the plan above, naming the flag that would
+# bring it back in. Printed in both --list and normal-run mode, so the plan is never silently
+# smaller than the full CI job without saying why.
+[ "$QUICK" -eq 1 ] && printf 'note: skipping "%s" — omit --quick to include it\n' "$DOTNET_CMD" >&2
+[ "$WITH_NETWORK" -eq 1 ] || printf 'note: skipping the network-dependent renovate.json acceptance gate — pass --with-network to include it\n' >&2
+
 # --- --list: print the plan and exit 0. No prerequisite check — this must stay cheap and always
 # available, since tests/run-all-tests/test.sh's anti-drift case calls it on every run.
 if [ "$LIST" -eq 1 ]; then
