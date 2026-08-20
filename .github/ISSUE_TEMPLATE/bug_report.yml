@@ -39,6 +39,16 @@ body:
         Which part of the code this touches. Keep these options in step with the repo's
         `area:` labels — `create-issue` picks the label matching whatever is chosen here.
       options:
-        - "area: <your-area>"
+        - "area: auto-dev"
+        - "area: merge-pr"
+        - "area: implement-issue"
+        - "area: create-issue"
+        - "area: migrate"
+        - "area: repo-setup"
+        - "area: skills"
+        - "area: scripts"
+        - "area: tests"
+        - "area: templates"
+        - "area: ci"
     validations:
       required: true

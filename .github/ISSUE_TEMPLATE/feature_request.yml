@@ -28,7 +28,17 @@ body:
         `area:` labels — `create-issue` picks the label matching whatever is chosen here, and a
         dropdown that disagrees with the label set makes the body and the label contradict.
       options:
-        - "area: <your-area>"
+        - "area: auto-dev"
+        - "area: merge-pr"
+        - "area: implement-issue"
+        - "area: create-issue"
+        - "area: migrate"
+        - "area: repo-setup"
+        - "area: skills"
+        - "area: scripts"
+        - "area: tests"
+        - "area: templates"
+        - "area: ci"
     validations:
       required: true
 

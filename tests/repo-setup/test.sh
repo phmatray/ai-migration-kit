@@ -539,6 +539,45 @@ for keep in "autorelease: *" "dependencies"; do
 done
 echo "  ok: repo manifest — pruneKeep still protects the release-please and Renovate labels"
 
+# The forms and the labels are one taxonomy in two files, and `create-issue` picks the label
+# matching whatever the dropdown offered — so a dropdown that disagrees with the label set makes
+# the issue body and the issue's label contradict each other, with nothing anywhere going red.
+# Order too: the two are read side by side by whoever edits them next, and a silent re-ordering is
+# how the copies start drifting.
+# The reader is a FILE written at statement level, never `$(python3 - <<PY)`. bash 3.2's
+# command-substitution scanner does not honour heredoc quoting, so a heredoc opened inside `$( … )`
+# runs its scanner to end-of-file — #131, which ./scripts/parse-sweep.sh exists to catch, and the
+# same reason parse-manifest.py is a file rather than a `python3 -c` inside repo-setup.sh.
+area_reader="$(kit_scratch)/read-area-options.py"
+cat > "$area_reader" <<'PY'
+"""Print the options of a form's `area` dropdown, one per line, in file order."""
+import io, sys, yaml
+
+# Pinned for the same reason parse-manifest.py pins them: this output is COMPARED against that
+# script's, and a Windows text-mode stdout would append a CR to every line here and not there, so
+# two identical taxonomies would read as different. Measured while writing this case.
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+
+doc = yaml.safe_load(io.open(sys.argv[1], encoding="utf-8")) or {}
+for field in doc.get("body") or []:
+    if field.get("id") == "area" and field.get("type") == "dropdown":
+        for option in field.get("attributes", {}).get("options") or []:
+            print(option)
+PY
+
+manifest_areas=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && $2 ~ /^area: / { print $2 }')
+for form in feature_request bug_report; do
+  form_path="$KIT_ROOT/.github/ISSUE_TEMPLATE/$form.yml"
+  [ -r "$form_path" ] || fail ".github/ISSUE_TEMPLATE/$form.yml missing — apply did not copy it"
+  # The `area` dropdown's options only: the forms carry other fields, and a bare grep for quoted
+  # "area: …" strings would also match the description prose above the list.
+  form_areas=$(python3 "$area_reader" "$form_path") \
+    || fail "$form.yml does not parse as YAML"
+  [ "$manifest_areas" = "$form_areas" ] \
+    || fail "$form.yml's Area dropdown does not match the manifest's area: labels, in order"
+done
+echo "  ok: forms — both Area dropdowns offer exactly this repo's area: labels, in order"
+
 # And the shipped default must STILL be a placeholder. This is the half a well-meaning later edit
 # breaks: filling it in looks like finishing the job, and silently exports `area: merge-pr` to
 # every consumer. `area:` is the only axis that cannot be defaulted — priority and effort are
