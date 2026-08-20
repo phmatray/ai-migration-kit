@@ -375,6 +375,26 @@ done
 echo "  [1c] a front-end project at the repository root arms the gate, './' or not"
 
 # ---------------------------------------------------------------------------
+# 1e. The shipped example is the file an adopter copies, so it must be a file the config step
+#     would accept. A doc page going stale is visible to whoever reads it; a malformed example
+#     is not — it fails in the adopter's CI, in a repo this kit does not have.
+# ---------------------------------------------------------------------------
+EXAMPLE=templates/bundle-gate.json.example
+[ -f "$EXAMPLE" ] || { echo "FAIL: $EXAMPLE is not shipped"; exit 1; }
+python3 - "$EXAMPLE" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1], encoding="utf-8"))
+assert isinstance(cfg, dict), f"the example must be a JSON object, got {type(cfg).__name__}"
+for k in ("src", "dist"):
+    assert isinstance(cfg.get(k), str) and cfg[k], f"the example has no usable {k!r}: {cfg!r}"
+# The one correlation the config step enforces, restated where the example lives: an example
+# the shipped validator would refuse is worse than no example.
+assert cfg["dist"] != cfg["src"], f"the example has dist == src: {cfg!r}"
+assert cfg["dist"].startswith(cfg["src"] + "/"), f"the example's dist is not under src: {cfg!r}"
+PY
+echo "  [1e] the shipped example config is a config the gate would accept"
+
+# ---------------------------------------------------------------------------
 # 1d. A repo that never wanted the gate and one that LOST its config must stop being the same
 #     observable run.
 #

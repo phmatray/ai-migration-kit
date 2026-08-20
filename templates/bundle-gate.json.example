@@ -1,0 +1,4 @@
+{
+  "src": "src/App/WebUI",
+  "dist": "src/App/WebUI/dist"
+}
