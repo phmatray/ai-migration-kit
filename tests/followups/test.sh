@@ -35,14 +35,33 @@ assert 'Synchronisation des artefacts'
 assert 'Différé A'
 assert 'Différé B'
 
-# Repo sans rapport : erreur signalée, code de sortie non nul. Le chemin est un enfant de $scratch
-# délibérément non créé, pour que « le repo n'existe pas » soit un fait établi plutôt qu'une
-# supposition sur l'état de /tmp (#160).
+# #143 : un chemin RELATIF introuvable nomme le chemin résolu ET la base contre laquelle il a été
+# résolu (issue #49 -> #102 -> #143). `pwd -P` et pas le retour brut de `pwd`/`mktemp` : Python
+# résout via `Path.cwd()` == `os.getcwd()`, qui rend TOUJOURS la forme physique — comparer à la
+# forme logique casserait sur macOS (`/tmp` -> `/private/tmp`), cf. tests/report-dashboard/test.sh.
+rel_repo_inexistant="tests/followups/repo-inexistant-relatif"
+cwd_phys="$(pwd -P)"
+if python3 scripts/followups.py "$rel_repo_inexistant" > "$scratch/err-rel.out" 2>&1; then
+  echo "ÉCHEC : un repo relatif sans migration/report.json doit produire un code de sortie non nul"; exit 1
+fi
+grep -qF "$cwd_phys/$rel_repo_inexistant/migration/report.json introuvable" "$scratch/err-rel.out" || {
+  echo "ÉCHEC : l'erreur ne nomme pas le chemin résolu :"; cat "$scratch/err-rel.out"; exit 1; }
+grep -qF "chemin relatif résolu depuis $cwd_phys" "$scratch/err-rel.out" || {
+  echo "ÉCHEC : l'erreur ne nomme pas la base de résolution :"; cat "$scratch/err-rel.out"; exit 1; }
+
+# Repo sans rapport, chemin ABSOLU cette fois : erreur signalée, code de sortie non nul. Le chemin
+# est un enfant de $scratch délibérément non créé, pour que « le repo n'existe pas » soit un fait
+# établi plutôt qu'une supposition sur l'état de /tmp (#160).
 repo_inexistant="$scratch/repo-inexistant"
 if python3 scripts/followups.py "$repo_inexistant" > "$scratch/err.out" 2>&1; then
   echo "ÉCHEC : un repo sans migration/report.json doit produire un code de sortie non nul"; exit 1
 fi
 grep -q 'introuvable' "$scratch/err.out" || { echo "ÉCHEC : l'erreur doit nommer le rapport introuvable"; exit 1; }
+# Assertée APRÈS la vraie erreur ci-dessus, pour que « la clause est absente » ne puisse pas passer
+# sur un crash sans rapport (le piège documenté par #139) : un chemin ABSOLU n'a été résolu contre
+# rien, la clause mentirait.
+grep -q 'chemin relatif résolu' "$scratch/err.out" && {
+  echo "ÉCHEC : un chemin absolu ne doit porter aucune clause de résolution : $(cat "$scratch/err.out")"; exit 1; }
 
 # Sortie --json : structure valide et comptes cohérents.
 python3 scripts/followups.py tests/followups/fixture-a tests/followups/fixture-b --json | python3 -c "

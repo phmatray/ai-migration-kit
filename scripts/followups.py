@@ -30,11 +30,19 @@ def parse_effort_minutes(effort):
 
 
 def load_repo(repo):
-    path = Path(repo) / 'migration' / 'report.json'
+    # Le chemin AFFICHÉ doit être celui contre lequel `repo` a réellement été résolu, sinon un
+    # « introuvable » nomme un chemin que personne n'a tapé sans un mot sur d'où il sort (#49). Un
+    # chemin absolu n'a été résolu contre rien, la clause serait un mensonge (cf. resolution_hint()
+    # dans report-dashboard.py, dont le libellé est repris à l'identique ici).
+    p = Path(repo)
+    base = Path.cwd()
+    root = p if p.is_absolute() else base / p
+    path = root / 'migration' / 'report.json'
     if not path.is_file():
-        return {'repo': Path(repo).resolve().name, 'error': f'{path} introuvable', 'next_steps': [], 'deferred': []}
+        hint = '' if p.is_absolute() else f' (chemin relatif résolu depuis {base})'
+        return {'repo': p.resolve().name, 'error': f'{path} introuvable{hint}', 'next_steps': [], 'deferred': []}
     r = json.loads(path.read_text())
-    name = Path(repo).resolve().name
+    name = p.resolve().name
     steps = [{'repo': name, 'text': s.get('text', ''), 'effort': s.get('effort'),
               'owner': bool(s.get('owner')), 'effortMinutes': parse_effort_minutes(s.get('effort'))}
              for s in r.get('next_steps', [])]
