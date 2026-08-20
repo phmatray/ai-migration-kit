@@ -28,20 +28,25 @@ nothing, so all of these count as UNWIRED and are reported with the reason:
                                            committed 100644 (or, if it is a symlink, 120000) and
                                            CI's `./tests/x/test.sh` dies with "Permission denied",
                                            exit 126, on a step every rule above accepts as enforcing
+  * the suite was never staged at all    — it exists on disk and a step invokes it, but `git add`
+                                           was never run; the path is absent from the index
+                                           entirely, so no real clone or CI checkout would contain
+                                           it even though every rule above accepts it as enforcing
 
-That last-but-one used to be implied rather than checked (#133). Any of push / pull_request /
+That last-but-two used to be implied rather than checked (#133). Any of push / pull_request /
 pull_request_target / schedule counted as "automatically triggered", which was accidentally
 sufficient while ci.yml was the repo's only run:-bearing workflow — it carries both `push: [main]`
 and `pull_request`, so the weaker test happened to agree with the stronger one. #119 added a
 pull_request-only workflow and removed the coincidence.
 
-The mode row is the newest, and it is about a different thing than the six above it (#195): all six
-are about the **step** that invokes a suite, and this one is about the **file** being invoked. A
-step can satisfy every rule above — commented nowhere, no `continue-on-error`, no `if: false`, no
+The last two rows are about a different thing than the six above them (#195, #210): all six are
+about the **step** that invokes a suite, and these two are about the **file** being invoked. A step
+can satisfy every rule above — commented nowhere, no `continue-on-error`, no `if: false`, no
 discarded exit status, triggered by a push to `main` — and still be worthless if the file it names
-cannot execute. Read from the INDEX (`git ls-files -s`), never the filesystem: the working copy on
-the machine that committed the bad mode reports itself as executable regardless, which is exactly
-what makes the defect invisible locally.
+cannot execute, or is not even in the checkout that would execute it. Read from the INDEX (`git
+ls-files -s`), never the filesystem: the working copy on the machine that committed the bad mode (or
+never staged the file at all) reports itself as executable regardless, which is exactly what makes
+the defect invisible locally.
 
 Comments are handled by parsing the YAML rather than by filtering '#' lines: a commented-out step
 simply is not in the parsed document, which is correct by construction instead of by regex.
@@ -52,7 +57,7 @@ Usage:
 Exit codes:
   0  every suite is invoked by at least one enforcing step, at an index mode CI can execute
   1  REFUSE — a suite is unwired, wired only into a step that cannot fail the build, committed at
-     an index mode CI cannot execute, or the index could not be read to tell
+     an index mode CI cannot execute, never staged at all, or the index could not be read to tell
   2  usage / plumbing error — could not read the tests or the workflows, so no verdict is possible
 """
 
@@ -263,6 +268,7 @@ def index_modes(repo, paths):
             ["git", "-C", str(repo), "ls-files", "-s", "-z", "--", *paths],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except OSError as exc:
         return {}, f"git is not available ({exc})"
@@ -308,14 +314,13 @@ def check(repo, tests_root, workflow_dir):
             # changes nothing here; it only matters the day Windows is a supported host for this
             # check.
             #
-            # `mode is None` (untracked — never `git add`ed) is deliberately NOT flagged here: the
-            # issue's own spec scopes that out ("the existing enumeration already governs which
-            # files are checked; the mode probe reports only on what it enumerated") as a different,
-            # bigger question — whether this script's enumeration should be git-based rather than
-            # filesystem-based at all (#150's territory) — not a mode violation to bolt on here.
+            # `mode is None` (untracked — never `git add`ed) IS flagged here (#210): a suite absent
+            # from the index is absent from any real clone or CI checkout, the exact failure class
+            # this script exists to catch. The print block below special-cases `None` with its own
+            # message and remedy rather than the wrong-mode text.
             suite: mode
             for suite in suites
-            if (mode := modes.get(suite.replace(os.sep, "/"))) is not None and mode != REQUIRED_MODE
+            if (mode := modes.get(suite.replace(os.sep, "/"))) != REQUIRED_MODE
         }
 
     verdicts = {}
@@ -369,6 +374,22 @@ def check(repo, tests_root, workflow_dir):
             print("ci-wiring-check: REFUSED — these golden test suites are not executable:")
             for suite, mode in not_executable.items():
                 print(f"  {suite}")
+                if mode is None:
+                    if suite in unwired:
+                        # This suite is ALSO reported above under "not enforced by CI" — no step
+                        # invokes it at all, so claiming "CI invokes it" here would contradict that
+                        # verdict in the same run.
+                        print(
+                            "      not staged in the index at all, and no step invokes it either — "
+                            "a real clone would not contain it even if one did"
+                        )
+                    else:
+                        print(
+                            f"      not staged in the index at all — CI invokes it as ./{suite}, but "
+                            "a real clone would not contain it"
+                        )
+                    print(f"      fix: git add {suite}")
+                    continue
                 print(f"      index mode {mode}, expected {REQUIRED_MODE} — CI invokes it as ./{suite}")
                 if mode == "120000":
                     # `git update-index --chmod=+x` refuses outright on a symlink entry ("cannot
