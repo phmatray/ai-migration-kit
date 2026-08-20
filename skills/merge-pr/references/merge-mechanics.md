@@ -219,13 +219,29 @@ toolchain). The format/lint gate trips on style/analyzer diffs that compile fine
 format/lint **apply** command, then its **verify** command to confirm it's clean. Heed the profile's
 caveats — some analyzer diagnostics can't be auto-fixed and must be hand-corrected.
 
+### Measuring divergence from the base (#171)
+
+The check-runs above speak only to the head SHA — they say nothing about whether `main` has moved
+since they ran. That's a separate read, sitting next to this one because both feed the judgment in
+SKILL.md Step 4, which weighs it *before* `mergeStateStatus`:
+
+```bash
+gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind:.behind_by}'
+```
+
+`$BASE...$BRANCH` (three dots) gives `behind_by` relative to the base — reversing it silently inverts
+the answer. `behind_by > 0` outranks `mergeStateStatus` in Step 4's table, because GitHub's own
+`BEHIND` state is only emitted when the base branch requires branches to be up to date before merging;
+without that rule a stale branch reports `CLEAN`, and the check-runs recipe above would still call the
+head SHA green — correctly, and misleadingly, since the base it was green against no longer exists.
+
 ---
 
-## 4. Sync with `main` and resolve conflicts (`BEHIND` / `DIRTY`)
+## 4. Sync with `main` and resolve conflicts (a stale branch, or `DIRTY`)
 
-Clears the `BEHIND`/`DIRTY` merge states in the corrections loop (SKILL.md Step 4): merge the latest
-base into the branch and resolve conflicts so the PR is mergeable again, then loop back to wait for CI
-(§3).
+Clears a branch the corrections loop finds stale — `behind_by > 0` (§3), or a `DIRTY` merge state
+(SKILL.md Step 4): merge the latest base into the branch and resolve conflicts so the PR is mergeable
+again, then loop back to wait for CI (§3).
 
 The procedure — merge-not-rebase, the union/regenerate/take-the-higher rule-of-thumb keyed off the
 profile's *Conflict hot-spots* table, and finish-and-verify — is shared with `implement-issue` and

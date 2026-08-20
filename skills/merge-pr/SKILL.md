@@ -182,6 +182,13 @@ busy-looping) — then judge:
 - `failed` non-empty → read which and why before reacting; the failure feeds Step 4's correction (below).
 - `failed` empty → Step 4 to confirm mergeability (nothing-failed ≠ mergeable; `main` may have moved).
 
+**A green check-run proves the branch was green against the base it was tested with. If the base has
+moved, the proof does not transfer.** Step 3 alone cannot see this — the check-runs it reads are
+attached to the head SHA, and they stay green even when `main` has moved on since they last ran (#171,
+measured landing #147: green checks, `mergeStateStatus: CLEAN`, six commits and 95 minutes stale).
+Step 4's divergence read is what closes that gap; it runs **before** the merge-state table below is
+even consulted.
+
 **Not every check-run on a SHA is a verdict**, and the ways that bites share one cause: the SHA
 carries a job's *history*, and only its newest entry speaks for it. A `skipped` run is neither
 `failed` nor `pending`, so the recipe treats it as a non-event; a run that a later run of the same
@@ -217,7 +224,7 @@ long-pipeline polling pattern are also in reference §3.
 ## Step 4 — Apply corrections (the loop)
 
 The heart of the skill. Re-read the merge state, clear whatever it reports, push, re-wait — until
-GitHub reports `CLEAN`. `mergeStateStatus` is the driver:
+GitHub reports `CLEAN`. `mergeStateStatus` is the driver — but it is not the first thing read (below).
 
 ⚠️ **If Step 2 deferred the worktree** — the normal outcome when the PR looked `CLEAN` there — this is
 where it appears, so run Step 2's ignore check **here, before `git worktree add`**, and then record
@@ -226,17 +233,26 @@ that deferring the worktree does not defer the guard past the thing it guards �
 [`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md). Reading the check in
 Step 2 and then obtaining the worktree here is how it ends up never running at all.
 
+Before reading `mergeStateStatus`, read the branch's divergence from its base:
+
 ```bash
+gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind:.behind_by}'
 gh pr view "$PR" --json mergeStateStatus,mergeable,reviewDecision \
   --jq '{state:.mergeStateStatus, mergeable, review:.reviewDecision}'
 ```
+
+**`behind_by > 0` is the `BEHIND` correction**, whatever `mergeStateStatus` reports. GitHub only
+emits the `BEHIND` state when the base branch requires branches to be up to date; without that rule
+a branch six commits behind reports `CLEAN`, and the head SHA's green check-runs describe a merge
+into a base that no longer exists (#171 — measured landing #147: green checks, `CLEAN`, and the
+branch six commits and 95 minutes stale; a literal reading of the table below merged it).
 
 | `mergeStateStatus` | What it means | Correction |
 |---|---|---|
 | `CLEAN` | mergeable, all gates satisfied | Done — go to Step 5. |
 | `UNKNOWN` | GitHub still computing | Re-poll after a short wait; don't act on it. |
 | `DRAFT` | PR is a draft | `gh pr ready "$PR"` (per Step 1's assumption), re-poll. |
-| `BEHIND` | base advanced; branch behind `main` | **Sync with `main`** (below), push, re-wait CI. |
+| `BEHIND` | base advanced; branch behind `main` — GitHub only reports this row when the base branch requires branches to be up to date, so most repos never see it; **the `behind_by > 0` rule above is the row that actually guards freshness** | **Sync with `main`** (below), push, re-wait CI. |
 | `DIRTY` | merge conflicts with the base | **Sync with `main`** and resolve conflicts (below). |
 | `UNSTABLE` | mergeable, but a check is pending/failing | Pending → wait (Step 3). Failing → **fix the red check** (below). A lone `skipped` check-run does **not** produce `UNSTABLE` — Step 3's recipe already treats `skipped` as a non-event, so landing here means something is genuinely pending or failing. |
 | `BLOCKED` | a branch-protection gate is unmet | Usually `reviewDecision == CHANGES_REQUESTED` → **address review** (below). If it's *required approvals* you can't self-give, that's a genuine blocker — surface it. |
