@@ -791,43 +791,33 @@ echo "  ok: repo manifest — pruneKeep still protects the release-please and Re
 # matching whatever the dropdown offered — so a dropdown that disagrees with the label set makes
 # the issue body and the issue's label contradict each other, with nothing anywhere going red.
 # Order too: the two are read side by side by whoever edits them next, and a silent re-ordering is
-# how the copies start drifting.
-# The reader is a FILE written at statement level, never `$(python3 - <<PY)`. bash 3.2's
-# command-substitution scanner does not honour heredoc quoting, so a heredoc opened inside `$( … )`
-# runs its scanner to end-of-file — #131, which ./scripts/parse-sweep.sh exists to catch, and the
-# same reason parse-manifest.py is a file rather than a `python3 -c` inside repo-setup.sh.
-area_reader="$(kit_scratch)/read-area-options.py"
-cat > "$area_reader" <<'PY'
-"""Print the options of a form's `area` dropdown, one per line, in file order."""
-import sys, yaml
-
-# Pinned for the same reason parse-manifest.py pins them: this output is COMPARED against that
-# script's, and a Windows text-mode stdout would append a CR to every line here and not there, so
-# two identical taxonomies would read as different. Measured while writing this case.
-sys.stdout.reconfigure(encoding="utf-8", newline="\n")
-
-# `with open(...)`, the same idiom parse-manifest.py uses — one spelling for the operation, and the
-# handle is closed rather than left to the collector.
-with open(sys.argv[1], encoding="utf-8") as handle:
-    doc = yaml.safe_load(handle) or {}
-for field in doc.get("body") or []:
-    if field.get("id") == "area" and field.get("type") == "dropdown":
-        for option in field.get("attributes", {}).get("options") or []:
-            print(option)
-PY
+# how the copies start drifting. $AREA_READER is the shared reader defined once, near `has_line` —
+# one home for the mechanism, not a second copy that can drift from it (#198).
 
 manifest_areas=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && $2 ~ /^area: / { print $2 }')
 for form in feature_request bug_report; do
   form_path="$KIT_ROOT/.github/ISSUE_TEMPLATE/$form.yml"
+  shipped_path="$KIT_ROOT/templates/issue-forms/$form.yml"
   [ -r "$form_path" ] || fail ".github/ISSUE_TEMPLATE/$form.yml missing — apply did not copy it"
   # The `area` dropdown's options only: the forms carry other fields, and a bare grep for quoted
   # "area: …" strings would also match the description prose above the list.
-  form_areas=$(python3 "$area_reader" "$form_path") \
+  form_areas=$(python3 "$AREA_READER" "$form_path") \
     || fail "$form.yml does not parse as YAML"
   [ "$manifest_areas" = "$form_areas" ] \
     || fail "$form.yml's Area dropdown does not match the manifest's area: labels, in order"
+
+  # The stronger check (#198): the committed form is now GENERATED, not hand-edited, so it must
+  # differ from the shipped source in the options: block and NOTHING else — closing finding (c),
+  # where a field added to the shipped template could silently miss the kit's own copy and nothing
+  # would notice. Every changed line (diff's `<`/`>`) must itself be a quoted options-list item;
+  # anything else surviving the filter is a divergence this check exists to catch. `|| true`: diff
+  # exits 1 merely because the files differ (expected), and this suite runs under pipefail.
+  stray_diff=$(diff "$shipped_path" "$form_path" | grep '^[<>]' | grep -v '^[<>] *- "area: ' || true)
+  [ -z "$stray_diff" ] \
+    || fail "$form.yml differs from $shipped_path outside the generated options: block — $stray_diff"
 done
 echo "  ok: forms — both Area dropdowns offer exactly this repo's area: labels, in order"
+echo "  ok: forms — both committed forms differ from the shipped source only in the generated options: block"
 
 # And the shipped default must STILL be a placeholder. This is the half a well-meaning later edit
 # breaks: filling it in looks like finishing the job, and silently exports `area: merge-pr` to
@@ -851,7 +841,7 @@ echo "  ok: shipped default — templates/repo-setup.yml keeps its area placehol
 # inspects labels, not dropdowns, so that export would pass unnoticed.
 for shipped_form in templates/issue-forms/feature_request.yml templates/issue-forms/bug_report.yml; do
   [ -r "$KIT_ROOT/$shipped_form" ] || fail "$shipped_form missing — the shipped form a consumer inherits"
-  shipped_areas=$(python3 "$area_reader" "$KIT_ROOT/$shipped_form") \
+  shipped_areas=$(python3 "$AREA_READER" "$KIT_ROOT/$shipped_form") \
     || fail "$shipped_form does not parse as YAML"
   case "$shipped_areas" in
     "area: <"*">") ;;

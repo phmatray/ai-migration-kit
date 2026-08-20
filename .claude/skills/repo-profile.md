@@ -141,11 +141,10 @@
 
 ## Issue templates
 - **Location:** `.github/ISSUE_TEMPLATE/` — copied there by `repo-setup.sh apply` from the kit's
-  `templates/issue-forms/`, then **hand-edited** to carry this repo's real Area options, and
-  committed (#196). ⚠️ Deleting the directory and re-running `apply` does **not** regenerate them:
-  `apply` copies the shipped forms verbatim, so the dropdowns would come back with the single
-  `area: <your-area>` placeholder and `tests/repo-setup/test.sh` would go red. Restore them from
-  git, not from the tool.
+  `templates/issue-forms/`, then committed. **Generated, not hand-edited** (#198): `apply` projects
+  this repo's own `area:` labels into the copied form's Area dropdown by construction, so deleting
+  the directory and re-running `apply` regenerates the same committed bytes rather than bringing
+  back the shipped `area: <your-area>` placeholder.
 - **Forms:** `feature_request.yml` (labels the issue `enhancement`) and `bug_report.yml`.
 - **Default for ideas:** `feature_request.yml` · **for defects:** `bug_report.yml`.
 - **What to do:** `create-issue` should reconstruct the form's fields rather than falling back to
