@@ -372,6 +372,9 @@ jobs:
       - name: Roseline golden test (shipped MCP config + the gate, driven to red)
         run: ./tests/roseline/test.sh
 
+      - name: Auto-dev never-wait golden test (worker prompt + recovery clause pinned)
+        run: ./tests/auto-dev-never-wait/test.sh
+
       - name: Contrast checker works (pass AND fail paths)
         run: |
           python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
