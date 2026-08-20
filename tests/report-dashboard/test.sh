@@ -46,13 +46,11 @@ kit_init "$KIT"
 # sourcer tests/_lib.sh ; elle le source maintenant (#128), donc la copie disparaît.
 #
 # Enregistrée avec kit_guard plutôt qu'écrite en fin de fichier : elle tourne alors sur CHAQUE
-# chemin de sortie, celui de l'échec compris. La forme précédente ne s'exécutait que si tout ce qui
-# précède avait réussi — un run rouge ne disait donc jamais si le chargeur avait aussi sali le
-# dépôt. Et l'enregistrement est ICI, avant le premier chargement de module : inscrite en fin de
-# fichier, la garde n'existerait précisément pas sur les chemins où elle a un intérêt.
-# (Ne pas réécrire ce paragraphe avec le mot t-r-a-p suivi d'E-X-I-T sur une même ligne : le motif
-# de la section 8 de tests/lib est volontairement non ancré et ne distingue pas un commentaire d'un
-# appel.)
+# chemin de sortie, celui de l'échec compris — à la différence d'un trap EXIT écrit à la main, qui
+# ne s'exécuterait que si tout ce qui précède avait réussi. Un run rouge ne disait donc jamais si le
+# chargeur avait aussi sali le dépôt. Et l'enregistrement est ICI, avant le premier chargement de
+# module : inscrite en fin de fichier, la garde n'existerait précisément pas sur les chemins où
+# elle a un intérêt.
 # ---------------------------------------------------------------------------
 pas_de_pycache() {
   local stray
