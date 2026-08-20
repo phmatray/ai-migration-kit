@@ -33,6 +33,17 @@ sdk_ok() {
   command -v dotnet >/dev/null 2>&1 &&
   dotnet --list-sdks 2>/dev/null | awk -F. '($1+0)>=8{f=1} END{exit f?0:1}'
 }
+# jq: numeric comparison of major.minor (>= 1.6, the floor tick-plan.sh's --rawfile round-trip
+# check needs, #199) — same "no version enumeration that rots" shape as sdk_ok.
+jq_ok() {
+  command -v jq >/dev/null 2>&1 &&
+  jq --version 2>/dev/null | awk -F'[-.]' '
+    { major = $2 + 0; minor = $3 + 0 }
+    major > 1 || (major == 1 && minor >= 6) { found = 1 }
+    END { exit found ? 0 : 1 }
+  '
+}
+
 # A configured-but-dead MCP server does not count: its status line must not report a failure.
 mcp_ok() { claude mcp list 2>/dev/null | grep -i "$1" | grep -qivE 'fail|error|✗'; }
 
