@@ -97,7 +97,14 @@ def main(argv):
         out.append("S\t%s\t%s" % (key, norm_scalar(settings[key])))
 
     if out:
-        print("\n".join(out))
+        # Newlines are pinned to LF rather than left to `print`. On Windows, text-mode stdout
+        # translates "\n" to "\r\n", and the caller splits these records on TAB — so the CR lands
+        # inside the LAST FIELD of every record. Measured: a label description came back as
+        # "Pull this first\r", which never equals what `gh` reports, so every label read as ~EDIT
+        # and `apply` rewrote all of them on every run. Silent, idempotence-breaking, and invisible
+        # on the Linux CI that would have to catch it (#174 is the same platform gap one layer up).
+        sys.stdout.reconfigure(newline="\n")
+        sys.stdout.write("\n".join(out) + "\n")
     return 0
 
 

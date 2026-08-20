@@ -101,6 +101,167 @@ fi
 
 # The parser exits 2 and explains on stderr for every refusal, so its status is carried straight
 # through rather than restated. Captured into a variable because the diff below walks it twice.
-DESIRED="$(python3 "$PARSER" "$MANIFEST")" || exit 2
+WORKDIR="$(mktemp -d 2>/dev/null)" || { echo "ERR: cannot create a temp directory" >&2; exit 2; }
+# `local rc=$?` FIRST, always: anything above it overwrites the status being reported, which turns
+# a failing run into a silent success. Same invariant tests/_lib.sh states for its own handler.
+cleanup() { local rc=$?; rm -rf "$WORKDIR"; return $rc; }
+trap cleanup EXIT
+
+DESIRED="$WORKDIR/desired.tsv"
+# The parser exits 2 and explains on stderr for every refusal, so its status is carried straight
+# through rather than restated.
+python3 "$PARSER" "$MANIFEST" > "$DESIRED" || exit 2
+
+# --------------------------------------------------------------------------------- live state
+
+DRIFT=0            # +ADD / ~EDIT items — what `plan` exits 1 for
+REFUSED=0          # surfaces that could not be read or written — exit 3, and named in the report
+DELTA="$WORKDIR/delta.tsv"
+: > "$DELTA"
+
+# Every report line goes through here so the column widths cannot drift between surfaces, and the
+# machine-readable delta cannot fall out of step with what the human was shown: one call writes
+# both. `apply` re-reads $DELTA rather than re-deriving the diff.
+emit() {
+  printf '%-7s %-8s %s\n' "$1" "$2" "$3"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${4:-}" "${5:-}" "${6:-}" >> "$DELTA"
+  case "$1" in
+    "+ADD"|"~EDIT") DRIFT=$((DRIFT + 1)) ;;
+  esac
+}
+
+refuse() {
+  printf '%-7s %-8s %s\n' "!REFUSED" "$1" "$2"
+  REFUSED=$((REFUSED + 1))
+}
+
+GH_OK=1
+command -v gh >/dev/null 2>&1 || GH_OK=0
+[ "$GH_OK" = 1 ] && { gh auth status >/dev/null 2>&1 || GH_OK=0; }
+command -v jq >/dev/null 2>&1 || { echo "ERR: jq is missing — it is a required prerequisite" >&2; exit 2; }
+
+SLUG=""
+if [ "$GH_OK" = 1 ]; then
+  SLUG="$(gh repo view --json nameWithOwner 2>/dev/null | jq -r '.nameWithOwner // empty' 2>/dev/null)"
+fi
+
+LIVE_LABELS="$WORKDIR/live-labels.tsv"
+: > "$LIVE_LABELS"
+LABELS_READABLE=0
+if [ "$GH_OK" = 0 ]; then
+  refuse "labels" "gh is unavailable or unauthenticated — the label axis was not read"
+elif gh label list --limit 200 --json name,color,description > "$WORKDIR/labels.json" 2>/dev/null; then
+  if jq -r '.[] | "L\t" + .name + "\t" + ((.color // "") | ascii_downcase) + "\t" + (.description // "")' \
+       "$WORKDIR/labels.json" > "$LIVE_LABELS" 2>/dev/null; then
+    LABELS_READABLE=1
+  else
+    refuse "labels" "gh returned a label payload jq could not read"
+  fi
+else
+  refuse "labels" "gh label list failed — no access to this repository's labels"
+fi
+
+LIVE_SETTINGS="$WORKDIR/live-settings.json"
+SETTINGS_READABLE=0
+if [ "$GH_OK" = 0 ] || [ -z "$SLUG" ]; then
+  [ "$GH_OK" = 1 ] && refuse "settings" "the repository slug is unreadable — settings were not read"
+elif gh api "repos/$SLUG" > "$LIVE_SETTINGS" 2>/dev/null; then
+  SETTINGS_READABLE=1
+else
+  refuse "settings" "gh api repos/$SLUG failed — settings were not read"
+fi
 
 echo "manifest: $MANIFEST"
+[ -n "$SLUG" ] && echo "repo:     $SLUG"
+echo ""
+
+# ------------------------------------------------------------------------------------- the diff
+
+# Read from a file rather than a pipe: a `while … done < <(…)` or `… | while` runs the body in a
+# SUBSHELL, where DRIFT and REFUSED would be incremented on a copy and every count would come back
+# zero — a green report over a repo full of drift.
+while IFS="$(printf '\t')" read -r kind f1 f2 f3; do
+  case "$kind" in
+    L)
+      name="$f1"; color="$f2"; desc="$f3"
+      # A <…> name is the manifest saying "an axis belongs here and nobody has filled it in".
+      # Reported on every run so it stays visible, but never drift: a repo that has deliberately
+      # not filled it must still be able to reach a converged plan.
+      case "$name" in
+        *"<"*">"*)
+          emit "!TODO" "label" "$name — placeholder, fill it in $MANIFEST"
+          continue ;;
+      esac
+      [ "$LABELS_READABLE" = 1 ] || continue
+      live="$(awk -F'\t' -v n="$name" '$1=="L" && $2==n {print $3 "\t" $4; exit}' "$LIVE_LABELS")"
+      if [ -z "$live" ]; then
+        emit "+ADD" "label" "$name ($color)" "$name" "$color" "$desc"
+      else
+        live_color="${live%%	*}"
+        live_desc="${live#*	}"
+        if [ "$live_color" = "$color" ] && [ "$live_desc" = "$desc" ]; then
+          emit "=OK" "label" "$name"
+        else
+          emit "~EDIT" "label" "$name — $live_color/$live_desc -> $color/$desc" "$name" "$color" "$desc"
+        fi
+      fi
+      ;;
+    T)
+      name="$f1"
+      if [ ! -r "$FORMS_DIR/$name" ]; then
+        refuse "forms" "$name is declared but the kit ships no templates/issue-forms/$name"
+      elif [ -e "$FORMS_TARGET/$name" ]; then
+        # Never clobber: a consumer's tuned form outranks the kit's default.
+        emit "!SKIP" "form" "$name — already present, left as is"
+      else
+        emit "+ADD" "form" "$name" "$name"
+      fi
+      ;;
+    S)
+      key="$f1"; want="$f2"
+      [ "$SETTINGS_READABLE" = 1 ] || continue
+      have="$(jq -r --arg k "$key" 'if has($k) then (.[$k] | tostring) else "" end' "$LIVE_SETTINGS" 2>/dev/null)"
+      if [ "$have" = "$want" ]; then
+        emit "=OK" "setting" "$key: $want"
+      else
+        emit "~EDIT" "setting" "$key: ${have:-<absent>} -> $want" "$key" "$want"
+      fi
+      ;;
+  esac
+done < "$DESIRED"
+
+# A live label the manifest does not declare is REPORTED and kept. Deleting by default would let a
+# kit upgrade quietly rename somebody's taxonomy out from under them.
+if [ "$LABELS_READABLE" = 1 ]; then
+  while IFS="$(printf '\t')" read -r kind name _rest; do
+    [ "$kind" = "L" ] || continue
+    [ -n "$name" ] || continue
+    if ! awk -F'\t' -v n="$name" '$1=="L" && $2==n {found=1} END {exit !found}' "$DESIRED"; then
+      if [ "$PRUNE" = 1 ]; then
+        emit "~EDIT" "label" "$name — undeclared, queued for deletion (--prune)" "$name" "" ""
+        # Re-tag the record so the executor deletes rather than edits. Written after emit so the
+        # human-facing line and the machine record still come from one call.
+        sed -i.bak "$ s/^~EDIT/-DEL/" "$DELTA" 2>/dev/null && rm -f "$DELTA.bak"
+      else
+        emit "!EXTRA" "label" "$name — live but not declared (kept; --prune would delete it)"
+      fi
+    fi
+  done < "$LIVE_LABELS"
+fi
+
+echo ""
+
+# --------------------------------------------------------------------------------------- verdict
+
+if [ "$VERB" = "plan" ]; then
+  if [ "$REFUSED" -gt 0 ]; then
+    echo "plan: $DRIFT item(s) of drift, $REFUSED surface(s) unreadable — the report names them."
+    exit 3
+  fi
+  if [ "$DRIFT" -gt 0 ]; then
+    echo "plan: $DRIFT item(s) of drift. Run \`repo-setup.sh apply\` to converge."
+    exit 1
+  fi
+  echo "plan: converged — nothing to do."
+  exit 0
+fi
