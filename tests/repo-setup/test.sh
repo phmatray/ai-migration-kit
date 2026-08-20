@@ -393,4 +393,54 @@ n=$(gh_calls_matching "PATCH")
 [ "$n" -eq 0 ] || fail "second apply issued $n PATCH call(s) — the settings surface is not idempotent"
 echo "  ok: apply — a converged setting issues no PATCH at all"
 
+# -------------------------------------------------------- 11. degrade per surface, never abort
+#
+# The point of exit 3. "The settings needed admin rights and everything else is in place" and
+# "nothing happened, and you get to guess why" are different outcomes, and a script that aborts on
+# the first refusal reports the second while having done the first. get-repo-profile makes the same
+# argument for writing an honest TODO rather than no profile at all.
+
+repo7=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log noadmin
+rc=0; out=$(GH_PATCH_FAILS=1 bash "$SCRIPT" apply "$repo7" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply without admin rights: expected exit 3, got $rc — output: $out"
+n=$(gh_calls_matching "label create")
+[ "$n" -eq 2 ] || fail "a refused PATCH stopped the label surface: expected 2 creates, got $n"
+[ -f "$repo7/.github/ISSUE_TEMPLATE/feature_request.yml" ] \
+  || fail "a refused PATCH stopped the form surface — the form was never written"
+has_line "^!REFUSED .*settings" "$out" \
+  || fail "the refused surface is not named in the report — output: $out"
+echo "  ok: degrade — a refused settings PATCH still applies labels and forms, and exits 3"
+
+# The report must name the surface, not just fail: the operator's next action (grant admin, or
+# accept the gap) depends on knowing WHICH half did not land.
+case "$out" in
+  *"admin"*) ;;
+  *) fail "the refusal does not say what is missing — output: $out" ;;
+esac
+echo "  ok: degrade — the refusal names the surface and the missing permission"
+
+# Without gh at all, both remote surfaces are unreadable — and the local half still runs.
+repo8=$(new_repo) || fail "could not create a scratch git repo"
+fresh_log noauth
+rc=0; out=$(GH_AUTH_FAILS=1 bash "$SCRIPT" apply "$repo8" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply without gh auth: expected exit 3, got $rc — output: $out"
+[ -f "$repo8/.github/ISSUE_TEMPLATE/feature_request.yml" ] \
+  || fail "unauthenticated gh stopped the purely local form copy"
+has_line "^!REFUSED .*labels" "$out" || fail "the labels surface is not reported — output: $out"
+n=$(gh_calls_matching "label create")
+[ "$n" -eq 0 ] || fail "apply issued $n label write(s) while unauthenticated"
+echo "  ok: degrade — unauthenticated gh refuses both remote surfaces, local forms still land"
+
+# And `plan` reports the same way rather than claiming a converged repo it could not read. A plan
+# that exits 0 because it read nothing is the exact "absence looks like success" failure this whole
+# suite is about.
+fresh_log noauthplan
+rc=0; out=$(GH_AUTH_FAILS=1 bash "$SCRIPT" plan "$repo8" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "plan without gh auth: expected exit 3, got $rc — output: $out"
+echo "  ok: degrade — plan exits 3 on an unreadable surface, never 0"
+
 echo "PASS: tests/repo-setup"
