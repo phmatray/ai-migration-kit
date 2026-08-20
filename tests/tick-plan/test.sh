@@ -516,4 +516,38 @@ echo "  ok: docs-name-the-knob — SKILL.md names the deadline knob"
 refuses bad-timeout env TICK_PLAN_PATCH_TIMEOUT=soon \
   "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
 
+# 16. A text-mode jq stdout must not make a correct payload look wrong (#199). On Git Bash/msys,
+#     `jq -j` rewrites every \n it emits as \r\n; that reproduces the condition on any host by
+#     wrapping the real jq and doctoring only its `-j` output, so the round-trip check sees exactly
+#     what a Windows agent would see. A genuinely correct tick must still be ACCEPTED — the
+#     corruption is confined to the verification leg, never the payload itself (which travels as an
+#     escaped JSON string a text-mode stdout cannot touch).
+REAL_JQ="$(command -v jq)"
+mkdir -p "$WORK/binjq"
+cat > "$WORK/binjq/jq" <<'STUB'
+#!/usr/bin/env bash
+# Wraps the real jq: a `-j` invocation gets \r appended to every line of its output, reproducing
+# Git Bash's text-mode stdout. Every other jq call (payload build, length check, and — once fixed —
+# the round-trip comparison itself) passes straight through untouched.
+REAL_JQ="__REAL_JQ__"
+for a in "$@"; do
+  if [ "$a" = "-j" ]; then
+    "$REAL_JQ" "$@" | sed $'s/$/\r/'
+    exit
+  fi
+done
+exec "$REAL_JQ" "$@"
+STUB
+sed -i.bak "s#__REAL_JQ__#$REAL_JQ#" "$WORK/binjq/jq"
+rm -f "$WORK/binjq/jq.bak"
+chmod +x "$WORK/binjq/jq"
+
+fresh_log crlf-jq-stdout
+( PATH="$WORK/binjq:$PATH"; export PATH
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+    > "$WORK/out.crlf-jq-stdout" 2>&1 ) \
+  || { echo "FAIL [crlf-jq-stdout]: a correct tick was refused under a text-mode jq -j stdout (#199)"
+       cat "$WORK/out.crlf-jq-stdout"; exit 1; }
+echo "  ok: crlf-jq-stdout — a text-mode jq -j stdout does not refuse a correct tick"
+
 echo "tick-plan golden test OK"
