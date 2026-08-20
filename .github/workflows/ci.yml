@@ -389,6 +389,9 @@ jobs:
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 
+      - name: Guarded PR-merge golden test (state decides the takeover, never gh's exit code)
+        run: ./tests/guarded-pr-merge/test.sh
+
       - name: Remote-branch-teardown golden test (Step 7 finishes the delete, doesn't assume it)
         run: ./tests/remote-branch-teardown/test.sh
 
