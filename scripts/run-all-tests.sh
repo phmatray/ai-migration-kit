@@ -203,6 +203,8 @@ fi
 EOF
 )"
 
+add_suite "tests/run-all-tests/test.sh"
+
 # --- One-line notes for anything the flags left out of the plan above, naming the flag that would
 # bring it back in. Printed in both --list and normal-run mode, so the plan is never silently
 # smaller than the full CI job without saying why.
