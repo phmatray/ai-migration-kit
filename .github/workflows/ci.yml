@@ -240,11 +240,23 @@ jobs:
           #   the config needs migration", and it is the only thing that catches a stale spelling
           #   such as `fileMatch` for `managerFilePatterns` — measured: exit 0 without, 1 with.
           #
-          # Known limit (follow-up): RE2 is an OPTIONAL native module. When it fails to load the
-          # validator falls back to JS RegExp and logs "RE2 not usable" as a bare warning that does
-          # not affect the exit code — so an RE2-only-invalid regex can still pass here.
+          # RE2 is an OPTIONAL native module. When it fails to load, the validator falls back to JS
+          # RegExp, keeps exiting 0, and only says so in a bare WARN line that res.errors/warnings
+          # never see — so an RE2-only-invalid matchStrings pattern could pass here silently,
+          # forever (#130). Capture the combined output first, so a genuinely invalid config's own
+          # diagnostics are never hidden by the engine check below; only then decide the exit.
+          validator_output=$(mktemp)
+          set +e
           npx --yes --package "renovate@$RENOVATE_VALIDATOR_VERSION" -- \
-            renovate-config-validator --no-global --strict renovate.json
+            renovate-config-validator --no-global --strict renovate.json > "$validator_output" 2>&1
+          validator_status=$?
+          set -e
+          cat "$validator_output"
+          if grep -q 'RE2 not usable' "$validator_output"; then
+            echo "::error::renovate-config-validator's RE2 engine did not load, so this run validated renovate.json on JS RegExp instead of RE2 — it can silently ACCEPT a matchStrings pattern RE2 would reject. The cause is the engine, not renovate.json; see #130."
+            exit 1
+          fi
+          exit "$validator_status"
 
       - name: Renovate config golden test (accepts the real config; rejects unknown, global-only and unmigrated keys)
         run: ./tests/renovate-config/test.sh
