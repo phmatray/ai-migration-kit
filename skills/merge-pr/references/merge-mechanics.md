@@ -142,7 +142,14 @@ verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slu
         | ((map(select(.state != "skipped")) | last) // last))
   | { latest: .,
       failed:  [ .[] | select(.state == "failure" or .state == "cancelled" or .state == "timed_out" or .state == "action_required") ],
-      pending: [ .[] | select(.state == "queued" or .state == "in_progress") ] }
+      # queued/in_progress are a run under way; waiting/requested/pending are a run that has not
+      # started at all (behind an environment protection rule, or an app posting the check before
+      # it begins). None of the five has a conclusion, and none is skipped, so none is evidence of
+      # anything — merging on it would be merging on a job that never ran. This is an ENUMERATION
+      # of the check-run status enum, not a proof: a status GitHub adds later still falls in the
+      # unhandled default and reads as green. Re-check https://docs.github.com/rest/checks/runs
+      # when this gate is next touched.
+      pending: [ .[] | select(.state == "queued" or .state == "in_progress" or .state == "waiting" or .state == "requested" or .state == "pending") ] }
   # <<< merge-gate verdict <<<
 ')
 
