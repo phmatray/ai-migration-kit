@@ -11,7 +11,10 @@ les templates du kit sont **obligatoires** (pas de workflow artisanal).
    `gh api repos/<o>/<r> -X PATCH -f archived=false` — le signaler à l'utilisateur (réversible).
 3. **Déposer les workflows depuis les templates** :
    - `templates/ci-dotnet.yml` → `.github/workflows/ci.yml` — **renseigner `SOLUTION`** si l'ancienne
-     solution legacy coexiste à la racine (sinon MSB1011).
+     solution legacy coexiste à la racine (sinon MSB1011). Si le repo **committe un bundle front**
+     consommé par un projet .NET, armer aussi la garde de dérive : copier
+     `templates/bundle-gate.json.example` → `.github/bundle-gate.json` et y renseigner `src`/`dist`
+     (détail : `docs/bundle-gate.md`). Sinon : rien à faire, la garde reste inerte.
    - `templates/deploy-pages-blazor.yml` → `.github/workflows/deploy-pages.yml` — renseigner
      `SOLUTION`, `WEB_PROJECT`, `BASE_PATH=/<repo>/`, et `branches:` = la branche par défaut.
 4. **Pousser la branche de migration, merger** (`--no-ff`) dans la branche par défaut, pousser.

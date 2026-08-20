@@ -57,7 +57,7 @@ A Claude Code plugin that upgrades legacy .NET applications through a seven-phas
 - **Backlog burn-down at scale** — `auto-dev` supervises a fleet of N parallel workers, each taking one issue from plan to merged PR, with conflict-avoiding area isolation and a measured token budget.
 - **Root-cause debugging** — `systematic-debugging` fires before any fix is proposed, so a failure is explained before it is patched.
 - **Preflight safety gate** — `scripts/preflight.sh` verifies required/recommended tools, MCP servers and session skills declared in `requirements.json` before phase 1 starts.
-- **CI/deployment templates** — `templates/ci-dotnet.yml` and `templates/deploy-pages-blazor.yml` wire a migrated app straight into GitHub Actions and Pages.
+- **CI/deployment templates** — `templates/ci-dotnet.yml` and `templates/deploy-pages-blazor.yml` wire a migrated app straight into GitHub Actions and Pages. A repo that commits its front-end bundle can also arm the drift gate — see [docs/bundle-gate.md](docs/bundle-gate.md).
 
 ## Proven in production
 
@@ -232,11 +232,12 @@ skills/get-repo-profile/ the per-repo profile generator the lifecycle skills con
 skills/setup-repo/      the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
 skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar)
 scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release)
-templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies
+templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies · bundle-gate.json.example — copy-pasteable config for the opt-in committed-bundle drift gate
 tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
 docs/case-studies/      real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output
+docs/bundle-gate.md     what the opt-in committed-bundle drift gate measures, its validation rules, how to disable it
 ```
 
 **Hardening a destructive operation.** `tests/tick-plan/` and `tests/guarded-git/` are not feature
