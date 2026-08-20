@@ -109,6 +109,22 @@ for axis in "priority: " "effort: " "area: "; do
 done
 echo "  ok: manifest — the shipped default declares the priority:, effort: and area: axes"
 
+# The parser's stdout must be UTF-8 whatever the host locale says — not merely where the locale is
+# already UTF-8. parse-manifest.py pins the NEWLINE for this exact class of hazard and left the
+# ENCODING to the locale, which on a Windows console is cp1252: an em-dash in a label description
+# then leaves as the single byte 0x97, `gh` sends that, and the label is created with a description
+# that can never equal what the manifest asks for. MEASURED 2026-08-20 against this repository: ten
+# labels applied corrupted, and every subsequent `plan` reported them ~EDIT forever — apply rewrote
+# all ten on every run and converged on none. The shipped manifest's own descriptions carry em
+# dashes, so this needs no fixture; PYTHONIOENCODING reproduces the condition on the Linux runner,
+# where the locale would otherwise hide it (#174 is the same platform gap, one layer up).
+enc_bytes=$(PYTHONIOENCODING=cp1252 python3 "$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py" "$MANIFEST" | od -An -tx1 | tr -d ' \n')
+case "$enc_bytes" in
+  *e28094*) ;;
+  *) fail "parse-manifest.py did not emit U+2014 as UTF-8 under a non-UTF-8 locale — label descriptions would be applied corrupted" ;;
+esac
+echo "  ok: parser — stdout is UTF-8 whatever the host locale is"
+
 # A relative --manifest resolves against the CALLER's directory, not the target repo's. Without
 # this, `plan ../other-repo --manifest my.yml` hunts for my.yml INSIDE other-repo — a path the
 # operator never typed. The suite has cd'd to the kit root, so this relative path is meaningful

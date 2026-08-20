@@ -109,7 +109,14 @@ def main(argv):
         # "Pull this first\r", which never equals what `gh` reports, so every label read as ~EDIT
         # and `apply` rewrote all of them on every run. Silent, idempotence-breaking, and invisible
         # on the Linux CI that would have to catch it (#174 is the same platform gap one layer up).
-        sys.stdout.reconfigure(newline="\n")
+        # The ENCODING is pinned for the same reason and was the half this call originally left to
+        # the locale. A Windows console is cp1252, so an em-dash in a description left as the
+        # single byte 0x97 — invalid UTF-8 — `gh` sent that, and the label was created with a
+        # description that can never equal what the manifest asks for. Measured 2026-08-20: ten
+        # labels applied corrupted here, each reported ~EDIT by every later `plan`, so `apply`
+        # rewrote all ten every run and converged on none (#196). This is the manifest's own text
+        # reaching GitHub intact, not a display concern.
+        sys.stdout.reconfigure(encoding="utf-8", newline="\n")
         sys.stdout.write("\n".join(out) + "\n")
     return 0
 
