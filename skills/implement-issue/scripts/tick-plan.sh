@@ -156,9 +156,15 @@ payload=$(jq -Rs '{body: .}' "$AFTER")
 # Prove the payload round-trips to exactly the file we validated, before it can reach GitHub.
 printf '%s' "$payload" | jq -e '(.body | length) > 0' >/dev/null \
   || die "the payload carries an empty body — the exact defect this guards. Nothing sent"
-# `jq -j` and not `jq -r`: -r appends a newline of its own, which would make a faithful
-# payload look corrupt (and, worse, a real trailing-newline change look faithful).
-diff -q <(printf '%s' "$payload" | jq -j '.body') "$AFTER" >/dev/null \
+# The comparison happens INSIDE jq, both sides loaded as JSON strings, so no text ever crosses a
+# stdout boundary a host is free to reinterpret. `jq -j '.body' | diff` looked equivalent but is
+# not: on Git Bash/msys, `jq -j`'s stdout is text-mode, so every \n it emits comes back as \r\n —
+# not a payload defect, a verification-leg one — and the round-trip refused a byte-correct payload
+# on every run (#199). The next editor's instinct here will be `tr -d '\r'`; don't — that strips a
+# genuine CR from a body GitHub actually served (it serves CRLF) as readily as a stub's, trading a
+# false refusal for a possible false acceptance in a guard whose whole point is catching exactly
+# that. `--rawfile` needs jq >= 1.6 (requirements.json).
+printf '%s' "$payload" | jq --rawfile after "$AFTER" -e '.body == $after' >/dev/null \
   || die "the payload does not round-trip to --after. Nothing sent"
 
 if [ -n "$COMMENT_ID" ]; then
