@@ -15,6 +15,12 @@
 #  10. every other `push:` filter shape               -> the branch filter is actually read
 #  11. an empty tests/ directory                      -> REFUSE, never a vacuous "all wired"
 #  12. every tests/<name>/ named in README.md exists  -> the prose cannot outlive the directory
+#  13. wired, but committed 100644 (Windows core.filemode=false) -> REFUSE, naming the mode + fix
+#  14. the happy path stays a pass with a real, staged 100755 fixture
+#  15. not a git repository at all                    -> REFUSE, mode is unknowable, not a pass
+#  16. a suite committed as a symlink (120000)         -> REFUSE, without the fatal --chmod=+x fix
+#  17. a suite name git quotes (non-ASCII)             -> still caught at the wrong mode
+#  18. both defects at once (unreadable index AND a genuinely unwired suite) -> both are named
 #
 # The refusal cases are the point. A gate is worth exactly what its refusal path is worth, and an
 # inline `run:` block cannot have one — which is why scripts/release-title-gate.sh was extracted
@@ -74,10 +80,29 @@ run_check() { python3 "$CHECK" --repo "$1" 2>&1; }
 DEFAULT_TRIGGERS=$'on:\n  push:\n    branches: [main]\n  pull_request:'
 TRIGGERS="$DEFAULT_TRIGGERS"
 
-# Build a scratch repo with the named suites and one workflow that wires all of them.
+# Build a scratch repo with the named suites and one workflow that wires all of them. Each
+# scratch root is a real git repository — the mode probe reads the INDEX, never the filesystem
+# (that is the whole point: a Windows checkout's working-copy mode lies), so a fixture with no
+# `.git` at all would make the probe refuse every section below for "not a repository" instead of
+# whatever that section actually means to test. Every suite is staged at its real, correct 100755
+# here; the sections that mean to test the mode probe itself override one path afterwards.
 scaffold() {
   local root="$1"; shift
   mkdir -p "$root/.github/workflows"
+  git -C "$root" init -q
+  # `core.filemode` is normally decided by git probing whether the filesystem preserves the
+  # executable bit at all — that probe, not the config file, is what `chmod +x` below actually
+  # depends on. Pinned explicitly so every section below stages a real 100755, regardless of
+  # $TMPDIR landing on a filesystem where the probe would otherwise say false (a Windows/WSL
+  # DrvFs mount, some Docker bind-mounts) — the exact class of host this whole suite is about.
+  git -C "$root" config core.filemode true
+  local s
+  for s in "$@"; do
+    mkdir -p "$root/tests/$s"
+    touch "$root/tests/$s/test.sh"
+    chmod +x "$root/tests/$s/test.sh"
+    git -C "$root" add -- "tests/$s/test.sh"
+  done
   {
     echo 'name: ci'
     printf '%s\n' "$TRIGGERS"
@@ -86,13 +111,23 @@ scaffold() {
     echo '    runs-on: ubuntu-latest'
     echo '    steps:'
     for s in "$@"; do
-      mkdir -p "$root/tests/$s"
-      touch "$root/tests/$s/test.sh"
       echo "      - name: $s golden test"
       echo "        run: ./tests/$s/test.sh"
     done
   } > "$root/.github/workflows/ci.yml"
   TRIGGERS="$DEFAULT_TRIGGERS"
+}
+
+# Restage an already-tracked suite at an arbitrary index mode, and prove the restage took — a
+# fixture that silently stayed at 100755 would pass every assertion below for the wrong reason.
+# Shared by sections 13, 16 and 17, which differ only in the mode, the path, and the label on a
+# fixture-bug failure.
+stage_at_mode() {
+  local root="$1" path="$2" mode="$3" label="$4" sha
+  sha=$(git -C "$root" hash-object -w "$root/$path")
+  git -C "$root" update-index --add --cacheinfo "$mode,$sha,$path"
+  [ "$(git -C "$root" ls-files -s -z -- "$path" | awk '{print $1}')" = "$mode" ] \
+    || bad "fixture bug: $path was not restaged at $mode ($label)"
 }
 
 echo "== ci-wiring-check golden test =="
@@ -294,6 +329,94 @@ if [ -z "$missing" ]; then
 else
   bad "README.md names directories that do not exist:$missing"
 fi
+
+# --------------------------------------------------------------- 13. wired, but committed 100644
+# #195. A suite whose step is invoked by a workflow that runs on a push to main — every rule above
+# is satisfied — is still worthless if CI cannot execute the file. `git config core.filemode` is
+# false on a Windows checkout, so `chmod +x` never reaches the INDEX and the suite is committed
+# 100644; CI's `./tests/x/test.sh` then dies with "Permission denied", exit 126, on a commit this
+# checker called fully enforced (PR #193). The working-copy mode set by scaffold()'s `chmod +x`
+# above is a decoy here on purpose — it is what a Windows contributor's own working copy would also
+# show, and it is not what CI reads.
+R="$WORK/badmode"; scaffold "$R" alpha beta
+stage_at_mode "$R" tests/beta/test.sh 100644 "wired but committed 100644"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/beta/test.sh' \
+   && printf '%s' "$out" | grep -q '100644' \
+   && printf '%s' "$out" | grep -q 'git update-index --chmod=+x tests/beta/test.sh'; then
+  ok "a suite committed 100644 is refused, naming the mode and the remedy"
+else bad "expected refusal naming tests/beta/test.sh, its mode and the remedy; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 14. the happy path stays a pass
+# The companion to 13: this same probe must not turn the ordinary 100755 case scaffold() now
+# builds into an accidental refusal. Section 1 already covers the real repo; this pins the shape
+# a scratch fixture produces, so the guarantee survives an unrelated edit to scaffold() itself.
+R="$WORK/goodmode"; scaffold "$R" alpha beta
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 0 ]; then
+  ok "suites staged 100755 are not reported as inexecutable"
+else bad "expected acceptance for a normally-staged fixture; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 15. not a git repository at all
+# The mode is unknowable here, not merely "not 100755" — a directory with no `.git` cannot answer
+# `git ls-files -s`. Reporting every suite as fine would be the exact failure this issue closes,
+# one layer further down: an unanswerable question read as a pass. `worktrees-ignored.sh` applies
+# the same rule to its own verdict.
+R="$WORK/notarepo"; scaffold "$R" alpha
+rm -rf "$R/.git"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -qi 'index'; then
+  ok "a directory that is not a git repository refuses rather than reporting every suite fine"
+else bad "expected refusal naming the unreadable index; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 16. a suite committed as a symlink
+# `120000` is not `100644` — the "wrong mode" case above would not catch it by accident — and CI
+# would follow the link rather than refuse it outright. The kit ships no symlinked suite; accepting
+# a mode nobody intended is how the next hole opens, so this is refused on the same footing as an
+# ordinary non-executable file.
+#
+# The remedy text is asserted, not just the refusal: `git update-index --chmod=+x` — the fix
+# printed for the 100644 case in section 13 — FATALS on a symlink entry ("cannot chmod +x"), so
+# printing it here unconditionally would hand a contributor a command that cannot work. Confirmed
+# by hand before this assertion was written: `git update-index --chmod=+x` against a 120000 entry
+# exits 128 with "fatal: git update-index: cannot chmod +x".
+R="$WORK/symlink"; scaffold "$R" alpha
+stage_at_mode "$R" tests/alpha/test.sh 120000 "wired but committed as a symlink"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/alpha/test.sh' \
+   && printf '%s' "$out" | grep -q '120000' \
+   && ! printf '%s' "$out" | grep -q -- '--chmod=+x tests/alpha/test.sh'; then
+  ok "a suite committed as a symlink (120000) is refused, without the fatal --chmod=+x remedy"
+else bad "expected refusal naming tests/alpha/test.sh and mode 120000, without --chmod=+x; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 17. a suite name git quotes
+# `git ls-files -s` C-quotes any path it considers unusual by default — every non-ASCII byte
+# qualifies — so a plain-string lookup against its output misses such a path entirely: not a
+# refusal, a silent "untracked, so skip it". A wired suite named tests/café/test.sh, committed
+# 100644, must still be caught (measured before this fix: it was reported enforced, exit 0). This
+# pins that index_modes() reads with `-z`, which turns quoting off, rather than a plain
+# `git ls-files -s`.
+R="$WORK/quoted"; scaffold "$R" café
+stage_at_mode "$R" tests/café/test.sh 100644 "quoted path, wired but committed 100644"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q '100644'; then
+  ok "a suite whose name git quotes (non-ASCII) is still caught at the wrong mode"
+else bad "expected refusal for tests/café/test.sh at 100644; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 18. both defects at once
+# The wiring verdict is computed from the filesystem and the parsed workflow — it does not need
+# git at all — so an unreadable index must not swallow it. Before this section's fix, computing
+# `not_executable` returned early on `mode_error`, and a repo with BOTH a genuinely unwired suite
+# AND an unreadable index only ever reported the index problem: fixing the index and re-running was
+# the only way to learn about the unwired suite, one problem per run instead of both at once.
+R="$WORK/bothdefects"; scaffold "$R" alpha
+mkdir -p "$R/tests/orphan"; touch "$R/tests/orphan/test.sh"; chmod +x "$R/tests/orphan/test.sh"
+rm -rf "$R/.git"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/orphan/test.sh' \
+   && printf '%s' "$out" | grep -qi 'index'; then
+  ok "an unreadable index still names a genuinely unwired suite in the same run"
+else bad "expected both tests/orphan/test.sh AND the index problem named; got rc=$rc: $out"; fi
 
 echo
 if [ "$fails" -eq 0 ]; then
