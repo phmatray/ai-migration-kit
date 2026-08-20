@@ -221,6 +221,11 @@ a terminal, but don't treat its printed verdict as authoritative (the phantom-`s
 re-derive from the check-runs recipe before acting. Failure inspection (rollup + log links) and the
 long-pipeline polling pattern are also in reference §3.
 
+**Related:** #91 fixes a different defect in this same check-runs recipe — *which* check-runs count
+(a superseded `cancelled` blocking a green PR). This step's divergence read is about *what they were
+run against*. Whoever touches one should check the other; Step 4 below carries the fallback for when
+the branch can't be synced to pick up a moved base at all.
+
 ## Step 4 — Apply corrections (the loop)
 
 The heart of the skill. Re-read the merge state, clear whatever it reports, push, re-wait — until
@@ -280,6 +285,19 @@ is mergeable again. Follow the shared procedure in
 rule-of-thumb keyed off the profile's *Conflict hot-spots*, and finish-and-verify);
 `references/merge-mechanics.md` §4 has the merge-pr framing. A clean *text* merge can still break the
 build — re-build/re-test before pushing.
+
+**The fallback when the branch can't be pushed.** Syncing needs a push, and a push needs the branch
+checked out somewhere you can commit to — not always true: it may be checked out in another agent's
+worktree, or you may be pinned to a different one entirely. When that's the case, the honest
+substitute is to verify the **merged result** locally instead of syncing the branch on GitHub:
+
+1. Merge the base into a scratch branch in your own checkout.
+2. Run the profile's *Build & test* and *CI gates* against that merged tree.
+3. Merge (Step 5) only if it comes back green; otherwise stop and report the sticking point.
+
+This moves the verdict from CI onto the agent's machine, which the rest of this skill deliberately
+avoids — so **record it as a deviation in the Step 8 report**: what was run, and that the green (or
+red) verdict came from this machine rather than from GitHub's check-runs.
 
 **Address unresolved review (for `CHANGES_REQUESTED` / open threads).** Read the comments and unresolved
 threads, implement the real asks in the worktree, commit + push, and reply to / resolve the threads so
@@ -461,6 +479,7 @@ delete the main checkout or an unrelated worktree — match the path to the PR's
 Short and concrete:
 - The merged PR — URL and confirmation it's `MERGED` (with the squash commit sha); the branch it closed.
 - **Corrections applied** — one line each: red checks fixed, conflicts resolved (which files, how), review addressed. "None needed — merged clean" is a fine report. A non-zero `gh pr merge` exit whose readback said `MERGED` is **not** a correction and not a failed merge — it is local cleanup gh couldn't do and Step 7 then did, so it belongs in the Cleanup bullet, not reported as an outstanding deferral.
+- **Deviation, if the Step 4 fallback ran** — the branch couldn't be pushed, so the merge verdict came from a local build/test against the merged tree rather than from CI. Name what was run and that the verdict is the agent's, not GitHub's.
 - **Follow-ups** — lead with the tally the filing bar produced (*"7 observations · 2 filed · 1 folded · 1 reopened · 3 recorded"*), then the detail: each new issue's title + URL, each one **folded** into an existing issue (`#N`), each **reopened** ancestor (`#N`), each recorded as a PR comment, or "none." If the 6d budget capped anything, say so and name the overflow issue. The tally is what lets the owner see whether the bar is calibrated — all-filed means it isn't being applied.
 - **Scope** — say plainly that the PR's own scope is complete. Findings are discovery, not unfinished business: a merge whose plan is ticked and whose CI is green is *done*, and the follow-up tally above is a separate fact about what was noticed along the way.
 - **Cleanup** — worktree removed and local branch deleted (or "already gone").
