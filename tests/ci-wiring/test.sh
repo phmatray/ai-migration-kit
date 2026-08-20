@@ -336,6 +336,34 @@ if [ $rc -eq 0 ]; then
   ok "suites staged 100755 are not reported as inexecutable"
 else bad "expected acceptance for a normally-staged fixture; got rc=$rc: $out"; fi
 
+# --------------------------------------------------------------- 15. not a git repository at all
+# The mode is unknowable here, not merely "not 100755" — a directory with no `.git` cannot answer
+# `git ls-files -s`. Reporting every suite as fine would be the exact failure this issue closes,
+# one layer further down: an unanswerable question read as a pass. `worktrees-ignored.sh` applies
+# the same rule to its own verdict.
+R="$WORK/notarepo"; scaffold "$R" alpha
+rm -rf "$R/.git"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -qi 'index'; then
+  ok "a directory that is not a git repository refuses rather than reporting every suite fine"
+else bad "expected refusal naming the unreadable index; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 16. a suite committed as a symlink
+# `120000` is not `100644` — the "wrong mode" case above would not catch it by accident — and CI
+# would follow the link rather than refuse it outright. The kit ships no symlinked suite; accepting
+# a mode nobody intended is how the next hole opens, so this is refused on the same footing as an
+# ordinary non-executable file.
+R="$WORK/symlink"; scaffold "$R" alpha
+sha=$(git -C "$R" hash-object -w "$R/tests/alpha/test.sh")
+git -C "$R" update-index --add --cacheinfo 120000,"$sha",tests/alpha/test.sh
+[ "$(git -C "$R" ls-files -s -- tests/alpha/test.sh | awk '{print $1}')" = 120000 ] \
+  || bad "fixture bug: tests/alpha/test.sh was not restaged at 120000"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/alpha/test.sh' \
+   && printf '%s' "$out" | grep -q '120000'; then
+  ok "a suite committed as a symlink (120000) is refused"
+else bad "expected refusal naming tests/alpha/test.sh and mode 120000; got rc=$rc: $out"; fi
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "ci-wiring golden test: all sections passed."
