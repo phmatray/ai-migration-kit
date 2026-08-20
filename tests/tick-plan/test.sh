@@ -516,4 +516,43 @@ echo "  ok: docs-name-the-knob — SKILL.md names the deadline knob"
 refuses bad-timeout env TICK_PLAN_PATCH_TIMEOUT=soon \
   "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md"
 
+# 16. A text-mode jq stdout must not make a correct payload look wrong (#199). On Git Bash/msys,
+#     `jq -j` rewrites every \n it emits as \r\n; that reproduces the condition on any host by
+#     wrapping the real jq and doctoring only its `-j` output, so a literal `jq -j '.body' | diff`
+#     — the pattern that shipped the #199 bug — sees exactly what a Windows agent saw. This pins a
+#     REGRESSION (nobody may reintroduce that stdout-based comparison), not a live property of the
+#     fixed script: tick-plan.sh no longer calls jq with `-j` anywhere, and the `--rawfile` compare
+#     it uses instead never routes body text through a stdout at all — it is judged purely by jq's
+#     exit code — so there is no stdout boundary left here for this stub to corrupt. A genuinely
+#     correct tick must still be ACCEPTED either way — the corruption this case models is confined
+#     to a verification leg the current code no longer has.
+REAL_JQ="$(command -v jq)"
+mkdir -p "$WORK/binjq"
+# $REAL_JQ (from `command -v jq`) travels via the ENVIRONMENT, never embedded as a string literal
+# in the generated script: it is untrusted input, and splicing it into a shell heredoc/sed
+# expression corrupts the stub the moment the path contains a shell-special character.
+cat > "$WORK/binjq/jq" <<'STUB'
+#!/usr/bin/env bash
+# Wraps the real jq, reached via $REAL_JQ in the environment. A `-j` invocation gets \r appended
+# to every line of its output, reproducing Git Bash's text-mode stdout. Every other jq call
+# (payload build, length check, and the round-trip comparison itself, which never uses -j) passes
+# straight through untouched.
+for a in "$@"; do
+  if [ "$a" = "-j" ]; then
+    "$REAL_JQ" "$@" | sed $'s/$/\r/'
+    exit "${PIPESTATUS[0]}"
+  fi
+done
+exec "$REAL_JQ" "$@"
+STUB
+chmod +x "$WORK/binjq/jq"
+
+fresh_log crlf-jq-stdout
+( PATH="$WORK/binjq:$PATH"; export PATH REAL_JQ
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+    > "$WORK/out.crlf-jq-stdout" 2>&1 ) \
+  || { echo "FAIL [crlf-jq-stdout]: a correct tick was refused under a text-mode jq -j stdout (#199)"
+       cat "$WORK/out.crlf-jq-stdout"; exit 1; }
+echo "  ok: crlf-jq-stdout — a text-mode jq -j stdout does not refuse a correct tick"
+
 echo "tick-plan golden test OK"
