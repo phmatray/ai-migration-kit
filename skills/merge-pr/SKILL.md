@@ -47,6 +47,7 @@ blocker:
 - **CI stays red after a real fix attempt.** Don't merge over a red bar, don't disable a failing test, don't `--admin`-override a required check. Fix it for real or stop and show the failing output.
 - **A merge conflict you can't resolve with confidence** — both `main` and the branch rewrote the *same logic*. The mechanical conflicts (version, changelog, snapshots, lockfiles) have known-correct fixes (Step 4) — handle those; stop only for genuinely ambiguous ones, showing both sides.
 - **A reviewer requested changes you can't satisfy** without guessing intent, or a branch-protection rule you can't legitimately clear (required approvals you can't self-give).
+- **The branch has no writable checkout — not the transient sandbox push failure Step 2/§8 already covers — and GitHub reports `mergeStateStatus == DIRTY` or literal `BEHIND`.** The can't-push fallback (Step 4) only substitutes for the self-imposed staleness check (`behind_by > 0` while `mergeStateStatus` still reports `CLEAN`) — it never pushes anything to the PR's real branch, and only a push clears a real conflict or a GitHub-enforced up-to-date gate. That combination is a genuine blocker: stop and report it.
 
 The merge is the irreversible act — earn it. Merge only when CI is **green on the just-corrected
 branch** and GitHub reports the PR mergeable; a textual merge of `main` is not a semantic one, so
@@ -315,6 +316,15 @@ substitute is to verify the **merged result** locally instead of syncing the bra
 This moves the verdict from CI onto the agent's machine, which the rest of this skill deliberately
 avoids — so **record it as a deviation in the Step 8 report**: what was run, and that the green (or
 red) verdict came from this machine rather than from GitHub's check-runs.
+
+This fallback only covers the self-imposed staleness check (`behind_by > 0` while `mergeStateStatus`
+still reports `CLEAN`) — GitHub doesn't block that merge either way. It does not cover a real
+GitHub-side gate: a PR reported `DIRTY` needs its conflict resolution pushed to the real branch, and a
+PR reported literal `BEHIND` (base requires branches to be up to date) needs the real branch actually
+updated — `gh pr merge` won't succeed on either without that push. If the branch has no writable
+checkout (not the transient sandbox push failure of Step 2/§8, which is just a retry) and
+`mergeStateStatus` is `DIRTY` or `BEHIND`, that combination is a genuine blocker: stop and report it
+rather than running this fallback.
 
 **Address unresolved review (for `CHANGES_REQUESTED` / open threads).** Read the comments and unresolved
 threads, implement the real asks in the worktree, commit + push, and reply to / resolve the threads so
