@@ -283,6 +283,15 @@ happened by hand while landing #147 — but it moves the verdict off CI and onto
 which this skill otherwise refuses to do. That trade is why it is a **fallback**, not the default path,
 and why SKILL.md Step 8 requires it to be named in the report as a deviation.
 
+This fallback only covers the self-imposed staleness check (`behind_by > 0` while `mergeStateStatus`
+still reports `CLEAN`) — GitHub doesn't block that merge either way. It does not cover a real
+GitHub-side gate: a PR reported `DIRTY` needs its conflict resolution pushed to the real branch, and a
+PR reported literal `BEHIND` (base requires branches to be up to date) needs the real branch actually
+updated — `gh pr merge` won't succeed on either without that push. If the branch has no writable
+checkout (not the transient sandbox push failure of Step 2/§8, which is just a retry) and
+`mergeStateStatus` is `DIRTY` or `BEHIND`, that combination is a genuine blocker: stop and report it
+rather than running this fallback.
+
 ---
 
 ## 5. Unresolved review threads (`CHANGES_REQUESTED` / open conversations)
