@@ -50,20 +50,44 @@ else
 fi
 
 VOCAB_JSON=""
+PARSER_RC=0
+PARSER_STDERR=""
 if [ -n "$MANIFEST" ] && [ -r "$PARSER" ]; then
-  VOCAB_JSON="$(python3 "$PARSER" "$MANIFEST" 2>/dev/null \
-    | awk -F'\t' '$1 == "L" { print $2 }' \
-    | grep -i '^effort:' \
-    | sed -E 's/^[Ee][Ff][Ff][Oo][Rr][Tt]:[[:space:]]*//' \
-    | tr '[:upper:]' '[:lower:]' \
-    | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null)" || VOCAB_JSON=""
+  # The parser runs on its own here — not piped straight into awk/grep/sed/tr/jq like the rest of
+  # this block — so its exit status can be told apart from the downstream tools' (`grep -i
+  # '^effort:'` legitimately exits 1 when the manifest declares no effort: labels, and under
+  # `pipefail` that would be indistinguishable from the parser itself dying). Discarding its
+  # stderr with `2>/dev/null`, as before, made a die() on a label with nothing to do with the
+  # effort: axis collapse into the exact same empty VOCAB_JSON as "no effort: labels found" or "no
+  # readable manifest" — reopening #213's mis-tiering through a path #213 never exercised (#230).
+  PARSER_ERR_FILE=""
+  if PARSER_ERR_FILE="$(mktemp 2>/dev/null)"; then
+    trap 'rm -f "$PARSER_ERR_FILE"' EXIT
+  fi
+  if PARSER_STDOUT="$(python3 "$PARSER" "$MANIFEST" 2>"${PARSER_ERR_FILE:-/dev/null}")"; then
+    PARSER_RC=0
+  else
+    PARSER_RC=$?
+  fi
+  if [ -n "$PARSER_ERR_FILE" ]; then
+    PARSER_STDERR="$(cat -- "$PARSER_ERR_FILE" 2>/dev/null || true)"
+  fi
+
+  if [ "$PARSER_RC" -eq 0 ]; then
+    VOCAB_JSON="$(printf '%s\n' "$PARSER_STDOUT" \
+      | awk -F'\t' '$1 == "L" { print $2 }' \
+      | grep -i '^effort:' \
+      | sed -E 's/^[Ee][Ff][Ff][Oo][Rr][Tt]:[[:space:]]*//' \
+      | tr '[:upper:]' '[:lower:]' \
+      | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null)" || VOCAB_JSON=""
+  fi
 fi
 
-# Degraded fallback: the manifest is missing, unreadable, or declares no effort: axis at all.
-# Case-insensitive whole-word matching against the vocabulary every shipped manifest actually
-# uses today is a documented degraded path, not a silent reproduction of the bug this replaces —
-# it still classifies word-spelled labels correctly, it just cannot see a vocabulary it was never
-# told about.
+# Degraded fallback: the manifest is missing or unreadable, the parser died reading it, or it
+# parsed fine but declares no effort: axis at all. Case-insensitive whole-word matching against
+# the vocabulary every shipped manifest actually uses today is a documented degraded path, not a
+# silent reproduction of the bug this replaces — it still classifies word-spelled labels
+# correctly, it just cannot see a vocabulary it was never told about.
 #
 # "[]" is jq's exact, single-line rendering of an empty array (verified: `printf '' | jq -R -s
 # 'split("\n") | map(select(length > 0))'` prints exactly that), so a plain string compare catches
@@ -71,7 +95,9 @@ fi
 # normal run, not only the degraded one, since a non-empty pipeline result is never the empty
 # bash string either.
 if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ]; then
-  if [ -n "$MANIFEST" ]; then
+  if [ "$PARSER_RC" -ne 0 ]; then
+    echo "survey.sh: parse-manifest.py failed (exit $PARSER_RC) reading $MANIFEST — falling back to small/medium/large; the manifest's effort: axis could not be confirmed. Parser said: ${PARSER_STDERR:-<no stderr captured>}" >&2
+  elif [ -n "$MANIFEST" ]; then
     echo "survey.sh: no effort: labels found in $MANIFEST — falling back to small/medium/large" >&2
   else
     echo "survey.sh: no readable repo-setup manifest — falling back to small/medium/large" >&2
