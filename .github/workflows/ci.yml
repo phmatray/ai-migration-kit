@@ -389,6 +389,9 @@ jobs:
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 
+      - name: Remote-branch-teardown golden test (Step 7 finishes the delete, doesn't assume it)
+        run: ./tests/remote-branch-teardown/test.sh
+
       - name: Release-title gate golden test (pass AND fail paths)
         run: ./tests/release-title-gate/test.sh
 
