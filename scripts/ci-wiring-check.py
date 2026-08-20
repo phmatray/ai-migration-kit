@@ -23,12 +23,25 @@ nothing, so all of these count as UNWIRED and are reported with the reason:
   * the workflow never runs on `main`    — a pull_request-only or schedule-only workflow, or a
                                            push trigger whose branch filter misses `main`, does
                                            not run on the push that lands on the default branch
+  * the suite's git INDEX mode is not `100755` — a Windows checkout has core.filemode=false, so
+                                           `chmod +x` never reaches the index; the suite is
+                                           committed 100644 (or, if it is a symlink, 120000) and
+                                           CI's `./tests/x/test.sh` dies with "Permission denied",
+                                           exit 126, on a step every rule above accepts as enforcing
 
-That last one used to be implied rather than checked (#133). Any of push / pull_request /
+That last-but-one used to be implied rather than checked (#133). Any of push / pull_request /
 pull_request_target / schedule counted as "automatically triggered", which was accidentally
 sufficient while ci.yml was the repo's only run:-bearing workflow — it carries both `push: [main]`
 and `pull_request`, so the weaker test happened to agree with the stronger one. #119 added a
 pull_request-only workflow and removed the coincidence.
+
+The mode row is the newest, and it is about a different thing than the six above it (#195): all six
+are about the **step** that invokes a suite, and this one is about the **file** being invoked. A
+step can satisfy every rule above — commented nowhere, no `continue-on-error`, no `if: false`, no
+discarded exit status, triggered by a push to `main` — and still be worthless if the file it names
+cannot execute. Read from the INDEX (`git ls-files -s`), never the filesystem: the working copy on
+the machine that committed the bad mode reports itself as executable regardless, which is exactly
+what makes the defect invisible locally.
 
 Comments are handled by parsing the YAML rather than by filtering '#' lines: a commented-out step
 simply is not in the parsed document, which is correct by construction instead of by regex.
@@ -37,8 +50,9 @@ Usage:
   ci-wiring-check.py [--repo <path>] [--tests <glob-root>] [--workflows <dir>]
 
 Exit codes:
-  0  every suite is invoked by at least one enforcing step
-  1  REFUSE — a suite is unwired, or wired only into a step that cannot fail the build
+  0  every suite is invoked by at least one enforcing step, at an index mode CI can execute
+  1  REFUSE — a suite is unwired, wired only into a step that cannot fail the build, committed at
+     an index mode CI cannot execute, or the index could not be read to tell
   2  usage / plumbing error — could not read the tests or the workflows, so no verdict is possible
 """
 
