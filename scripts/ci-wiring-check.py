@@ -58,6 +58,7 @@ Exit codes:
 
 import argparse
 import fnmatch
+import os
 import pathlib
 import subprocess
 import sys
@@ -246,12 +247,20 @@ def index_modes(repo, paths):
     disagree) is absent from the dict — a different condition from `error`, which is set when the
     index could not be read AT ALL (no `git` binary, not a repository, or any other non-zero exit).
     The caller must treat a non-None `error` as unanswerable, never as "every suite is fine".
+
+    Invoked with `-z`: without it, git C-quotes any path it considers "unusual" — which includes
+    every non-ASCII byte — so a suite such as `tests/café/test.sh` comes back as the literal string
+    `"tests/caf\303\251/test.sh"`, which never matches the plain path used as the lookup key. That
+    is not a refusal, it is a silent miss: the mismatched path is simply absent from `modes`, the
+    caller reads that as untracked, and a suite committed 100644 under such a name is reported
+    enforced (measured). `-z` NUL-terminates each record and turns quoting off unconditionally,
+    since a raw path cannot contain the NUL byte that already delimits the stream.
     """
     if not paths:
         return {}, None
     try:
         proc = subprocess.run(
-            ["git", "-C", str(repo), "ls-files", "-s", "--", *paths],
+            ["git", "-C", str(repo), "ls-files", "-s", "-z", "--", *paths],
             capture_output=True,
             text=True,
         )
@@ -260,10 +269,12 @@ def index_modes(repo, paths):
     if proc.returncode != 0:
         return {}, proc.stderr.strip() or f"git ls-files exited {proc.returncode}"
     modes = {}
-    for line in proc.stdout.splitlines():
+    for record in proc.stdout.split("\0"):
+        if not record:
+            continue
         # "<mode> <sha> <stage>\t<path>" — the mode is the first whitespace-separated token, which
         # never contains a tab, so splitting on the first tab cannot cut it in half.
-        meta, _, path = line.partition("\t")
+        meta, _, path = record.partition("\t")
         modes[path] = meta.split()[0]
     return modes, None
 
@@ -280,22 +291,32 @@ def check(repo, tests_root, workflow_dir):
     if not workflows:
         raise SystemExit(f"ci-wiring-check: no workflows under {workflow_dir} — nothing could run.")
 
+    # Computed even when the index turns out to be unreadable (below): the wiring verdict is
+    # independent of git entirely — filesystem enumeration plus workflow parsing — so a repo with
+    # BOTH an unreadable index and a genuinely unwired suite must still name the unwired one. An
+    # early return here would report only the index problem and hide the second, unrelated defect
+    # until a follow-up run — a diagnostic regression this file exists to avoid, not commit.
     modes, mode_error = index_modes(repo, suites)
-    if mode_error:
-        print(
-            "ci-wiring-check: REFUSED — the git index could not be read, so no suite's "
-            "executability is knowable:"
-        )
-        print(f"  {mode_error}")
-        print()
-        print("  An unanswerable question is not a pass — the same rule worktrees-ignored.sh")
-        print("  applies to its own verdict.")
-        return 1
-    not_executable = {
-        suite: mode
-        for suite in suites
-        if (mode := modes.get(suite)) is not None and mode != REQUIRED_MODE
-    }
+    not_executable = {}
+    if not mode_error:
+        not_executable = {
+            # `modes` is keyed by the forward-slash paths `git ls-files` always emits, regardless
+            # of OS. `suite` came from pathlib's `relative_to()` and is joined with the platform's
+            # own separator — a backslash on native Windows — so looking it up unmodified would
+            # never hit on that platform and every suite would silently read as untracked. `os.sep`
+            # is a no-op `/` -> `/` replace everywhere this script actually runs today, so this
+            # changes nothing here; it only matters the day Windows is a supported host for this
+            # check.
+            #
+            # `mode is None` (untracked — never `git add`ed) is deliberately NOT flagged here: the
+            # issue's own spec scopes that out ("the existing enumeration already governs which
+            # files are checked; the mode probe reports only on what it enumerated") as a different,
+            # bigger question — whether this script's enumeration should be git-based rather than
+            # filesystem-based at all (#150's territory) — not a mode violation to bolt on here.
+            suite: mode
+            for suite in suites
+            if (mode := modes.get(suite.replace(os.sep, "/"))) is not None and mode != REQUIRED_MODE
+        }
 
     verdicts = {}
     for suite in suites:
@@ -326,7 +347,7 @@ def check(repo, tests_root, workflow_dir):
             verdicts[suite] = reasons or ["no step invokes it"]
 
     unwired = {s: r for s, r in verdicts.items() if r}
-    if unwired or not_executable:
+    if unwired or not_executable or mode_error:
         if unwired:
             print("ci-wiring-check: REFUSED — these golden test suites are not enforced by CI:")
             for suite, reasons in unwired.items():
@@ -349,11 +370,32 @@ def check(repo, tests_root, workflow_dir):
             for suite, mode in not_executable.items():
                 print(f"  {suite}")
                 print(f"      index mode {mode}, expected {REQUIRED_MODE} — CI invokes it as ./{suite}")
-                print(f"      fix: git update-index --chmod=+x {suite}")
-                print(
-                    "      (a Windows checkout has core.filemode=false, so chmod alone never "
-                    "reaches the index)"
-                )
+                if mode == "120000":
+                    # `git update-index --chmod=+x` refuses outright on a symlink entry ("cannot
+                    # chmod +x") — chmod changes the mode of an existing 100644/100755 blob, it does
+                    # not turn a symlink into a regular file. The fix has to replace the entry, not
+                    # flip a bit on it.
+                    print(
+                        f"      fix: replace the symlink with a real, executable file, then "
+                        f"`git rm --cached {suite} && git add {suite}`"
+                    )
+                else:
+                    print(f"      fix: git update-index --chmod=+x {suite}")
+                    print(
+                        "      (a Windows checkout has core.filemode=false, so chmod alone never "
+                        "reaches the index)"
+                    )
+        if mode_error:
+            if unwired or not_executable:
+                print()
+            print(
+                "ci-wiring-check: REFUSED — the git index could not be read, so no suite's "
+                "executability is knowable (independent of the wiring verdicts above, if any):"
+            )
+            print(f"  {mode_error}")
+            print()
+            print("  An unanswerable question is not a pass — the same rule worktrees-ignored.sh")
+            print("  applies to its own verdict.")
         return 1
 
     print(f"ci-wiring-check: {len(suites)} golden test suites, all enforced by CI.")
