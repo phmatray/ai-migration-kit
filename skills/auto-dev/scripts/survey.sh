@@ -9,22 +9,71 @@
 # less per-turn cache re-read, the dominant cost). The ONE judgment left to the model is
 # area-tagging for conflict-avoidance, which is fuzzy — do that on the QUEUE rows below.
 #
-# Output, one row per issue, already ordered (effort:S before effort:M, then by number):
+# Output, one row per issue, already ordered (smallest effort tier first, then by number):
 #   QUEUE  #N  effort  plan=true  qa=false  [labels]  title   ← eligible, area-tag + dispatch
-#   HOLD   #N  ...                                            ← effort L/XL, out of default fleet
+#   HOLD   #N  ...                                            ← tier past the second, or unclassified
 #   SKIP   #N  ...                                            ← no plan, or manual-QA only
 #
-# Usage: scripts/survey.sh
-
+# Usage: scripts/survey.sh (run from the repo root — the manifest lookup below is CWD-relative,
+# same convention as skills/setup-repo/scripts/repo-setup.sh)
+#
+# Effort tiering reads the ORDERED effort: vocabulary from this repo's own manifest
+# (.github/repo-setup.yml, falling back to the kit's shipped templates/repo-setup.yml) instead of
+# assuming a hardcoded single-letter spelling (#213). The previous `tier` matched a bare
+# uppercase S/M/L against the label text — which never matches this repo's own word-spelled
+# `effort: small`/`medium`/`large` labels, so every issue fell to tier 4 (HOLD) and an eligible
+# backlog looked like a drained one. Ranking against the manifest's declared order works for
+# either spelling, and stays correct if the vocabulary ever changes, because there is exactly one
+# place — the manifest — that declares it.
 set -euo pipefail
+
+KIT_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd -P)"
+PARSER="$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py"
+REPO_LOCAL_MANIFEST=".github/repo-setup.yml"
+DEFAULT_MANIFEST="$KIT_ROOT/templates/repo-setup.yml"
+
+# Precedence matches repo-setup.sh: the target repo's own manifest first, then the kit's shipped
+# default — never a hand-rolled YAML read here, so the taxonomy has one parser (#213 plan Task 1).
+if [ -r "$REPO_LOCAL_MANIFEST" ]; then
+  MANIFEST="$REPO_LOCAL_MANIFEST"
+elif [ -r "$DEFAULT_MANIFEST" ]; then
+  MANIFEST="$DEFAULT_MANIFEST"
+else
+  MANIFEST=""
+fi
+
+VOCAB_JSON=""
+if [ -n "$MANIFEST" ] && [ -r "$PARSER" ]; then
+  VOCAB_JSON="$(python3 "$PARSER" "$MANIFEST" 2>/dev/null \
+    | awk -F'\t' '$1 == "L" { print $2 }' \
+    | grep -i '^effort:' \
+    | sed -E 's/^[Ee][Ff][Ff][Oo][Rr][Tt]:[[:space:]]*//' \
+    | tr '[:upper:]' '[:lower:]' \
+    | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null)" || VOCAB_JSON=""
+fi
+
+# Degraded fallback: the manifest is missing, unreadable, or declares no effort: axis at all.
+# Case-insensitive whole-word matching against the vocabulary every shipped manifest actually
+# uses today is a documented degraded path, not a silent reproduction of the bug this replaces —
+# it still classifies word-spelled labels correctly, it just cannot see a vocabulary it was never
+# told about.
+if [ -z "$VOCAB_JSON" ] || [ "$(printf '%s' "$VOCAB_JSON" | jq 'length')" -eq 0 ]; then
+  VOCAB_JSON='["small","medium","large"]'
+fi
 
 gh issue list --state open --limit 300 \
   --json number,title,labels,body \
-  --jq '
+  | jq -r --argjson vocab "$VOCAB_JSON" '
     def eff:       (.labels | map(.name) | map(select(startswith("effort:"))) | (.[0] // "effort: ?"));
     def haveplan:  ((.body  // "") | test("Implementation plan|### Task|- \\[ \\]"));
     def manualqa:  ((.title // "") | test("visually|verify by hand|manual QA|by hand"; "i"));
-    def tier:      (eff | if test("S") then 1 elif test("M") then 2 elif test("L") then 3 else 4 end);
+    # Rank the effort token against the vocabulary order (index 0 = tier 1) rather than testing
+    # for a bare letter. A token the vocabulary does not declare — no effort: label at all, or a
+    # spelling outside it — sorts past every declared tier, same as the original "else 4".
+    def tier:
+      (eff | sub("^effort:\\s*"; "") | ascii_downcase) as $tok
+      | ($vocab | index($tok)) as $idx
+      | if $idx == null then ($vocab | length) + 1 else $idx + 1 end;
     map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
          labels:(.labels|map(.name)|join(",")), t:tier})
     | sort_by(.t, .n)
