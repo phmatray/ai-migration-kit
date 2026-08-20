@@ -57,7 +57,13 @@ fi
 # uses today is a documented degraded path, not a silent reproduction of the bug this replaces —
 # it still classifies word-spelled labels correctly, it just cannot see a vocabulary it was never
 # told about.
-if [ -z "$VOCAB_JSON" ] || [ "$(printf '%s' "$VOCAB_JSON" | jq 'length')" -eq 0 ]; then
+#
+# "[]" is jq's exact, single-line rendering of an empty array (verified: `printf '' | jq -R -s
+# 'split("\n") | map(select(length > 0))'` prints exactly that), so a plain string compare catches
+# the empty-vocabulary case without spawning a second jq just to ask it the length — on every
+# normal run, not only the degraded one, since a non-empty pipeline result is never the empty
+# bash string either.
+if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ]; then
   VOCAB_JSON='["small","medium","large"]'
 fi
 
@@ -69,11 +75,14 @@ gh issue list --state open --limit 300 \
     def manualqa:  ((.title // "") | test("visually|verify by hand|manual QA|by hand"; "i"));
     # Rank the effort token against the vocabulary order (index 0 = tier 1) rather than testing
     # for a bare letter. A token the vocabulary does not declare — no effort: label at all, or a
-    # spelling outside it — sorts past every declared tier, same as the original "else 4".
+    # spelling outside it — gets a sentinel past any real tier, same as the original "else 4": a
+    # fixed 999 rather than ($vocab | length) + 1, so an unclassified issue still lands past the
+    # hardcoded ">2" HOLD threshold below even for a manifest declaring only one or two effort
+    # tiers, where length+1 could land AT OR BELOW 2 and read as eligible.
     def tier:
       (eff | sub("^effort:\\s*"; "") | ascii_downcase) as $tok
       | ($vocab | index($tok)) as $idx
-      | if $idx == null then ($vocab | length) + 1 else $idx + 1 end;
+      | if $idx == null then 999 else $idx + 1 end;
     map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
          labels:(.labels|map(.name)|join(",")), t:tier})
     | sort_by(.t, .n)
