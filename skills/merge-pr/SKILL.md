@@ -318,8 +318,9 @@ Only once CI is green **and** `mergeStateStatus == CLEAN`. The profile's *Integr
 land; for squash-merge (the `(#NNN)` commits on `main`):
 
 ```bash
-gh pr merge "$PR" --squash --delete-branch \
-  --subject "<PR title — already ends in (#issue)> (#$PR)"   # optional; omit to accept gh's default
+skills/merge-pr/scripts/guarded-pr-merge.sh "$PR" \
+  -- --squash --delete-branch --subject "<PR title — already ends in (#issue)> (#$PR)"
+  # --subject is optional; omit it (drop the whole -- line down to --delete-branch) to accept gh's default
 ```
 
 **Prefer omitting `--subject`.** `implement-issue` titled the PR `… (#issue)`, and gh's default squash
@@ -343,24 +344,26 @@ That merge **landed** — only gh's post-merge `git checkout` failed. Run from t
 instead and you get the *other* message, `failed to delete local branch … used by worktree` (§8's
 long-standing row), because gh only needs to switch branches when you are sitting on the head branch.
 Two messages, one rule: **the merge call's exit status is advisory.** Its stderr is worth reporting;
-it concludes nothing. Read the PR back, and let *that* decide:
+it concludes nothing. `guarded-pr-merge.sh` is the one home for that decision (#184) — it runs the
+merge, reads the PR's `state` back itself, and exits distinctly per outcome instead of handing you the
+raw exit code:
 
-```bash
-gh pr view "$PR" --json state,mergedAt,mergeCommit --jq '{state, mergedAt, mergeCommit:.mergeCommit.oid}'
-```
-
-| readback | what it means | what to do |
+| `guarded-pr-merge.sh` exit | what it means | what to do |
 |---|---|---|
-| `state == MERGED` | the merge landed, whatever the exit code said | continue to **Step 6**. If the merge call exited non-zero, that was local cleanup gh couldn't finish — Step 7 does it, so report it there, not as a failed merge |
-| `state == OPEN` | usually a real rejection the loop didn't catch — **but not on a merge-queue repo**, where a *successful* enqueue exits 0, prints `will be added to the merge queue`, and leaves the PR `OPEN` until the queue lands it | queued → let it land and re-read later. A genuine rejection → do **not** reach for `--admin`; surface it and stop |
-| `state == CLOSED` | the PR was closed without merging while the loop ran | Step 1's rule applies — stop and ask. Merging a deliberately closed PR is not a safe default |
-| the readback itself fails | inconclusive — it says neither merged nor rejected | re-read a few times; if it still won't answer, **stop and report the merge as unconfirmed.** Do *not* fall through into Step 7 — its teardown is destructive and assumes the merge landed. Re-running the skill later is safe: Step 1 routes an already-`MERGED` PR straight on to Steps 6-7 |
+| `0` MERGED | the merge landed, whatever `gh pr merge`'s own exit code said | continue to **Step 6**. If that exit code was non-zero, that was local cleanup gh couldn't finish — Step 7 does it, so report it there, not as a failed merge |
+| `1` QUEUED | still `OPEN`, but the merge call itself exited 0 — a successful merge-queue enqueue, not a rejection | let it land and re-read later; do not retry the merge |
+| `2` REJECTED | still `OPEN` and the merge call exited non-zero — a real rejection | do **not** reach for `--admin`; surface it (the script prints the merge call's stderr) and stop |
+| `3` CLOSED | the PR was closed without merging while this ran | Step 1's rule applies — stop and ask. Merging a deliberately closed PR is not a safe default |
+| `4` UNCONFIRMED | the state readback itself did not answer after a few attempts | inconclusive — it says neither merged nor rejected. **Stop and report the merge as unconfirmed.** Do *not* fall through into Step 7 — its teardown is destructive and assumes the merge landed. Re-running the skill later is safe: Step 1 routes an already-`MERGED` PR straight on to Steps 6-7 |
+
+Full exit-code contract and the merge-queue disambiguation are in the script's own header comment —
+read it there, don't mirror it here; a second copy is exactly what #184 removed.
 
 **Don't corroborate with the remote branch.** Whether `--delete-branch` reached the remote side before
 the local step failed is exactly what the exit code won't tell you — and on a repo with GitHub's own
 `delete_branch_on_merge` enabled (this one has it), the branch disappears either way. A missing remote
-branch proves nothing about the merge, and a surviving one disproves nothing. `state` is the only
-signal that answers the question.
+branch proves nothing about the merge, and a surviving one disproves nothing. `state` — read by the
+script — is the only signal that answers the question.
 
 Local cleanup is Step 7's either way (gh can't delete a branch checked out in a worktree; its **Case
 B** is this same collision one step later). Take the `|| git switch --detach` fallback from
