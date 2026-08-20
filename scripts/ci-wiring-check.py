@@ -268,6 +268,7 @@ def index_modes(repo, paths):
             ["git", "-C", str(repo), "ls-files", "-s", "-z", "--", *paths],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except OSError as exc:
         return {}, f"git is not available ({exc})"
@@ -374,10 +375,19 @@ def check(repo, tests_root, workflow_dir):
             for suite, mode in not_executable.items():
                 print(f"  {suite}")
                 if mode is None:
-                    print(
-                        f"      not staged in the index at all — CI invokes it as ./{suite}, but "
-                        "a real clone would not contain it"
-                    )
+                    if suite in unwired:
+                        # This suite is ALSO reported above under "not enforced by CI" — no step
+                        # invokes it at all, so claiming "CI invokes it" here would contradict that
+                        # verdict in the same run.
+                        print(
+                            "      not staged in the index at all, and no step invokes it either — "
+                            "a real clone would not contain it even if one did"
+                        )
+                    else:
+                        print(
+                            f"      not staged in the index at all — CI invokes it as ./{suite}, but "
+                            "a real clone would not contain it"
+                        )
                     print(f"      fix: git add {suite}")
                     continue
                 print(f"      index mode {mode}, expected {REQUIRED_MODE} — CI invokes it as ./{suite}")

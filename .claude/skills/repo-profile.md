@@ -222,7 +222,9 @@
   Git Bash, and CI's `./tests/x/test.sh` then dies with "Permission denied", exit 126 (#195). Fix
   with `git update-index --chmod=+x tests/<name>/test.sh` before committing a new suite —
   `scripts/ci-wiring-check.py` now reads the index mode, not the filesystem, and refuses if you
-  forget.
+  forget. It also refuses a suite that was never `git add`ed at all (#210) — a wired,
+  `chmod +x`'d suite still absent from the index — with a distinct "not staged in the index at
+  all" message and a `git add` remedy, not the mode/`chmod` one.
 - Use `git -C <path>`, not `cd`, when driving this repo from another working directory.
 - `gh` needs `--repo phmatray/ai-migration-kit` when invoked from outside the clone; note the flag is
   `--repo`/`-R` on `issue`/`pr` but **not** on `gh repo view`, which takes the slug positionally.
