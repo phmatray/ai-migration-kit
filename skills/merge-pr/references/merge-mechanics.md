@@ -283,6 +283,11 @@ happened by hand while landing #147 — but it moves the verdict off CI and onto
 which this skill otherwise refuses to do. That trade is why it is a **fallback**, not the default path,
 and why SKILL.md Step 8 requires it to be named in the report as a deviation.
 
+This fallback only covers staleness — a PR GitHub reports as `DIRTY` needs its conflict resolution
+pushed to the real branch before `gh pr merge` will succeed. If the branch can't be pushed and
+`mergeStateStatus == DIRTY`, that combination is a genuine blocker: stop and report it rather than
+running this fallback.
+
 ---
 
 ## 5. Unresolved review threads (`CHANGES_REQUESTED` / open conversations)

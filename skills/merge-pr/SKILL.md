@@ -47,6 +47,7 @@ blocker:
 - **CI stays red after a real fix attempt.** Don't merge over a red bar, don't disable a failing test, don't `--admin`-override a required check. Fix it for real or stop and show the failing output.
 - **A merge conflict you can't resolve with confidence** — both `main` and the branch rewrote the *same logic*. The mechanical conflicts (version, changelog, snapshots, lockfiles) have known-correct fixes (Step 4) — handle those; stop only for genuinely ambiguous ones, showing both sides.
 - **A reviewer requested changes you can't satisfy** without guessing intent, or a branch-protection rule you can't legitimately clear (required approvals you can't self-give).
+- **The branch can't be pushed and GitHub reports `mergeStateStatus == DIRTY`.** The can't-push fallback (Step 4) only substitutes for staleness — it never pushes anything to the PR's real branch, and only a push clears a real conflict. That combination is a genuine blocker: stop and report it.
 
 The merge is the irreversible act — earn it. Merge only when CI is **green on the just-corrected
 branch** and GitHub reports the PR mergeable; a textual merge of `main` is not a semantic one, so
@@ -315,6 +316,11 @@ substitute is to verify the **merged result** locally instead of syncing the bra
 This moves the verdict from CI onto the agent's machine, which the rest of this skill deliberately
 avoids — so **record it as a deviation in the Step 8 report**: what was run, and that the green (or
 red) verdict came from this machine rather than from GitHub's check-runs.
+
+This fallback only covers staleness — a PR GitHub reports as `DIRTY` needs its conflict resolution
+pushed to the real branch before `gh pr merge` will succeed. If the branch can't be pushed and
+`mergeStateStatus == DIRTY`, that combination is a genuine blocker: stop and report it rather than
+running this fallback.
 
 **Address unresolved review (for `CHANGES_REQUESTED` / open threads).** Read the comments and unresolved
 threads, implement the real asks in the worktree, commit + push, and reply to / resolve the threads so
