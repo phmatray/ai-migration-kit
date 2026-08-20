@@ -139,7 +139,7 @@ emit() {
   printf '%-8s %-8s %s\n' "$1" "$2" "$3"
   printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${4:-}" "${5:-}" "${6:-}" >> "$DELTA"
   case "$1" in
-    "+ADD"|"~EDIT"|"-DEL") DRIFT=$((DRIFT + 1)) ;;
+    "+ADD"|"~EDIT"|"-DEL"|"!TODO") DRIFT=$((DRIFT + 1)) ;;
   esac
 }
 

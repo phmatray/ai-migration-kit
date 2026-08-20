@@ -309,14 +309,18 @@ printf 'name: Feature request\n' > "$repo2/.github/ISSUE_TEMPLATE/feature_reques
 
 fresh_log converged
 rc=0; out=$(bash "$SCRIPT" plan "$repo2" --manifest "$FIXTURE" 2>&1) || rc=$?
-[ "$rc" -eq 0 ] || fail "plan on a converged repo: expected exit 0, got $rc — output: $out"
+# The fixture's area axis is still the "<fill-me>" placeholder, and an unfilled axis is drift
+# (#198) — so a repo that has converged on everything ELSE still exits 1, on the placeholder alone.
+[ "$rc" -eq 1 ] || fail "plan on an otherwise-converged repo with an unfilled area axis: expected exit 1, got $rc — output: $out"
 case "$out" in
   *"+ADD"*) fail "plan on a converged repo still reports +ADD — output: $out" ;;
 esac
 case "$out" in
   *"~EDIT"*) fail "plan on a converged repo still reports ~EDIT — output: $out" ;;
 esac
-echo "  ok: plan — a converged repo exits 0 with no +ADD and no ~EDIT"
+has_line "^!TODO .*area: <fill-me>" "$out" \
+  || fail "plan: the placeholder line disappeared instead of counting as drift — output: $out"
+echo "  ok: plan — a converged repo with an unfilled area axis exits 1 (!TODO is drift), no +ADD/~EDIT"
 
 # The uppercase "#B60205" in the fixture against gh's "b60205" is the case that proves it: without
 # normalisation this label would report ~EDIT forever and `apply` would rewrite it on every run.
@@ -330,12 +334,17 @@ printf '%s\n' '[{"name":"priority: high","color":"b60205","description":"Pull th
   > "$GH_LABELS_JSON"
 fresh_log extra
 rc=0; out=$(bash "$SCRIPT" plan "$repo2" --manifest "$FIXTURE" 2>&1) || rc=$?
-[ "$rc" -eq 0 ] || fail "an undeclared live label must not count as drift, got exit $rc — $out"
+# Still exit 1 here too — but only because of the ever-present placeholder, never because of the
+# undeclared label: an !EXTRA must not itself count as drift.
+[ "$rc" -eq 1 ] || fail "an undeclared live label must not itself change the exit code, got exit $rc — $out"
+case "$out" in
+  *"+ADD"*) fail "an undeclared live label was queued as +ADD — output: $out" ;;
+esac
 case "$out" in
   *"!EXTRA"*"legacy-thing"*) ;;
   *) fail "plan: an undeclared live label is not reported — output: $out" ;;
 esac
-echo "  ok: plan — an undeclared live label reports !EXTRA and does not count as drift"
+echo "  ok: plan — an undeclared live label reports !EXTRA and does not itself count as drift"
 
 # ---------------------------------------------------------------- 7. apply is idempotent
 
@@ -365,8 +374,19 @@ echo "  ok: apply — a second run issues zero label writes"
 
 fresh_log applyplan
 rc=0; out=$(bash "$SCRIPT" plan "$repo3" --manifest "$FIXTURE" 2>&1) || rc=$?
-[ "$rc" -eq 0 ] || fail "plan after apply: expected exit 0 (converged), got $rc — output: $out"
-echo "  ok: apply — plan afterwards reports converged, so the writes landed where the diff reads"
+# `apply` never creates the placeholder (by design), so the fixture's area axis stays !TODO
+# forever — exit 1 on that alone, with nothing else outstanding, is what "the writes landed"
+# looks like now.
+[ "$rc" -eq 1 ] || fail "plan after apply: expected exit 1 (only the unfilled area axis remains), got $rc — output: $out"
+case "$out" in
+  *"+ADD"*) fail "plan after apply still reports +ADD — the writes did not land — output: $out" ;;
+esac
+case "$out" in
+  *"~EDIT"*) fail "plan after apply still reports ~EDIT — the writes did not land — output: $out" ;;
+esac
+has_line "^!TODO .*area: <fill-me>" "$out" \
+  || fail "plan after apply: the placeholder line disappeared — output: $out"
+echo "  ok: apply — plan afterwards reports only the unfilled area axis, so the writes landed where the diff reads"
 
 # The placeholder must never reach the network, on any run.
 n=$(grep -c -- "fill-me" "$WORK/gh-calls.apply1.log" 2>/dev/null || true)
