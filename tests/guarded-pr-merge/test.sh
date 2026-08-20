@@ -37,10 +37,17 @@ note_fail() { echo "FAIL: $1"; FAILED=1; }
 
 # A `gh` stub on PATH. `pr merge` and `pr view` are the only two subcommands this script ever
 # calls; every other invocation is a test bug and fails loudly rather than silently doing nothing.
+# `pr view`'s success output is a TSV line — state<TAB>mergedAt<TAB>mergeCommit-sha — matching
+# what the script's own `--jq '[.state, (.mergedAt // ""), (.mergeCommit.oid // "")] | @tsv'`
+# would produce from real `gh`; the stub emits it directly rather than re-deriving it from JSON,
+# since the stub stands in for gh-with-that-jq-filter-already-applied, not for jq itself.
 #
 #   GH_MERGE_RC          exit code `gh pr merge` returns (default 0)
 #   GH_MERGE_STDERR       one line it writes to stderr first (default: none)
-#   GH_VIEW_MODE          ok (default) | fail | bad-json
+#   GH_MERGE_STDOUT       one line it writes to STDOUT first (default: none) — real `gh pr merge`
+#                         prints its own status text there; this proves the script never lets it
+#                         reach the script's own stdout verdict line
+#   GH_VIEW_MODE          ok (default) | fail | malformed | weird-state
 #   GH_VIEW_RC            exit code `gh pr view` returns when GH_VIEW_MODE=fail (default 1)
 #   GH_VIEW_FAIL_FIRST_N  how many leading `pr view` calls fail (GH_VIEW_MODE=fail) before the
 #                         configured mode takes over — proves the retry loop actually retries,
@@ -52,6 +59,7 @@ cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "ARGS: $*" >> "$GH_CALL_LOG"
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  [ -n "${GH_MERGE_STDOUT:-}" ] && echo "$GH_MERGE_STDOUT"
   [ -n "${GH_MERGE_STDERR:-}" ] && echo "$GH_MERGE_STDERR" >&2
   exit "${GH_MERGE_RC:-0}"
 elif [ "$1" = "pr" ] && [ "$2" = "view" ]; then
@@ -63,10 +71,11 @@ elif [ "$1" = "pr" ] && [ "$2" = "view" ]; then
     exit "${GH_VIEW_RC:-1}"
   fi
   case "${GH_VIEW_MODE:-ok}" in
-    fail)     exit "${GH_VIEW_RC:-1}" ;;
-    bad-json) printf 'not json, a wrapper on PATH mangled this\n' ;;
-    *)        printf '{"state":"%s","mergedAt":"%s","mergeCommit":"%s"}\n' \
-                "${GH_VIEW_STATE:-}" "${GH_VIEW_MERGED_AT:-}" "${GH_VIEW_SHA:-}" ;;
+    fail)        exit "${GH_VIEW_RC:-1}" ;;
+    malformed)   printf 'not a TSV line at all, a wrapper on PATH mangled this\n' ;;
+    weird-state) printf 'DRAFT\t\t\n' ;;
+    *)           printf '%s\t%s\t%s\n' \
+                   "${GH_VIEW_STATE:-}" "${GH_VIEW_MERGED_AT:-}" "${GH_VIEW_SHA:-}" ;;
   esac
 else
   echo "gh stub: unexpected invocation: $*" >&2
@@ -180,13 +189,25 @@ run_case unreadable 4 "UNCONFIRMED" \
 
 # ---------------------------------------------------------------------------- 8. malformed output
 #
-# gh pr view exits 0 but the payload is not JSON (a wrapper on PATH, a truncated response). Must
-# not crash the script under set -e (the defect this suite's own authoring caught) and must not
-# be misread as any real state — it is exactly as inconclusive as an outright failure.
+# gh pr view exits 0 but the payload is not a parseable TSV line (a wrapper on PATH, a truncated
+# response). Must not crash the script under set -e (the defect this suite's own authoring caught
+# — jq erroring on non-JSON input inside a bare `set -e` assignment used to abort the whole
+# script) and must not be misread as any real state — it is exactly as inconclusive as an outright
+# failure.
 GH_MERGE_RC=0 GH_MERGE_STDERR="" \
-GH_VIEW_MODE=bad-json GH_VIEW_FAIL_FIRST_N=0 \
+GH_VIEW_MODE=malformed GH_VIEW_FAIL_FIRST_N=0 \
 run_case malformed-view 4 "UNCONFIRMED" \
-  'gh pr view exits 0 with non-JSON output -> UNCONFIRMED, exit 4, and the script does not abort'
+  'gh pr view exits 0 with an unparseable payload -> UNCONFIRMED, exit 4, and the script does not abort'
+
+# ------------------------------------------------------------------------- 8b. unrecognised state
+#
+# gh pr view answers cleanly with a state this script does not know (e.g. GitHub adds one, or a
+# caller points this at something that is not actually a PR). Must fall to UNCONFIRMED, the same
+# as an outright readback failure — never silently treated as any of MERGED/OPEN/CLOSED.
+GH_MERGE_RC=0 GH_MERGE_STDERR="" \
+GH_VIEW_MODE=weird-state GH_VIEW_FAIL_FIRST_N=0 \
+run_case unrecognised-state 4 "UNCONFIRMED" \
+  "gh pr view answers with a state outside MERGED/OPEN/CLOSED -> UNCONFIRMED, exit 4"
 
 # ----------------------------------------------------------------------- 9. retry actually retries
 #
@@ -200,14 +221,41 @@ run_case retry-recovers 0 "MERGED 1234567" \
 attempts=$(cat "$WORK/view-count.retry-recovers" 2>/dev/null || echo 0)
 [ "$attempts" -eq 3 ] || note_fail "retry-recovers — expected exactly 3 gh pr view attempts, saw $attempts"
 
+# ----------------------------------------------------------------- 9b. gh's own stdout is dropped
+#
+# gh pr merge writes a status line to STDOUT before exiting 0 (real gh does this — e.g. its own
+# merge-queue confirmation text). It must never reach the script's stdout ahead of the verdict:
+# a caller doing out=$(guarded-pr-merge.sh …) has to get exactly "MERGED <sha>", nothing prepended.
+GH_MERGE_RC=0 GH_MERGE_STDOUT="✓ Squashed and merged pull request #999" GH_MERGE_STDERR="" \
+GH_VIEW_MODE=ok GH_VIEW_FAIL_FIRST_N=0 GH_VIEW_STATE=MERGED GH_VIEW_MERGED_AT=2026-08-20T00:00:00Z GH_VIEW_SHA=9999999 \
+run_case merge-stdout-not-leaked 0 "MERGED 9999999" \
+  "gh pr merge's own stdout text is discarded, never prepended to the script's verdict line"
+
 # ------------------------------------------------------------------------------ 10. usage errors
 #
-# No PR number: nothing should be attempted at all — neither gh subcommand runs.
+# No PR number: nothing should be attempted at all — neither gh subcommand runs. Exit 64, not 2 —
+# 2 means REJECTED (a real GitHub-side decision); a usage/precondition failure must not share a
+# code with an outcome, or a caller branching on exit code alone cannot tell "nothing was even
+# attempted" from "GitHub said no".
 GH_MERGE_RC=0 GH_MERGE_STDERR="" GH_VIEW_MODE=ok GH_VIEW_FAIL_FIRST_N=0 GH_VIEW_STATE=MERGED \
-run_case no-pr-arg 2 "" 'no PR number given -> refuses (exit 2), no gh call' -- --squash --delete-branch
+run_case no-pr-arg 64 "" 'no PR number given -> refuses (exit 64), no gh call' -- --squash --delete-branch
 if [ -s "$WORK/gh-calls.no-pr-arg.log" ]; then
   note_fail "no-pr-arg — refused but still called gh:
 $(sed 's/^/    /' "$WORK/gh-calls.no-pr-arg.log")"
+fi
+
+# A bad env override refuses the same way, before either gh subcommand runs — the exact input
+# that used to reach `sleep` as the last command of an `&&` chain and abort the whole script under
+# set -e instead of producing a clean, documented refusal.
+GH_MERGE_RC=0 GH_MERGE_STDERR="" GH_VIEW_MODE=ok GH_VIEW_FAIL_FIRST_N=0 GH_VIEW_STATE=MERGED \
+GUARDED_PR_MERGE_READBACK_SLEEP=not-a-number \
+run_case bad-sleep-override 64 "" 'a non-numeric GUARDED_PR_MERGE_READBACK_SLEEP -> refuses (exit 64), no gh call' 999 -- --squash --delete-branch
+# The prefix assignment above is temporary-environment-only (verified: it does not leak into this
+# shell's own GUARDED_PR_MERGE_READBACK_SLEEP, which stays the `export`ed 0 from above) — no reset
+# needed before the next run_case.
+if [ -s "$WORK/gh-calls.bad-sleep-override.log" ]; then
+  note_fail "bad-sleep-override — refused but still called gh:
+$(sed 's/^/    /' "$WORK/gh-calls.bad-sleep-override.log")"
 fi
 
 # ---------------------------------------------------------------------------------------- verdict

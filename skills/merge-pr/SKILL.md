@@ -67,7 +67,7 @@ Create a task per item and work them in order. Step 4 is a loop — repeat until
 2. **Locate (or create) the branch's worktree** — find the local worktree/branch for the PR's head so corrections land in the right checkout; create one tracking the remote branch if none exists.
 3. **Wait for CI** — let the checks finish; read the rollup.
 4. **Apply corrections (loop)** — clear each blocker the merge state reports (red CI · behind/dirty vs `main` · unresolved review · draft), push, re-wait until the PR is `CLEAN`.
-5. **Merge (squash)** — `gh pr merge --squash --delete-branch` once green and mergeable.
+5. **Merge (squash)** — `skills/merge-pr/scripts/guarded-pr-merge.sh` once green and mergeable; it runs the merge and decides the outcome from GitHub's `state`, never from the raw `gh pr merge` exit code.
 6. **Triage follow-ups** — gather inline `--follow-up` args + ones discovered in the PR, cluster them by root cause, fold instances into the issue that already owns them, and file at most 3 new issues via `create-issue`.
 7. **Delete the local branch & worktree** — from the main checkout, remove the PR's worktree and local branch.
 8. **Report** — merged PR URL, corrections applied, follow-ups filed, cleanup done.
