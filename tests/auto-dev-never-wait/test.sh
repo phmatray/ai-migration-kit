@@ -34,12 +34,15 @@ grep -qi "one-shot process" "$WORKER_MD" \
 
 # 1b. It names the observed forbidden phrasings verbatim, so a future edit that quietly drops one
 #     of the three concrete examples is caught rather than passing on the marker phrase alone.
-grep -qF "I'll pause here and wait for" "$WORKER_MD" \
-  || fail "commands/auto-dev-worker.md is missing the forbidden phrasing: I'll pause here and wait for..."
-grep -qF "I'll pick this back up automatically once it completes" "$WORKER_MD" \
-  || fail "commands/auto-dev-worker.md is missing the forbidden phrasing: I'll pick this back up automatically once it completes"
-grep -qF "I'll stop issuing further tool calls now and wait" "$WORKER_MD" \
-  || fail "commands/auto-dev-worker.md is missing the forbidden phrasing: I'll stop issuing further tool calls now and wait"
+FORBIDDEN_PHRASINGS=(
+  "I'll pause here and wait for"
+  "I'll pick this back up automatically once it completes"
+  "I'll stop issuing further tool calls now and wait"
+)
+for phrasing in "${FORBIDDEN_PHRASINGS[@]}"; do
+  grep -qF "$phrasing" "$WORKER_MD" \
+    || fail "commands/auto-dev-worker.md is missing the forbidden phrasing: $phrasing"
+done
 
 # 2. skills/auto-dev/SKILL.md Step 4 recognizes a worker killed by an in-worker wait — all plan
 #    checkboxes ticked plus a deferral-shaped final line — and prescribes a tail prompt, not a

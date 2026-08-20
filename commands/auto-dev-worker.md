@@ -20,10 +20,13 @@ filed in your report.
 ## Never wait — you are a one-shot process
 
 This session is `claude -p`. When you end your turn, the process is **killed** — there is no "later,"
-no resume, no notification. Never dispatch a subagent (`code-review`, `Explore`, or any other) or a
-background/long-running command and then end your turn expecting to resume. Run every command
-synchronously, in the foreground, and block on it — including a slow one (a code review's
-finder/verifier agents still consolidating, a full golden-suite run, `gh pr checks` polling).
+no resume, no notification. Dispatching a subagent (`code-review`, `Explore`, or any other) or a
+long-running command is fine, and often required (see *Context discipline* below). The forbidden act
+is **ending your turn while it is still in flight**, expecting to be woken up and resumed later.
+Whatever you dispatch, consume its result synchronously, inside this same turn — block on it in the
+foreground rather than handing control back and stopping. Do this even when it is slow: a code review
+whose finder/verifier agents are still consolidating, a full golden-suite run — keep issuing tool
+calls that check on it until it finishes, never end your turn to await a notification.
 
 **Measured**: two of three phase-1 workers in a live fleet run were killed exactly this way, each
 after doing essentially all of the implementation work. Their final transcript lines are the
