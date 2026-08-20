@@ -480,4 +480,56 @@ rc=0; out=$(GH_AUTH_FAILS=1 bash "$SCRIPT" plan "$repo8" --manifest "$FIXTURE" 2
 [ "$rc" -eq 3 ] || fail "plan without gh auth: expected exit 3, got $rc — output: $out"
 echo "  ok: degrade — plan exits 3 on an unreadable surface, never 0"
 
+# --------------------------------------------------- 9. this repository's own configuration (#196)
+#
+# Sections 1-8 drive the tool over scratch repos. This one asserts a fact about THIS repository,
+# the way tests/repo-profile/test.sh asserts that the kit tracks its own profile: the kit shipped
+# the taxonomy in #192 and did not adopt it, so `auto-dev`'s effort ordering and area isolation
+# read nothing HERE, in the repo the fleet is most often run in.
+#
+# The taxonomy lives in `.github/repo-setup.yml`, NOT in the shipped default: repo-setup.sh:103
+# prefers the target repo's own file, and this repo's area names (`area: merge-pr`,
+# `area: implement-issue`) describe the KIT — pushing them onto every consumer who applies the
+# shipped manifest unedited is the cost that override exists to avoid.
+
+REPO_MANIFEST="$KIT_ROOT/.github/repo-setup.yml"
+[ -r "$REPO_MANIFEST" ] || fail ".github/repo-setup.yml missing — this repo declares no taxonomy of its own (#196)"
+
+repo_parsed=$(python3 "$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py" "$REPO_MANIFEST") \
+  || fail ".github/repo-setup.yml does not parse"
+
+for axis in "priority: " "effort: " "area: "; do
+  case "$repo_parsed" in
+    *"$axis"*) ;;
+    *) fail "this repo's manifest declares no '$axis' label — the axis #192 is about" ;;
+  esac
+done
+echo "  ok: repo manifest — .github/repo-setup.yml declares the priority:, effort: and area: axes"
+
+# A placeholder here would mean the axis is still unfilled, which is precisely the state #196
+# reports: `apply` never creates a <bracketed> name, so it would look converged and configure
+# nothing. Line-oriented, never a glob over the whole report: `case $all in *"L"*"<"*)` matches
+# across lines and would pass on any manifest with any label at all.
+ph=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && $2 ~ /<.*>/ { n++ } END { print n+0 }')
+[ "$ph" -eq 0 ] || fail "this repo's manifest still carries $ph placeholder label(s) — the axis is unfilled"
+echo "  ok: repo manifest — no <placeholder> label survives in this repo's own manifest"
+
+# The repo-local manifest REPLACES the shipped one rather than extending it, so pruneKeep does not
+# come along by itself. Dropping it re-arms the case `plan` found against this very repository: a
+# single `apply --prune` deleting release-please's housekeeping labels and Renovate's.
+for keep in "autorelease: *" "dependencies"; do
+  printf '%s\n' "$repo_parsed" | grep -Fxq "K	$keep" \
+    || fail "this repo's manifest lost the pruneKeep entry '$keep' — --prune would delete it"
+done
+echo "  ok: repo manifest — pruneKeep still protects the release-please and Renovate labels"
+
+# And the shipped default must STILL be a placeholder. This is the half a well-meaning later edit
+# breaks: filling it in looks like finishing the job, and silently exports `area: merge-pr` to
+# every consumer. `area:` is the only axis that cannot be defaulted — priority and effort are
+# universal, areas name someone's code.
+ship_ph=$(printf '%s\n' "$parsed" | awk -F'\t' '$1 == "L" && $2 ~ /^area: <.*>$/ { n++ } END { print n+0 }')
+[ "$ship_ph" -eq 1 ] \
+  || fail "templates/repo-setup.yml carries $ship_ph area placeholder(s), expected exactly 1 — a consumer must not inherit this repo's area names (#196)"
+echo "  ok: shipped default — templates/repo-setup.yml keeps its area placeholder for consumers"
+
 echo "PASS: tests/repo-setup"
