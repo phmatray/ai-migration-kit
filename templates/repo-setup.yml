@@ -48,6 +48,10 @@ labels:
   # ------------------------------------------------------------------- effort: how big the job is
   # This is the axis `auto-dev` sorts on ("small effort first, then medium"). Without it that
   # ordering has nothing to read and the fleet takes issues in whatever order GitHub returns them.
+  #
+  # DECLARATION ORDER IS THE TIER ORDER: skills/auto-dev/scripts/survey.sh ranks an issue's
+  # effort: label by its position in this list (first = tier 1, smallest), not by parsing the
+  # label text itself (#213) — so list these smallest-to-largest, and any tier past the 2nd holds.
   - name: "effort: small"
     color: "c2e0c6"
     description: "One task, one test cycle"

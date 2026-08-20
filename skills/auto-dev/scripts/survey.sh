@@ -14,8 +14,9 @@
 #   HOLD   #N  ...                                            ← tier past the second, or unclassified
 #   SKIP   #N  ...                                            ← no plan, or manual-QA only
 #
-# Usage: scripts/survey.sh (run from the repo root — the manifest lookup below is CWD-relative,
-# same convention as skills/setup-repo/scripts/repo-setup.sh)
+# Usage: scripts/survey.sh — the manifest lookup below resolves the repo's git toplevel itself
+# (same convention as skills/setup-repo/scripts/repo-setup.sh), so it is correct from any
+# subdirectory, not only the repo root.
 #
 # Effort tiering reads the ORDERED effort: vocabulary from this repo's own manifest
 # (.github/repo-setup.yml, falling back to the kit's shipped templates/repo-setup.yml) instead of
@@ -29,7 +30,13 @@ set -euo pipefail
 
 KIT_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd -P)"
 PARSER="$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py"
-REPO_LOCAL_MANIFEST=".github/repo-setup.yml"
+# Resolved against the TARGET repo's toplevel, not the raw CWD — repo-setup.sh does the same
+# (cd to `git rev-parse --show-toplevel` before checking this same relative path) so that a caller
+# working from a subdirectory (a worktree, a nested skill invocation) still finds the repo-local
+# manifest instead of silently missing it. Outside any git repo (or a bare one), `show-toplevel`
+# fails and this falls back to the plain CWD, which is what it was before.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+REPO_LOCAL_MANIFEST="$REPO_ROOT/.github/repo-setup.yml"
 DEFAULT_MANIFEST="$KIT_ROOT/templates/repo-setup.yml"
 
 # Precedence matches repo-setup.sh: the target repo's own manifest first, then the kit's shipped
@@ -64,6 +71,11 @@ fi
 # normal run, not only the degraded one, since a non-empty pipeline result is never the empty
 # bash string either.
 if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ]; then
+  if [ -n "$MANIFEST" ]; then
+    echo "survey.sh: no effort: labels found in $MANIFEST — falling back to small/medium/large" >&2
+  else
+    echo "survey.sh: no readable repo-setup manifest — falling back to small/medium/large" >&2
+  fi
   VOCAB_JSON='["small","medium","large"]'
 fi
 
