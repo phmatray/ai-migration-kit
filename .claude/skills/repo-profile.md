@@ -219,12 +219,10 @@
   the fast per-task path.
 - **`core.filemode=false` on a Windows checkout means `chmod +x` never reaches the git index.** A
   suite added from Windows is committed `100644` while the working copy still looks executable in
-  Git Bash, and CI's `./tests/x/test.sh` then dies with "Permission denied", exit 126 (#195). For a
-  suite already `git add`ed, fix with `git update-index --chmod=+x tests/<name>/test.sh`; for a
-  brand-new suite not yet staged at all, `git add` it first — `--chmod=+x` alone refuses on a path
-  that isn't in the index yet ("cannot add to the index - missing --add option?"). Either way,
-  `scripts/ci-wiring-check.py` now reads the index mode, not the filesystem, and refuses if a wired
-  suite is committed at the wrong mode or was never staged at all.
+  Git Bash, and CI's `./tests/x/test.sh` then dies with "Permission denied", exit 126 (#195). Fix
+  with `git update-index --chmod=+x tests/<name>/test.sh` before committing a new suite —
+  `scripts/ci-wiring-check.py` now reads the index mode, not the filesystem, and refuses if you
+  forget.
 - Use `git -C <path>`, not `cd`, when driving this repo from another working directory.
 - `gh` needs `--repo phmatray/ai-migration-kit` when invoked from outside the clone; note the flag is
   `--repo`/`-R` on `issue`/`pr` but **not** on `gh repo view`, which takes the slug positionally.
