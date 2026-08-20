@@ -74,10 +74,23 @@ run_check() { python3 "$CHECK" --repo "$1" 2>&1; }
 DEFAULT_TRIGGERS=$'on:\n  push:\n    branches: [main]\n  pull_request:'
 TRIGGERS="$DEFAULT_TRIGGERS"
 
-# Build a scratch repo with the named suites and one workflow that wires all of them.
+# Build a scratch repo with the named suites and one workflow that wires all of them. Each
+# scratch root is a real git repository — the mode probe reads the INDEX, never the filesystem
+# (that is the whole point: a Windows checkout's working-copy mode lies), so a fixture with no
+# `.git` at all would make the probe refuse every section below for "not a repository" instead of
+# whatever that section actually means to test. Every suite is staged at its real, correct 100755
+# here; the sections that mean to test the mode probe itself override one path afterwards.
 scaffold() {
   local root="$1"; shift
   mkdir -p "$root/.github/workflows"
+  git -C "$root" init -q
+  local s
+  for s in "$@"; do
+    mkdir -p "$root/tests/$s"
+    touch "$root/tests/$s/test.sh"
+    chmod +x "$root/tests/$s/test.sh"
+    git -C "$root" add -- "tests/$s/test.sh"
+  done
   {
     echo 'name: ci'
     printf '%s\n' "$TRIGGERS"
@@ -86,8 +99,6 @@ scaffold() {
     echo '    runs-on: ubuntu-latest'
     echo '    steps:'
     for s in "$@"; do
-      mkdir -p "$root/tests/$s"
-      touch "$root/tests/$s/test.sh"
       echo "      - name: $s golden test"
       echo "        run: ./tests/$s/test.sh"
     done
@@ -294,6 +305,36 @@ if [ -z "$missing" ]; then
 else
   bad "README.md names directories that do not exist:$missing"
 fi
+
+# --------------------------------------------------------------- 13. wired, but committed 100644
+# #195. A suite whose step is invoked by a workflow that runs on a push to main — every rule above
+# is satisfied — is still worthless if CI cannot execute the file. `git config core.filemode` is
+# false on a Windows checkout, so `chmod +x` never reaches the INDEX and the suite is committed
+# 100644; CI's `./tests/x/test.sh` then dies with "Permission denied", exit 126, on a commit this
+# checker called fully enforced (PR #193). The working-copy mode set by scaffold()'s `chmod +x`
+# above is a decoy here on purpose — it is what a Windows contributor's own working copy would also
+# show, and it is not what CI reads.
+R="$WORK/badmode"; scaffold "$R" alpha beta
+sha=$(git -C "$R" hash-object -w "$R/tests/beta/test.sh")
+git -C "$R" update-index --add --cacheinfo 100644,"$sha",tests/beta/test.sh
+[ "$(git -C "$R" ls-files -s -- tests/beta/test.sh | awk '{print $1}')" = 100644 ] \
+  || bad "fixture bug: tests/beta/test.sh was not restaged at 100644"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/beta/test.sh' \
+   && printf '%s' "$out" | grep -q '100644' \
+   && printf '%s' "$out" | grep -q 'git update-index --chmod=+x tests/beta/test.sh'; then
+  ok "a suite committed 100644 is refused, naming the mode and the remedy"
+else bad "expected refusal naming tests/beta/test.sh, its mode and the remedy; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 14. the happy path stays a pass
+# The companion to 13: this same probe must not turn the ordinary 100755 case scaffold() now
+# builds into an accidental refusal. Section 1 already covers the real repo; this pins the shape
+# a scratch fixture produces, so the guarantee survives an unrelated edit to scaffold() itself.
+R="$WORK/goodmode"; scaffold "$R" alpha beta
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 0 ]; then
+  ok "suites staged 100755 are not reported as inexecutable"
+else bad "expected acceptance for a normally-staged fixture; got rc=$rc: $out"; fi
 
 echo
 if [ "$fails" -eq 0 ]; then

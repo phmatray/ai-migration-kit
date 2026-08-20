@@ -45,6 +45,7 @@ Exit codes:
 import argparse
 import fnmatch
 import pathlib
+import subprocess
 import sys
 
 import yaml
@@ -52,6 +53,10 @@ import yaml
 # The branch whose pushes are the merge gate. A constant rather than a literal sprinkled through
 # the predicates below, so a repo that renames its default branch has one line to change.
 MAIN_BRANCH = "main"
+
+# The only index mode CI can execute a suite at. A symlink (120000) or anything else that is not
+# this is refused the same as 100644 — accepting a mode nobody intended is how the next hole opens.
+REQUIRED_MODE = "100755"
 
 # `push:` with an empty body parses to None, which is a legitimate value meaning "every branch".
 # `.get("push")` cannot tell that apart from "no push trigger at all", and those are opposite
@@ -215,6 +220,40 @@ def invocation_lines(run_text, suite):
     return lines
 
 
+def index_modes(repo, paths):
+    """The git INDEX mode for each of `paths`, keyed by the same relative-path string given.
+
+    The filesystem mode is the wrong authority — that is the bug this closes. A Windows checkout
+    with `core.filemode=false` reports its working copy as executable no matter what git actually
+    recorded, because `chmod +x` there never reaches the index; only the index is what CI receives.
+
+    Returns (modes, error). `modes` maps a path present in the index to its six-digit mode string;
+    a path absent from the index (untracked, or the filesystem enumeration and the index simply
+    disagree) is absent from the dict — a different condition from `error`, which is set when the
+    index could not be read AT ALL (no `git` binary, not a repository, or any other non-zero exit).
+    The caller must treat a non-None `error` as unanswerable, never as "every suite is fine".
+    """
+    if not paths:
+        return {}, None
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-s", "--", *paths],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        return {}, f"git is not available ({exc})"
+    if proc.returncode != 0:
+        return {}, proc.stderr.strip() or f"git ls-files exited {proc.returncode}"
+    modes = {}
+    for line in proc.stdout.splitlines():
+        # "<mode> <sha> <stage>\t<path>" — the mode is the first whitespace-separated token, which
+        # never contains a tab, so splitting on the first tab cannot cut it in half.
+        meta, _, path = line.partition("\t")
+        modes[path] = meta.split()[0]
+    return modes, None
+
+
 def check(repo, tests_root, workflow_dir):
     suites = sorted(str(p.relative_to(repo)) for p in tests_root.glob("*/test.sh"))
     if not suites:
@@ -226,6 +265,23 @@ def check(repo, tests_root, workflow_dir):
     workflows = load_workflows(workflow_dir)
     if not workflows:
         raise SystemExit(f"ci-wiring-check: no workflows under {workflow_dir} — nothing could run.")
+
+    modes, mode_error = index_modes(repo, suites)
+    if mode_error:
+        print(
+            "ci-wiring-check: REFUSED — the git index could not be read, so no suite's "
+            "executability is knowable:"
+        )
+        print(f"  {mode_error}")
+        print()
+        print("  An unanswerable question is not a pass — the same rule worktrees-ignored.sh")
+        print("  applies to its own verdict.")
+        return 1
+    not_executable = {
+        suite: mode
+        for suite in suites
+        if (mode := modes.get(suite)) is not None and mode != REQUIRED_MODE
+    }
 
     verdicts = {}
     for suite in suites:
@@ -256,17 +312,34 @@ def check(repo, tests_root, workflow_dir):
             verdicts[suite] = reasons or ["no step invokes it"]
 
     unwired = {s: r for s, r in verdicts.items() if r}
-    if unwired:
-        print("ci-wiring-check: REFUSED — these golden test suites are not enforced by CI:")
-        for suite, reasons in unwired.items():
-            print(f"  {suite}")
-            for reason in dict.fromkeys(reasons):
-                print(f"      {reason}")
-        print()
-        print("  Wire each one in as a `run:` step of a workflow that runs on a push to")
-        print(f"  `{MAIN_BRANCH}`, whose failure fails the build. A pull-request-only workflow is")
-        print("  not enough: it never runs on the push that lands the merge. To exclude a suite")
-        print("  deliberately, say why in the diff.")
+    if unwired or not_executable:
+        if unwired:
+            print("ci-wiring-check: REFUSED — these golden test suites are not enforced by CI:")
+            for suite, reasons in unwired.items():
+                print(f"  {suite}")
+                for reason in dict.fromkeys(reasons):
+                    print(f"      {reason}")
+            print()
+            print("  Wire each one in as a `run:` step of a workflow that runs on a push to")
+            print(f"  `{MAIN_BRANCH}`, whose failure fails the build. A pull-request-only workflow is")
+            print("  not enough: it never runs on the push that lands the merge. To exclude a suite")
+            print("  deliberately, say why in the diff.")
+        if not_executable:
+            if unwired:
+                print()
+            # Reported under its own heading rather than folded into `unwired` above: a step that
+            # invokes the suite and can fail the build is genuinely WIRED by every rule this file
+            # otherwise knows — the file itself is what CI cannot run, a different cause that would
+            # be lost if the two reasons were conflated in one block.
+            print("ci-wiring-check: REFUSED — these golden test suites are not executable:")
+            for suite, mode in not_executable.items():
+                print(f"  {suite}")
+                print(f"      index mode {mode}, expected {REQUIRED_MODE} — CI invokes it as ./{suite}")
+                print(f"      fix: git update-index --chmod=+x {suite}")
+                print(
+                    "      (a Windows checkout has core.filemode=false, so chmod alone never "
+                    "reaches the index)"
+                )
         return 1
 
     print(f"ci-wiring-check: {len(suites)} golden test suites, all enforced by CI.")
