@@ -35,6 +35,11 @@ except ModuleNotFoundError:
 
 
 def die(message):
+    # stderr is pinned for the same reason stdout is, and it matters precisely here: the messages
+    # below interpolate manifest content (%r of a label name), so a name outside the console's
+    # locale encoding would raise UnicodeEncodeError *inside the error path* — a traceback and
+    # exit 1 in place of the diagnostic and exit 2 the caller's contract promises.
+    sys.stderr.reconfigure(encoding="utf-8", newline="\n")
     sys.stderr.write("ERR: %s\n" % message)
     raise SystemExit(2)
 

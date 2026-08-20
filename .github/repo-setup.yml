@@ -60,6 +60,11 @@ labels:
   # skills/merge-pr/ — a single `area: skills` would collapse six issues into one area and
   # isolate nothing. The directory each one covers is in its description, so the mapping travels
   # with the label instead of living only in #196.
+  #
+  # ⚠️ These must COVER the tree, not merely sample it: both issue forms mark the Area dropdown
+  # `required: true`, so a path no area names is a path no issue can be filed against. Check with
+  # `git ls-files | awk -F/ '{print $1}' | sort -u` before removing one — the first draft of this
+  # list left docs/, reviews/, samples/, .claude/ and .claude-plugin/ with no option at all.
   - name: "area: auto-dev"
     color: "c5def5"
     description: "skills/auto-dev/ and commands/auto-dev-*.md — the fleet orchestrator"
@@ -77,7 +82,7 @@ labels:
     description: "skills/legacy-upgrade/, skills/followups/ and commands/migrate-*.md"
   - name: "area: repo-setup"
     color: "c5def5"
-    description: "skills/setup-repo/ and skills/get-repo-profile/ — reading and writing repo config"
+    description: "skills/setup-repo/, skills/get-repo-profile/ and .claude/skills/repo-profile.md"
   - name: "area: skills"
     color: "c5def5"
     description: "skills/_shared/, skills/systematic-debugging/ and cross-skill conventions"
@@ -86,13 +91,18 @@ labels:
     description: "scripts/ — the structural gates the kit ships"
   - name: "area: tests"
     color: "c5def5"
-    description: "tests/ and evals/ — the golden suites and the skill evals"
+    description: "tests/, evals/ and the frozen samples/ fixture"
   - name: "area: templates"
     color: "c5def5"
     description: "templates/ — the workflow, issue-form and manifest templates the kit emits"
+  - name: "area: docs"
+    color: "c5def5"
+    description: "docs/, reviews/, README.md and ARCHITECTURE.md — the prose the kit ships"
   - name: "area: ci"
     color: "c5def5"
-    description: ".github/, hooks/, release-please and Renovate configuration"
+    # ⚠️ GitHub caps a label description at 100 characters and rejects a longer one with 422 —
+    # which `apply` reports as "check the token's scope", naming the wrong cause. Measured here.
+    description: ".github/, hooks/, .claude-plugin/ and the repo-root config files"
 
 # Labels `--prune` must never delete, as shell globs. These are labels a TOOL owns: they look
 # undeclared because no human declares them, and deleting them breaks the automation that reads

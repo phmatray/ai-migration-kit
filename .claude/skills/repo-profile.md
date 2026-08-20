@@ -94,7 +94,7 @@
   exactly one.
 - **Effort sizes:** `effort: small`, `effort: medium`, `effort: large`. This is the axis `auto-dev`
   sorts on ("small effort first, then medium").
-- **Scope/area:** eleven labels, and the axis `auto-dev` reads to give each parallel worker a
+- **Scope/area:** twelve labels, and the axis `auto-dev` reads to give each parallel worker a
   NON-overlapping area. They are **per-skill, not per-directory**, because that is where this
   backlog clusters — a single `area: skills` would have collapsed six of the eight tier-1 issues
   into one area and isolated nothing:
@@ -106,12 +106,18 @@
   | `area: implement-issue` | `skills/implement-issue/` |
   | `area: create-issue` | `skills/create-issue/`, `skills/triage-backlog/` |
   | `area: migrate` | `skills/legacy-upgrade/`, `skills/followups/`, `commands/migrate-*.md` |
-  | `area: repo-setup` | `skills/setup-repo/`, `skills/get-repo-profile/` |
+  | `area: repo-setup` | `skills/setup-repo/`, `skills/get-repo-profile/`, `.claude/skills/repo-profile.md` |
   | `area: skills` | `skills/_shared/`, `skills/systematic-debugging/`, cross-skill conventions |
   | `area: scripts` | `scripts/` |
-  | `area: tests` | `tests/`, `evals/` |
+  | `area: tests` | `tests/`, `evals/`, the frozen `samples/` fixture |
   | `area: templates` | `templates/` |
-  | `area: ci` | `.github/`, `hooks/`, release-please and Renovate config |
+  | `area: docs` | `docs/`, `reviews/`, `README.md`, `ARCHITECTURE.md` |
+  | `area: ci` | `.github/`, `hooks/`, `.claude-plugin/`, the repo-root config files |
+
+  ⚠️ **These must cover the tree, not sample it.** Both forms mark Area `required: true`, so a path
+  no area names is a path no issue can be filed against, and one `auto-dev` can hand no worker as a
+  non-overlapping slice. `tests/repo-setup/test.sh` asserts the axis stays wide enough; check
+  `git ls-files | awk -F/ '{print $1}' | sort -u` before removing one.
 
 - **Where the taxonomy is declared:** **`.github/repo-setup.yml`**, this repo's own manifest —
   `skills/setup-repo/scripts/repo-setup.sh:103` prefers it over the kit's shipped
@@ -123,19 +129,27 @@
   which drifts from the manifest with nothing to detect it.
 - **Full live set:** the axes above, plus the plain GitHub defaults — `duplicate`,
   `good first issue`, `help wanted`, `invalid`, `question`, `wontfix` — plus `dependencies` and
-  release-please's `autorelease: pending` / `autorelease: tagged`. The last three are covered by the
-  manifest's `pruneKeep`, so `apply --prune` reports and keeps them rather than deleting them.
+  release-please's `autorelease: pending` / `autorelease: tagged`.
+- ⚠️ **Only `dependencies` and `autorelease: *` are protected** — they match the manifest's
+  `pruneKeep` globs, so `apply --prune` reports and keeps them. The six GitHub defaults are
+  undeclared **and** unprotected: `--prune` would **delete** them, taking the label off any issue
+  that carries it. The kit's own flows never pass `--prune`; if you ever do, declare those six in
+  `.github/repo-setup.yml` first.
 - **Convention in practice:** the housekeeping `autorelease: *` labels are release-please's — never
   apply them by hand. Older issues carry **one** label (the type), from before the axes existed;
   new ones should carry type + priority + effort + area.
 
 ## Issue templates
-- **Location:** `.github/ISSUE_TEMPLATE/` — written by `repo-setup.sh apply` from the kit's
-  `templates/issue-forms/` and committed (#196).
+- **Location:** `.github/ISSUE_TEMPLATE/` — copied there by `repo-setup.sh apply` from the kit's
+  `templates/issue-forms/`, then **hand-edited** to carry this repo's real Area options, and
+  committed (#196). ⚠️ Deleting the directory and re-running `apply` does **not** regenerate them:
+  `apply` copies the shipped forms verbatim, so the dropdowns would come back with the single
+  `area: <your-area>` placeholder and `tests/repo-setup/test.sh` would go red. Restore them from
+  git, not from the tool.
 - **Forms:** `feature_request.yml` (labels the issue `enhancement`) and `bug_report.yml`.
 - **Default for ideas:** `feature_request.yml` · **for defects:** `bug_report.yml`.
 - **What to do:** `create-issue` should reconstruct the form's fields rather than falling back to
-  house style. Both forms carry an **Area dropdown whose options are exactly the eleven `area:`
+  house style. Both forms carry an **Area dropdown whose options are exactly the twelve `area:`
   labels above, in manifest order** — `tests/repo-setup/test.sh` pins that agreement, because
   `create-issue` picks the label matching whatever the dropdown offered, so a drifting dropdown
   makes an issue's body and its label contradict each other.

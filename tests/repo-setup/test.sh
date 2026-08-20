@@ -123,7 +123,14 @@ case "$enc_bytes" in
   *e28094*) ;;
   *) fail "parse-manifest.py did not emit U+2014 as UTF-8 under a non-UTF-8 locale — label descriptions would be applied corrupted" ;;
 esac
-echo "  ok: parser — stdout is UTF-8 whatever the host locale is"
+# The same dump proves the OTHER half for free. Dropping newline="\n" puts a CR inside the last
+# TAB-separated field of every record, so every description reads as "…\r", never equals what `gh`
+# reports, and `apply` rewrites every label on every run — the failure parse-manifest.py's own
+# header records as measured. Both halves of that one call are load-bearing; assert both.
+case "$enc_bytes" in
+  *0d0a*) fail "parse-manifest.py emitted CRLF — a CR lands in the last field of every record and no label ever converges" ;;
+esac
+echo "  ok: parser — stdout is UTF-8 and LF whatever the host locale is"
 
 # A relative --manifest resolves against the CALLER's directory, not the target repo's. Without
 # this, `plan ../other-repo --manifest my.yml` hunts for my.yml INSIDE other-repo — a path the
@@ -496,9 +503,9 @@ rc=0; out=$(GH_AUTH_FAILS=1 bash "$SCRIPT" plan "$repo8" --manifest "$FIXTURE" 2
 [ "$rc" -eq 3 ] || fail "plan without gh auth: expected exit 3, got $rc — output: $out"
 echo "  ok: degrade — plan exits 3 on an unreadable surface, never 0"
 
-# --------------------------------------------------- 9. this repository's own configuration (#196)
+# -------------------------------------------------- 12. this repository's own configuration (#196)
 #
-# Sections 1-8 drive the tool over scratch repos. This one asserts a fact about THIS repository,
+# Sections 1-11 drive the tool over scratch repos. This one asserts a fact about THIS repository,
 # the way tests/repo-profile/test.sh asserts that the kit tracks its own profile: the kit shipped
 # the taxonomy in #192 and did not adopt it, so `auto-dev`'s effort ordering and area isolation
 # read nothing HERE, in the repo the fleet is most often run in.
@@ -526,16 +533,53 @@ echo "  ok: repo manifest — .github/repo-setup.yml declares the priority:, eff
 # reports: `apply` never creates a <bracketed> name, so it would look converged and configure
 # nothing. Line-oriented, never a glob over the whole report: `case $all in *"L"*"<"*)` matches
 # across lines and would pass on any manifest with any label at all.
-ph=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && $2 ~ /<.*>/ { n++ } END { print n+0 }')
+# The DESCRIPTION is checked as well as the name: `- name: "area: docs"` carrying the shipped
+# default's "Replace with one entry per functional area of this repo" is a filled-in axis by name
+# and an unfilled one in substance, and GitHub would carry that sentence on a real label forever
+# while `plan` reported it =OK.
+ph=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && ($2 ~ /<.*>/ || $4 ~ /<.*>/ || $4 ~ /^Replace with/) { n++ } END { print n+0 }')
 [ "$ph" -eq 0 ] || fail "this repo's manifest still carries $ph placeholder label(s) — the axis is unfilled"
-echo "  ok: repo manifest — no <placeholder> label survives in this repo's own manifest"
+echo "  ok: repo manifest — no <placeholder> label or stock description survives in this repo's own manifest"
+
+# Every tracked top-level entry must fall under some area, because both forms mark the Area
+# dropdown `required: true` — an uncovered path is a path no issue can be filed against, and one
+# `auto-dev` can hand no worker as a non-overlapping slice. Checked as a floor on the axis rather
+# than as a path-by-path mapping, which would encode the tree into the suite: the first draft of
+# this taxonomy covered six trees and left five (docs/, reviews/, samples/, .claude/,
+# .claude-plugin/) with no option at all, and nothing here would have noticed.
+# GitHub caps a label description at 100 characters and answers 422 for a longer one. `apply`
+# reports that refusal as "check the token's scope on this repository" — the wrong cause, and one
+# that sends the reader after their credentials instead of their manifest. MEASURED: `area: ci`
+# was written 130 characters long here and refused exactly that way. Caught locally, where the
+# manifest is, rather than as a mystery permissions error against the live API.
+too_long=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && length($4) > 100 { print $2 " (" length($4) " chars)" }')
+[ -z "$too_long" ] \
+  || fail "label description over GitHub's 100-character limit — apply will refuse it and blame the token: $too_long"
+echo "  ok: repo manifest — every label description is inside GitHub's 100-character limit"
+
+n_areas=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && $2 ~ /^area: / { n++ } END { print n+0 }')
+n_trees=$(git ls-files | awk -F/ '{ print $1 }' | sort -u | wc -l)
+[ "$n_areas" -ge 10 ] \
+  || fail "only $n_areas area: labels for $n_trees tracked top-level entries — the axis cannot cover the tree"
+echo "  ok: repo manifest — $n_areas area: labels for $n_trees tracked top-level entries"
 
 # The repo-local manifest REPLACES the shipped one rather than extending it, so pruneKeep does not
 # come along by itself. Dropping it re-arms the case `plan` found against this very repository: a
 # single `apply --prune` deleting release-please's housekeeping labels and Renovate's.
+# `case` over a captured string, not `printf … | grep -q`: under this suite's `set -o pipefail`,
+# `grep -q` exits at the first match and SIGPIPEs the writer, so the pipeline returns 141 and the
+# assertion fires on a manifest that is correct. Latent at this manifest's size, load-bearing the
+# day it grows past the pipe buffer.
+keeps=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "K" { print $2 }')
 for keep in "autorelease: *" "dependencies"; do
-  printf '%s\n' "$repo_parsed" | grep -Fxq "K	$keep" \
-    || fail "this repo's manifest lost the pruneKeep entry '$keep' — --prune would delete it"
+  case "
+$keeps
+" in
+    *"
+$keep
+"*) ;;
+    *) fail "this repo's manifest lost the pruneKeep entry '$keep' — --prune would delete it" ;;
+  esac
 done
 echo "  ok: repo manifest — pruneKeep still protects the release-please and Renovate labels"
 
@@ -551,14 +595,17 @@ echo "  ok: repo manifest — pruneKeep still protects the release-please and Re
 area_reader="$(kit_scratch)/read-area-options.py"
 cat > "$area_reader" <<'PY'
 """Print the options of a form's `area` dropdown, one per line, in file order."""
-import io, sys, yaml
+import sys, yaml
 
 # Pinned for the same reason parse-manifest.py pins them: this output is COMPARED against that
 # script's, and a Windows text-mode stdout would append a CR to every line here and not there, so
 # two identical taxonomies would read as different. Measured while writing this case.
 sys.stdout.reconfigure(encoding="utf-8", newline="\n")
 
-doc = yaml.safe_load(io.open(sys.argv[1], encoding="utf-8")) or {}
+# `with open(...)`, the same idiom parse-manifest.py uses — one spelling for the operation, and the
+# handle is closed rather than left to the collector.
+with open(sys.argv[1], encoding="utf-8") as handle:
+    doc = yaml.safe_load(handle) or {}
 for field in doc.get("body") or []:
     if field.get("id") == "area" and field.get("type") == "dropdown":
         for option in field.get("attributes", {}).get("options") or []:
@@ -585,6 +632,28 @@ echo "  ok: forms — both Area dropdowns offer exactly this repo's area: labels
 ship_ph=$(printf '%s\n' "$parsed" | awk -F'\t' '$1 == "L" && $2 ~ /^area: <.*>$/ { n++ } END { print n+0 }')
 [ "$ship_ph" -eq 1 ] \
   || fail "templates/repo-setup.yml carries $ship_ph area placeholder(s), expected exactly 1 — a consumer must not inherit this repo's area names (#196)"
-echo "  ok: shipped default — templates/repo-setup.yml keeps its area placeholder for consumers"
+
+# Counting the placeholder is only half of it: ADDING `area: merge-pr` beside the placeholder
+# leaves that count at 1 and still exports this repo's names to every consumer who applies the
+# default unedited. So the real assertion is that the shipped manifest declares NO area label
+# other than the placeholder.
+ship_real=$(printf '%s\n' "$parsed" | awk -F'\t' '$1 == "L" && $2 ~ /^area: / && $2 !~ /^area: <.*>$/ { n++ } END { print n+0 }')
+[ "$ship_real" -eq 0 ] \
+  || fail "templates/repo-setup.yml declares $ship_real filled-in area: label(s) — the shipped default must carry the placeholder ONLY (#196)"
+echo "  ok: shipped default — templates/repo-setup.yml keeps its area placeholder, and only that"
+
+# The forms are the other copy of the same hazard, and the direction that bites is syncing the
+# kit's own forms BACK over the shipped ones "to finish the job": the manifest check above
+# inspects labels, not dropdowns, so that export would pass unnoticed.
+for shipped_form in templates/issue-forms/feature_request.yml templates/issue-forms/bug_report.yml; do
+  [ -r "$KIT_ROOT/$shipped_form" ] || fail "$shipped_form missing — the shipped form a consumer inherits"
+  shipped_areas=$(python3 "$area_reader" "$KIT_ROOT/$shipped_form") \
+    || fail "$shipped_form does not parse as YAML"
+  case "$shipped_areas" in
+    "area: <"*">") ;;
+    *) fail "$shipped_form's Area dropdown is no longer the lone placeholder — a consumer would inherit this repo's areas (#196)" ;;
+  esac
+done
+echo "  ok: shipped default — both shipped forms keep the lone Area placeholder"
 
 echo "PASS: tests/repo-setup"

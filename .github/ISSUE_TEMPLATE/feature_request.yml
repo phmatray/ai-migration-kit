@@ -38,6 +38,7 @@ body:
         - "area: scripts"
         - "area: tests"
         - "area: templates"
+        - "area: docs"
         - "area: ci"
     validations:
       required: true
