@@ -15,7 +15,8 @@
 #   4. the pin is managed — a customManager exists that Renovate can bump it through;
 #   5. ci.yml invokes the validator with BOTH --no-global and --strict (see below);
 #   6. it REJECTS a repo config carrying a global-only option (what --no-global buys);
-#   7. it REJECTS a config that still needs migration (what --strict buys).
+#   7. it REJECTS a config that still needs migration (what --strict buys);
+#   8. the validator's RE2 engine actually loaded — see below, and #130.
 #
 # Why the two flags, measured against renovate@44.23.3 in #79 rather than read off the docs:
 #   --no-global — passing a filename positionally makes the validator judge it as a GLOBAL
@@ -30,9 +31,15 @@
 #   Cases 6 and 7 are golden tests for exactly those two claims, so a future edit that drops a flag
 #   fails here instead of quietly widening the hole again. Case 5 catches the drop in ci.yml itself.
 #
-# Known limit (follow-up): RE2 is an OPTIONAL native module. When it fails to load, the validator
-# falls back to JS RegExp and logs "RE2 not usable" as a bare warning that does NOT affect the exit
-# code — so a matchStrings pattern only RE2 would reject can still pass. Not asserted here yet.
+# Case 8, and #130: RE2 is an OPTIONAL native module. When it fails to load, the validator falls
+# back to JS RegExp and logs "RE2 not usable, falling back to RegExp: regex validation may be
+# inaccurate" as a bare WARN that does NOT affect the exit code — measured: exit 0 either way, by
+# forcing `require('re2')` to throw (a NODE_OPTIONS require-shim; renaming the installed module's
+# native binary reproduces the identical warning and exit code, but the shim needs no write access
+# to whatever tree npx happened to install into). A matchStrings pattern only RE2 would reject can
+# then pass silently, forever. Case 8 fails the SUITE on that warning; case 8-control proves the
+# assertion actually fires by reproducing the degraded engine on purpose — a guard never seen
+# failing is not known to work.
 #
 # Why the pin is load-bearing, measured in #66:
 #   `npx --yes --package renovate -- …` with NO version resolved 37.440.7, a major predating
@@ -278,5 +285,50 @@ if ! grep -q 'Config migration necessary' "$scratch/needs-migration.txt"; then
   exit 1
 fi
 echo "  [7] it rejects a config that still needs migration (--strict is in effect)"
+
+# ---------------------------------------------------------------------------
+# 8. The validator's OWN report on its regex engine must be trusted, not assumed. RE2 is an
+#    OPTIONAL native module (see the file header, and #130): when it fails to load, the validator
+#    keeps validating on JS RegExp and keeps exiting 0 — the marker lives ONLY in a WARN line that
+#    nothing here has checked until now. [1]'s run already captured that combined output; reuse it
+#    rather than shelling out again.
+# ---------------------------------------------------------------------------
+if grep -q 'RE2 not usable' "$scratch/real.txt"; then
+  echo "FAIL: the pinned validator's RE2 engine did not load on this host — regex validation ran"
+  echo "      on JS RegExp instead, which accepts matchStrings patterns RE2 would reject:"
+  cat "$scratch/real.txt"
+  exit 1
+fi
+echo "  [8] the validator reports a usable RE2 engine"
+
+# 8-control. A guard never seen failing is not known to work — the same rule cases 6 and 7 apply to
+# their own diagnostics. Force the degraded engine ON PURPOSE and prove [8]'s check would have
+# caught it, by requiring the SAME marker to appear once the engine is actually unavailable.
+#
+# The shim intercepts module resolution rather than touching whatever tree npx installed into: the
+# latter needs write access to a path this suite does not own and does not choose (a fresh CI cache
+# may not even hold a copy yet), where the shim works identically everywhere and needs nothing on
+# disk beyond kit_scratch.
+force_re2_off="$scratch/force-re2-unavailable.js"
+cat > "$force_re2_off" <<'JS'
+const Module = require("module");
+const orig = Module._resolveFilename;
+Module._resolveFilename = function (request) {
+  if (request === "re2") {
+    const err = new Error("Cannot find module 're2' (forced by tests/renovate-config/test.sh)");
+    err.code = "MODULE_NOT_FOUND";
+    throw err;
+  }
+  return orig.apply(this, arguments);
+};
+JS
+NODE_OPTIONS="--require $force_re2_off" run_validator "$KIT/renovate.json" "$scratch/re2-forced-off.txt" || true
+if ! grep -q 'RE2 not usable' "$scratch/re2-forced-off.txt"; then
+  echo "FAIL: forcing require('re2') to fail did not reproduce the 'RE2 not usable' warning, so"
+  echo "      case [8] has never been proven to catch a real degraded engine:"
+  cat "$scratch/re2-forced-off.txt"
+  exit 1
+fi
+echo "  [8-control] forcing the engine off DOES print the marker — case [8] would have failed"
 
 echo "renovate-config golden test OK"
