@@ -50,7 +50,13 @@ echo "  ok: exit-2 — a missing prerequisite refuses before any suite runs, and
 # history.
 fixture="$(kit_scratch)/kit"
 mkdir -p "$fixture"
-rsync -a --exclude='.git' --exclude='.claude/worktrees' --exclude='.worktrees' "$KIT/" "$fixture/"
+# bin/ and obj/ are gitignored (not copied by a real clone) but may exist on disk here: this suite
+# runs LAST in ci.yml's `kit` job, after the "Fixture LegacyShop" step has already restored and
+# built samples/LegacyShop. `git add -A` below would skip them anyway (the fixture inherits
+# .gitignore), so copying them first is pure rsync I/O for content nothing downstream reads —
+# `--quick` never runs `dotnet test` against this fixture.
+rsync -a --exclude='.git' --exclude='.claude/worktrees' --exclude='.worktrees' \
+  --exclude='bin/' --exclude='obj/' "$KIT/" "$fixture/"
 # Not a clone of KIT's history — a fresh, empty repository, committed once so every file is
 # tracked. worktrees-ignored.sh (gate 1) needs to BE a git repo; ci-wiring-check.py (gate 2) needs
 # every tests/*/test.sh to be staged, the same signal a real clone gives it.

@@ -45,20 +45,29 @@ for arg in "$@"; do
   esac
 done
 
-# --- The plan: two ordered lists, transcribed from .github/workflows/ci.yml's `kit` job in step
-# order. A gate's displayed name is its command's OWN first line — never retyped separately — so
-# the label shown by --list and the command actually executed can never drift from each other.
-GATE_NAMES=()
-GATE_CMDS=()
+# --- The plan: ONE ordered list, transcribed from .github/workflows/ci.yml's `kit` job in step
+# order — gates and suites interleaved exactly as CI declares them, not gates-then-suites, so the
+# cheap structural gates ahead of tests/lib/test.sh (etc.) really do run before it, and a failure
+# is reported in the same order a GitHub Actions job would report it. A gate's displayed name is
+# its command's OWN first line — never retyped separately — so the label shown by --list and the
+# command actually executed can never drift from each other.
+ITEM_KINDS=()
+ITEM_NAMES=()
+ITEM_CMDS=()
 add_gate() {
   local cmd="$1" name
   name=$(printf '%s\n' "$cmd" | head -n 1)
-  GATE_NAMES+=("$name")
-  GATE_CMDS+=("$cmd")
+  ITEM_KINDS+=("gate")
+  ITEM_NAMES+=("$name")
+  ITEM_CMDS+=("$cmd")
 }
 
-SUITE_PATHS=()
-add_suite() { SUITE_PATHS+=("$1"); }
+add_suite() {
+  local path="$1"
+  ITEM_KINDS+=("suite")
+  ITEM_NAMES+=("$path")
+  ITEM_CMDS+=("./$path")
+}
 
 DOTNET_CMD="dotnet test samples/LegacyShop --nologo"
 
@@ -214,11 +223,8 @@ add_suite "tests/run-all-tests/test.sh"
 # --- --list: print the plan and exit 0. No prerequisite check — this must stay cheap and always
 # available, since tests/run-all-tests/test.sh's anti-drift case calls it on every run.
 if [ "$LIST" -eq 1 ]; then
-  for name in "${GATE_NAMES[@]}"; do
-    printf 'gate %s\n' "$name"
-  done
-  for path in "${SUITE_PATHS[@]}"; do
-    printf 'suite %s\n' "$path"
+  for i in "${!ITEM_KINDS[@]}"; do
+    printf '%s %s\n' "${ITEM_KINDS[$i]}" "${ITEM_NAMES[$i]}"
   done
   exit 0
 fi
@@ -232,10 +238,17 @@ if ! preflight_out=$("$HERE/preflight.sh" 2>&1); then
 fi
 
 # --- Run every gate, then every suite, in plan order. Fail-fast: the first failure stops the run
-# and decides the exit code, the same way a GitHub Actions job stops at its first red step.
+# and decides the exit code, the same way a GitHub Actions job stops at its first red step — and,
+# for a multi-line gate transcribed from a ci.yml `run: |` block (JSON manifests, the
+# foreign-working-directory simulation, the contrast-checker pass/fail pair), "first failure"
+# means the first LINE, not just the first gate. GitHub Actions runs `run:` steps under
+# `bash --noprofile --norc -eo pipefail {0}` — errexit and pipefail both on — so a plain
+# `bash -c "$cmd"` here would silently run every remaining line after an early one fails and then
+# report the LAST line's exit status as the gate's own, which is not "what CI checks" but a
+# strictly weaker stand-in for it.
 run_item() {
   local name="$1" cmd="$2" out rc
-  out=$(bash -c "$cmd" 2>&1)
+  out=$(bash -eo pipefail -c "$cmd" 2>&1)
   rc=$?
   if [ "$rc" -eq 0 ]; then
     printf 'ok   %s\n' "$name"
@@ -247,15 +260,10 @@ run_item() {
 }
 
 gate_count=0
-for i in "${!GATE_NAMES[@]}"; do
-  gate_count=$((gate_count + 1))
-  run_item "${GATE_NAMES[$i]}" "${GATE_CMDS[$i]}" || exit 1
-done
-
 suite_count=0
-for path in "${SUITE_PATHS[@]}"; do
-  suite_count=$((suite_count + 1))
-  run_item "$path" "./$path" || exit 1
+for i in "${!ITEM_KINDS[@]}"; do
+  if [ "${ITEM_KINDS[$i]}" = gate ]; then gate_count=$((gate_count + 1)); else suite_count=$((suite_count + 1)); fi
+  run_item "${ITEM_NAMES[$i]}" "${ITEM_CMDS[$i]}" || exit 1
 done
 
 printf 'ok  %d gates, %d suites\n' "$gate_count" "$suite_count"
