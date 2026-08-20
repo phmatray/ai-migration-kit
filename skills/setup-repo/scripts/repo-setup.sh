@@ -78,6 +78,17 @@ esac
 
 # ------------------------------------------------------------------------------------ where am I
 
+# An explicit --manifest is resolved against the CALLER's directory, before the cd below. Otherwise
+# `repo-setup.sh plan ../other-repo --manifest my.yml` looks for my.yml inside other-repo — a path
+# the caller never typed, and one that usually exists nowhere, so the run dies on exit 2 pointing at
+# a file the operator did not ask for.
+if [ -n "$MANIFEST" ]; then
+  case "$MANIFEST" in
+    /*|[A-Za-z]:[\\/]*) ;;                      # already absolute, POSIX or Windows drive form
+    *) MANIFEST="$PWD/$MANIFEST" ;;
+  esac
+fi
+
 [ -z "$DIR" ] && DIR="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 cd "$DIR" 2>/dev/null || { echo "ERR: cannot cd to '$DIR'" >&2; exit 2; }
 
@@ -166,12 +177,21 @@ fi
 LIVE_LABELS="$WORKDIR/live-labels.tsv"
 : > "$LIVE_LABELS"
 LABELS_READABLE=0
+LABEL_LIMIT=200
 if [ "$GH_OK" = 0 ]; then
   refuse "labels" "gh is unavailable or unauthenticated — the label axis was not read"
-elif gh label list --limit 200 --json name,color,description > "$WORKDIR/labels.json" 2>/dev/null; then
+elif gh label list --limit "$LABEL_LIMIT" --json name,color,description > "$WORKDIR/labels.json" 2>/dev/null; then
   if jq -r '.[] | "L\t" + .name + "\t" + ((.color // "") | ascii_downcase) + "\t" + (.description // "")' \
        "$WORKDIR/labels.json" > "$LIVE_LABELS" 2>/dev/null; then
-    LABELS_READABLE=1
+    # A full page is indistinguishable from a truncated one, and a truncated read makes every
+    # invisible label look absent: `plan` would report +ADD for labels that already exist and
+    # `apply` would then fail on each. Refuse rather than diff against a list that may be partial.
+    live_count=$(wc -l < "$LIVE_LABELS")
+    if [ "$live_count" -ge "$LABEL_LIMIT" ]; then
+      refuse "labels" "gh returned the full page of $LABEL_LIMIT labels — the list may be truncated, so the diff cannot be trusted"
+    else
+      LABELS_READABLE=1
+    fi
   else
     refuse "labels" "gh returned a label payload jq could not read"
   fi

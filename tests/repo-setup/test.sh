@@ -109,6 +109,14 @@ for axis in "priority: " "effort: " "area: "; do
 done
 echo "  ok: manifest — the shipped default declares the priority:, effort: and area: axes"
 
+# A relative --manifest resolves against the CALLER's directory, not the target repo's. Without
+# this, `plan ../other-repo --manifest my.yml` hunts for my.yml INSIDE other-repo — a path the
+# operator never typed. The suite has cd'd to the kit root, so this relative path is meaningful
+# here and meaningless inside $repo, which is exactly what makes the case discriminating.
+rc=0; out=$(bash "$SCRIPT" plan "$repo" --manifest "tests/repo-setup/fixtures/manifest.yml" 2>&1) || rc=$?
+[ "$rc" -ne 2 ] || fail "a relative --manifest was resolved against the target repo, not the caller: $out"
+echo "  ok: manifest — a relative --manifest resolves against the caller's directory"
+
 # ------------------------------------------------------------------------------ 3. the gh stub
 #
 # Records every invocation, so "did not write" below is MEASURED rather than assumed — the
