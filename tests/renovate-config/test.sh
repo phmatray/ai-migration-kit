@@ -16,7 +16,8 @@
 #   5. ci.yml invokes the validator with BOTH --no-global and --strict (see below);
 #   6. it REJECTS a repo config carrying a global-only option (what --no-global buys);
 #   7. it REJECTS a config that still needs migration (what --strict buys);
-#   8. the validator's RE2 engine actually loaded — see below, and #130.
+#   8. the validator's RE2 engine actually loaded — see below, and #130;
+#   9. ci.yml's OWN step still fails the build when RE2 fails to load — see below.
 #
 # Why the two flags, measured against renovate@44.23.3 in #79 rather than read off the docs:
 #   --no-global — passing a filename positionally makes the validator judge it as a GLOBAL
@@ -39,7 +40,11 @@
 # to whatever tree npx happened to install into). A matchStrings pattern only RE2 would reject can
 # then pass silently, forever. Case 8 fails the SUITE on that warning; case 8-control proves the
 # assertion actually fires by reproducing the degraded engine on purpose — a guard never seen
-# failing is not known to work.
+# failing is not known to work. Cases 8/8-control prove the mechanism against this suite's OWN
+# `run_validator` calls, though — neither one ever reads ci.yml. Case 9 is what closes that gap:
+# the same "a flag silently dropped from ci.yml would leave 6/7 green" hazard case 5 exists for
+# applies here too, so ci.yml's actual script is parsed to confirm the `grep -q 'RE2 not usable'`
+# gate is still there and still exits 1 — not just that this suite could detect the warning itself.
 #
 # Why the pin is load-bearing, measured in #66:
 #   `npx --yes --package renovate -- …` with NO version resolved 37.440.7, a major predating
@@ -322,7 +327,7 @@ Module._resolveFilename = function (request) {
   return orig.apply(this, arguments);
 };
 JS
-NODE_OPTIONS="--require $force_re2_off" run_validator "$KIT/renovate.json" "$scratch/re2-forced-off.txt" || true
+NODE_OPTIONS="${NODE_OPTIONS:-} --require $force_re2_off" run_validator "$KIT/renovate.json" "$scratch/re2-forced-off.txt" || true
 if ! grep -q 'RE2 not usable' "$scratch/re2-forced-off.txt"; then
   echo "FAIL: forcing require('re2') to fail did not reproduce the 'RE2 not usable' warning, so"
   echo "      case [8] has never been proven to catch a real degraded engine:"
@@ -330,5 +335,46 @@ if ! grep -q 'RE2 not usable' "$scratch/re2-forced-off.txt"; then
   exit 1
 fi
 echo "  [8-control] forcing the engine off DOES print the marker — case [8] would have failed"
+
+# ---------------------------------------------------------------------------
+# 9. ci.yml's OWN gate must still be wired, not merely provably correct in the abstract. Cases 8
+#    and 8-control show that the "RE2 not usable" marker is real and that a run_validator call
+#    written right here would catch it — but neither one ever reads ci.yml, so a future edit that
+#    drops or breaks the `grep -q 'RE2 not usable' … exit 1` block in the real CI step would leave
+#    every case above green while the gate silently reverted to #130. Same hazard case 5 closes
+#    for --no-global/--strict, applied to the check that sits alongside them.
+# ---------------------------------------------------------------------------
+re2_gate_line=$(grep -n "RE2 not usable" "$CI" | grep -v '^[0-9]*:[[:space:]]*#' | grep -F 'grep -q' | head -1)
+if [ -z "$re2_gate_line" ]; then
+  echo "FAIL: ci.yml no longer greps its validator output for 'RE2 not usable' anywhere — the"
+  echo "      degraded-engine gate from #130 has been silently dropped from the real CI step,"
+  echo "      even though this suite's own cases 8 and 8-control still pass."
+  exit 1
+fi
+re2_gate_lineno=${re2_gate_line%%:*}
+# Depth-matched to the block's own `if`/`fi`, not a fixed line count: the branch below it prints
+# two DIFFERENT messages (one per validator_status), so "exit 1" can sit an arbitrary number of
+# lines — and nested if/fi pairs — below the line found above. Anchoring on whole-line `if`/`fi`
+# keywords (leading whitespace only) rather than a substring match is deliberate: this file's own
+# prose uses "fix", "first" and "config" throughout, all of which CONTAIN "fi" as a substring, and
+# a bare `grep -c fi` would count those as closes and stop scanning early — silently underscoring
+# the exact kind of check this suite exists to distrust.
+re2_gate_has_exit=$(awk -v start="$re2_gate_lineno" '
+  NR < start { next }
+  {
+    if ($0 ~ /^[[:space:]]*if[[:space:]]/) depth++
+    if ($0 ~ /exit 1/) found = 1
+    if ($0 ~ /^[[:space:]]*fi[[:space:]]*$/) {
+      depth--
+      if (depth == 0) { print (found ? "yes" : "no"); exit }
+    }
+  }
+' "$CI")
+if [ "$re2_gate_has_exit" != "yes" ]; then
+  echo "FAIL: ci.yml checks for 'RE2 not usable' but its if-block does not exit 1 — the"
+  echo "      degraded-engine gate from #130 no longer fails the build even when it fires."
+  exit 1
+fi
+echo "  [9] ci.yml's own step still fails the build when RE2 fails to load, not just this suite"
 
 echo "renovate-config golden test OK"
