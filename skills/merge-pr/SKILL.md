@@ -73,7 +73,10 @@ Create a task per item and work them in order. Step 4 is a loop — repeat until
 8. **Report** — merged PR URL, corrections applied, follow-ups filed, cleanup done.
 
 Resume-safe: re-running mid-flight is fine. If the PR is already merged, skip to Steps 6–7. If the
-worktree/branch is already gone, skip Step 7.
+**local** worktree/branch is already gone, skip Step 7's local cleanup — but still run its remote
+check (`remote-branch-teardown.sh`): the local branch being gone says nothing about whether
+`origin/<headRefName>` survived (#185), and skipping Step 7 outright on a resume is exactly how
+that branch leaks unnoticed.
 
 ---
 
@@ -473,6 +476,18 @@ place of the manual `switch` if you have one.
 Either way, make each step tolerant of "already gone" — if Step 5's `--delete-branch` already removed
 the local branch, or no worktree existed, that's success (guard with `|| true`; reference §7). Never
 delete the main checkout or an unrelated worktree — match the path to the PR's branch exactly.
+
+**Then finish the remote side too** — don't assume Step 5's `--delete-branch` or the repo's
+`delete_branch_on_merge` setting already deleted `<headRefName>` on `origin` (#185: when gh's local
+delete fails first — the routine case here, since the branch lives in a worktree — it never reaches
+the remote delete at all):
+
+```bash
+skills/merge-pr/scripts/remote-branch-teardown.sh "<headRefName>" "<owner>/<repo>"
+```
+
+Prints `already-gone` or `deleted` and exits 0 either way — both are success. A genuine delete
+failure exits 1 with the API error on stderr; report that, don't swallow it (reference §7).
 
 ## Step 8 — Report
 
