@@ -23,12 +23,25 @@ nothing, so all of these count as UNWIRED and are reported with the reason:
   * the workflow never runs on `main`    — a pull_request-only or schedule-only workflow, or a
                                            push trigger whose branch filter misses `main`, does
                                            not run on the push that lands on the default branch
+  * the suite's git INDEX mode is not `100755` — a Windows checkout has core.filemode=false, so
+                                           `chmod +x` never reaches the index; the suite is
+                                           committed 100644 (or, if it is a symlink, 120000) and
+                                           CI's `./tests/x/test.sh` dies with "Permission denied",
+                                           exit 126, on a step every rule above accepts as enforcing
 
-That last one used to be implied rather than checked (#133). Any of push / pull_request /
+That last-but-one used to be implied rather than checked (#133). Any of push / pull_request /
 pull_request_target / schedule counted as "automatically triggered", which was accidentally
 sufficient while ci.yml was the repo's only run:-bearing workflow — it carries both `push: [main]`
 and `pull_request`, so the weaker test happened to agree with the stronger one. #119 added a
 pull_request-only workflow and removed the coincidence.
+
+The mode row is the newest, and it is about a different thing than the six above it (#195): all six
+are about the **step** that invokes a suite, and this one is about the **file** being invoked. A
+step can satisfy every rule above — commented nowhere, no `continue-on-error`, no `if: false`, no
+discarded exit status, triggered by a push to `main` — and still be worthless if the file it names
+cannot execute. Read from the INDEX (`git ls-files -s`), never the filesystem: the working copy on
+the machine that committed the bad mode reports itself as executable regardless, which is exactly
+what makes the defect invisible locally.
 
 Comments are handled by parsing the YAML rather than by filtering '#' lines: a commented-out step
 simply is not in the parsed document, which is correct by construction instead of by regex.
@@ -37,14 +50,17 @@ Usage:
   ci-wiring-check.py [--repo <path>] [--tests <glob-root>] [--workflows <dir>]
 
 Exit codes:
-  0  every suite is invoked by at least one enforcing step
-  1  REFUSE — a suite is unwired, or wired only into a step that cannot fail the build
+  0  every suite is invoked by at least one enforcing step, at an index mode CI can execute
+  1  REFUSE — a suite is unwired, wired only into a step that cannot fail the build, committed at
+     an index mode CI cannot execute, or the index could not be read to tell
   2  usage / plumbing error — could not read the tests or the workflows, so no verdict is possible
 """
 
 import argparse
 import fnmatch
+import os
 import pathlib
+import subprocess
 import sys
 
 import yaml
@@ -52,6 +68,10 @@ import yaml
 # The branch whose pushes are the merge gate. A constant rather than a literal sprinkled through
 # the predicates below, so a repo that renames its default branch has one line to change.
 MAIN_BRANCH = "main"
+
+# The only index mode CI can execute a suite at. A symlink (120000) or anything else that is not
+# this is refused the same as 100644 — accepting a mode nobody intended is how the next hole opens.
+REQUIRED_MODE = "100755"
 
 # `push:` with an empty body parses to None, which is a legitimate value meaning "every branch".
 # `.get("push")` cannot tell that apart from "no push trigger at all", and those are opposite
@@ -215,6 +235,50 @@ def invocation_lines(run_text, suite):
     return lines
 
 
+def index_modes(repo, paths):
+    """The git INDEX mode for each of `paths`, keyed by the same relative-path string given.
+
+    The filesystem mode is the wrong authority — that is the bug this closes. A Windows checkout
+    with `core.filemode=false` reports its working copy as executable no matter what git actually
+    recorded, because `chmod +x` there never reaches the index; only the index is what CI receives.
+
+    Returns (modes, error). `modes` maps a path present in the index to its six-digit mode string;
+    a path absent from the index (untracked, or the filesystem enumeration and the index simply
+    disagree) is absent from the dict — a different condition from `error`, which is set when the
+    index could not be read AT ALL (no `git` binary, not a repository, or any other non-zero exit).
+    The caller must treat a non-None `error` as unanswerable, never as "every suite is fine".
+
+    Invoked with `-z`: without it, git C-quotes any path it considers "unusual" — which includes
+    every non-ASCII byte — so a suite such as `tests/café/test.sh` comes back as the literal string
+    `"tests/caf\303\251/test.sh"`, which never matches the plain path used as the lookup key. That
+    is not a refusal, it is a silent miss: the mismatched path is simply absent from `modes`, the
+    caller reads that as untracked, and a suite committed 100644 under such a name is reported
+    enforced (measured). `-z` NUL-terminates each record and turns quoting off unconditionally,
+    since a raw path cannot contain the NUL byte that already delimits the stream.
+    """
+    if not paths:
+        return {}, None
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-s", "-z", "--", *paths],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        return {}, f"git is not available ({exc})"
+    if proc.returncode != 0:
+        return {}, proc.stderr.strip() or f"git ls-files exited {proc.returncode}"
+    modes = {}
+    for record in proc.stdout.split("\0"):
+        if not record:
+            continue
+        # "<mode> <sha> <stage>\t<path>" — the mode is the first whitespace-separated token, which
+        # never contains a tab, so splitting on the first tab cannot cut it in half.
+        meta, _, path = record.partition("\t")
+        modes[path] = meta.split()[0]
+    return modes, None
+
+
 def check(repo, tests_root, workflow_dir):
     suites = sorted(str(p.relative_to(repo)) for p in tests_root.glob("*/test.sh"))
     if not suites:
@@ -226,6 +290,33 @@ def check(repo, tests_root, workflow_dir):
     workflows = load_workflows(workflow_dir)
     if not workflows:
         raise SystemExit(f"ci-wiring-check: no workflows under {workflow_dir} — nothing could run.")
+
+    # Computed even when the index turns out to be unreadable (below): the wiring verdict is
+    # independent of git entirely — filesystem enumeration plus workflow parsing — so a repo with
+    # BOTH an unreadable index and a genuinely unwired suite must still name the unwired one. An
+    # early return here would report only the index problem and hide the second, unrelated defect
+    # until a follow-up run — a diagnostic regression this file exists to avoid, not commit.
+    modes, mode_error = index_modes(repo, suites)
+    not_executable = {}
+    if not mode_error:
+        not_executable = {
+            # `modes` is keyed by the forward-slash paths `git ls-files` always emits, regardless
+            # of OS. `suite` came from pathlib's `relative_to()` and is joined with the platform's
+            # own separator — a backslash on native Windows — so looking it up unmodified would
+            # never hit on that platform and every suite would silently read as untracked. `os.sep`
+            # is a no-op `/` -> `/` replace everywhere this script actually runs today, so this
+            # changes nothing here; it only matters the day Windows is a supported host for this
+            # check.
+            #
+            # `mode is None` (untracked — never `git add`ed) is deliberately NOT flagged here: the
+            # issue's own spec scopes that out ("the existing enumeration already governs which
+            # files are checked; the mode probe reports only on what it enumerated") as a different,
+            # bigger question — whether this script's enumeration should be git-based rather than
+            # filesystem-based at all (#150's territory) — not a mode violation to bolt on here.
+            suite: mode
+            for suite in suites
+            if (mode := modes.get(suite.replace(os.sep, "/"))) is not None and mode != REQUIRED_MODE
+        }
 
     verdicts = {}
     for suite in suites:
@@ -256,17 +347,55 @@ def check(repo, tests_root, workflow_dir):
             verdicts[suite] = reasons or ["no step invokes it"]
 
     unwired = {s: r for s, r in verdicts.items() if r}
-    if unwired:
-        print("ci-wiring-check: REFUSED — these golden test suites are not enforced by CI:")
-        for suite, reasons in unwired.items():
-            print(f"  {suite}")
-            for reason in dict.fromkeys(reasons):
-                print(f"      {reason}")
-        print()
-        print("  Wire each one in as a `run:` step of a workflow that runs on a push to")
-        print(f"  `{MAIN_BRANCH}`, whose failure fails the build. A pull-request-only workflow is")
-        print("  not enough: it never runs on the push that lands the merge. To exclude a suite")
-        print("  deliberately, say why in the diff.")
+    if unwired or not_executable or mode_error:
+        if unwired:
+            print("ci-wiring-check: REFUSED — these golden test suites are not enforced by CI:")
+            for suite, reasons in unwired.items():
+                print(f"  {suite}")
+                for reason in dict.fromkeys(reasons):
+                    print(f"      {reason}")
+            print()
+            print("  Wire each one in as a `run:` step of a workflow that runs on a push to")
+            print(f"  `{MAIN_BRANCH}`, whose failure fails the build. A pull-request-only workflow is")
+            print("  not enough: it never runs on the push that lands the merge. To exclude a suite")
+            print("  deliberately, say why in the diff.")
+        if not_executable:
+            if unwired:
+                print()
+            # Reported under its own heading rather than folded into `unwired` above: a step that
+            # invokes the suite and can fail the build is genuinely WIRED by every rule this file
+            # otherwise knows — the file itself is what CI cannot run, a different cause that would
+            # be lost if the two reasons were conflated in one block.
+            print("ci-wiring-check: REFUSED — these golden test suites are not executable:")
+            for suite, mode in not_executable.items():
+                print(f"  {suite}")
+                print(f"      index mode {mode}, expected {REQUIRED_MODE} — CI invokes it as ./{suite}")
+                if mode == "120000":
+                    # `git update-index --chmod=+x` refuses outright on a symlink entry ("cannot
+                    # chmod +x") — chmod changes the mode of an existing 100644/100755 blob, it does
+                    # not turn a symlink into a regular file. The fix has to replace the entry, not
+                    # flip a bit on it.
+                    print(
+                        f"      fix: replace the symlink with a real, executable file, then "
+                        f"`git rm --cached {suite} && git add {suite}`"
+                    )
+                else:
+                    print(f"      fix: git update-index --chmod=+x {suite}")
+                    print(
+                        "      (a Windows checkout has core.filemode=false, so chmod alone never "
+                        "reaches the index)"
+                    )
+        if mode_error:
+            if unwired or not_executable:
+                print()
+            print(
+                "ci-wiring-check: REFUSED — the git index could not be read, so no suite's "
+                "executability is knowable (independent of the wiring verdicts above, if any):"
+            )
+            print(f"  {mode_error}")
+            print()
+            print("  An unanswerable question is not a pass — the same rule worktrees-ignored.sh")
+            print("  applies to its own verdict.")
         return 1
 
     print(f"ci-wiring-check: {len(suites)} golden test suites, all enforced by CI.")

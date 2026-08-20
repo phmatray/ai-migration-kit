@@ -1,8 +1,10 @@
 # Sync a branch with `main` and resolve conflicts
 
 Shared procedure for the issue/PR lifecycle skills. `implement-issue` reads it before the ready-flip
-(Step 8); `merge-pr` reads it when the merge state reports `BEHIND`/`DIRTY` in its corrections loop
-(Step 4). The two skills add their own trigger framing; the procedure itself lives **here**, once.
+(Step 8); `merge-pr` reads it in its corrections loop (Step 4) whenever the branch is stale — either
+`behind_by > 0` against the base, or `mergeStateStatus` reports `DIRTY` (#171: `BEHIND` alone is not
+the trigger, since GitHub only ever reports it under branch protection). The two skills add their own
+trigger framing; the procedure itself lives **here**, once.
 
 Throughout, `<commit-identity>` is the author line from the repo profile's *Commit identity*
 (its `-c user.email=… -c user.name="…"` flags) — substitute it in the merge/commit commands so the

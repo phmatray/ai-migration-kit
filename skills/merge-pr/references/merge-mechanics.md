@@ -219,13 +219,29 @@ toolchain). The format/lint gate trips on style/analyzer diffs that compile fine
 format/lint **apply** command, then its **verify** command to confirm it's clean. Heed the profile's
 caveats — some analyzer diagnostics can't be auto-fixed and must be hand-corrected.
 
+### Measuring divergence from the base (#171)
+
+The check-runs above speak only to the head SHA — they say nothing about whether `main` has moved
+since they ran. That's a separate read, sitting next to this one because both feed the judgment in
+SKILL.md Step 4, which weighs it *before* `mergeStateStatus`:
+
+```bash
+gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind_by:.behind_by}'
+```
+
+`$BASE...$BRANCH` (three dots) gives `behind_by` relative to the base — reversing it silently inverts
+the answer. `behind_by > 0` outranks `mergeStateStatus` in Step 4's table, because GitHub's own
+`BEHIND` state is only emitted when the base branch requires branches to be up to date before merging;
+without that rule a stale branch reports `CLEAN`, and the check-runs recipe above would still call the
+head SHA green — correctly, and misleadingly, since the base it was green against no longer exists.
+
 ---
 
-## 4. Sync with `main` and resolve conflicts (`BEHIND` / `DIRTY`)
+## 4. Sync with `main` and resolve conflicts (a stale branch, or `DIRTY`)
 
-Clears the `BEHIND`/`DIRTY` merge states in the corrections loop (SKILL.md Step 4): merge the latest
-base into the branch and resolve conflicts so the PR is mergeable again, then loop back to wait for CI
-(§3).
+Clears a branch the corrections loop finds stale — `behind_by > 0` (§3), or a `DIRTY` merge state
+(SKILL.md Step 4): merge the latest base into the branch and resolve conflicts so the PR is mergeable
+again, then loop back to wait for CI (§3).
 
 The procedure — merge-not-rebase, the union/regenerate/take-the-higher rule-of-thumb keyed off the
 profile's *Conflict hot-spots* table, and finish-and-verify — is shared with `implement-issue` and
@@ -241,6 +257,24 @@ through to it. Two things bite here specifically:
   outcome of a `DIRTY` sync, not an error: resolve, then complete the merge with
   `guarded-commit.sh … -- --no-edit`. Re-running the merge instead gets refused (exit 2), because the
   index still carries the unfinished one.
+
+### The fallback when the branch can't be pushed (#147)
+
+A sync needs to push, which needs the branch checked out somewhere writable — not guaranteed: it may
+sit in another agent's worktree, or this run may be pinned to a different one. #147 hit exactly this:
+the branch was checked out elsewhere, so the only honest option was to verify the merge by hand rather
+than push and re-wait CI.
+
+1. Merge the base into a scratch branch in the agent's own checkout — not the PR's branch, so nothing
+   is pushed and nothing on GitHub changes.
+2. Run the profile's *Build & test* and *CI gates* against that merged tree, the same commands §3's
+   "reproduce a red check locally" note already points at.
+3. Merge (SKILL.md Step 5) only if it comes back green; otherwise stop and report the sticking point.
+
+This is strictly stronger than a sync-and-re-wait for catching semantic breakage — it is what actually
+happened by hand while landing #147 — but it moves the verdict off CI and onto the agent's machine,
+which this skill otherwise refuses to do. That trade is why it is a **fallback**, not the default path,
+and why SKILL.md Step 8 requires it to be named in the report as a deviation.
 
 ---
 

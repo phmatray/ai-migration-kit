@@ -217,6 +217,12 @@
   routinely forgotten. See #174 for the same class in the structural gates.
 - **No aggregate test runner.** Don't reach for a `make test`; run suites individually, which is also
   the fast per-task path.
+- **`core.filemode=false` on a Windows checkout means `chmod +x` never reaches the git index.** A
+  suite added from Windows is committed `100644` while the working copy still looks executable in
+  Git Bash, and CI's `./tests/x/test.sh` then dies with "Permission denied", exit 126 (#195). Fix
+  with `git update-index --chmod=+x tests/<name>/test.sh` before committing a new suite —
+  `scripts/ci-wiring-check.py` now reads the index mode, not the filesystem, and refuses if you
+  forget.
 - Use `git -C <path>`, not `cd`, when driving this repo from another working directory.
 - `gh` needs `--repo phmatray/ai-migration-kit` when invoked from outside the clone; note the flag is
   `--repo`/`-R` on `issue`/`pr` but **not** on `gh repo view`, which takes the slug positionally.
