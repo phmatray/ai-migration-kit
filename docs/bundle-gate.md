@@ -1,6 +1,7 @@
 # The bundle-gate — opt-in drift check for a committed front-end bundle
 
-`templates/ci-dotnet.yml` ships four steps that catch a specific, measured failure: a repo commits
+`templates/ci-dotnet.yml` ships four steps (plus a fifth, unarmed detector — see *What arms it*
+below) that catch a specific, measured failure: a repo commits
 built front-end output (a `dist/` consumed by a .NET project) and a dependency bump changes the
 lockfile without rebuilding that output — the CI goes green, the CVE dashboard shows the advisory as
 fixed, and the vulnerable code still ships. That is worse than doing nothing: a **false remediation**.
@@ -26,12 +27,19 @@ the entire point of routing this through a committed file instead of repo variab
 that never wanted the gate and a repo that lost it are indistinguishable under repo variables, and
 the second one is the one that thinks it is protected.
 
+A fifth step, `Détection — un bundle front committé sans configuration de garde`, runs on the
+**absence** of the config — the complement of the four above. It looks for a committed bundle
+consumed by a .NET project with no `.github/bundle-gate.json` to arm the gate, and prints a
+`::warning::` naming both the bundle it found and the file that would arm the gate. It never fails
+the job and stays silent on a repo with no such bundle — a detector that could redden an
+unconfigured repo would defeat the opt-in design.
+
 ## What it measures
 
 The committed bundle still matches what its sources would produce: the workflow reinstalls Node,
 rebuilds the bundle in place, then runs
 
-```
+```console
 git status --porcelain --ignored -- <dist>
 ```
 
@@ -56,6 +64,8 @@ inconsistent config — an empty path would fall back to the repository root and
 nothing to report, staying green forever while measuring nothing. Every one of these is a hard
 refusal, named in the step's `::error::` output:
 
+- The file must parse as a JSON **object** (`{ "src": "...", "dist": "..." }`) — an array or a
+  scalar is refused, even if it parses as valid JSON.
 - Both `src` and `dist` must be present and non-empty strings.
 - Both must be **relative** — an absolute path (leading `/`) is refused.
 - Both are restricted to the charset `A-Za-z0-9._/-` — closes output injection into

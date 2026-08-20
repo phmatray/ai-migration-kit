@@ -34,6 +34,8 @@
 #      committed config file, with Node pinned to an EXACT version;
 #  1c. the config step REFUSES a malformed, untracked, absent or self-inconsistent config rather
 #      than exporting nothing and letting the rest of the block run on empty paths;
+#  1e. the shipped `templates/bundle-gate.json.example` — the file an adopter copies — is itself a
+#      config the gate would accept, not merely valid JSON;
 #  1d. a fifth step runs on the ABSENCE of the config and reports a repo that carries a committed
 #      bundle consumed by a project — so losing the config stops looking like never wanting it —
 #      while staying silent, and green, on the 192 repos that have no such bundle;
@@ -379,18 +381,29 @@ echo "  [1c] a front-end project at the repository root arms the gate, './' or n
 #     would accept. A doc page going stale is visible to whoever reads it; a malformed example
 #     is not — it fails in the adopter's CI, in a repo this kit does not have.
 # ---------------------------------------------------------------------------
-EXAMPLE=templates/bundle-gate.json.example
+EXAMPLE="$KIT/templates/bundle-gate.json.example"
 [ -f "$EXAMPLE" ] || { echo "FAIL: $EXAMPLE is not shipped"; exit 1; }
 python3 - "$EXAMPLE" <<'PY'
 import json, sys
+
+def die(msg):
+    # NOT `assert`: under python3 -O every assert in this block would vanish while the success
+    # line below still printed, reporting a check that never happened — the same false-green
+    # trap tests/xunit-v3/test.sh already guards against.
+    sys.exit(f"FAIL: {msg}")
+
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
-assert isinstance(cfg, dict), f"the example must be a JSON object, got {type(cfg).__name__}"
+if not isinstance(cfg, dict):
+    die(f"the example must be a JSON object, got {type(cfg).__name__}")
 for k in ("src", "dist"):
-    assert isinstance(cfg.get(k), str) and cfg[k], f"the example has no usable {k!r}: {cfg!r}"
+    if not (isinstance(cfg.get(k), str) and cfg[k]):
+        die(f"the example has no usable {k!r}: {cfg!r}")
 # The one correlation the config step enforces, restated where the example lives: an example
 # the shipped validator would refuse is worse than no example.
-assert cfg["dist"] != cfg["src"], f"the example has dist == src: {cfg!r}"
-assert cfg["dist"].startswith(cfg["src"] + "/"), f"the example's dist is not under src: {cfg!r}"
+if cfg["dist"] == cfg["src"]:
+    die(f"the example has dist == src: {cfg!r}")
+if not cfg["dist"].startswith(cfg["src"] + "/"):
+    die(f"the example's dist is not under src: {cfg!r}")
 PY
 echo "  [1e] the shipped example config is a config the gate would accept"
 
