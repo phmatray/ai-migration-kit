@@ -8,6 +8,19 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.13.1](https://github.com/phmatray/ai-migration-kit/compare/v1.13.0...v1.13.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **auto-dev:** forbid phase-1 worker waits and recognize the deferral signature ([#187](https://github.com/phmatray/ai-migration-kit/issues/187)) ([#202](https://github.com/phmatray/ai-migration-kit/issues/202)) ([e899465](https://github.com/phmatray/ai-migration-kit/commit/e899465e6b2c9dbf4f9c068d4e1d2aacb5adaf75))
+* **auto-dev:** tier effort labels by the repo's own vocabulary, not a hardcoded S/M/L ([#213](https://github.com/phmatray/ai-migration-kit/issues/213)) ([#217](https://github.com/phmatray/ai-migration-kit/issues/217)) ([0beefd0](https://github.com/phmatray/ai-migration-kit/commit/0beefd0e8ddc13ad75a495414c0d7bd4bcaab1bd))
+* **ci-wiring:** refuse a suite CI cannot execute, not just one nothing invokes ([#195](https://github.com/phmatray/ai-migration-kit/issues/195)) ([#205](https://github.com/phmatray/ai-migration-kit/issues/205)) ([9a32f8b](https://github.com/phmatray/ai-migration-kit/commit/9a32f8baa144baf78889dd35435b79814ebcb434))
+* **implement-issue:** compare tick-plan's round-trip inside jq, not through a text-mode stdout ([#199](https://github.com/phmatray/ai-migration-kit/issues/199)) ([#207](https://github.com/phmatray/ai-migration-kit/issues/207)) ([2477f48](https://github.com/phmatray/ai-migration-kit/commit/2477f4802dba503516682b40bd286a79aed8be00))
+* **merge-pr:** decide on measured divergence, not a protection-only state ([#171](https://github.com/phmatray/ai-migration-kit/issues/171)) ([#203](https://github.com/phmatray/ai-migration-kit/issues/203)) ([3372bfa](https://github.com/phmatray/ai-migration-kit/commit/3372bfabefe2d83b8a4235c18bf7da57b1b8259b))
+* **scripts:** name the base every caller path is resolved against ([#143](https://github.com/phmatray/ai-migration-kit/issues/143)) ([#212](https://github.com/phmatray/ai-migration-kit/issues/212)) ([c75c3a7](https://github.com/phmatray/ai-migration-kit/commit/c75c3a755bf953cb4658d9266b4ee5e9d678a121))
+* **tests:** section 8 reads code, not prose ([#159](https://github.com/phmatray/ai-migration-kit/issues/159)) ([#216](https://github.com/phmatray/ai-migration-kit/issues/216)) ([3ca3068](https://github.com/phmatray/ai-migration-kit/commit/3ca306849f377f5f03350d4b7baf68e17e922601))
+
 ## [1.13.0](https://github.com/phmatray/ai-migration-kit/compare/v1.12.1...v1.13.0) (2026-08-20)
 
 
