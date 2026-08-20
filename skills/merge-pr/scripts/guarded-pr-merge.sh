@@ -47,8 +47,10 @@
 set -euo pipefail
 
 TOOL=guarded-pr-merge
-READBACK_ATTEMPTS=3
-READBACK_SLEEP=2
+# Overridable so the golden suite (tests/guarded-pr-merge/test.sh) can exercise the UNCONFIRMED
+# path without three real sleeps; production callers get the defaults.
+READBACK_ATTEMPTS="${GUARDED_PR_MERGE_READBACK_ATTEMPTS:-3}"
+READBACK_SLEEP="${GUARDED_PR_MERGE_READBACK_SLEEP:-2}"
 
 usage() {
   echo "usage: $TOOL.sh [-R <owner/repo>] <PR-number> [-- <gh pr merge args…>]" >&2
@@ -120,9 +122,14 @@ while [ "$attempt" -le "$READBACK_ATTEMPTS" ]; do
   view_rc=$?
   set -e
   if [ "$view_rc" -eq 0 ] && [ -n "$view_json" ]; then
-    state=$(printf '%s' "$view_json" | jq -r '.state // empty')
-    merged_at=$(printf '%s' "$view_json" | jq -r '.mergedAt // empty')
-    merge_sha=$(printf '%s' "$view_json" | jq -r '.mergeCommit // empty')
+    # `set +e` around the parse too: a malformed/non-JSON view_json (a wrapper on $PATH mangling
+    # output, a truncated response) must be one more failed attempt, not a jq exit propagated
+    # through `set -e` that kills this script instead of falling through to UNCONFIRMED below.
+    set +e
+    state=$(printf '%s' "$view_json" | jq -r '.state // empty' 2>/dev/null)
+    merged_at=$(printf '%s' "$view_json" | jq -r '.mergedAt // empty' 2>/dev/null)
+    merge_sha=$(printf '%s' "$view_json" | jq -r '.mergeCommit // empty' 2>/dev/null)
+    set -e
     [ -n "$state" ] && break
   fi
   attempt=$((attempt + 1))
