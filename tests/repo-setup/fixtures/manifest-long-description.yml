@@ -1,0 +1,7 @@
+# Fixture for the #200 case: a label description one character over GitHub's 100-character cap.
+# Kept separate from manifest.yml so this doesn't perturb every other case's "exactly 2 labels"
+# assumption — this fixture exists to be refused, not applied.
+labels:
+  - name: "area: too-long"
+    color: "c5def5"
+    description: "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789X"

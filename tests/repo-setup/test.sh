@@ -168,6 +168,33 @@ case "$1 $2" in
   "repo view")     printf '{"nameWithOwner":"acme/widgets"}\n'; exit 0 ;;
   "label list")    cat "$GH_LABELS_JSON"; exit 0 ;;
   "label create"|"label edit")
+    # Shapes below are the two gh actually prints (#200), MEASURED against a real repository:
+    #   gh label edit "area: ci" --description "$(printf 'x%.0s' $(seq 1 101))"
+    #     HTTP 422: Validation Failed (https://api.github.com/repos/OWNER/REPO/labels/area:%20ci)
+    #     description is too long (maximum is 100 characters)
+    # 403 is not independently reproducible here (it needs a token with too little scope, not one
+    # this suite can hold), so it keeps the shape the settings-PATCH stub already pins below.
+    if [ "${GH_LABEL_FAILS:-0}" = 1 ]; then
+      case "${GH_LABEL_FAIL_STATUS:-403}" in
+        422)
+          echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/labels)" >&2
+          echo "description is too long (maximum is 100 characters)" >&2 ;;
+        # Not independently measured — this shape asserts two simultaneous field errors are
+        # POSSIBLE in one 422 body (GitHub returns one entry per invalid field), not that this
+        # exact wording is what gh prints for it.
+        422multi)
+          echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/labels)" >&2
+          echo "color is invalid" >&2
+          echo "description is too long (maximum is 100 characters)" >&2 ;;
+        # A `gh` killed by signal (CI timeout, OOM) can exit non-zero with nothing on stderr at
+        # all — this is the shape, not a status gh actually names.
+        empty)
+          : ;;
+        *)
+          echo "HTTP 403: Resource not accessible by integration (https://api.github.com/repos/acme/widgets/labels)" >&2 ;;
+      esac
+      exit 1
+    fi
     name="$3"; color=""; desc=""; shift 3
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -503,7 +530,99 @@ rc=0; out=$(GH_AUTH_FAILS=1 bash "$SCRIPT" plan "$repo8" --manifest "$FIXTURE" 2
 [ "$rc" -eq 3 ] || fail "plan without gh auth: expected exit 3, got $rc — output: $out"
 echo "  ok: degrade — plan exits 3 on an unreadable surface, never 0"
 
-# -------------------------------------------------- 12. this repository's own configuration (#196)
+# ---------------------------------------- 12. a refused label write names what gh observed (#200)
+#
+# `!REFUSED` blamed EVERY non-zero label write on the token — including a 422, which is the
+# operator's OWN manifest (an over-long description, a colour GitHub rejects), not a permissions
+# gap. MEASURED against a real repository:
+#   gh label edit "area: ci" --description "$(printf 'x%.0s' $(seq 1 101))"
+#     HTTP 422: Validation Failed (https://api.github.com/repos/OWNER/REPO/labels/area:%20ci)
+#     description is too long (maximum is 100 characters)
+# 403 is the one case where the token sentence IS the right cause, so it must survive unchanged.
+
+repo9=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log label403
+rc=0; out=$(GH_LABEL_FAILS=1 GH_LABEL_FAIL_STATUS=403 bash "$SCRIPT" apply "$repo9" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label write refused by 403: expected exit 3, got $rc — output: $out"
+has_line "^!REFUSED .*labels.*check the token's scope on this repository" "$out" \
+  || fail "a 403 label refusal must keep today's token sentence — output: $out"
+echo "  ok: labels — a 403 refusal still names the token"
+
+repo10=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log label422
+rc=0; out=$(GH_LABEL_FAILS=1 GH_LABEL_FAIL_STATUS=422 bash "$SCRIPT" apply "$repo10" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label write refused by 422: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"check the token's scope"*) fail "a 422 label refusal must not blame the token — output: $out" ;;
+esac
+has_line "^!REFUSED .*labels.*description is too long" "$out" \
+  || fail "a 422 label refusal must echo GitHub's field message — output: $out"
+echo "  ok: labels — a 422 refusal names the validation cause, not the token"
+
+# A 422 with TWO simultaneous field errors must not silently drop the second one — a fixed line
+# number cannot be trusted to be "the" field message when GitHub reports more than one.
+repo10b=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log label422multi
+rc=0; out=$(GH_LABEL_FAILS=1 GH_LABEL_FAIL_STATUS=422multi bash "$SCRIPT" apply "$repo10b" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label write refused by a multi-field 422: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"color is invalid"*"description is too long"*) ;;
+  *) fail "a multi-field 422 refusal dropped one of the two field errors — output: $out" ;;
+esac
+echo "  ok: labels — a 422 refusal with two field errors reports both, not just the first"
+
+# A `gh` that exits non-zero with NOTHING on stderr must not regress below the old universal
+# sentence: a dangling "— " with no cause is strictly less useful than what it replaced.
+repo10c=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log labelempty
+rc=0; out=$(GH_LABEL_FAILS=1 GH_LABEL_FAIL_STATUS=empty bash "$SCRIPT" apply "$repo10c" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label write refused with empty stderr: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"— "$'\n'*) fail "an empty-stderr label refusal trails off with nothing after the dash — output: $out" ;;
+esac
+has_line "^!REFUSED .*labels.*gh gave no reason" "$out" \
+  || fail "an empty-stderr label refusal must still say something actionable — output: $out"
+echo "  ok: labels — a refusal with empty stderr still reports an actionable cause, never a dangling dash"
+
+# --------------------------------- 13. an over-long description is caught locally, never sent (#200)
+#
+# The 422 case above IS reachable — GitHub really does refuse a >100-char description — but the kit
+# already parses the manifest locally, so this is knowable before any network round-trip. Refusing
+# it in parse-manifest.py turns a live-API surprise into a `plan`-time message pointing at the
+# operator's own manifest, and costs nothing the 422 path wasn't already going to cost.
+
+LONG_FIXTURE="$KIT_ROOT/tests/repo-setup/fixtures/manifest-long-description.yml"
+[ -r "$LONG_FIXTURE" ] || fail "fixture $LONG_FIXTURE missing"
+
+repo11=$(new_repo) || fail "could not create a scratch git repo"
+fresh_log longdesc
+rc=0; out=$(bash "$SCRIPT" plan "$repo11" --manifest "$LONG_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "plan with an over-long description: expected exit 2, got $rc — output: $out"
+case "$out" in
+  *"area: too-long"*) ;;
+  *) fail "the refusal does not name the offending label — output: $out" ;;
+esac
+case "$out" in
+  *"101"*) ;;
+  *) fail "the refusal does not name the length — output: $out" ;;
+esac
+n=$(gh_calls_matching "label")
+[ "$n" -eq 0 ] || fail "an over-long description reached the gh stub — $n call(s) logged, expected 0"
+echo "  ok: parser — an over-long description refuses locally, names the label and length, and never reaches gh"
+
+# -------------------------------------------------- 14. this repository's own configuration (#196)
 #
 # Sections 1-11 drive the tool over scratch repos. This one asserts a fact about THIS repository,
 # the way tests/repo-profile/test.sh asserts that the kit tracks its own profile: the kit shipped
@@ -518,8 +637,12 @@ echo "  ok: degrade — plan exits 3 on an unreadable surface, never 0"
 REPO_MANIFEST="$KIT_ROOT/.github/repo-setup.yml"
 [ -r "$REPO_MANIFEST" ] || fail ".github/repo-setup.yml missing — this repo declares no taxonomy of its own (#196)"
 
-repo_parsed=$(python3 "$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py" "$REPO_MANIFEST") \
-  || fail ".github/repo-setup.yml does not parse"
+# stderr captured to its OWN file rather than folded into $repo_parsed: parse-manifest.py's
+# `die()` messages (a bad label name, an over-long description, #200) go to stderr, and a `fail`
+# that cannot see them can only say "does not parse" — which label, and why, is then a re-run away.
+repo_parse_err="$(kit_scratch)/repo-manifest-parse.err"
+repo_parsed=$(python3 "$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py" "$REPO_MANIFEST" 2>"$repo_parse_err") \
+  || fail ".github/repo-setup.yml does not parse: $(cat "$repo_parse_err" 2>/dev/null)"
 
 for axis in "priority: " "effort: " "area: "; do
   case "$repo_parsed" in
@@ -547,15 +670,10 @@ echo "  ok: repo manifest — no <placeholder> label or stock description surviv
 # than as a path-by-path mapping, which would encode the tree into the suite: the first draft of
 # this taxonomy covered six trees and left five (docs/, reviews/, samples/, .claude/,
 # .claude-plugin/) with no option at all, and nothing here would have noticed.
-# GitHub caps a label description at 100 characters and answers 422 for a longer one. `apply`
-# reports that refusal as "check the token's scope on this repository" — the wrong cause, and one
-# that sends the reader after their credentials instead of their manifest. MEASURED: `area: ci`
-# was written 130 characters long here and refused exactly that way. Caught locally, where the
-# manifest is, rather than as a mystery permissions error against the live API.
-too_long=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && length($4) > 100 { print $2 " (" length($4) " chars)" }')
-[ -z "$too_long" ] \
-  || fail "label description over GitHub's 100-character limit — apply will refuse it and blame the token: $too_long"
-echo "  ok: repo manifest — every label description is inside GitHub's 100-character limit"
+#
+# No separate length assertion here for GitHub's 100-character description cap (#197 had added
+# one): parse-manifest.py now refuses an over-long description itself (#200, section 13 above), so
+# `repo_parsed` above could not exist if this manifest carried one — one home for the rule.
 
 n_areas=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && $2 ~ /^area: / { n++ } END { print n+0 }')
 n_trees=$(git ls-files | awk -F/ '{ print $1 }' | sort -u | wc -l)
