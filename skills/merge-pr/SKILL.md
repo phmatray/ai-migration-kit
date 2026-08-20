@@ -67,13 +67,16 @@ Create a task per item and work them in order. Step 4 is a loop — repeat until
 2. **Locate (or create) the branch's worktree** — find the local worktree/branch for the PR's head so corrections land in the right checkout; create one tracking the remote branch if none exists.
 3. **Wait for CI** — let the checks finish; read the rollup.
 4. **Apply corrections (loop)** — clear each blocker the merge state reports (red CI · behind/dirty vs `main` · unresolved review · draft), push, re-wait until the PR is `CLEAN`.
-5. **Merge (squash)** — `gh pr merge --squash --delete-branch` once green and mergeable.
+5. **Merge (squash)** — `skills/merge-pr/scripts/guarded-pr-merge.sh` once green and mergeable; it runs the merge and decides the outcome from GitHub's `state`, never from the raw `gh pr merge` exit code.
 6. **Triage follow-ups** — gather inline `--follow-up` args + ones discovered in the PR, cluster them by root cause, fold instances into the issue that already owns them, and file at most 3 new issues via `create-issue`.
 7. **Delete the local branch & worktree** — from the main checkout, remove the PR's worktree and local branch.
 8. **Report** — merged PR URL, corrections applied, follow-ups filed, cleanup done.
 
 Resume-safe: re-running mid-flight is fine. If the PR is already merged, skip to Steps 6–7. If the
-worktree/branch is already gone, skip Step 7.
+**local** worktree/branch is already gone, skip Step 7's local cleanup — but still run its remote
+check (`remote-branch-teardown.sh`): the local branch being gone says nothing about whether
+`origin/<headRefName>` survived (#185), and skipping Step 7 outright on a resume is exactly how
+that branch leaks unnoticed.
 
 ---
 
@@ -171,7 +174,11 @@ job re-triggers), so don't act on its verdict directly. **Run the check-runs rec
 `references/merge-mechanics.md` §3**: it collects every check-run on the head SHA (paginated),
 **reduces them to the latest run of each job** — a SHA carries a *history per job*, not one run per
 job (#91) — and derives two sets from that reduced set: `failed` (failure / cancelled / timed_out /
-action_required) and `pending` (queued / in_progress).
+action_required) and `pending` (queued / in_progress / waiting / requested / pending) — the first pair
+is a run under way, the last three are a run that has **not started at all**, behind an environment
+protection rule or posted by an app before it begins (#191). None of the five has a conclusion, so
+none is evidence of anything; reading them as green is how a gated `deploy` job merges without ever
+running.
 
 While `pending` is non-empty, wait (re-poll, or come back later via `ScheduleWakeup` rather than
 busy-looping) — then judge:
@@ -202,6 +209,7 @@ cases, and what actually guards each:
 | A workflow path filter correctly skips a job the PR's files don't touch (e.g. the back-end test job on a front-end-only PR) | Yes — by design, there's nothing for that job to test | Nothing — this is the legitimate case a naive gate hangs on |
 | A run **superseded by a later run of the same job** — `cancel-in-progress` cancels it, and that `cancelled` stays attached to the SHA forever, beside the real conclusion (#91) | Yes, if the job's latest run is green — the superseded run never reached a verdict | The **reduction**: only the newest run per job name is in the set the rules see, so the superseded one cannot vote. Reference §3 records the measurement (three `kit` runs on one SHA, PR #85) |
 | A job whose **latest** run is `cancelled` — a human pressing Cancel, or a job cancelled on timeout | **No** — a real cancellation is a non-verdict | Nothing else, which is why the fix is a reduction rather than dropping `cancelled` from the blocking set: after reducing, a latest `cancelled` is still in `failed` and still blocks |
+| A job is `waiting` (behind an environment protection rule), `requested` (an app posted the check before starting it), or literally `pending` (a legacy status-API check) | **No** — not safe to merge, it has not run yet | The **`pending` predicate** (#191) — the distinction from `skipped` is `skipped` means this job will not run, `waiting`/`requested`/`pending` means it has not run **yet** |
 
 ⏳ **Re-poll a latest `cancelled` once before believing it.** `cancel-in-progress` flips the old
 run's check-runs to `cancelled` the moment the new push lands, and the replacement run's check-runs
@@ -215,6 +223,15 @@ So never hard-code "wait for `<job-name> == success`" — that hangs forever on 
 and reintroduces the same bug the moment another job grows a path filter. Gate on the shape instead:
 nothing failed, nothing pending, PR not a draft. Repo-specific CI quirks of this kind belong in the
 profile's *CI gates* section — record them there, not in this skill.
+
+⚠️ **A `waiting`, `requested`, or `pending` job may be waiting on a human** — a required reviewer on a
+deployment environment, for instance, or a stale legacy status check nobody will ever update — and
+this skill has no way to clear that itself. If a job's state stays in one of those three across
+several polls with no change, stop polling silently and **surface it as a named blocker** (job name +
+its `html_url`, both already in the reduced set §3 produces — no extra query, and never
+`statusCheckRollup`, which is out of scope here) for the user to clear, the same way an unclearable
+required-approvals block is surfaced rather than waited on (§5). Polling it to the timeout with no
+explanation is the failure this step exists to avoid.
 
 `gh pr checks "$PR" --watch` is still fine as a **human-facing convenience** for watching progress in
 a terminal, but don't treat its printed verdict as authoritative (the phantom-`skipped` case above) —
@@ -318,8 +335,9 @@ Only once CI is green **and** `mergeStateStatus == CLEAN`. The profile's *Integr
 land; for squash-merge (the `(#NNN)` commits on `main`):
 
 ```bash
-gh pr merge "$PR" --squash --delete-branch \
-  --subject "<PR title — already ends in (#issue)> (#$PR)"   # optional; omit to accept gh's default
+skills/merge-pr/scripts/guarded-pr-merge.sh "$PR" \
+  -- --squash --delete-branch --subject "<PR title — already ends in (#issue)> (#$PR)"
+  # --subject is optional; omit it (drop the whole -- line down to --delete-branch) to accept gh's default
 ```
 
 **Prefer omitting `--subject`.** `implement-issue` titled the PR `… (#issue)`, and gh's default squash
@@ -343,24 +361,26 @@ That merge **landed** — only gh's post-merge `git checkout` failed. Run from t
 instead and you get the *other* message, `failed to delete local branch … used by worktree` (§8's
 long-standing row), because gh only needs to switch branches when you are sitting on the head branch.
 Two messages, one rule: **the merge call's exit status is advisory.** Its stderr is worth reporting;
-it concludes nothing. Read the PR back, and let *that* decide:
+it concludes nothing. `guarded-pr-merge.sh` is the one home for that decision (#184) — it runs the
+merge, reads the PR's `state` back itself, and exits distinctly per outcome instead of handing you the
+raw exit code:
 
-```bash
-gh pr view "$PR" --json state,mergedAt,mergeCommit --jq '{state, mergedAt, mergeCommit:.mergeCommit.oid}'
-```
-
-| readback | what it means | what to do |
+| `guarded-pr-merge.sh` exit | what it means | what to do |
 |---|---|---|
-| `state == MERGED` | the merge landed, whatever the exit code said | continue to **Step 6**. If the merge call exited non-zero, that was local cleanup gh couldn't finish — Step 7 does it, so report it there, not as a failed merge |
-| `state == OPEN` | usually a real rejection the loop didn't catch — **but not on a merge-queue repo**, where a *successful* enqueue exits 0, prints `will be added to the merge queue`, and leaves the PR `OPEN` until the queue lands it | queued → let it land and re-read later. A genuine rejection → do **not** reach for `--admin`; surface it and stop |
-| `state == CLOSED` | the PR was closed without merging while the loop ran | Step 1's rule applies — stop and ask. Merging a deliberately closed PR is not a safe default |
-| the readback itself fails | inconclusive — it says neither merged nor rejected | re-read a few times; if it still won't answer, **stop and report the merge as unconfirmed.** Do *not* fall through into Step 7 — its teardown is destructive and assumes the merge landed. Re-running the skill later is safe: Step 1 routes an already-`MERGED` PR straight on to Steps 6-7 |
+| `0` MERGED | the merge landed, whatever `gh pr merge`'s own exit code said | continue to **Step 6**. If that exit code was non-zero, that was local cleanup gh couldn't finish — Step 7 does it, so report it there, not as a failed merge |
+| `1` QUEUED | still `OPEN`, but the merge call itself exited 0 — a successful merge-queue enqueue, not a rejection | let it land and re-read later; do not retry the merge |
+| `2` REJECTED | still `OPEN` and the merge call exited non-zero — a real rejection | do **not** reach for `--admin`; surface it (the script prints the merge call's stderr) and stop |
+| `3` CLOSED | the PR was closed without merging while this ran | Step 1's rule applies — stop and ask. Merging a deliberately closed PR is not a safe default |
+| `4` UNCONFIRMED | the state readback itself did not answer after a few attempts | inconclusive — it says neither merged nor rejected. **Stop and report the merge as unconfirmed.** Do *not* fall through into Step 7 — its teardown is destructive and assumes the merge landed. Re-running the skill later is safe: Step 1 routes an already-`MERGED` PR straight on to Steps 6-7 |
+
+Full exit-code contract and the merge-queue disambiguation are in the script's own header comment —
+read it there, don't mirror it here; a second copy is exactly what #184 removed.
 
 **Don't corroborate with the remote branch.** Whether `--delete-branch` reached the remote side before
 the local step failed is exactly what the exit code won't tell you — and on a repo with GitHub's own
 `delete_branch_on_merge` enabled (this one has it), the branch disappears either way. A missing remote
-branch proves nothing about the merge, and a surviving one disproves nothing. `state` is the only
-signal that answers the question.
+branch proves nothing about the merge, and a surviving one disproves nothing. `state` — read by the
+script — is the only signal that answers the question.
 
 Local cleanup is Step 7's either way (gh can't delete a branch checked out in a worktree; its **Case
 B** is this same collision one step later). Take the `|| git switch --detach` fallback from
@@ -473,6 +493,18 @@ place of the manual `switch` if you have one.
 Either way, make each step tolerant of "already gone" — if Step 5's `--delete-branch` already removed
 the local branch, or no worktree existed, that's success (guard with `|| true`; reference §7). Never
 delete the main checkout or an unrelated worktree — match the path to the PR's branch exactly.
+
+**Then finish the remote side too** — don't assume Step 5's `--delete-branch` or the repo's
+`delete_branch_on_merge` setting already deleted `<headRefName>` on `origin` (#185: when gh's local
+delete fails first — the routine case here, since the branch lives in a worktree — it never reaches
+the remote delete at all):
+
+```bash
+skills/merge-pr/scripts/remote-branch-teardown.sh "<headRefName>" "<owner>/<repo>"
+```
+
+Prints `already-gone` or `deleted` and exits 0 either way — both are success. A genuine delete
+failure exits 1 with the API error on stderr; report that, don't swallow it (reference §7).
 
 ## Step 8 — Report
 

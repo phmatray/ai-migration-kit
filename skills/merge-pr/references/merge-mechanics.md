@@ -124,7 +124,7 @@ verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slu
   # >>> merge-gate verdict — extracted verbatim and run over fixtures by tests/merge-gate/test.sh >>>
   # One SHA carries a HISTORY PER JOB, not one run per job, so reduce before judging: keep the
   # newest run of each job and apply the rules to that alone.
-  [ .[].check_runs[] | {name, id, app: .app.id, started_at, state: (.conclusion // .status)} ]
+  [ .[].check_runs[] | {name, id, app: .app.id, started_at, html_url, state: (.conclusion // .status)} ]
   # A job is identified by the check name AND the app that posted it. Two products can both
   # publish a check called build — GitHub Actions and a CI app — and grouping on the name alone
   # would let whichever posted later silently retire the other one verdict.
@@ -142,7 +142,14 @@ verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slu
         | ((map(select(.state != "skipped")) | last) // last))
   | { latest: .,
       failed:  [ .[] | select(.state == "failure" or .state == "cancelled" or .state == "timed_out" or .state == "action_required") ],
-      pending: [ .[] | select(.state == "queued" or .state == "in_progress") ] }
+      # queued/in_progress are a run under way; waiting/requested/pending are a run that has not
+      # started at all (behind an environment protection rule, or an app posting the check before
+      # it begins). None of the five has a conclusion, and none is skipped, so none is evidence of
+      # anything — merging on it would be merging on a job that never ran. This is an ENUMERATION
+      # of the check-run status enum, not a proof: a status GitHub adds later still falls in the
+      # unhandled default and reads as green. Re-check https://docs.github.com/rest/checks/runs
+      # when this gate is next touched.
+      pending: [ .[] | select(.state == "queued" or .state == "in_progress" or .state == "waiting" or .state == "requested" or .state == "pending") ] }
   # <<< merge-gate verdict <<<
 ')
 
@@ -452,10 +459,30 @@ Guards matter — this step runs after the irreversible merge, so it must never 
 because something was already cleaned up. "Already gone" is success. The **remote** branch is *usually*
 gone by now — via Step 5's `--delete-branch`, or GitHub's own `delete_branch_on_merge` — but don't
 bank on it: when gh's local step fails first, `--delete-branch` may never reach the remote side (SKILL
-Step 5, *The exit code doesn't decide*). Check with `git ls-remote --heads origin <headRefName>`
-rather than assume. gh leaves the **local** side untouched when the branch is checked out in a
-worktree (you'll see `failed to delete local branch … used by worktree` or `'main' is already
-used by worktree`), which is exactly why this step exists.
+Step 5, *The exit code doesn't decide*). gh leaves the **local** side untouched when the branch is
+checked out in a worktree (you'll see `failed to delete local branch … used by worktree` or `'main'
+is already used by worktree`), which is exactly why this step exists.
+
+**Confirmed, not assumed (#185):** reading gh's own `mergeRun` (`pkg/cmd/pr/merge/merge.go`,
+`cli/cli@trunk`) shows `deleteLocalBranch` runs before `deleteRemoteBranch`, and the first error
+short-circuits the rest — the local-worktree failure above *is* that first error on this kit's usual
+layout, so the remote delete is skipped, not merely delayed. And `delete_branch_on_merge` is `false`
+by GitHub's own default; a repo the profile targets may not have turned it on the way this one has.
+So finish the job here instead of assuming either mechanism reached it:
+
+```bash
+skills/merge-pr/scripts/remote-branch-teardown.sh "$HEAD_BRANCH" "{owner}/{repo}"
+```
+
+It runs `git ls-remote --heads origin <headRefName>` and, only if the branch is still there, `gh api
+-X DELETE repos/{owner}/{repo}/git/refs/heads/<headRefName>` — tolerant of the same race gh's own
+`deleteRemoteBranch` tolerates (a 422/404 "Reference does not exist" from a concurrent
+`delete_branch_on_merge` or a slow `--delete-branch` winning first). It always runs this check
+regardless of the repo's `delete_branch_on_merge` setting: that value is read from a profile
+snapshot that can go stale between refreshes, where a wrongly-trusted `true` would leave a branch
+leaked forever, against the cost of one extra `ls-remote` call when it is genuinely `true`. Prints
+`already-gone` or `deleted` and exits 0 either way; a genuine API failure exits 1 with the error —
+report it, don't swallow it (§8).
 
 **Safety:** never remove `$MAIN` or a worktree whose branch isn't the PR's head. Match the path to the
 branch (via §2's listing) before removing — a wrong `git worktree remove --force` throws away someone
@@ -468,7 +495,7 @@ else's in-progress work.
 | Error | Cause | Solution |
 |---|---|---|
 | `Failed to connect to github.com port 443` on `git push`/`fetch` while `gh` works | Sandbox blocks raw git network traffic (not an outage — `gh` proves the host is reachable) | Re-run just that command with the sandbox disabled; local git (merge, commit, worktree remove, branch -D) needs no network |
-| `fatal: '<base>' is already used by worktree at …` — a non-zero exit from `gh pr merge` | `gh pr merge` merges on GitHub and *then* checks the base branch out locally; git refuses because another worktree — normally the primary checkout, sitting on `main` — already holds it. One exit code covers both halves, so it cannot say which one failed | **Don't read this as a rejection** — it is local cleanup. Read the PR back (`gh pr view "$PR" --json state,mergedAt,mergeCommit`) and decide on `state`, per SKILL Step 5; then let Step 7 tidy up. Step 7's **Case B** is this very collision one step later — same base branch held elsewhere, the feature branch instead of the base |
+| `fatal: '<base>' is already used by worktree at …` — a non-zero exit from `guarded-pr-merge.sh` | `gh pr merge` merges on GitHub and *then* checks the base branch out locally; git refuses because another worktree — normally the primary checkout, sitting on `main` — already holds it. One exit code covers both halves, so it cannot say which one failed | **Don't read this as a rejection** — it is local cleanup. `guarded-pr-merge.sh` already reads the PR back and decides on `state` for you (exit 0 = MERGED regardless of this message, per SKILL Step 5); let Step 7 tidy up. Step 7's **Case B** is this very collision one step later — same base branch held elsewhere, the feature branch instead of the base |
 | `failed to delete local branch … used by worktree` after the merge | `gh pr merge --delete-branch` can't touch a branch checked out in a worktree | Expected — that's what Step 7 handles: remove the worktree, then `git branch -D` |
 | `git branch -d` refuses: "not fully merged" | After a squash-merge the branch isn't "merged" by git's reckoning | Use `-D` (force) — the squash commit on `main` carries the work |
 | `mergeable=UNKNOWN` right after `main` moved | GitHub is recomputing the merge state | Not a blocker — re-poll shortly; nudge a main-sync only if it persists |
@@ -477,3 +504,5 @@ else's in-progress work.
 | `guarded-merge: REFUSED — the index … already carries an UNRESOLVED merge` (exit 2) | A previous sync stopped at exit 5 and was never finished; git refuses a second merge on an unmerged index (its own exit 128) | **Nothing merged.** Finish the one in flight (resolve + `guarded-commit … -- --no-edit`) or abandon it (`-- --abort`), then sync again |
 | `guarded-commit.sh: No such file or directory` in the corrections loop | `$GUARDS`/`$WORKTREE`/`$BRANCH` were never recorded — Step 2 deferred the worktree and Step 4 created one without setting them | Record all four names (Step 2's block) at the point the worktree appears, then re-run the correction |
 | `guarded-*: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: the corrections are being run from the wrong checkout | **Nothing was written.** Move to the PR branch's own worktree (§2) and retry — never "just commit anyway" |
+| `remote-branch-teardown: failed to delete origin/<branch>: …` (exit 1) | The remote branch survived the merge (Step 5's `--delete-branch` never reached it, and `delete_branch_on_merge` is off or didn't fire) and the DELETE call itself failed for a reason other than "already gone" — permissions, rate limit, network | **Not tolerable — a real leak, not a race.** Read the API error, fix what it names, and re-run `remote-branch-teardown.sh` with the same two arguments; it's idempotent (an already-gone branch on retry is just another `already-gone`) |
+| `remote-branch-teardown: usage: … <head-branch> <owner>/<repo>` (exit 2) | Called without both arguments — a script/prerequisite error, not a merge or teardown failure | Supply `$HEAD_BRANCH` (§2 already resolved it) and `{owner}/{repo}` (this file's own `gh` placeholder, top of file — resolved from `origin`) and re-run |
