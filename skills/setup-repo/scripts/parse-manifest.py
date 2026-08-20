@@ -75,6 +75,12 @@ def main(argv):
 
     out = []
 
+    # GitHub's documented cap on a label description is 100 CHARACTERS (not bytes — an em-dash is
+    # one, not three), and answers 422 Validation Failed for anything past it. That is knowable
+    # here, before any network round-trip, so refuse it locally with a message pointing at the
+    # manifest rather than let it reach `gh` and be misread as a permissions problem (#200).
+    LABEL_DESCRIPTION_LIMIT = 100
+
     for entry in data.get("labels") or []:
         if not isinstance(entry, dict):
             die("every labels[] entry must be a mapping, got %s" % type(entry).__name__)
@@ -84,7 +90,13 @@ def main(argv):
         if "\t" in name:
             die("label name %r contains a tab, which is this format's field separator" % name)
         color = norm_scalar(entry.get("color")).lstrip("#").lower()
-        out.append("L\t%s\t%s\t%s" % (name, color, norm_scalar(entry.get("description"))))
+        description = norm_scalar(entry.get("description"))
+        if len(description) > LABEL_DESCRIPTION_LIMIT:
+            die(
+                "label %r description is %d characters, over GitHub's %d-character limit"
+                % (name, len(description), LABEL_DESCRIPTION_LIMIT)
+            )
+        out.append("L\t%s\t%s\t%s" % (name, color, description))
 
     for entry in data.get("issueTemplates") or []:
         name = norm_scalar(entry)
