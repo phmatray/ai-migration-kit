@@ -283,14 +283,80 @@ echo "  [7] a missing helper stops the suite instead of letting it run unguarded
 #    `tests/release-title-gate` both write `WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT`, where
 #    the trap is not at column 0. A guard whose whole job is catching a ninth copy could not see
 #    the eighth.
+#
+#    COMMENT-AWARE since #159, sharing code_of with §9:
+#
+#    CATCHES:
+#      * a real `cleanup() { … }` or `trap … EXIT`, anywhere outside a comment, unanchored per above.
+#
+#    DOES NOT CATCH, and cannot from here:
+#      * a handler armed indirectly — through a variable holding the trap command, or `eval`. That
+#        gap is unchanged by #159; it was §8's blind spot before comment-awareness and stays one
+#        after it, because stripping comments narrows what counts as prose, not what counts as a
+#        literal `trap`/`cleanup` spelling. See the brainstorm on #159 for why closing it (running
+#        each suite and inspecting the handler it actually installs) is not worth the cost today.
+
+# The file's CODE only: whole-line comments dropped, then trailing comments. Shared by
+# hand_rolls_handler (here) and suite_is_member (§9) so the call/mention distinction — a comment
+# must never decide a verdict — has one home instead of a second copy that could drift from the
+# first, which is exactly how #128 and this section's own defect diverged from each other (#159).
+code_of() {
+  sed -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*$//' "$1"
+}
+
+# Does $1 hand-roll its own EXIT handler instead of using tests/_lib.sh's kit_guard? A call, never
+# a mention — comments are stripped through code_of first, so prose explaining why a suite uses
+# kit_guard cannot itself read as hand-rolling one.
+hand_rolls_handler() {
+  local body
+  body=$(code_of "$1")
+  grep -qE '(^|[[:space:];])(cleanup|function cleanup)[[:space:]]*(\(\))?[[:space:]]*\{' <<<"$body" \
+    || grep -qE '(^|[[:space:];])trap[[:space:]].*EXIT' <<<"$body"
+}
+
+# --- the predicate, driven on fixtures rather than on the tree -------------
+# Each of these pins one direction the raw-text grep gets wrong: prose ABOUT the mechanism must
+# not enrol a compliant suite, and a REAL hand-rolled handler must still be caught even with a
+# trailing comment on its line.
+hr_mention_only="$scratch/hr-mention-only.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo '# see kit_init, which arms a trap on EXIT for you'
+} > "$hr_mention_only"
+
+hr_cleanup_in_comment="$scratch/hr-cleanup-in-comment.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo '# the old shape was: cleanup() { rm -rf "$d"; }'
+} > "$hr_cleanup_in_comment"
+
+hr_real_handler="$scratch/hr-real-handler.sh"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'trap "rm -rf $d" EXIT   # cleans up on exit'
+} > "$hr_real_handler"
+
+if hand_rolls_handler "$hr_mention_only"; then
+  echo "FAIL: a comment MENTIONING trap/EXIT was read as hand-rolling the handler."
+  echo "      Prose about the mechanism must not fail the build."
+  exit 1
+fi
+if hand_rolls_handler "$hr_cleanup_in_comment"; then
+  echo "FAIL: a comment showing 'cleanup() {' was read as hand-rolling the handler."
+  echo "      Prose about the mechanism must not fail the build."
+  exit 1
+fi
+if ! hand_rolls_handler "$hr_real_handler"; then
+  echo "FAIL: a REAL hand-rolled trap, with a trailing comment on its line, was not caught."
+  exit 1
+fi
+
+# --- and now the tree -------------------------------------------------------
 offenders=""
 for f in tests/*/test.sh; do
   # This suite is the documented exception — it owns its trap so it can test the shared one.
   [ "$f" = "tests/lib/test.sh" ] && continue
-  if grep -qE '(^|[[:space:];])(cleanup|function cleanup)[[:space:]]*(\(\))?[[:space:]]*\{' "$f" \
-     || grep -qE '(^|[[:space:];])trap[[:space:]].*EXIT' "$f"; then
-    offenders="$offenders $f"
-  fi
+  hand_rolls_handler "$f" && offenders="$offenders $f"
 done
 if [ -n "$offenders" ]; then
   echo "FAIL: these suites define their own EXIT trap instead of using tests/_lib.sh:$offenders"
@@ -358,7 +424,7 @@ echo "  [8] no suite hand-rolls the EXIT trap (tests/lib is the documented excep
 # go unnoticed: the failure mode is a silently empty roster, which looks exactly like a clean run.
 suite_is_member() {
   local body
-  body=$(sed -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*$//' "$1")
+  body=$(code_of "$1")
   grep -qE '(^|[[:space:];&|(){}])kit_init([[:space:]]|$)' <<<"$body"
 }
 

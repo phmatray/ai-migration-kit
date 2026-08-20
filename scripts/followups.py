@@ -29,12 +29,36 @@ def parse_effort_minutes(effort):
     return value * 60 if m.group(2) == 'h' else value
 
 
+def repo_name(p):
+    """Le NOM rapporté (`repo` dans le JSON) : celui que l'appelant a TAPÉ, jamais celui que
+    `.resolve()` rendrait après avoir suivi un lien symbolique — même règle, même issue #143, que
+    `REPO_NAME` dans audit-inventory.sh (voir son commentaire pour le raisonnement complet). Un
+    `p.resolve().name` nommerait la CIBLE d'un `repo` symlinké plutôt que l'argument.
+
+    `.` et `..` sont l'exception : ce sont des RÉFÉRENCES, pas des noms — `Path(...).name` y vaut
+    `''` (`.`) ou le littéral `'..'`, jamais le vrai nom du répertoire. L'appel le plus courant de
+    tous (un agent déjà dans le dépôt, lançant `followups.py .`) est justement celui-là, donc ce
+    cas retombe sur `.resolve().name` comme avant.
+    """
+    name = p.name
+    return name if name and name != '..' else p.resolve().name
+
+
 def load_repo(repo):
-    path = Path(repo) / 'migration' / 'report.json'
+    # Le chemin AFFICHÉ doit être celui contre lequel `repo` a réellement été résolu, sinon un
+    # « introuvable » nomme un chemin que personne n'a tapé sans un mot sur d'où il sort (#49). Un
+    # chemin absolu n'a été résolu contre rien, la clause serait un mensonge (cf. resolution_hint()
+    # dans report-dashboard.py, dont le GABARIT est repris ici — sans sa clause propre au
+    # report.json, puisque la base ici est le cwd, pas le répertoire d'un rapport).
+    p = Path(repo)
+    base = Path.cwd()
+    root = p if p.is_absolute() else base / p
+    path = root / 'migration' / 'report.json'
     if not path.is_file():
-        return {'repo': Path(repo).resolve().name, 'error': f'{path} introuvable', 'next_steps': [], 'deferred': []}
+        hint = '' if p.is_absolute() else f' (chemin relatif résolu depuis {base})'
+        return {'repo': repo_name(p), 'error': f'{path} introuvable{hint}', 'next_steps': [], 'deferred': []}
     r = json.loads(path.read_text())
-    name = Path(repo).resolve().name
+    name = repo_name(p)
     steps = [{'repo': name, 'text': s.get('text', ''), 'effort': s.get('effort'),
               'owner': bool(s.get('owner')), 'effortMinutes': parse_effort_minutes(s.get('effort'))}
              for s in r.get('next_steps', [])]

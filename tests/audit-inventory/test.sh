@@ -66,6 +66,110 @@ kit_guard kit_guard_samples_unchanged
 
 scratch=$(kit_scratch)
 
+# ---------------------------------------------------------------------------
+# #143 : le script échoue COMME LUI-MÊME, pas comme `cd`, et nomme la base contre laquelle un
+# chemin relatif a été résolu (#49 -> #102 -> #139 -> #143). `pwd -P` et pas `pwd` seul : le
+# script résout sa base avec `pwd -P` (forme physique), donc comparer à la forme logique casserait
+# sur macOS (`/tmp` -> `/private/tmp`), cf. le commentaire équivalent de
+# tests/report-dashboard/test.sh.
+# ---------------------------------------------------------------------------
+rel_missing="tests/audit-inventory/repo-inexistant-relatif"
+cwd_phys="$(pwd -P)"
+if err=$("$INV" "$rel_missing" 2>&1); then
+  echo "ÉCHEC : un répertoire relatif introuvable doit faire échouer le script"; exit 1
+fi
+case "$err" in
+  *"audit-inventory.sh"*) : ;;
+  *) echo "ÉCHEC : l'erreur d'un répertoire relatif introuvable ne se présente pas comme elle-même (bash a parlé à sa place) : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"$cwd_phys/$rel_missing"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le chemin résolu : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"chemin relatif résolu depuis $cwd_phys"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la base de résolution : $err"; exit 1 ;;
+esac
+echo "  [143a] un répertoire relatif introuvable : le script se nomme, nomme le chemin résolu et la base"
+
+abs_missing="$scratch/repo-inexistant-absolu"
+if err=$("$INV" "$abs_missing" 2>&1); then
+  echo "ÉCHEC : un répertoire absolu introuvable doit faire échouer le script"; exit 1
+fi
+case "$err" in
+  *"$abs_missing"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le chemin absolu : $err"; exit 1 ;;
+esac
+# Assertée APRÈS la vraie erreur ci-dessus (même piège que #139 : « clause absente » ne doit pas
+# passer sur un crash sans rapport). Un chemin ABSOLU n'a été résolu contre rien, la clause
+# mentirait.
+case "$err" in
+  *"chemin relatif résolu"*)
+    echo "ÉCHEC : un chemin absolu ne doit porter aucune clause de résolution : $err"; exit 1 ;;
+esac
+echo "  [143b] un répertoire absolu introuvable : nommé, sans clause de résolution relative"
+
+# Régression : un répertoire atteint par un LIEN SYMBOLIQUE rapporte, comme `repo` dans le JSON, le
+# nom que l'appelant a TAPÉ — jamais le nom physique de la cible du lien. L'ancien code lisait
+# `REPO_NAME` depuis `pwd` APRÈS le `cd`, une valeur qui dépend du comportement logique/physique du
+# shell ; le dériver de l'ARGUMENT lui-même l'affranchit de cette dépendance.
+sym_dir="$scratch/symlinked"
+mkdir -p "$sym_dir/vrai-nom"
+ln -s vrai-nom "$sym_dir/lien-appelant"
+out=$("$INV" "$sym_dir/lien-appelant")
+python3 - "$out" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["repo"] == "lien-appelant", \
+    f"REPO_NAME doit nommer l'argument de l'appelant, pas la cible physique du lien : {inv['repo']!r}"
+PY
+echo "  [143c] un répertoire atteint par un lien symbolique rapporte le nom que l'appelant a tapé"
+
+# Régression : `.` ou `..` ne sont pas des NOMS, seulement des références — `basename` seul y
+# répondrait par la chaîne littérale "." / "..", perdant le vrai nom du répertoire que l'ancien
+# code (via `pwd` après `cd`) rapportait correctement. C'est le cas d'appel le plus courant de
+# tous : un agent déjà `cd`-é dans le dépôt à auditer et lançant `audit-inventory.sh .`.
+dot_dir="$scratch/dot-arg/VraiNomDuDepot"
+mkdir -p "$dot_dir"
+out=$(cd "$dot_dir" && "$INV" .)
+python3 - "$out" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["repo"] == "VraiNomDuDepot", \
+    f"REPO_NAME doit nommer le répertoire réel pour l'argument '.', pas le littéral '.' : {inv['repo']!r}"
+PY
+out2=$(cd "$dot_dir/.." && "$INV" VraiNomDuDepot/..)
+python3 - "$out2" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["repo"] == "dot-arg", \
+    f"REPO_NAME doit nommer le répertoire réel pour un argument finissant par '..' : {inv['repo']!r}"
+PY
+echo "  [143d] un argument '.' ou finissant par '..' rapporte le vrai nom du répertoire, pas le littéral"
+
+# Régression : le fallback `.`/`..` doit rester cohérent avec la règle générale [143c] — même
+# répertoire, même nom rapporté, quelle que soit la façon dont on l'atteint. Si le cwd LUI-MÊME a
+# été atteint via un lien symbolique (un agent fait `cd app-link` puis lance
+# `audit-inventory.sh .`), un `pwd -P` dans le fallback résoudrait ce lien et rapporterait le nom
+# PHYSIQUE de la cible — en désaccord avec `audit-inventory.sh app-link`, qui rapporte le nom du
+# lien. `pwd` (logique, sans `-P`) est ce qui les garde d'accord.
+symcwd_base="$scratch/symcwd"
+mkdir -p "$symcwd_base/vrai-nom-physique"
+ln -s vrai-nom-physique "$symcwd_base/nom-du-lien"
+out_direct=$("$INV" "$symcwd_base/nom-du-lien")
+out_viadot=$(cd "$symcwd_base/nom-du-lien" && "$INV" .)
+python3 - "$out_direct" "$out_viadot" <<'PY'
+import json, sys
+direct = json.loads(sys.argv[1])["repo"]
+viadot = json.loads(sys.argv[2])["repo"]
+assert direct == "nom-du-lien", f"appel direct sur le lien : attendu 'nom-du-lien', reçu {direct!r}"
+assert viadot == direct, (
+    f"'.' depuis un cwd atteint par ce même lien doit rapporter le même nom que l'appel direct "
+    f"({direct!r}), pas {viadot!r} — le fallback '.'/'..' a résolu le lien au lieu de le préserver"
+)
+PY
+echo "  [143e] '.' depuis un cwd atteint par un lien symbolique rapporte le même nom que l'appel direct sur ce lien"
+
 # A minimal .NET repo shape. audit-inventory walks the filesystem, so a csproj is all it needs to
 # recognise the tree; git is optional (the script already falls back to "unknown" for the dates).
 mk_app() {

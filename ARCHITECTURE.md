@@ -182,6 +182,24 @@ committed, then consumed with a plain `cat`.
 | Triggering contracts | `tests/skills/<name>.triggers.md`, guarded by `tests/skills/check-frontmatter.py` in CI |
 | Version | `.claude-plugin/plugin.json`, bumped by release-please — **never** a `metadata.version` in a SKILL.md |
 
+## Caller-supplied path diagnostics
+
+A diagnostic about a caller-supplied relative path prints the **resolved** path, and **names the
+base it was resolved against** — an absolute path was resolved against nothing, so it gets no such
+clause. The wording shares one template, `(chemin relatif résolu depuis <base>)`, verbatim across
+all three readers; `report-dashboard.py`'s `resolution_hint()` appends its own extra clause (`, le
+répertoire du report.json`) because its base needs that extra word — the other two resolve against
+the plain cwd and need no such qualifier.
+
+Three readers implement this today; a fourth is visibly a fourth:
+- `scripts/report-dashboard.py` (`resolution_hint()`, paths inside a `report.json`) — #102
+- `scripts/followups.py` (`load_repo`, a repo directory relative to the cwd) — #143
+- `scripts/audit-inventory.sh` (the `<repo-dir>` argument) — #143
+
+Why: #49 was `"coverage"` in `migration/report.json` meaning `migration/coverage` — a path nobody
+typed — and `introuvable : …/migration/coverage` gave no purchase on why it meant that. #102 closed
+the gap for one reader; #143 closed it for the other two.
+
 ## Versioning
 
 The plugin ships as one unit: there is no way to install `legacy-upgrade` at one version alongside
