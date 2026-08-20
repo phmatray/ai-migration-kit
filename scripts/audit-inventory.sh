@@ -10,18 +10,15 @@ REPO="${1:?usage: audit-inventory.sh <repo-dir>}"
 # RÉSOLU et la base contre laquelle un chemin relatif l'a été — pas comme `cd`, dont le message ne
 # dit ni l'un ni l'autre (#49 -> #102 -> #139 -> #143). La base est `pwd -P`, la forme PHYSIQUE :
 # `followups.py` résout la sienne via `Path.cwd()` == `os.getcwd()`, qui rend toujours cette forme,
-# donc les deux scripts doivent partager la même pour que le libellé (repris à l'identique de
-# `resolution_hint()`) désigne la même chose des deux côtés.
-case "$REPO" in
-  /*) RESOLVED="$REPO" ;;
-  *)  RESOLVED="$(pwd -P)/$REPO" ;;
-esac
+# donc les deux scripts doivent partager la même pour que le libellé (le gabarit repris de
+# `resolution_hint()`, sans la clause propre au report.json) désigne la même chose des deux côtés.
+# Calculé UNE SEULE FOIS, dans la seule branche qui le lit — jamais sur le chemin heureux.
 if [ ! -d "$REPO" ]; then
   case "$REPO" in
-    /*) HINT="" ;;
-    *)  HINT=" (chemin relatif résolu depuis $(pwd -P))" ;;
+    /*) echo "audit-inventory.sh : répertoire introuvable : $REPO" >&2 ;;
+    *)  base="$(pwd -P)"
+        echo "audit-inventory.sh : répertoire introuvable : $base/$REPO (chemin relatif résolu depuis $base)" >&2 ;;
   esac
-  echo "audit-inventory.sh : répertoire introuvable : $RESOLVED$HINT" >&2
   exit 1
 fi
 
@@ -29,7 +26,13 @@ fi
 # celui que `pwd` afficherait après le `cd` : si `$REPO` est un lien symbolique, ce dernier nomme
 # sa CIBLE plutôt que l'argument, et le résultat dépend en plus du réglage logique/physique du
 # `cd` du shell qui exécute ceci. Le dériver de l'argument lui-même l'affranchit des deux (#143).
-export REPO_NAME="$(basename "$REPO")"
+# `.` et `..` sont l'exception : ce sont des RÉFÉRENCES, pas des noms — `basename` y répondrait par
+# le littéral "." / "..", perdant le vrai nom que l'ancien code rapportait. L'appel le plus courant
+# de tous (un agent déjà `cd`-é dans le dépôt, lançant `audit-inventory.sh .`) est justement celui-là.
+case "$(basename "$REPO")" in
+  .|..) export REPO_NAME="$(basename "$(cd "$REPO" && pwd -P)")" ;;
+  *)    export REPO_NAME="$(basename "$REPO")" ;;
+esac
 cd "$REPO"
 
 export LAST_COMMIT="$(git log -1 --format=%cs 2>/dev/null || echo unknown)"

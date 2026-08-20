@@ -186,7 +186,10 @@ committed, then consumed with a plain `cat`.
 
 A diagnostic about a caller-supplied relative path prints the **resolved** path, and **names the
 base it was resolved against** — an absolute path was resolved against nothing, so it gets no such
-clause. Wording matches `resolution_hint()` verbatim: `(chemin relatif résolu depuis <base>)`.
+clause. The wording shares one template, `(chemin relatif résolu depuis <base>)`, verbatim across
+all three readers; `report-dashboard.py`'s `resolution_hint()` appends its own extra clause (`, le
+répertoire du report.json`) because its base needs that extra word — the other two resolve against
+the plain cwd and need no such qualifier.
 
 Three readers implement this today; a fourth is visibly a fourth:
 - `scripts/report-dashboard.py` (`resolution_hint()`, paths inside a `report.json`) — #102

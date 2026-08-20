@@ -125,6 +125,28 @@ assert inv["repo"] == "lien-appelant", \
 PY
 echo "  [143c] un répertoire atteint par un lien symbolique rapporte le nom que l'appelant a tapé"
 
+# Régression : `.` ou `..` ne sont pas des NOMS, seulement des références — `basename` seul y
+# répondrait par la chaîne littérale "." / "..", perdant le vrai nom du répertoire que l'ancien
+# code (via `pwd` après `cd`) rapportait correctement. C'est le cas d'appel le plus courant de
+# tous : un agent déjà `cd`-é dans le dépôt à auditer et lançant `audit-inventory.sh .`.
+dot_dir="$scratch/dot-arg/VraiNomDuDepot"
+mkdir -p "$dot_dir"
+out=$(cd "$dot_dir" && "$INV" .)
+python3 - "$out" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["repo"] == "VraiNomDuDepot", \
+    f"REPO_NAME doit nommer le répertoire réel pour l'argument '.', pas le littéral '.' : {inv['repo']!r}"
+PY
+out2=$(cd "$dot_dir/.." && "$INV" VraiNomDuDepot/..)
+python3 - "$out2" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["repo"] == "dot-arg", \
+    f"REPO_NAME doit nommer le répertoire réel pour un argument finissant par '..' : {inv['repo']!r}"
+PY
+echo "  [143d] un argument '.' ou finissant par '..' rapporte le vrai nom du répertoire, pas le littéral"
+
 # A minimal .NET repo shape. audit-inventory walks the filesystem, so a csproj is all it needs to
 # recognise the tree; git is optional (the script already falls back to "unknown" for the dates).
 mk_app() {

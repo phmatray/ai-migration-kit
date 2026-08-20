@@ -33,7 +33,8 @@ def load_repo(repo):
     # Le chemin AFFICHÉ doit être celui contre lequel `repo` a réellement été résolu, sinon un
     # « introuvable » nomme un chemin que personne n'a tapé sans un mot sur d'où il sort (#49). Un
     # chemin absolu n'a été résolu contre rien, la clause serait un mensonge (cf. resolution_hint()
-    # dans report-dashboard.py, dont le libellé est repris à l'identique ici).
+    # dans report-dashboard.py, dont le GABARIT est repris ici — sans sa clause propre au
+    # report.json, puisque la base ici est le cwd, pas le répertoire d'un rapport).
     p = Path(repo)
     base = Path.cwd()
     root = p if p.is_absolute() else base / p
