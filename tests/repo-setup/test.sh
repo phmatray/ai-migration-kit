@@ -179,6 +179,17 @@ case "$1 $2" in
         422)
           echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/labels)" >&2
           echo "description is too long (maximum is 100 characters)" >&2 ;;
+        # Not independently measured — this shape asserts two simultaneous field errors are
+        # POSSIBLE in one 422 body (GitHub returns one entry per invalid field), not that this
+        # exact wording is what gh prints for it.
+        422multi)
+          echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/labels)" >&2
+          echo "color is invalid" >&2
+          echo "description is too long (maximum is 100 characters)" >&2 ;;
+        # A `gh` killed by signal (CI timeout, OOM) can exit non-zero with nothing on stderr at
+        # all — this is the shape, not a status gh actually names.
+        empty)
+          : ;;
         *)
           echo "HTTP 403: Resource not accessible by integration (https://api.github.com/repos/acme/widgets/labels)" >&2 ;;
       esac
@@ -554,6 +565,37 @@ has_line "^!REFUSED .*labels.*description is too long" "$out" \
   || fail "a 422 label refusal must echo GitHub's field message — output: $out"
 echo "  ok: labels — a 422 refusal names the validation cause, not the token"
 
+# A 422 with TWO simultaneous field errors must not silently drop the second one — a fixed line
+# number cannot be trusted to be "the" field message when GitHub reports more than one.
+repo10b=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log label422multi
+rc=0; out=$(GH_LABEL_FAILS=1 GH_LABEL_FAIL_STATUS=422multi bash "$SCRIPT" apply "$repo10b" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label write refused by a multi-field 422: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"color is invalid"*"description is too long"*) ;;
+  *) fail "a multi-field 422 refusal dropped one of the two field errors — output: $out" ;;
+esac
+echo "  ok: labels — a 422 refusal with two field errors reports both, not just the first"
+
+# A `gh` that exits non-zero with NOTHING on stderr must not regress below the old universal
+# sentence: a dangling "— " with no cause is strictly less useful than what it replaced.
+repo10c=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log labelempty
+rc=0; out=$(GH_LABEL_FAILS=1 GH_LABEL_FAIL_STATUS=empty bash "$SCRIPT" apply "$repo10c" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label write refused with empty stderr: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"— "$'\n'*) fail "an empty-stderr label refusal trails off with nothing after the dash — output: $out" ;;
+esac
+has_line "^!REFUSED .*labels.*gh gave no reason" "$out" \
+  || fail "an empty-stderr label refusal must still say something actionable — output: $out"
+echo "  ok: labels — a refusal with empty stderr still reports an actionable cause, never a dangling dash"
+
 # --------------------------------- 13. an over-long description is caught locally, never sent (#200)
 #
 # The 422 case above IS reachable — GitHub really does refuse a >100-char description — but the kit
@@ -595,8 +637,12 @@ echo "  ok: parser — an over-long description refuses locally, names the label
 REPO_MANIFEST="$KIT_ROOT/.github/repo-setup.yml"
 [ -r "$REPO_MANIFEST" ] || fail ".github/repo-setup.yml missing — this repo declares no taxonomy of its own (#196)"
 
-repo_parsed=$(python3 "$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py" "$REPO_MANIFEST") \
-  || fail ".github/repo-setup.yml does not parse"
+# stderr captured to its OWN file rather than folded into $repo_parsed: parse-manifest.py's
+# `die()` messages (a bad label name, an over-long description, #200) go to stderr, and a `fail`
+# that cannot see them can only say "does not parse" — which label, and why, is then a re-run away.
+repo_parse_err="$(kit_scratch)/repo-manifest-parse.err"
+repo_parsed=$(python3 "$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py" "$REPO_MANIFEST" 2>"$repo_parse_err") \
+  || fail ".github/repo-setup.yml does not parse: $(cat "$repo_parse_err" 2>/dev/null)"
 
 for axis in "priority: " "effort: " "area: "; do
   case "$repo_parsed" in

@@ -152,8 +152,8 @@ refuse() {
 # blaming the token for every non-zero exit (#200). Shapes MEASURED against this repository with an
 # authenticated token that has full scope:
 #   HTTP 403: ...                                       -> no scope on the token — today's sentence
-#   HTTP 422: Validation Failed (...)\n<field message>   -> the manifest's own value; echo the field
-#                                                           message GitHub actually gave (line 2)
+#   HTTP 422: Validation Failed (...)\n<field message>   -> the manifest's own value; echo the
+#                                                           field message(s) GitHub actually gave
 #   anything else                                        -> print the raw message, unrecognised
 #                                                           status included, rather than guess
 # Never retried: a 422 is the same manifest sent again, and would fail the same way (#200).
@@ -164,10 +164,22 @@ label_refusal() {
     *"HTTP 403"*)
       printf "could not %s '%s' — check the token's scope on this repository" "$verb" "$name" ;;
     *"HTTP 422"*)
-      field="$(printf '%s\n' "$err" | sed -n '2p')"
+      # Every non-blank line other than the "HTTP 422: Validation Failed (...)" status line is
+      # GitHub's own field-level detail. Anchored on CONTENT, not a fixed line number: a `sed -n
+      # '2p'` reads whatever gh happens to print second, which is wrong the moment something else
+      # (a second simultaneous field error, an unrelated notice gh prints ahead of its own output)
+      # shifts what "line 2" means — this instead survives both.
+      field="$(printf '%s\n' "$err" | grep -v 'HTTP 422' | sed '/^[[:space:]]*$/d' | tr '\n' ';' | sed 's/;/; /g; s/; *$//')"
       printf "could not %s '%s' — refused (422): %s" "$verb" "$name" "${field:-$flat}" ;;
     *)
-      printf "could not %s '%s' — %s" "$verb" "$name" "$flat" ;;
+      # $flat can be EMPTY — gh killed by signal, or a future build that writes nothing to
+      # stderr — and an empty cause must never regress below the old universal sentence this
+      # replaced, which was always at least a complete, actionable claim.
+      if [ -n "$flat" ]; then
+        printf "could not %s '%s' — %s" "$verb" "$name" "$flat"
+      else
+        printf "could not %s '%s' — gh gave no reason; check the token's scope on this repository" "$verb" "$name"
+      fi ;;
   esac
 }
 
@@ -361,17 +373,15 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
         else
           refuse "labels" "could not delete '$f1'"
         fi
-      elif [ "$action" = "+ADD" ]; then
-        if label_err="$(gh label create "$f1" --color "$f2" --description "$f3" 2>&1 >/dev/null)"; then
-          APPLIED=$((APPLIED + 1))
-        else
-          refuse "labels" "$(label_refusal create "$f1" "$label_err")"
-        fi
       else
-        if label_err="$(gh label edit "$f1" --color "$f2" --description "$f3" 2>&1 >/dev/null)"; then
+        # +ADD and ~EDIT differ only in which `gh label` subcommand applies — and that word is
+        # also exactly the verb label_refusal() wants, so one variable carries both.
+        verb=create
+        [ "$action" = "+ADD" ] || verb=edit
+        if label_err="$(gh label "$verb" "$f1" --color "$f2" --description "$f3" 2>&1 >/dev/null)"; then
           APPLIED=$((APPLIED + 1))
         else
-          refuse "labels" "$(label_refusal edit "$f1" "$label_err")"
+          refuse "labels" "$(label_refusal "$verb" "$f1" "$label_err")"
         fi
       fi
       ;;

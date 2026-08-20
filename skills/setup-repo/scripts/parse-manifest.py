@@ -44,6 +44,13 @@ def die(message):
     raise SystemExit(2)
 
 
+# GitHub's documented cap on a label description is 100 CHARACTERS (not bytes — an em-dash is
+# one, not three), and answers 422 Validation Failed for anything past it. That is knowable here,
+# before any network round-trip, so refuse it locally with a message pointing at the manifest
+# rather than let it reach `gh` and be misread as a permissions problem (#200).
+LABEL_DESCRIPTION_LIMIT = 100
+
+
 def norm_scalar(value):
     """A YAML scalar as the string `gh` would compare against."""
     if value is True:
@@ -74,12 +81,6 @@ def main(argv):
         die("the manifest '%s' must be a YAML mapping, got %s" % (path, type(data).__name__))
 
     out = []
-
-    # GitHub's documented cap on a label description is 100 CHARACTERS (not bytes — an em-dash is
-    # one, not three), and answers 422 Validation Failed for anything past it. That is knowable
-    # here, before any network round-trip, so refuse it locally with a message pointing at the
-    # manifest rather than let it reach `gh` and be misread as a permissions problem (#200).
-    LABEL_DESCRIPTION_LIMIT = 100
 
     for entry in data.get("labels") or []:
         if not isinstance(entry, dict):
