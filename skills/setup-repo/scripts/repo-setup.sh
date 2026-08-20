@@ -126,7 +126,7 @@ emit() {
   printf '%-7s %-8s %s\n' "$1" "$2" "$3"
   printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${4:-}" "${5:-}" "${6:-}" >> "$DELTA"
   case "$1" in
-    "+ADD"|"~EDIT") DRIFT=$((DRIFT + 1)) ;;
+    "+ADD"|"~EDIT"|"-DEL") DRIFT=$((DRIFT + 1)) ;;
   esac
 }
 
@@ -238,10 +238,7 @@ if [ "$LABELS_READABLE" = 1 ]; then
     [ -n "$name" ] || continue
     if ! awk -F'\t' -v n="$name" '$1=="L" && $2==n {found=1} END {exit !found}' "$DESIRED"; then
       if [ "$PRUNE" = 1 ]; then
-        emit "~EDIT" "label" "$name — undeclared, queued for deletion (--prune)" "$name" "" ""
-        # Re-tag the record so the executor deletes rather than edits. Written after emit so the
-        # human-facing line and the machine record still come from one call.
-        sed -i.bak "$ s/^~EDIT/-DEL/" "$DELTA" 2>/dev/null && rm -f "$DELTA.bak"
+        emit "-DEL" "label" "$name — undeclared, queued for deletion (--prune)" "$name" "" ""
       else
         emit "!EXTRA" "label" "$name — live but not declared (kept; --prune would delete it)"
       fi
@@ -265,3 +262,88 @@ if [ "$VERB" = "plan" ]; then
   echo "plan: converged — nothing to do."
   exit 0
 fi
+
+# ----------------------------------------------------------------------------------- apply
+
+# One pass over the delta the diff already computed, rather than a second derivation. Two
+# derivations of the same decision drift, and a drifted copy of a gate is this repo's recurring
+# failure (#141, #163) — here it would mean applying something the operator was never shown.
+#
+# Nothing below uses `&&` chaining across surfaces: one refusal must not skip the rest. That is
+# what exit 3 is for, and it is the difference between "the settings needed admin and the labels
+# are in place" and "nothing happened, and you get to guess why".
+APPLIED=0
+# Settings are batched into ONE PATCH rather than one call per key: GitHub applies them as a single
+# object, and a per-key loop would leave a half-configured repo behind whenever the token ran out
+# of scope midway. Declared before the loop so it survives it — the loop reads from a file, not a
+# pipe, precisely so this stays in the parent shell.
+SET_ARGS=()
+SET_COUNT=0
+
+while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
+  case "$action" in
+    "+ADD"|"~EDIT"|"-DEL") ;;
+    *) continue ;;
+  esac
+  case "$kind" in
+    label)
+      [ -n "$f1" ] || continue
+      if [ "$action" = "-DEL" ]; then
+        if gh label delete "$f1" --yes >/dev/null 2>&1; then
+          APPLIED=$((APPLIED + 1))
+        else
+          refuse "labels" "could not delete '$f1'"
+        fi
+      elif [ "$action" = "+ADD" ]; then
+        if gh label create "$f1" --color "$f2" --description "$f3" >/dev/null 2>&1; then
+          APPLIED=$((APPLIED + 1))
+        else
+          refuse "labels" "could not create '$f1' — check the token's scope on this repository"
+        fi
+      else
+        if gh label edit "$f1" --color "$f2" --description "$f3" >/dev/null 2>&1; then
+          APPLIED=$((APPLIED + 1))
+        else
+          refuse "labels" "could not edit '$f1' — check the token's scope on this repository"
+        fi
+      fi
+      ;;
+    form)
+      [ -n "$f1" ] || continue
+      # Only ever reached for +ADD: an existing form was already classified !SKIP by the diff, and
+      # !SKIP is not in the action filter above. The never-clobber rule lives in one place.
+      if mkdir -p "$FORMS_TARGET" 2>/dev/null && cp "$FORMS_DIR/$f1" "$FORMS_TARGET/$f1" 2>/dev/null; then
+        APPLIED=$((APPLIED + 1))
+      else
+        refuse "forms" "could not write $FORMS_TARGET/$f1"
+      fi
+      ;;
+    setting)
+      [ -n "$f1" ] || continue
+      SET_ARGS[${#SET_ARGS[@]}]="-F"
+      SET_ARGS[${#SET_ARGS[@]}]="$f1=$f2"
+      SET_COUNT=$((SET_COUNT + 1))
+      ;;
+  esac
+done < "$DELTA"
+
+if [ "$SET_COUNT" -gt 0 ]; then
+  if [ "$GH_OK" = 0 ] || [ -z "$SLUG" ]; then
+    refuse "settings" "$SET_COUNT setting(s) need gh and a repository slug — not applied"
+  # `${arr[@]+"${arr[@]}"}` and not a bare "${arr[@]}": under `set -u`, bash 3.2 treats an empty
+  # array expansion as an unbound variable and aborts. SET_COUNT > 0 means it is not empty here,
+  # but the idiom is the one this file has to use everywhere, so it is used consistently.
+  elif gh api -X PATCH "repos/$SLUG" ${SET_ARGS[@]+"${SET_ARGS[@]}"} >/dev/null 2>&1; then
+    APPLIED=$((APPLIED + SET_COUNT))
+  else
+    refuse "settings" "gh api -X PATCH repos/$SLUG was refused — the token needs admin rights on it"
+  fi
+fi
+
+echo ""
+if [ "$REFUSED" -gt 0 ]; then
+  echo "apply: $APPLIED change(s) applied, $REFUSED surface(s) refused — the report names them."
+  exit 3
+fi
+echo "apply: $APPLIED change(s) applied."
+exit 0

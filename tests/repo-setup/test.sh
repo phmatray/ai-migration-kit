@@ -117,15 +117,54 @@ echo "  ok: manifest — the shipped default declares the priority:, effort: and
 # is just GitHub's payload shape.
 WORK=$(kit_scratch)
 mkdir -p "$WORK/bin"
+#
+# The stub is STATEFUL: a `label create` really does append to the JSON that the next `label list`
+# serves back. Idempotence is otherwise unmeasurable — against a stub that forgot every write, a
+# second `apply` would re-create every label and the run would still look green, which is the exact
+# failure the idempotence case exists to catch.
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "ARGS: $*" >> "$GH_CALL_LOG"
+
+put_label() {   # put_label <name> <color> <description> — create and edit are the same operation
+  jq --arg n "$1" --arg c "$2" --arg d "$3" \
+     'map(select(.name != $n)) + [{name:$n, color:($c|ascii_downcase), description:$d}]' \
+     "$GH_LABELS_JSON" > "$GH_LABELS_JSON.tmp" && mv "$GH_LABELS_JSON.tmp" "$GH_LABELS_JSON"
+}
+
+case "$1 $2" in
+  "auth status")   [ "${GH_AUTH_FAILS:-0}" = 1 ] && exit 1; exit 0 ;;
+  "repo view")     printf '{"nameWithOwner":"acme/widgets"}\n'; exit 0 ;;
+  "label list")    cat "$GH_LABELS_JSON"; exit 0 ;;
+  "label create"|"label edit")
+    name="$3"; color=""; desc=""; shift 3
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --color)       color="$2"; shift 2 ;;
+        --description) desc="$2";  shift 2 ;;
+        *)             shift ;;
+      esac
+    done
+    put_label "$name" "$color" "$desc"; exit 0 ;;
+  "label delete")
+    jq --arg n "$3" 'map(select(.name != $n))' "$GH_LABELS_JSON" > "$GH_LABELS_JSON.tmp" \
+      && mv "$GH_LABELS_JSON.tmp" "$GH_LABELS_JSON"
+    exit 0 ;;
+esac
+
 case "$*" in
-  *"auth status"*)  [ "${GH_AUTH_FAILS:-0}" = 1 ] && exit 1; exit 0 ;;
-  *"repo view"*)    printf '{"nameWithOwner":"acme/widgets"}\n'; exit 0 ;;
-  *"label list"*)   cat "$GH_LABELS_JSON"; exit 0 ;;
-  *"-X PATCH"*)     [ "${GH_PATCH_FAILS:-0}" = 1 ] && { echo "gh: HTTP 403 Must have admin rights" >&2; exit 1; }; exit 0 ;;
-  *"api repos/"*)   cat "$GH_SETTINGS_JSON"; exit 0 ;;
+  *"-X PATCH"*)
+    [ "${GH_PATCH_FAILS:-0}" = 1 ] && { echo "gh: HTTP 403 Must have admin rights" >&2; exit 1; }
+    # Record the new values so the next read reflects the write, same as the label side.
+    for a in "$@"; do
+      case "$a" in
+        *=*) k="${a%%=*}"; v="${a#*=}"
+             jq --arg k "$k" --argjson v "$v" '.[$k] = $v' "$GH_SETTINGS_JSON" > "$GH_SETTINGS_JSON.tmp" \
+               && mv "$GH_SETTINGS_JSON.tmp" "$GH_SETTINGS_JSON" ;;
+      esac
+    done
+    exit 0 ;;
+  *"api repos/"*) cat "$GH_SETTINGS_JSON"; exit 0 ;;
 esac
 exit 0
 STUB
@@ -239,5 +278,119 @@ case "$out" in
   *) fail "plan: an undeclared live label is not reported — output: $out" ;;
 esac
 echo "  ok: plan — an undeclared live label reports !EXTRA and does not count as drift"
+
+# ---------------------------------------------------------------- 7. apply is idempotent
+
+# The property that makes "deterministic" mean anything. It is asserted twice over, because the two
+# measurements fail differently: a second run issuing zero writes is what makes `apply` safe to put
+# in a loop or a cron, and `plan` exiting 0 afterwards is what proves the writes actually landed
+# where the diff expects to read them back.
+repo3=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log apply1
+rc=0; out=$(bash "$SCRIPT" apply "$repo3" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "first apply: expected exit 0, got $rc — output: $out"
+first_writes=$(gh_calls_matching "label create")
+[ "$first_writes" -eq 2 ] || fail "first apply: expected 2 label creates, got $first_writes"
+echo "  ok: apply — a first run creates every declared, non-placeholder label"
+
+fresh_log apply2
+rc=0; out=$(bash "$SCRIPT" apply "$repo3" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "second apply: expected exit 0, got $rc — output: $out"
+for forbidden in "label create" "label edit" "label delete"; do
+  n=$(gh_calls_matching "$forbidden")
+  [ "$n" -eq 0 ] || fail "second apply issued $n '$forbidden' call(s) — apply is not idempotent"
+done
+echo "  ok: apply — a second run issues zero label writes"
+
+fresh_log applyplan
+rc=0; out=$(bash "$SCRIPT" plan "$repo3" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "plan after apply: expected exit 0 (converged), got $rc — output: $out"
+echo "  ok: apply — plan afterwards reports converged, so the writes landed where the diff reads"
+
+# The placeholder must never reach the network, on any run.
+n=$(grep -c -- "fill-me" "$WORK/gh-calls.apply1.log" 2>/dev/null || true)
+[ "$n" -eq 0 ] || fail "apply sent the <…> placeholder to gh $n time(s)"
+echo "  ok: apply — the <…> placeholder is never sent to gh"
+
+# ------------------------------------------------------- 8. apply is additive unless --prune
+
+# A repo that already runs its own taxonomy must not have it renamed out from under it by a kit
+# upgrade. This is the invariant that makes `apply` safe to run on somebody else's repository.
+jq '. + [{"name":"legacy-thing","color":"ededed","description":"someone else was here"}]' \
+  "$GH_LABELS_JSON" > "$GH_LABELS_JSON.t" && mv "$GH_LABELS_JSON.t" "$GH_LABELS_JSON"
+
+fresh_log additive
+rc=0; out=$(bash "$SCRIPT" apply "$repo3" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply with an undeclared live label: expected exit 0, got $rc — $out"
+n=$(gh_calls_matching "label delete")
+[ "$n" -eq 0 ] || fail "apply deleted an undeclared label without --prune ($n call(s))"
+jq -e '[.[] | select(.name == "legacy-thing")] | length == 1' "$GH_LABELS_JSON" > /dev/null \
+  || fail "apply removed 'legacy-thing' from the live set without --prune"
+has_line "^!EXTRA .*legacy-thing" "$out" || fail "apply did not report the undeclared label — $out"
+echo "  ok: apply — an undeclared live label survives and is reported, without --prune"
+
+fresh_log prune
+rc=0; out=$(bash "$SCRIPT" apply "$repo3" --manifest "$FIXTURE" --prune 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply --prune: expected exit 0, got $rc — output: $out"
+n=$(gh_calls_matching "label delete")
+[ "$n" -eq 1 ] || fail "apply --prune: expected 1 label delete, got $n"
+jq -e '[.[] | select(.name == "legacy-thing")] | length == 0' "$GH_LABELS_JSON" > /dev/null \
+  || fail "apply --prune did not remove 'legacy-thing'"
+echo "  ok: apply --prune — and only --prune — deletes an undeclared label"
+
+# ------------------------------------------------------------- 9. issue forms: copy, never clobber
+
+repo4=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log forms
+rc=0; out=$(bash "$SCRIPT" apply "$repo4" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply into a repo with no forms: expected exit 0, got $rc — $out"
+[ -f "$repo4/.github/ISSUE_TEMPLATE/feature_request.yml" ] \
+  || fail "apply did not write .github/ISSUE_TEMPLATE/feature_request.yml"
+cmp -s "$KIT_ROOT/templates/issue-forms/feature_request.yml" \
+       "$repo4/.github/ISSUE_TEMPLATE/feature_request.yml" \
+  || fail "the copied form differs from the shipped source"
+echo "  ok: apply — a declared form absent from the target is copied verbatim"
+
+# Never clobber. A consumer's tuned form outranks the kit's default, so an existing file is
+# reported and left alone — the difference between a helpful tool and one that eats your work.
+repo5=$(new_repo) || fail "could not create a scratch git repo"
+mkdir -p "$repo5/.github/ISSUE_TEMPLATE"
+printf 'name: MINE-DO-NOT-TOUCH\n' > "$repo5/.github/ISSUE_TEMPLATE/feature_request.yml"
+fresh_log noclobber
+rc=0; out=$(bash "$SCRIPT" apply "$repo5" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply over an existing form: expected exit 0, got $rc — $out"
+grep -q 'MINE-DO-NOT-TOUCH' "$repo5/.github/ISSUE_TEMPLATE/feature_request.yml" \
+  || fail "apply OVERWROTE an existing issue form — the never-clobber rule is gone"
+has_line "^!SKIP .*feature_request.yml" "$out" \
+  || fail "apply did not report the skipped form — output: $out"
+echo "  ok: apply — an existing form is reported !SKIP and never overwritten"
+
+# ------------------------------------------------------------------ 10. settings: one PATCH, once
+
+repo6=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log settings1
+rc=0; out=$(bash "$SCRIPT" apply "$repo6" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply with a drifting setting: expected exit 0, got $rc — $out"
+n=$(gh_calls_matching "PATCH")
+[ "$n" -eq 1 ] || fail "expected exactly 1 PATCH call, got $n — settings must batch into one"
+grep -q 'delete_branch_on_merge=true' "$GH_CALL_LOG" \
+  || fail "the PATCH did not carry delete_branch_on_merge=true — log: $(cat "$GH_CALL_LOG")"
+echo "  ok: apply — drifting settings batch into exactly one PATCH carrying the desired value"
+
+fresh_log settings2
+rc=0; out=$(bash "$SCRIPT" apply "$repo6" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "second apply: expected exit 0, got $rc — $out"
+n=$(gh_calls_matching "PATCH")
+[ "$n" -eq 0 ] || fail "second apply issued $n PATCH call(s) — the settings surface is not idempotent"
+echo "  ok: apply — a converged setting issues no PATCH at all"
 
 echo "PASS: tests/repo-setup"
