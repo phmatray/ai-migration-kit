@@ -464,7 +464,7 @@ by GitHub's own default; a repo the profile targets may not have turned it on th
 So finish the job here instead of assuming either mechanism reached it:
 
 ```bash
-skills/merge-pr/scripts/remote-branch-teardown.sh "$HEAD_BRANCH" "$OWNER/$REPO"
+skills/merge-pr/scripts/remote-branch-teardown.sh "$HEAD_BRANCH" "{owner}/{repo}"
 ```
 
 It runs `git ls-remote --heads origin <headRefName>` and, only if the branch is still there, `gh api
@@ -498,4 +498,4 @@ else's in-progress work.
 | `guarded-commit.sh: No such file or directory` in the corrections loop | `$GUARDS`/`$WORKTREE`/`$BRANCH` were never recorded — Step 2 deferred the worktree and Step 4 created one without setting them | Record all four names (Step 2's block) at the point the worktree appears, then re-run the correction |
 | `guarded-*: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: the corrections are being run from the wrong checkout | **Nothing was written.** Move to the PR branch's own worktree (§2) and retry — never "just commit anyway" |
 | `remote-branch-teardown: failed to delete origin/<branch>: …` (exit 1) | The remote branch survived the merge (Step 5's `--delete-branch` never reached it, and `delete_branch_on_merge` is off or didn't fire) and the DELETE call itself failed for a reason other than "already gone" — permissions, rate limit, network | **Not tolerable — a real leak, not a race.** Read the API error, fix what it names, and re-run `remote-branch-teardown.sh` with the same two arguments; it's idempotent (an already-gone branch on retry is just another `already-gone`) |
-| `remote-branch-teardown: usage: … <head-branch> <owner>/<repo>` (exit 2) | Called without both arguments — a script/prerequisite error, not a merge or teardown failure | Supply `$HEAD_BRANCH` and `$OWNER/$REPO` (§2 already resolved both) and re-run |
+| `remote-branch-teardown: usage: … <head-branch> <owner>/<repo>` (exit 2) | Called without both arguments — a script/prerequisite error, not a merge or teardown failure | Supply `$HEAD_BRANCH` (§2 already resolved it) and `{owner}/{repo}` (this file's own `gh` placeholder, top of file — resolved from `origin`) and re-run |

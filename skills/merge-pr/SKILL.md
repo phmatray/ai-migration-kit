@@ -73,7 +73,10 @@ Create a task per item and work them in order. Step 4 is a loop — repeat until
 8. **Report** — merged PR URL, corrections applied, follow-ups filed, cleanup done.
 
 Resume-safe: re-running mid-flight is fine. If the PR is already merged, skip to Steps 6–7. If the
-worktree/branch is already gone, skip Step 7.
+**local** worktree/branch is already gone, skip Step 7's local cleanup — but still run its remote
+check (`remote-branch-teardown.sh`): the local branch being gone says nothing about whether
+`origin/<headRefName>` survived (#185), and skipping Step 7 outright on a resume is exactly how
+that branch leaks unnoticed.
 
 ---
 
