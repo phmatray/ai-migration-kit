@@ -124,7 +124,7 @@ verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slu
   # >>> merge-gate verdict — extracted verbatim and run over fixtures by tests/merge-gate/test.sh >>>
   # One SHA carries a HISTORY PER JOB, not one run per job, so reduce before judging: keep the
   # newest run of each job and apply the rules to that alone.
-  [ .[].check_runs[] | {name, id, app: .app.id, started_at, state: (.conclusion // .status)} ]
+  [ .[].check_runs[] | {name, id, app: .app.id, started_at, html_url, state: (.conclusion // .status)} ]
   # A job is identified by the check name AND the app that posted it. Two products can both
   # publish a check called build — GitHub Actions and a CI app — and grouping on the name alone
   # would let whichever posted later silently retire the other one verdict.

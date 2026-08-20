@@ -209,7 +209,7 @@ cases, and what actually guards each:
 | A workflow path filter correctly skips a job the PR's files don't touch (e.g. the back-end test job on a front-end-only PR) | Yes — by design, there's nothing for that job to test | Nothing — this is the legitimate case a naive gate hangs on |
 | A run **superseded by a later run of the same job** — `cancel-in-progress` cancels it, and that `cancelled` stays attached to the SHA forever, beside the real conclusion (#91) | Yes, if the job's latest run is green — the superseded run never reached a verdict | The **reduction**: only the newest run per job name is in the set the rules see, so the superseded one cannot vote. Reference §3 records the measurement (three `kit` runs on one SHA, PR #85) |
 | A job whose **latest** run is `cancelled` — a human pressing Cancel, or a job cancelled on timeout | **No** — a real cancellation is a non-verdict | Nothing else, which is why the fix is a reduction rather than dropping `cancelled` from the blocking set: after reducing, a latest `cancelled` is still in `failed` and still blocks |
-| A job is `waiting` (behind an environment protection rule) or `requested` (an app posted the check before starting it) | **No** — not safe to merge, it has not run yet | The **`pending` predicate** (#191) — the distinction from `skipped` is `skipped` means this job will not run, `waiting`/`requested` means it has not run **yet** |
+| A job is `waiting` (behind an environment protection rule), `requested` (an app posted the check before starting it), or literally `pending` (a legacy status-API check) | **No** — not safe to merge, it has not run yet | The **`pending` predicate** (#191) — the distinction from `skipped` is `skipped` means this job will not run, `waiting`/`requested`/`pending` means it has not run **yet** |
 
 ⏳ **Re-poll a latest `cancelled` once before believing it.** `cancel-in-progress` flips the old
 run's check-runs to `cancelled` the moment the new push lands, and the replacement run's check-runs
@@ -224,10 +224,12 @@ and reintroduces the same bug the moment another job grows a path filter. Gate o
 nothing failed, nothing pending, PR not a draft. Repo-specific CI quirks of this kind belong in the
 profile's *CI gates* section — record them there, not in this skill.
 
-⚠️ **A `waiting` or `requested` job may be waiting on a human** — a required reviewer on a deployment
-environment, for instance — and this skill has no way to clear that itself. If a job's state stays
-`waiting`/`requested` across several polls with no change, stop polling silently and **surface it as a
-named blocker** (job name + its `detailsUrl`) for the user to clear, the same way an unclearable
+⚠️ **A `waiting`, `requested`, or `pending` job may be waiting on a human** — a required reviewer on a
+deployment environment, for instance, or a stale legacy status check nobody will ever update — and
+this skill has no way to clear that itself. If a job's state stays in one of those three across
+several polls with no change, stop polling silently and **surface it as a named blocker** (job name +
+its `html_url`, both already in the reduced set §3 produces — no extra query, and never
+`statusCheckRollup`, which is out of scope here) for the user to clear, the same way an unclearable
 required-approvals block is surfaced rather than waited on (§5). Polling it to the timeout with no
 explanation is the failure this step exists to avoid.
 
