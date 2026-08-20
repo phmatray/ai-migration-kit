@@ -240,11 +240,34 @@ jobs:
           #   the config needs migration", and it is the only thing that catches a stale spelling
           #   such as `fileMatch` for `managerFilePatterns` — measured: exit 0 without, 1 with.
           #
-          # Known limit (follow-up): RE2 is an OPTIONAL native module. When it fails to load the
-          # validator falls back to JS RegExp and logs "RE2 not usable" as a bare warning that does
-          # not affect the exit code — so an RE2-only-invalid regex can still pass here.
+          # RE2 is an OPTIONAL native module. When it fails to load, the validator falls back to JS
+          # RegExp, keeps exiting 0, and only says so in a bare WARN line that res.errors/warnings
+          # never see — so an RE2-only-invalid matchStrings pattern could pass here silently,
+          # forever (#130). `tee` streams the combined output live — a cold npx cache can spend tens
+          # of seconds resolving/downloading, and capturing to a file with nothing printed until the
+          # command exits made that stretch indistinguishable from a hang — while still keeping a
+          # copy on disk for the check below. `${PIPESTATUS[0]}` is npx's own exit code, not tee's
+          # (tee always succeeds), which is why it is read instead of the pipeline's `$?`.
+          validator_output=$(mktemp)
+          set +e
           npx --yes --package "renovate@$RENOVATE_VALIDATOR_VERSION" -- \
-            renovate-config-validator --no-global --strict renovate.json
+            renovate-config-validator --no-global --strict renovate.json 2>&1 | tee "$validator_output"
+          validator_status=${PIPESTATUS[0]}
+          set -e
+          if grep -q 'RE2 not usable' "$validator_output"; then
+            # The message names the ENGINE as the cause only when the validator's own exit code was
+            # 0: that is the case #130 is about, where a degraded engine hides behind a silent pass.
+            # When validator_status is already nonzero, renovate.json may ALSO be broken for a
+            # reason of its own (already printed above by the stream) — claiming the engine is "the"
+            # cause in that case would send a reader chasing the wrong half of a compound failure.
+            if [ "$validator_status" -eq 0 ]; then
+              echo "::error::renovate-config-validator's RE2 engine did not load, so this run validated renovate.json on JS RegExp instead of RE2 — the validator's own success is only trustworthy on RE2, and a matchStrings pattern only RE2 would reject could have passed here silently. See #130."
+            else
+              echo "::error::renovate-config-validator's RE2 engine did not load, on top of it already rejecting renovate.json for a reason of its own (see the output above) — fix that failure first; regex validation cannot be trusted on JS RegExp alone until RE2 loads. See #130."
+            fi
+            exit 1
+          fi
+          exit "$validator_status"
 
       - name: Renovate config golden test (accepts the real config; rejects unknown, global-only and unmigrated keys)
         run: ./tests/renovate-config/test.sh
