@@ -196,6 +196,7 @@ The kit also ships six generic GitHub workflow skills — usable on any repo, no
 | `auto-dev` | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
 | `triage-backlog` | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
 | `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
+| `setup-repo` | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
 conflict hot-spots) lives in that committed per-repo profile — the skills themselves stay portable
@@ -228,9 +229,10 @@ skills/auto-dev/        fleet supervisor above the lifecycle skills: N parallel 
 skills/triage-backlog/  the queue's outlet: verify, cluster and re-decide open issues — owner confirms every close
 skills/systematic-debugging/ root-cause-before-fix process, harness-agnostic
 skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
+skills/setup-repo/      the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
 skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar)
 scripts/                preflight.sh (phase-0 gate) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release)
-templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo
+templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies
 tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
 docs/case-studies/      real audits and migrations, with generated dashboards

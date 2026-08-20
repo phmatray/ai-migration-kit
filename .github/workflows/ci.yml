@@ -276,6 +276,12 @@ jobs:
       - name: Repo-profile script golden test (show/detect, TODO-fallback contract)
         run: ./tests/repo-profile/test.sh
 
+      # The other half of the same story: repo-profile READS a repo's configuration, repo-setup
+      # establishes it (#192). Drives idempotence, the additive/--prune split, never-clobber on an
+      # existing issue form, and per-surface degradation — all against a stateful gh stub.
+      - name: Repo-setup script golden test (plan/apply, idempotence, degradation)
+        run: ./tests/repo-setup/test.sh
+
       - name: Kit scripts run from a foreign working directory (plugin-install simulation)
         run: |
           KIT="$PWD"
@@ -326,8 +332,13 @@ jobs:
       - name: Inventory golden test — vendoredAssets (reported, covered, empty, nested)
         run: ./tests/audit-inventory/test.sh
 
+      # Recursive since #192: the issue forms repo-setup copies into a consumer's repository live
+      # in templates/issue-forms/, and the old non-recursive glob did not reach them — they would
+      # have shipped unvalidated, which is the "wired in but enforcing nothing" shape
+      # ci-wiring-check.py exists to prevent. Strictly wider than before, so nothing that was
+      # covered stops being covered.
       - name: Templates are valid YAML
-        run: python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/*.yml')]"
+        run: python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/**/*.yml', recursive=True)]"
 
       # The step above only proves the template PARSES. The opt-in bundle gate is live YAML since
       # #70, so it is covered by that parse — but parsing says nothing about whether the guard

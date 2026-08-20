@@ -1,0 +1,26 @@
+# Fixture desired state for tests/repo-setup. Deliberately small: the shipped
+# templates/repo-setup.yml is asserted separately for the axes it must declare, and a fixture
+# that tracked it would re-test the same thing while making every diff below unreadable.
+#
+# The colour is spelled "#B60205" — with the hash, upper case — because normalisation is load
+# bearing. gh reports colours as bare lower-case hex; a manifest that did not normalise would
+# report ~EDIT on every run and never converge.
+labels:
+  - name: "priority: high"
+    color: "#B60205"
+    description: "Pull this first"
+  - name: "effort: small"
+    color: "c2e0c6"
+    description: "One task"
+  - name: "area: <fill-me>"
+    color: "c5def5"
+    description: "Placeholder — never created"
+
+pruneKeep:
+  - "bot-owned: *"
+
+issueTemplates:
+  - feature_request.yml
+
+settings:
+  delete_branch_on_merge: true
