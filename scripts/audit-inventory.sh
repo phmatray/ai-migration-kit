@@ -5,9 +5,44 @@
 set -euo pipefail
 
 REPO="${1:?usage: audit-inventory.sh <repo-dir>}"
+
+# Un `<repo-dir>` manquant ou mal orthographié doit échouer COMME CE SCRIPT, en nommant le chemin
+# RÉSOLU et la base contre laquelle un chemin relatif l'a été — pas comme `cd`, dont le message ne
+# dit ni l'un ni l'autre (#49 -> #102 -> #139 -> #143). La base est `pwd -P`, la forme PHYSIQUE :
+# `followups.py` résout la sienne via `Path.cwd()` == `os.getcwd()`, qui rend toujours cette forme,
+# donc les deux scripts doivent partager la même pour que le libellé (le gabarit repris de
+# `resolution_hint()`, sans la clause propre au report.json) désigne la même chose des deux côtés.
+# Calculé UNE SEULE FOIS, dans la seule branche qui le lit — jamais sur le chemin heureux.
+if [ ! -d "$REPO" ]; then
+  case "$REPO" in
+    /*) echo "audit-inventory.sh : répertoire introuvable : $REPO" >&2 ;;
+    *)  base="$(pwd -P)"
+        echo "audit-inventory.sh : répertoire introuvable : $base/$REPO (chemin relatif résolu depuis $base)" >&2 ;;
+  esac
+  exit 1
+fi
+
+# Le NOM rapporté (`REPO_NAME`, -> `repo` dans le JSON) est celui que l'appelant a TAPÉ, jamais
+# celui que `pwd` afficherait après le `cd` : si `$REPO` est un lien symbolique, ce dernier nomme
+# sa CIBLE plutôt que l'argument, et le résultat dépend en plus du réglage logique/physique du
+# `cd` du shell qui exécute ceci. Le dériver de l'argument lui-même l'affranchit des deux (#143).
+# `.` et `..` sont l'exception : ce sont des RÉFÉRENCES, pas des noms — `basename` y répondrait par
+# le littéral "." / "..", perdant le vrai nom que l'ancien code rapportait. L'appel le plus courant
+# de tous (un agent déjà `cd`-é dans le dépôt, lançant `audit-inventory.sh .`) est justement celui-là.
+# `pwd` LOGIQUE ici, jamais `-P` : si le cwd lui-même a été atteint via un lien symbolique (l'agent
+# a fait `cd app-link` avant de lancer `audit-inventory.sh .`), `-P` résoudrait ce lien et
+# rapporterait le nom PHYSIQUE de la cible — exactement ce que la branche générale ci-dessus
+# refuse de faire pour `audit-inventory.sh app-link`. Mesuré : les deux invocations désignent le
+# même répertoire et doivent rapporter le même nom, or `-P` les faisait diverger (`real-app-dir`
+# contre `app-link`). `-P` reste correct ailleurs dans ce fichier (lignes 11/19-20) parce que ce
+# calcul-là sert un but différent : faire correspondre la BASE du message d'erreur à celle de
+# `followups.py` (`Path.cwd()`, toujours physique) — pas nommer ce que l'appelant a tapé.
+case "$(basename "$REPO")" in
+  .|..) export REPO_NAME="$(basename "$(cd "$REPO" && pwd)")" ;;
+  *)    export REPO_NAME="$(basename "$REPO")" ;;
+esac
 cd "$REPO"
 
-export REPO_NAME="$(basename "$(pwd)")"
 export LAST_COMMIT="$(git log -1 --format=%cs 2>/dev/null || echo unknown)"
 export FIRST_COMMIT="$(git log --reverse --format=%cs 2>/dev/null | head -1 || echo unknown)"
 
