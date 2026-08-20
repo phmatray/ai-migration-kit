@@ -90,26 +90,73 @@
 
 ## Labels (apply verbatim; read live before use, this is a snapshot)
 - **Type:** `bug`, `enhancement`, `documentation`
-- **Priority tiers:** none — this repo has no priority axis. Do not invent one; omit rather than
-  create `priority: *` labels.
-- **Effort sizes:** none — no effort axis exists. Omit.
-- **Scope/area:** none — no `area: *` labels, and no issue-template Area dropdown to fall back on.
-  Scope is expressed in the PR title's `(scope)` instead.
-- **Full live set:** the plain GitHub defaults — `bug`, `documentation`, `duplicate`, `enhancement`,
+- **Priority tiers:** `priority: high`, `priority: medium`, `priority: low`. `create-issue` applies
+  exactly one.
+- **Effort sizes:** `effort: small`, `effort: medium`, `effort: large`. This is the axis `auto-dev`
+  sorts on ("small effort first, then medium").
+- **Scope/area:** twelve labels, and the axis `auto-dev` reads to give each parallel worker a
+  NON-overlapping area. They are **per-skill, not per-directory**, because that is where this
+  backlog clusters — a single `area: skills` would have collapsed six of the eight tier-1 issues
+  into one area and isolated nothing:
+
+  | Label | Covers |
+  |---|---|
+  | `area: auto-dev` | `skills/auto-dev/`, `commands/auto-dev-*.md` |
+  | `area: merge-pr` | `skills/merge-pr/` |
+  | `area: implement-issue` | `skills/implement-issue/` |
+  | `area: create-issue` | `skills/create-issue/`, `skills/triage-backlog/` |
+  | `area: migrate` | `skills/legacy-upgrade/`, `skills/followups/`, `commands/migrate-*.md` |
+  | `area: repo-setup` | `skills/setup-repo/`, `skills/get-repo-profile/`, `.claude/skills/repo-profile.md` |
+  | `area: skills` | `skills/_shared/`, `skills/systematic-debugging/`, cross-skill conventions |
+  | `area: scripts` | `scripts/` |
+  | `area: tests` | `tests/`, `evals/`, the frozen `samples/` fixture |
+  | `area: templates` | `templates/` |
+  | `area: docs` | `docs/`, `reviews/`, `README.md`, `ARCHITECTURE.md` |
+  | `area: ci` | `.github/`, `hooks/`, `.claude-plugin/`, the repo-root config files |
+
+  ⚠️ **These must cover the tree, not sample it.** Both forms mark Area `required: true`, so a path
+  no area names is a path no issue can be filed against, and one `auto-dev` can hand no worker as a
+  non-overlapping slice. `tests/repo-setup/test.sh` asserts the axis stays wide enough; check
+  `git ls-files | awk -F/ '{print $1}' | sort -u` before removing one.
+
+- **Where the taxonomy is declared:** **`.github/repo-setup.yml`**, this repo's own manifest —
+  `skills/setup-repo/scripts/repo-setup.sh:103` prefers it over the kit's shipped
+  `templates/repo-setup.yml`. ⚠️ The shipped default deliberately still carries its
+  `area: <your-area>` **placeholder**, and `tests/repo-setup/test.sh` asserts it: `area:` names
+  someone's code, and filling it in would export `area: merge-pr` to every consumer who applies the
+  default unedited. Do not "fix" that placeholder. Change the taxonomy by editing
+  `.github/repo-setup.yml` and re-running `repo-setup.sh apply` — never by hand in the GitHub UI,
+  which drifts from the manifest with nothing to detect it.
+- **Full live set:** the axes above, plus the plain GitHub defaults — `duplicate`,
   `good first issue`, `help wanted`, `invalid`, `question`, `wontfix` — plus `dependencies` and
   release-please's `autorelease: pending` / `autorelease: tagged`.
-- **Convention in practice:** issues carry **one** label. The housekeeping `autorelease: *` labels are
-  release-please's — never apply them by hand.
+- ⚠️ **Only `dependencies` and `autorelease: *` are protected** — they match the manifest's
+  `pruneKeep` globs, so `apply --prune` reports and keeps them. The six GitHub defaults are
+  undeclared **and** unprotected: `--prune` would **delete** them, taking the label off any issue
+  that carries it. The kit's own flows never pass `--prune`; if you ever do, declare those six in
+  `.github/repo-setup.yml` first.
+- **Convention in practice:** the housekeeping `autorelease: *` labels are release-please's — never
+  apply them by hand. Older issues carry **one** label (the type), from before the axes existed;
+  new ones should carry type + priority + effort + area.
 
 ## Issue templates
-- **Location:** none — there is no `.github/ISSUE_TEMPLATE/` directory in this repo.
-- **Forms:** none.
-- **Default for ideas:** n/a · **for defects:** n/a.
-- **What to do instead:** `create-issue` must build the body from scratch rather than reconstructing a
-  form. Match the house style visible in the live issue list: the **title is a declarative statement
-  of the gap**, frequently with an em-dash and a measured claim — e.g. *"The shipped coverage guard
-  inverts under pipefail — it fails when coverage WAS produced"*. Lead the body with the problem and
-  the evidence, not a template heading.
+- **Location:** `.github/ISSUE_TEMPLATE/` — copied there by `repo-setup.sh apply` from the kit's
+  `templates/issue-forms/`, then **hand-edited** to carry this repo's real Area options, and
+  committed (#196). ⚠️ Deleting the directory and re-running `apply` does **not** regenerate them:
+  `apply` copies the shipped forms verbatim, so the dropdowns would come back with the single
+  `area: <your-area>` placeholder and `tests/repo-setup/test.sh` would go red. Restore them from
+  git, not from the tool.
+- **Forms:** `feature_request.yml` (labels the issue `enhancement`) and `bug_report.yml`.
+- **Default for ideas:** `feature_request.yml` · **for defects:** `bug_report.yml`.
+- **What to do:** `create-issue` should reconstruct the form's fields rather than falling back to
+  house style. Both forms carry an **Area dropdown whose options are exactly the twelve `area:`
+  labels above, in manifest order** — `tests/repo-setup/test.sh` pins that agreement, because
+  `create-issue` picks the label matching whatever the dropdown offered, so a drifting dropdown
+  makes an issue's body and its label contradict each other.
+- **House style still applies to the prose:** the **title is a declarative statement of the gap**,
+  frequently with an em-dash and a measured claim — e.g. *"The shipped coverage guard inverts under
+  pipefail — it fails when coverage WAS produced"*. Lead the body with the problem and the
+  evidence, not a template heading.
 
 ## Conflict hot-spots (merge-with-main resolutions)
 | File | Why it collides | Resolution |
@@ -156,6 +203,18 @@
   server-side blocks a bad merge, so the local CI gates above are the only real gate — treat them as
   mandatory rather than advisory. If protection is ever enabled it must require **both** check-runs,
   `kit` and `title-gate` (see the note in `.github/workflows/release-title.yml`).
+- **Squash is now enforced server-side**, not merely by convention: `allow_merge_commit` and
+  `allow_rebase_merge` are both `false`, `allow_squash_merge` and `delete_branch_on_merge` both
+  `true` (#196, applied from `.github/repo-setup.yml`). A `gh pr merge --merge`/`--rebase` is
+  refused by the API rather than quietly producing a non-linear `main`.
+- **Text I/O on a Windows host is cp1252, and the boundary is where it bites.** A kit script whose
+  output is *compared* or *sent* must pin both halves — `sys.stdout.reconfigure(encoding="utf-8",
+  newline="\n")`, as `skills/setup-repo/scripts/parse-manifest.py` does. Measured twice while
+  landing #196: an em-dash left `parse-manifest.py` as the single byte `0x97` and ten labels were
+  created with corrupted descriptions that `plan` then reported `~EDIT` forever; and a bare
+  `print()` in a test reader appended a CR to every line, so two identical taxonomies compared
+  unequal. Reading is already handled (`encoding="utf-8"` on `open`); it is stdout that is
+  routinely forgotten. See #174 for the same class in the structural gates.
 - **No aggregate test runner.** Don't reach for a `make test`; run suites individually, which is also
   the fast per-task path.
 - Use `git -C <path>`, not `cd`, when driving this repo from another working directory.
