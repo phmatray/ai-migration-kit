@@ -71,6 +71,14 @@ labels:
     color: "c5def5"
     description: "Replace with one entry per functional area of this repo"
 
+# Labels `--prune` must never delete, as shell globs. These are labels a TOOL owns: they look
+# undeclared because no human declares them, and deleting them breaks the automation that reads
+# them. Found by running `plan` against this kit's own repository, where a single `apply --prune`
+# would have removed both of release-please's housekeeping labels.
+pruneKeep:
+  - "autorelease: *"   # release-please's housekeeping — never applied by hand, never deleted
+  - "dependencies"     # Renovate labels its own PRs with this
+
 # Issue forms copied into .github/ISSUE_TEMPLATE/ when absent. Bare file names: they are resolved
 # against templates/issue-forms/ in the kit.
 issueTemplates:

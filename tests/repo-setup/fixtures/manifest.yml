@@ -16,6 +16,9 @@ labels:
     color: "c5def5"
     description: "Placeholder — never created"
 
+pruneKeep:
+  - "bot-owned: *"
+
 issueTemplates:
   - feature_request.yml
 

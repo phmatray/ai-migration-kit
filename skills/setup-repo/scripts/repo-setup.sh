@@ -135,6 +135,24 @@ refuse() {
   REFUSED=$((REFUSED + 1))
 }
 
+# Labels no `--prune` may delete, however undeclared they look. Found by running `plan` against
+# this kit's own repository: release-please owns `autorelease: pending` / `autorelease: tagged`,
+# the repo profile says in as many words that they are never applied by hand — and a single
+# `apply --prune` would have deleted both and broken the release pipeline. An opt-in flag whose
+# documented use breaks the repo it ships from is not opt-in enough.
+KEEP_FILE="$WORKDIR/prune-keep.txt"
+awk -F'\t' '$1=="K" {print $2}' "$DESIRED" > "$KEEP_FILE"
+
+is_kept() {
+  local n="$1" pat
+  while IFS= read -r pat; do
+    [ -n "$pat" ] || continue
+    # $pat is deliberately unquoted: these are globs, so `autorelease: *` covers both of them.
+    case "$n" in $pat) return 0 ;; esac
+  done < "$KEEP_FILE"
+  return 1
+}
+
 GH_OK=1
 command -v gh >/dev/null 2>&1 || GH_OK=0
 [ "$GH_OK" = 1 ] && { gh auth status >/dev/null 2>&1 || GH_OK=0; }
@@ -237,7 +255,9 @@ if [ "$LABELS_READABLE" = 1 ]; then
     [ "$kind" = "L" ] || continue
     [ -n "$name" ] || continue
     if ! awk -F'\t' -v n="$name" '$1=="L" && $2==n {found=1} END {exit !found}' "$DESIRED"; then
-      if [ "$PRUNE" = 1 ]; then
+      if [ "$PRUNE" = 1 ] && is_kept "$name"; then
+        emit "!KEEP" "label" "$name — undeclared but protected by pruneKeep, not deleted"
+      elif [ "$PRUNE" = 1 ]; then
         emit "-DEL" "label" "$name — undeclared, queued for deletion (--prune)" "$name" "" ""
       else
         emit "!EXTRA" "label" "$name — live but not declared (kept; --prune would delete it)"

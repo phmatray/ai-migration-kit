@@ -15,6 +15,7 @@ separator (requirements.json says so, and forbids tabs in values for exactly thi
     L <TAB> name <TAB> color <TAB> description      a label
     T <TAB> filename                                an issue-form file
     S <TAB> key <TAB> value                         a repository setting
+    K <TAB> glob                                    a label --prune must never delete
 
 Colours are normalised (leading '#' dropped, lower-cased) so that `d93f0b`, `#d93f0b` and
 `#D93F0B` cannot read as three different desired states and produce a permanent ~EDIT that never
@@ -87,6 +88,11 @@ def main(argv):
         if "/" in name or name.startswith("."):
             die("issueTemplates[] takes a bare file name, got %r" % name)
         out.append("T\t%s" % name)
+
+    for entry in data.get("pruneKeep") or []:
+        pattern = norm_scalar(entry)
+        if pattern:
+            out.append("K\t%s" % pattern)
 
     settings = data.get("settings") or {}
     if not isinstance(settings, dict):

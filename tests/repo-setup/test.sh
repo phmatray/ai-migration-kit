@@ -341,6 +341,35 @@ jq -e '[.[] | select(.name == "legacy-thing")] | length == 0' "$GH_LABELS_JSON" 
   || fail "apply --prune did not remove 'legacy-thing'"
 echo "  ok: apply --prune — and only --prune — deletes an undeclared label"
 
+# ...but a label a TOOL owns survives even --prune. Found by running `plan` against this kit's own
+# repository: release-please's `autorelease: pending` / `autorelease: tagged` look undeclared
+# because no human declares them, and the repo profile says in as many words that they are never
+# applied by hand. One `apply --prune` would have deleted both and broken the release pipeline.
+jq '. + [{"name":"bot-owned: state","color":"ededed","description":"a tool owns this"}]' \
+  "$GH_LABELS_JSON" > "$GH_LABELS_JSON.t" && mv "$GH_LABELS_JSON.t" "$GH_LABELS_JSON"
+
+fresh_log prunekeep
+rc=0; out=$(bash "$SCRIPT" apply "$repo3" --manifest "$FIXTURE" --prune 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply --prune with a protected label: expected exit 0, got $rc — $out"
+jq -e '[.[] | select(.name == "bot-owned: state")] | length == 1' "$GH_LABELS_JSON" > /dev/null \
+  || fail "apply --prune DELETED a label matching pruneKeep — the protection is gone"
+has_line "^!KEEP .*bot-owned: state" "$out" \
+  || fail "apply --prune did not report the protected label — output: $out"
+n=$(gh_calls_matching "label delete")
+[ "$n" -eq 0 ] || fail "apply --prune issued $n delete(s) against a protected label"
+echo "  ok: apply --prune — a label matching pruneKeep is reported !KEEP and never deleted"
+
+# The glob has to be a glob: `autorelease: *` covering two real labels is the whole reason the
+# field exists, so a fixture that only ever matched literally would prove nothing.
+jq '. + [{"name":"bot-owned: other","color":"ededed","description":"second one"}]' \
+  "$GH_LABELS_JSON" > "$GH_LABELS_JSON.t" && mv "$GH_LABELS_JSON.t" "$GH_LABELS_JSON"
+fresh_log pruneglob
+rc=0; out=$(bash "$SCRIPT" apply "$repo3" --manifest "$FIXTURE" --prune 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply --prune, second protected label: expected exit 0, got $rc — $out"
+jq -e '[.[] | select(.name | startswith("bot-owned: "))] | length == 2' "$GH_LABELS_JSON" > /dev/null \
+  || fail "the pruneKeep pattern did not match as a glob — one of the two was deleted"
+echo "  ok: apply --prune — pruneKeep entries match as globs, covering a whole namespace"
+
 # ------------------------------------------------------------- 9. issue forms: copy, never clobber
 
 repo4=$(new_repo) || fail "could not create a scratch git repo"

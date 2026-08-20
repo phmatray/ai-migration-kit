@@ -70,12 +70,17 @@ Read the exit code — it is the report, and each value means one thing:
 committing its own `.github/repo-setup.yml`, which `repo-setup.sh` prefers — so a consumer's
 taxonomy survives a kit upgrade. `--manifest <path>` overrides both.
 
-Three rules govern what `apply` will and will not do, and they are worth relaying to the operator
+Four rules govern what `apply` will and will not do, and they are worth relaying to the operator
 before the first run against a repo that already has labels:
 
 - **Additive.** A live label the manifest does not declare is reported `!EXTRA` and **kept**. Only
   `--prune` deletes anything. A repo already running `P1`/`P2` must not have its taxonomy renamed
   out from under it.
+- **`pruneKeep` outranks `--prune`.** Labels a *tool* owns look undeclared because no human
+  declares them, and deleting them breaks the automation that reads them. The manifest's
+  `pruneKeep` globs — seeded with release-please's `autorelease: *` and Renovate's `dependencies` —
+  are reported `!KEEP` and never deleted. Add the repo's own bot labels there before running
+  `--prune` on it.
 - **Never clobber.** An issue form that already exists is reported `!SKIP`. A tuned form outranks
   the kit's default.
 - **A name in angle brackets is a placeholder** — never created, and reported `!TODO` on every run
