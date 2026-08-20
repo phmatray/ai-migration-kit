@@ -69,8 +69,16 @@ if [ -n "$MANIFEST" ] && [ -r "$PARSER" ]; then
   else
     PARSER_RC=$?
   fi
-  if [ -n "$PARSER_ERR_FILE" ]; then
-    PARSER_STDERR="$(cat -- "$PARSER_ERR_FILE" 2>/dev/null || true)"
+  # Three distinct outcomes, not one: "mktemp itself failed" (stderr was never captured at all),
+  # "captured but the file can't be read back" and "captured and genuinely empty" are different
+  # facts about what happened, and collapsing them into one string would tell an operator "the
+  # parser printed nothing" when the truth might be "we don't know what it printed".
+  if [ -z "$PARSER_ERR_FILE" ]; then
+    PARSER_STDERR="<stderr could not be captured: mktemp failed>"
+  elif PARSER_STDERR="$(cat -- "$PARSER_ERR_FILE" 2>/dev/null)"; then
+    [ -n "$PARSER_STDERR" ] || PARSER_STDERR="<parser printed nothing on stderr>"
+  else
+    PARSER_STDERR="<stderr was captured but could not be read back from $PARSER_ERR_FILE>"
   fi
 
   if [ "$PARSER_RC" -eq 0 ]; then
@@ -96,7 +104,7 @@ fi
 # bash string either.
 if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ]; then
   if [ "$PARSER_RC" -ne 0 ]; then
-    echo "survey.sh: parse-manifest.py failed (exit $PARSER_RC) reading $MANIFEST — falling back to small/medium/large; the manifest's effort: axis could not be confirmed. Parser said: ${PARSER_STDERR:-<no stderr captured>}" >&2
+    echo "survey.sh: parse-manifest.py failed (exit $PARSER_RC) reading $MANIFEST — falling back to small/medium/large; the manifest's effort: axis could not be confirmed. Parser said: $PARSER_STDERR" >&2
   elif [ -n "$MANIFEST" ]; then
     echo "survey.sh: no effort: labels found in $MANIFEST — falling back to small/medium/large" >&2
   else
