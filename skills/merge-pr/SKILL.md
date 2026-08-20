@@ -241,7 +241,7 @@ Step 2 and then obtaining the worktree here is how it ends up never running at a
 Before reading `mergeStateStatus`, read the branch's divergence from its base:
 
 ```bash
-gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind:.behind_by}'
+gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind_by:.behind_by}'
 gh pr view "$PR" --json mergeStateStatus,mergeable,reviewDecision \
   --jq '{state:.mergeStateStatus, mergeable, review:.reviewDecision}'
 ```

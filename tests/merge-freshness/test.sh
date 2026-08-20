@@ -10,8 +10,11 @@
 # was six commits / 95 minutes behind `main` when `/merge-pr 147` read the state. A literal
 # application of the old table merged it, having verified nothing about the combination it was
 # actually landing. This suite pins that exact fixture, plus the four other rows the fix's spec
-# lays out, against `skills/merge-pr/scripts/merge-verdict.sh` — the script under test, not a copy
-# of its logic, so a rewrite of the precedence order goes red here instead of shipping quietly.
+# lays out, against `skills/merge-pr/scripts/merge-verdict.sh` — the reference implementation of
+# the precedence rule, so a rewrite of ITS ordering goes red here instead of shipping quietly.
+# SKILL.md Step 4 currently restates the same rule as prose for the agent to apply by hand; this
+# suite does not read that prose, so it cannot catch the two drifting apart (tracked in #171's
+# follow-up — see the PR description).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 

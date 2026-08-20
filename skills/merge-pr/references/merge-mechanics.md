@@ -226,7 +226,7 @@ since they ran. That's a separate read, sitting next to this one because both fe
 SKILL.md Step 4, which weighs it *before* `mergeStateStatus`:
 
 ```bash
-gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind:.behind_by}'
+gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind_by:.behind_by}'
 ```
 
 `$BASE...$BRANCH` (three dots) gives `behind_by` relative to the base — reversing it silently inverts
