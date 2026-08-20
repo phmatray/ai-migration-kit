@@ -168,6 +168,22 @@ case "$1 $2" in
   "repo view")     printf '{"nameWithOwner":"acme/widgets"}\n'; exit 0 ;;
   "label list")    cat "$GH_LABELS_JSON"; exit 0 ;;
   "label create"|"label edit")
+    # Shapes below are the two gh actually prints (#200), MEASURED against a real repository:
+    #   gh label edit "area: ci" --description "$(printf 'x%.0s' $(seq 1 101))"
+    #     HTTP 422: Validation Failed (https://api.github.com/repos/OWNER/REPO/labels/area:%20ci)
+    #     description is too long (maximum is 100 characters)
+    # 403 is not independently reproducible here (it needs a token with too little scope, not one
+    # this suite can hold), so it keeps the shape the settings-PATCH stub already pins below.
+    if [ "${GH_LABEL_FAILS:-0}" = 1 ]; then
+      case "${GH_LABEL_FAIL_STATUS:-403}" in
+        422)
+          echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/labels)" >&2
+          echo "description is too long (maximum is 100 characters)" >&2 ;;
+        *)
+          echo "HTTP 403: Resource not accessible by integration (https://api.github.com/repos/acme/widgets/labels)" >&2 ;;
+      esac
+      exit 1
+    fi
     name="$3"; color=""; desc=""; shift 3
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -503,7 +519,42 @@ rc=0; out=$(GH_AUTH_FAILS=1 bash "$SCRIPT" plan "$repo8" --manifest "$FIXTURE" 2
 [ "$rc" -eq 3 ] || fail "plan without gh auth: expected exit 3, got $rc — output: $out"
 echo "  ok: degrade — plan exits 3 on an unreadable surface, never 0"
 
-# -------------------------------------------------- 12. this repository's own configuration (#196)
+# ---------------------------------------- 12. a refused label write names what gh observed (#200)
+#
+# `!REFUSED` blamed EVERY non-zero label write on the token — including a 422, which is the
+# operator's OWN manifest (an over-long description, a colour GitHub rejects), not a permissions
+# gap. MEASURED against a real repository:
+#   gh label edit "area: ci" --description "$(printf 'x%.0s' $(seq 1 101))"
+#     HTTP 422: Validation Failed (https://api.github.com/repos/OWNER/REPO/labels/area:%20ci)
+#     description is too long (maximum is 100 characters)
+# 403 is the one case where the token sentence IS the right cause, so it must survive unchanged.
+
+repo9=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log label403
+rc=0; out=$(GH_LABEL_FAILS=1 GH_LABEL_FAIL_STATUS=403 bash "$SCRIPT" apply "$repo9" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label write refused by 403: expected exit 3, got $rc — output: $out"
+has_line "^!REFUSED .*labels.*check the token's scope on this repository" "$out" \
+  || fail "a 403 label refusal must keep today's token sentence — output: $out"
+echo "  ok: labels — a 403 refusal still names the token"
+
+repo10=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log label422
+rc=0; out=$(GH_LABEL_FAILS=1 GH_LABEL_FAIL_STATUS=422 bash "$SCRIPT" apply "$repo10" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label write refused by 422: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"check the token's scope"*) fail "a 422 label refusal must not blame the token — output: $out" ;;
+esac
+has_line "^!REFUSED .*labels.*description is too long" "$out" \
+  || fail "a 422 label refusal must echo GitHub's field message — output: $out"
+echo "  ok: labels — a 422 refusal names the validation cause, not the token"
+
+# -------------------------------------------------- 13. this repository's own configuration (#196)
 #
 # Sections 1-11 drive the tool over scratch repos. This one asserts a fact about THIS repository,
 # the way tests/repo-profile/test.sh asserts that the kit tracks its own profile: the kit shipped

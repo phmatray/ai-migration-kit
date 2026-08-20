@@ -148,6 +148,29 @@ refuse() {
   REFUSED=$((REFUSED + 1))
 }
 
+# Turns a failed `gh label create|edit`'s stderr into the cause it actually names, rather than
+# blaming the token for every non-zero exit (#200). Shapes MEASURED against this repository with an
+# authenticated token that has full scope:
+#   HTTP 403: ...                                       -> no scope on the token — today's sentence
+#   HTTP 422: Validation Failed (...)\n<field message>   -> the manifest's own value; echo the field
+#                                                           message GitHub actually gave (line 2)
+#   anything else                                        -> print the raw message, unrecognised
+#                                                           status included, rather than guess
+# Never retried: a 422 is the same manifest sent again, and would fail the same way (#200).
+label_refusal() {
+  local verb="$1" name="$2" err="$3" flat field
+  flat="$(printf '%s' "$err" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//')"
+  case "$err" in
+    *"HTTP 403"*)
+      printf "could not %s '%s' — check the token's scope on this repository" "$verb" "$name" ;;
+    *"HTTP 422"*)
+      field="$(printf '%s\n' "$err" | sed -n '2p')"
+      printf "could not %s '%s' — refused (422): %s" "$verb" "$name" "${field:-$flat}" ;;
+    *)
+      printf "could not %s '%s' — %s" "$verb" "$name" "$flat" ;;
+  esac
+}
+
 # Labels no `--prune` may delete, however undeclared they look. Found by running `plan` against
 # this kit's own repository: release-please owns `autorelease: pending` / `autorelease: tagged`,
 # the repo profile says in as many words that they are never applied by hand — and a single
@@ -339,16 +362,16 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
           refuse "labels" "could not delete '$f1'"
         fi
       elif [ "$action" = "+ADD" ]; then
-        if gh label create "$f1" --color "$f2" --description "$f3" >/dev/null 2>&1; then
+        if label_err="$(gh label create "$f1" --color "$f2" --description "$f3" 2>&1 >/dev/null)"; then
           APPLIED=$((APPLIED + 1))
         else
-          refuse "labels" "could not create '$f1' — check the token's scope on this repository"
+          refuse "labels" "$(label_refusal create "$f1" "$label_err")"
         fi
       else
-        if gh label edit "$f1" --color "$f2" --description "$f3" >/dev/null 2>&1; then
+        if label_err="$(gh label edit "$f1" --color "$f2" --description "$f3" 2>&1 >/dev/null)"; then
           APPLIED=$((APPLIED + 1))
         else
-          refuse "labels" "could not edit '$f1' — check the token's scope on this repository"
+          refuse "labels" "$(label_refusal edit "$f1" "$label_err")"
         fi
       fi
       ;;
