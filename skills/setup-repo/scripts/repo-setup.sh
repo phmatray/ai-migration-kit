@@ -35,6 +35,7 @@ set -uo pipefail
 # Kit root = three levels up from skills/setup-repo/scripts.
 KIT_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd -P)"
 PARSER="$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py"
+PROJECTOR="$KIT_ROOT/skills/setup-repo/scripts/project-area-options.py"
 FORMS_DIR="$KIT_ROOT/templates/issue-forms"
 DEFAULT_MANIFEST="$KIT_ROOT/templates/repo-setup.yml"
 REPO_LOCAL_MANIFEST=".github/repo-setup.yml"
@@ -191,6 +192,14 @@ label_refusal() {
 KEEP_FILE="$WORKDIR/prune-keep.txt"
 awk -F'\t' '$1=="K" {print $2}' "$DESIRED" > "$KEEP_FILE"
 
+# The manifest's own real (non-placeholder) area: labels, in manifest order — read once, used
+# both to note in the report that a copied form's Area dropdown will be generated, and by `apply`
+# to actually generate it (#198). A placeholder-only manifest leaves this file empty, and a copied
+# form then keeps the kit's shipped placeholder untouched.
+AREA_LABELS_FILE="$WORKDIR/area-labels.txt"
+awk -F'\t' '$1=="L" && $2 ~ /^area: / && $2 !~ /^area: <.*>$/ { print $2 }' "$DESIRED" > "$AREA_LABELS_FILE"
+AREA_LABEL_COUNT=$(wc -l < "$AREA_LABELS_FILE" | tr -d ' ')
+
 is_kept() {
   local n="$1" pat
   while IFS= read -r pat; do
@@ -290,6 +299,8 @@ while IFS="$(printf '\t')" read -r kind f1 f2 f3; do
       elif [ -e "$FORMS_TARGET/$name" ]; then
         # Never clobber: a consumer's tuned form outranks the kit's default.
         emit "!SKIP" "form" "$name — already present, left as is"
+      elif [ "$AREA_LABEL_COUNT" -gt 0 ]; then
+        emit "+ADD" "form" "$name — Area dropdown will be generated from the manifest" "$name"
       else
         emit "+ADD" "form" "$name" "$name"
       fi
@@ -391,6 +402,24 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
       # !SKIP is not in the action filter above. The never-clobber rule lives in one place.
       if mkdir -p "$FORMS_TARGET" 2>/dev/null && cp "$FORMS_DIR/$f1" "$FORMS_TARGET/$f1" 2>/dev/null; then
         APPLIED=$((APPLIED + 1))
+        # Project the manifest's own areas into the just-copied form, so its dropdown and this
+        # repo's labels agree by construction. A placeholder-only manifest leaves the shipped
+        # placeholder untouched — AREA_LABEL_COUNT is 0 and nothing here runs.
+        if [ "$AREA_LABEL_COUNT" -gt 0 ]; then
+          AREA_ARGS=()
+          while IFS= read -r area_label; do
+            AREA_ARGS[${#AREA_ARGS[@]}]="$area_label"
+          done < "$AREA_LABELS_FILE"
+          proj_rc=0
+          proj_err=$(python3 "$PROJECTOR" "$FORMS_TARGET/$f1" "${AREA_ARGS[@]}" 2>&1 >/dev/null) || proj_rc=$?
+          case "$proj_rc" in
+            0) : ;; # already reported +ADD by the diff pass above; nothing more to say
+            3)
+              printf '%-8s %-8s %s\n' "!NOTE" "form" \
+                "$f1 — copied, but its Area dropdown could not be generated ($proj_err)" ;;
+            *) refuse "forms" "could not project $f1's Area dropdown: $proj_err" ;;
+          esac
+        fi
       else
         refuse "forms" "could not write $FORMS_TARGET/$f1"
       fi

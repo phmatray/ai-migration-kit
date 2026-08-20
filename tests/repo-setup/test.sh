@@ -259,6 +259,25 @@ printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
 # made this very assertion fire against a correct report.
 has_line() { printf '%s\n' "$2" | grep -q "$1"; }
 
+# Shared reader for an issue form's `area` dropdown options, one per line, in file order (#198) —
+# used to compare a copied/generated form against the manifest without a bare grep, which would
+# also match the description prose above the list. A FILE, never `$(python3 - <<PY)`: bash 3.2's
+# command-substitution scanner does not honour heredoc quoting (#131).
+AREA_READER="$(kit_scratch)/read-area-options.py"
+cat > "$AREA_READER" <<'PY'
+"""Print the options of a form's `area` dropdown, one per line, in file order."""
+import sys, yaml
+
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    doc = yaml.safe_load(handle) or {}
+for field in doc.get("body") or []:
+    if field.get("id") == "area" and field.get("type") == "dropdown":
+        for option in field.get("attributes", {}).get("options") or []:
+            print(option)
+PY
+
 rc=0; out=$(bash "$SCRIPT" plan "$repo" --manifest "$FIXTURE" 2>&1) || rc=$?
 [ "$rc" -eq 1 ] || fail "plan on an unconfigured repo: expected exit 1 (drift), got $rc — output: $out"
 for want in "priority: high" "effort: small"; do
@@ -477,6 +496,53 @@ grep -q 'MINE-DO-NOT-TOUCH' "$repo5/.github/ISSUE_TEMPLATE/feature_request.yml" 
 has_line "^!SKIP .*feature_request.yml" "$out" \
   || fail "apply did not report the skipped form — output: $out"
 echo "  ok: apply — an existing form is reported !SKIP and never overwritten"
+
+# A placeholder-only manifest — $FIXTURE, exercised above — leaves the shipped placeholder
+# untouched. cmp -s at line 481 already proves this byte-for-byte; this reads it through the same
+# lens the real-areas case below uses, so both halves of the contract are visible side by side.
+form_areas=$(python3 "$AREA_READER" "$repo4/.github/ISSUE_TEMPLATE/feature_request.yml") \
+  || fail "the copied placeholder-only form does not parse as YAML"
+[ "$form_areas" = "area: <your-area>" ] \
+  || fail "a placeholder-only manifest changed the copied form's Area dropdown — got: $form_areas"
+echo "  ok: apply — a placeholder-only manifest leaves the shipped Area placeholder untouched"
+
+# --------------------------------------------- 9b. issue forms: apply projects the manifest's areas
+#
+# The other half of #198: a manifest that HAS filled in real area: labels gets a copied form whose
+# Area dropdown offers exactly those labels, in manifest order — generated, not hand-edited.
+
+AREAS_FIXTURE="$KIT_ROOT/tests/repo-setup/fixtures/manifest-areas.yml"
+[ -r "$AREAS_FIXTURE" ] || fail "fixture $AREAS_FIXTURE missing"
+
+repo4b=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log formsareas
+rc=0; out=$(bash "$SCRIPT" apply "$repo4b" --manifest "$AREAS_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply with real areas: expected exit 0, got $rc — output: $out"
+[ -f "$repo4b/.github/ISSUE_TEMPLATE/bug_report.yml" ] \
+  || fail "apply did not write .github/ISSUE_TEMPLATE/bug_report.yml"
+
+form_areas=$(python3 "$AREA_READER" "$repo4b/.github/ISSUE_TEMPLATE/bug_report.yml") \
+  || fail "the generated bug_report.yml does not parse as YAML"
+expected_areas="area: alpha
+area: beta
+area: gamma"
+[ "$form_areas" = "$expected_areas" ] \
+  || fail "the generated Area dropdown does not match the manifest's real areas, in order — got: $form_areas"
+echo "  ok: apply — a manifest with real areas projects them into the copied form's Area dropdown, in order"
+
+# Everything else about the form is untouched — the projection is a line-range replacement of the
+# options: block, not a round-trip dump that would reflow the file and drop its comments.
+# `diff` exits 1 merely because the files differ (the expected, intentional case), and under this
+# suite's `set -o pipefail` that would abort the WHOLE script right here with no FAIL line — `||
+# true` on the pipeline, same guard section 6 uses for its own "fill-me" grep.
+diff_lines=$(diff "$KIT_ROOT/templates/issue-forms/bug_report.yml" \
+                   "$repo4b/.github/ISSUE_TEMPLATE/bug_report.yml" | grep -c '^[<>]' || true)
+[ "$diff_lines" -eq 4 ] \
+  || fail "the generated form differs from the shipped source by more than the options: block ($diff_lines changed line(s))"
+echo "  ok: apply — projecting the Area dropdown touches only the options: block, nothing else"
 
 # ------------------------------------------------------------------ 10. settings: one PATCH, once
 
