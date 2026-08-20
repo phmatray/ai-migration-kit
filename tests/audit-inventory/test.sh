@@ -66,6 +66,65 @@ kit_guard kit_guard_samples_unchanged
 
 scratch=$(kit_scratch)
 
+# ---------------------------------------------------------------------------
+# #143 : le script échoue COMME LUI-MÊME, pas comme `cd`, et nomme la base contre laquelle un
+# chemin relatif a été résolu (#49 -> #102 -> #139 -> #143). `pwd -P` et pas `pwd` seul : le
+# script résout sa base avec `pwd -P` (forme physique), donc comparer à la forme logique casserait
+# sur macOS (`/tmp` -> `/private/tmp`), cf. le commentaire équivalent de
+# tests/report-dashboard/test.sh.
+# ---------------------------------------------------------------------------
+rel_missing="tests/audit-inventory/repo-inexistant-relatif"
+cwd_phys="$(pwd -P)"
+if err=$("$INV" "$rel_missing" 2>&1); then
+  echo "ÉCHEC : un répertoire relatif introuvable doit faire échouer le script"; exit 1
+fi
+case "$err" in
+  *"audit-inventory.sh"*) : ;;
+  *) echo "ÉCHEC : l'erreur d'un répertoire relatif introuvable ne se présente pas comme elle-même (bash a parlé à sa place) : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"$cwd_phys/$rel_missing"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le chemin résolu : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"chemin relatif résolu depuis $cwd_phys"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas la base de résolution : $err"; exit 1 ;;
+esac
+echo "  [143a] un répertoire relatif introuvable : le script se nomme, nomme le chemin résolu et la base"
+
+abs_missing="$scratch/repo-inexistant-absolu"
+if err=$("$INV" "$abs_missing" 2>&1); then
+  echo "ÉCHEC : un répertoire absolu introuvable doit faire échouer le script"; exit 1
+fi
+case "$err" in
+  *"$abs_missing"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le chemin absolu : $err"; exit 1 ;;
+esac
+# Assertée APRÈS la vraie erreur ci-dessus (même piège que #139 : « clause absente » ne doit pas
+# passer sur un crash sans rapport). Un chemin ABSOLU n'a été résolu contre rien, la clause
+# mentirait.
+case "$err" in
+  *"chemin relatif résolu"*)
+    echo "ÉCHEC : un chemin absolu ne doit porter aucune clause de résolution : $err"; exit 1 ;;
+esac
+echo "  [143b] un répertoire absolu introuvable : nommé, sans clause de résolution relative"
+
+# Régression : un répertoire atteint par un LIEN SYMBOLIQUE rapporte, comme `repo` dans le JSON, le
+# nom que l'appelant a TAPÉ — jamais le nom physique de la cible du lien. L'ancien code lisait
+# `REPO_NAME` depuis `pwd` APRÈS le `cd`, une valeur qui dépend du comportement logique/physique du
+# shell ; le dériver de l'ARGUMENT lui-même l'affranchit de cette dépendance.
+sym_dir="$scratch/symlinked"
+mkdir -p "$sym_dir/vrai-nom"
+ln -s vrai-nom "$sym_dir/lien-appelant"
+out=$("$INV" "$sym_dir/lien-appelant")
+python3 - "$out" <<'PY'
+import json, sys
+inv = json.loads(sys.argv[1])
+assert inv["repo"] == "lien-appelant", \
+    f"REPO_NAME doit nommer l'argument de l'appelant, pas la cible physique du lien : {inv['repo']!r}"
+PY
+echo "  [143c] un répertoire atteint par un lien symbolique rapporte le nom que l'appelant a tapé"
+
 # A minimal .NET repo shape. audit-inventory walks the filesystem, so a csproj is all it needs to
 # recognise the tree; git is optional (the script already falls back to "unknown" for the dates).
 mk_app() {
