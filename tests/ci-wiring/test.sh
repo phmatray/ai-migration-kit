@@ -21,6 +21,10 @@
 #  16. a suite committed as a symlink (120000)         -> REFUSE, without the fatal --chmod=+x fix
 #  17. a suite name git quotes (non-ASCII)             -> still caught at the wrong mode
 #  18. both defects at once (unreadable index AND a genuinely unwired suite) -> both are named
+#  19. a suite that is wired but never `git add`ed        -> REFUSE, naming it and the `git add` fix
+#  20. a suite that is BOTH untracked AND unwired          -> both reasons named, neither contradicts
+#      the other (the "not executable" reason must not claim CI invokes a suite the "not enforced"
+#      reason just said nothing invokes)
 #
 # The refusal cases are the point. A gate is worth exactly what its refusal path is worth, and an
 # inline `run:` block cannot have one — which is why scripts/release-title-gate.sh was extracted
@@ -417,6 +421,44 @@ if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/orphan/test.sh' \
    && printf '%s' "$out" | grep -qi 'index'; then
   ok "an unreadable index still names a genuinely unwired suite in the same run"
 else bad "expected both tests/orphan/test.sh AND the index problem named; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 19. a suite wired but never git-added
+# #210. `tests/ghost/test.sh` exists on disk, is chmod +x'd, and is named by an enforcing step of a
+# workflow that runs on a push to main — every rule above is satisfied — but it was never `git add`ed.
+# `modes.get(suite)` is then simply absent from the index, and the old comprehension's `is not None`
+# guard excluded untracked suites from `not_executable` entirely: the check reported the repo fully
+# enforced (measured, issue #210). A suite absent from the index is absent from any real clone or CI
+# checkout, so this must refuse on the same footing as a wrong mode, not silently pass.
+R="$WORK/ghost"; scaffold "$R" alpha ghost
+# scaffold() stages every suite it's given, including ghost — undo that one `git add` so the
+# fixture matches its own name: staged on disk (+x, from scaffold's loop), absent from the index.
+git -C "$R" rm --cached -q -- tests/ghost/test.sh
+assert_parsed "$R/.github/workflows/ci.yml" \
+  "any('ghost' in (s.get('run') or '') for s in d['jobs']['kit']['steps'])" \
+  "ghost step wired into ci.yml"
+[ -z "$(git -C "$R" ls-files -- tests/ghost/test.sh)" ] \
+  || bad "fixture bug: tests/ghost/test.sh was staged — the whole point is that it is not"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/ghost/test.sh' \
+   && printf '%s' "$out" | grep -q 'not staged in the index at all' \
+   && printf '%s' "$out" | grep -q 'git add tests/ghost/test.sh'; then
+  ok "a suite wired but never git-added refuses, naming it and the git add remedy"
+else bad "expected refusal naming tests/ghost/test.sh and the git add remedy; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 20. untracked AND unwired, together
+# The `not_executable` and `unwired` verdicts are computed independently (by design, see section 18),
+# so a suite can legitimately land in both. Before this was guarded, the "not executable" heading's
+# fixed wording — "CI invokes it as ./{suite}" — was printed even when the "not enforced by CI" heading
+# directly above it had just said "no step invokes it": a self-contradictory refusal in the same run
+# (measured). `tests/orphan2/test.sh` here is invoked by nothing AND never `git add`ed.
+R="$WORK/ghostorphan"; scaffold "$R" alpha
+mkdir -p "$R/tests/orphan2"; touch "$R/tests/orphan2/test.sh"; chmod +x "$R/tests/orphan2/test.sh"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'no step invokes it' \
+   && printf '%s' "$out" | grep -q 'no step invokes it either' \
+   && ! printf '%s' "$out" | grep -q 'CI invokes it as ./tests/orphan2/test.sh'; then
+  ok "a suite that is both untracked and unwired names both reasons without contradicting itself"
+else bad "expected both reasons named, without the 'CI invokes it' claim; got rc=$rc: $out"; fi
 
 echo
 if [ "$fails" -eq 0 ]; then
