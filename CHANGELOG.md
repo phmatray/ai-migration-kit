@@ -8,6 +8,14 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.13.0](https://github.com/phmatray/ai-migration-kit/compare/v1.12.1...v1.13.0) (2026-08-20)
+
+
+### Features
+
+* **setup-repo:** adopt the kit's own label taxonomy and issue forms ([#196](https://github.com/phmatray/ai-migration-kit/issues/196)) ([#197](https://github.com/phmatray/ai-migration-kit/issues/197)) ([28cf003](https://github.com/phmatray/ai-migration-kit/commit/28cf00376b32aff44821e3ba73e47bdb3a07ec01))
+* **setup-repo:** plan/apply a repo's labels, issue forms and settings ([#192](https://github.com/phmatray/ai-migration-kit/issues/192)) ([#193](https://github.com/phmatray/ai-migration-kit/issues/193)) ([825cb02](https://github.com/phmatray/ai-migration-kit/commit/825cb02305948f81f8f299a97a1b53dfb2424dee))
+
 ## [1.12.1](https://github.com/phmatray/ai-migration-kit/compare/v1.12.0...v1.12.1) (2026-08-19)
 
 
