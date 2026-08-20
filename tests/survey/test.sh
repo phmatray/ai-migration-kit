@@ -208,3 +208,57 @@ run_survey "$W4" "$F4" "$O4"
 assert_bucket QUEUE 401 "$O4"
 assert_bucket HOLD  402 "$O4"
 echo "ok: degraded-fallback — a manifest with no effort: axis still classifies word-spelled labels, not all-HOLD"
+
+# ------------------------------------------------------------- 5. parser-failure (#230, not #213)
+#
+# The manifest's effort: axis is fine (xs/m, a vocabulary parse-manifest.py would read without
+# complaint) but an UNRELATED label — this repo's own "type: bug" — carries a description over
+# GitHub's 100-character cap, so parse-manifest.py's Task-2 validation (#200) dies before ever
+# emitting a single "L" record. survey.sh's manifest-read pipeline redirects the parser's stderr
+# to /dev/null, so this collapsed into the exact same empty VOCAB_JSON as "no effort: labels
+# found" or "no readable manifest" — reopening #213's failure through a path #213 never
+# exercised. The fix must still fall back to small/medium/large (the parser's real vocabulary is
+# unconfirmed), but the stderr message must name the parser's actual error, not claim no axis was
+# declared.
+
+W5="$WORK/parser-failure"
+mkdir -p "$W5/.github"
+cat > "$W5/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "type: bug"
+    color: "d73a4a"
+    description: "This description is deliberately far longer than the one hundred character cap GitHub enforces on every label description field, so it trips the check."
+  - name: "effort: xs"
+    color: "c5def5"
+    description: "extra-small"
+  - name: "effort: m"
+    color: "c5def5"
+    description: "medium"
+YML
+F5="$WORK/parser-failure-issues.json"
+mkissues "$F5" \
+  "501|Small task, unrelated label trips the parser|xs|1" \
+  "502|Medium task, unrelated label trips the parser|m|1"
+O5="$WORK/parser-failure.out"
+run_survey "$W5" "$F5" "$O5"
+
+# The vocabulary could not be confirmed, so both fall back to the hardcoded small/medium/large
+# ranking — neither "xs" nor "m" is in it, so both land past tier 2 (HOLD), same as
+# degraded-fallback's unclassified case. That outcome is unchanged by this fix; what must change
+# is the diagnostic naming why.
+assert_bucket HOLD 501 "$O5"
+assert_bucket HOLD 502 "$O5"
+
+if ! grep -q "ERR: label 'type: bug'" "$O5.err"; then
+  echo "FAIL: survey.sh stderr does not name the parser's real error"
+  echo "---"
+  cat "$O5.err"
+  exit 1
+fi
+if grep -q "no effort: labels found" "$O5.err"; then
+  echo "FAIL: survey.sh stderr still claims no effort axis was declared, masking the real parser failure"
+  echo "---"
+  cat "$O5.err"
+  exit 1
+fi
+echo "ok: parser-failure — a parser death on an UNRELATED label is named, not folded into \"no effort axis\""
