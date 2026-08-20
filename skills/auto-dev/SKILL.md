@@ -201,13 +201,15 @@ is deterministic, so **run `scripts/survey.sh`** instead of re-deriving it (one 
 fewer turns = less cache re-read). It prints one bucketed, ordered row per issue:
 
 ```
-QUEUE  #N  effort  plan=true  qa=false  [labels]  title   ← eligible (effort:S before :M), area-tag + dispatch
-HOLD   #N  ...                                            ← effort L/XL, out of the default fleet (see Large issues)
+QUEUE  #N  effort  plan=true  qa=false  [labels]  title   ← eligible (smallest declared tier first), area-tag + dispatch
+HOLD   #N  ...                                            ← past the 2nd declared tier, or unclassified (see Large issues)
 SKIP   #N  ...                                            ← no plan, or manual-QA only — note the reason in state
 ```
 
-What the buckets encode: **Effort** from the profile's `effort: S/M/L/XL` labels (S before M; L/XL
-held); **plan** present (`🛠️ Implementation plan` / a task-list — no plan ⇒ SKIP, or seed one via
+What the buckets encode: **Effort** ranked against the repo's own `.github/repo-setup.yml` (falling
+back to the kit's shipped `templates/repo-setup.yml`) — whatever `effort:` labels that manifest
+declares, in the order it declares them, not a hardcoded S/M/L/XL spelling (#213); **plan** present
+(`🛠️ Implementation plan` / a task-list — no plan ⇒ SKIP, or seed one via
 `create-issue` if the user insists); **manual-QA** dropped (a headless agent can't "visually QA…").
 The **one judgment left to you is area-tagging** the QUEUE rows (infer from title/labels: `compiler`,
 `php`, `website`, `studio-frontend`, `tests`, `ci/build`) — enough to tell "these two would fight."
