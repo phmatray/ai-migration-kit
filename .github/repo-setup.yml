@@ -104,8 +104,10 @@ labels:
     description: "docs/, reviews/, README.md and ARCHITECTURE.md — the prose the kit ships"
   - name: "area: ci"
     color: "c5def5"
-    # ⚠️ GitHub caps a label description at 100 characters and rejects a longer one with 422 —
-    # which `apply` reports as "check the token's scope", naming the wrong cause. Measured here.
+    # ⚠️ GitHub caps a label description at 100 characters and rejects a longer one with 422 — a
+    # 130-character description was MEASURED here (#200) misreported as "check the token's scope",
+    # naming the wrong cause. `parse-manifest.py` now refuses an over-long description locally
+    # before it ever reaches `gh`, and a 422 that does reach `gh` echoes the field GitHub named.
     description: ".github/, hooks/, .claude-plugin/ and the repo-root config files"
 
 # Labels `--prune` must never delete, as shell globs. These are labels a TOOL owns: they look
