@@ -7,10 +7,14 @@
 # documented this hazard at length for phase 2 (waiting on CI), but `commands/auto-dev-worker.md` —
 # the literal text a phase-1 worker's context is seeded with — said nothing about it at all.
 #
-# This suite pins the textual invariant so it cannot regress silently: commands/auto-dev-worker.md
-# carries a hard "never wait" rule, naming the forbidden phrasings a worker actually produced.
+# This suite pins two textual invariants so neither regresses silently:
+#   1. commands/auto-dev-worker.md carries a hard "never wait" rule, naming the forbidden phrasings
+#      a worker actually produced.
+#   2. skills/auto-dev/SKILL.md Step 4 recognizes the "died waiting, all boxes ticked" signature and
+#      prescribes a tail prompt (not a restart) as its recovery — the worker-side fix does not
+#      retroactively rescue a session that already died this way.
 #
-# Reads only files under commands/ — never samples/ — so no kit_guard is needed.
+# Reads only files under commands/ and skills/auto-dev/ — never samples/ — so no kit_guard is needed.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 KIT="$PWD"
@@ -36,5 +40,20 @@ grep -qF "I'll pick this back up automatically once it completes" "$WORKER_MD" \
   || fail "commands/auto-dev-worker.md is missing the forbidden phrasing: I'll pick this back up automatically once it completes"
 grep -qF "I'll stop issuing further tool calls now and wait" "$WORKER_MD" \
   || fail "commands/auto-dev-worker.md is missing the forbidden phrasing: I'll stop issuing further tool calls now and wait"
+
+# 2. skills/auto-dev/SKILL.md Step 4 recognizes a worker killed by an in-worker wait — all plan
+#    checkboxes ticked plus a deferral-shaped final line — and prescribes a tail prompt, not a
+#    restart, as the recovery.
+SKILL_MD="$KIT/skills/auto-dev/SKILL.md"
+[ -f "$SKILL_MD" ] || fail "missing $SKILL_MD"
+
+grep -qi "checkboxes.*ticked" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not name the 'all checkboxes ticked' recognition signature"
+grep -qi "deferral" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not name the deferral-shaped final line signature"
+grep -qi "tail prompt" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not prescribe a tail prompt as the recovery"
+grep -qi "not a restart\|never a restart\|not a re-run" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not rule out a restart as the recovery"
 
 echo "PASS: auto-dev-never-wait"
