@@ -63,6 +63,39 @@ grep -q 'introuvable' "$scratch/err.out" || { echo "ÉCHEC : l'erreur doit nomme
 grep -q 'chemin relatif résolu' "$scratch/err.out" && {
   echo "ÉCHEC : un chemin absolu ne doit porter aucune clause de résolution : $(cat "$scratch/err.out")"; exit 1; }
 
+# Régression : un repo atteint par un LIEN SYMBOLIQUE rapporte, comme `repo` dans le JSON (et donc
+# comme provenance de chaque tâche/différé), le nom que l'appelant a TAPÉ — jamais le nom physique
+# de la cible du lien. Même règle, même issue #143, que REPO_NAME dans audit-inventory.sh — un
+# `.resolve().name` ici nommerait la cible plutôt que l'argument.
+sym_dir="$scratch/symlinked"
+mkdir -p "$sym_dir/vrai-nom/migration"
+cat > "$sym_dir/vrai-nom/migration/report.json" <<'EOF'
+{"next_steps": [{"text": "Tâche via lien", "effort": "~10 min", "owner": false}], "deferred": []}
+EOF
+ln -s vrai-nom "$sym_dir/lien-appelant"
+python3 scripts/followups.py "$sym_dir/lien-appelant" --json | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['tasks'][0]['repo'] == 'lien-appelant', \
+    f\"'repo' doit nommer l'argument de l'appelant, pas la cible physique du lien : {d['tasks'][0]['repo']!r}\"
+"
+
+# Régression : `.` n'est pas un NOM, seulement une référence — `Path('.').name` vaut `''`, ce qui
+# perdrait le vrai nom du répertoire. C'est le cas d'appel le plus courant de tous : un agent déjà
+# `cd`-é dans le dépôt migré, lançant `followups.py .`.
+dot_dir="$scratch/dot-arg/VraiNomDuDepot/migration"
+mkdir -p "$dot_dir"
+cat > "$dot_dir/report.json" <<'EOF'
+{"next_steps": [{"text": "Tâche via point", "effort": "~10 min", "owner": false}], "deferred": []}
+EOF
+out_dot=$(cd "$scratch/dot-arg/VraiNomDuDepot" && python3 "$KIT/scripts/followups.py" . --json)
+python3 - "$out_dot" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+assert d['tasks'][0]['repo'] == 'VraiNomDuDepot', \
+    f"'repo' doit nommer le répertoire réel pour l'argument '.', pas le littéral '.' ou '' : {d['tasks'][0]['repo']!r}"
+PY
+
 # Sortie --json : structure valide et comptes cohérents.
 python3 scripts/followups.py tests/followups/fixture-a tests/followups/fixture-b --json | python3 -c "
 import json, sys

@@ -29,8 +29,16 @@ fi
 # `.` et `..` sont l'exception : ce sont des RÉFÉRENCES, pas des noms — `basename` y répondrait par
 # le littéral "." / "..", perdant le vrai nom que l'ancien code rapportait. L'appel le plus courant
 # de tous (un agent déjà `cd`-é dans le dépôt, lançant `audit-inventory.sh .`) est justement celui-là.
+# `pwd` LOGIQUE ici, jamais `-P` : si le cwd lui-même a été atteint via un lien symbolique (l'agent
+# a fait `cd app-link` avant de lancer `audit-inventory.sh .`), `-P` résoudrait ce lien et
+# rapporterait le nom PHYSIQUE de la cible — exactement ce que la branche générale ci-dessus
+# refuse de faire pour `audit-inventory.sh app-link`. Mesuré : les deux invocations désignent le
+# même répertoire et doivent rapporter le même nom, or `-P` les faisait diverger (`real-app-dir`
+# contre `app-link`). `-P` reste correct ailleurs dans ce fichier (lignes 11/19-20) parce que ce
+# calcul-là sert un but différent : faire correspondre la BASE du message d'erreur à celle de
+# `followups.py` (`Path.cwd()`, toujours physique) — pas nommer ce que l'appelant a tapé.
 case "$(basename "$REPO")" in
-  .|..) export REPO_NAME="$(basename "$(cd "$REPO" && pwd -P)")" ;;
+  .|..) export REPO_NAME="$(basename "$(cd "$REPO" && pwd)")" ;;
   *)    export REPO_NAME="$(basename "$REPO")" ;;
 esac
 cd "$REPO"

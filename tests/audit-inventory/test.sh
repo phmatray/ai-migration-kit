@@ -147,6 +147,29 @@ assert inv["repo"] == "dot-arg", \
 PY
 echo "  [143d] un argument '.' ou finissant par '..' rapporte le vrai nom du répertoire, pas le littéral"
 
+# Régression : le fallback `.`/`..` doit rester cohérent avec la règle générale [143c] — même
+# répertoire, même nom rapporté, quelle que soit la façon dont on l'atteint. Si le cwd LUI-MÊME a
+# été atteint via un lien symbolique (un agent fait `cd app-link` puis lance
+# `audit-inventory.sh .`), un `pwd -P` dans le fallback résoudrait ce lien et rapporterait le nom
+# PHYSIQUE de la cible — en désaccord avec `audit-inventory.sh app-link`, qui rapporte le nom du
+# lien. `pwd` (logique, sans `-P`) est ce qui les garde d'accord.
+symcwd_base="$scratch/symcwd"
+mkdir -p "$symcwd_base/vrai-nom-physique"
+ln -s vrai-nom-physique "$symcwd_base/nom-du-lien"
+out_direct=$("$INV" "$symcwd_base/nom-du-lien")
+out_viadot=$(cd "$symcwd_base/nom-du-lien" && "$INV" .)
+python3 - "$out_direct" "$out_viadot" <<'PY'
+import json, sys
+direct = json.loads(sys.argv[1])["repo"]
+viadot = json.loads(sys.argv[2])["repo"]
+assert direct == "nom-du-lien", f"appel direct sur le lien : attendu 'nom-du-lien', reçu {direct!r}"
+assert viadot == direct, (
+    f"'.' depuis un cwd atteint par ce même lien doit rapporter le même nom que l'appel direct "
+    f"({direct!r}), pas {viadot!r} — le fallback '.'/'..' a résolu le lien au lieu de le préserver"
+)
+PY
+echo "  [143e] '.' depuis un cwd atteint par un lien symbolique rapporte le même nom que l'appel direct sur ce lien"
+
 # A minimal .NET repo shape. audit-inventory walks the filesystem, so a csproj is all it needs to
 # recognise the tree; git is optional (the script already falls back to "unknown" for the dates).
 mk_app() {
