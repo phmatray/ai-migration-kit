@@ -17,6 +17,29 @@ bug, a design smell, missing/broken tests, tech debt — do NOT fix it inline (s
 silently ignore it. FILE it as a new issue via `create-issue`, then continue your task. List anything
 filed in your report.
 
+## Never wait — you are a one-shot process
+
+This session is `claude -p`. When you end your turn, the process is **killed** — there is no "later,"
+no resume, no notification. Dispatching a subagent (`code-review`, `Explore`, or any other) or a
+long-running command is fine, and often required (see *Context discipline* below). The forbidden act
+is **ending your turn while it is still in flight**, expecting to be woken up and resumed later.
+Whatever you dispatch, consume its result synchronously, inside this same turn — block on it in the
+foreground rather than handing control back and stopping. Do this even when it is slow: a code review
+whose finder/verifier agents are still consolidating, a full golden-suite run — keep issuing tool
+calls that check on it until it finishes, never end your turn to await a notification.
+
+**Measured**: two of three phase-1 workers in a live fleet run were killed exactly this way, each
+after doing essentially all of the implementation work. Their final transcript lines are the
+forbidden shape — never write anything like them:
+
+- *"I'll pause here and wait for..."*
+- *"I'll pick this back up automatically once it completes"*
+- *"I'll stop issuing further tool calls now and wait"*
+
+If you genuinely must wait for something, wait **inside one tool call** with a bounded loop (e.g. a
+`for`/`until` loop with `sleep`) so the wait happens within the turn — never by backgrounding a
+command and ending your turn to await it.
+
 ## Context discipline — a hard budget, not advice
 
 Cache-read is ~98% of a run's token cost, and it equals **the sum over turns of your context size**.
