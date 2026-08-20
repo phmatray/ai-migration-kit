@@ -340,7 +340,19 @@ worker's `implement-issue` worktree still holding the head branch while the supe
 `main` — makes gh's own local-cleanup half fail routinely, on a merge that landed regardless). What
 each code means is the script's own header comment and `merge-pr` SKILL.md Step 5's table (#184) —
 one home, not restated here — but what **auto-dev** specifically does with each outcome is:
-`0` (MERGED) → shut the worker down and refill the slot. `1` (QUEUED) → leave the slot held, do not
+`0` (MERGED) → shut the worker down and refill the slot (same as any other retirement) — **and**
+dispatch a fresh one-shot session running `merge-pr <PR>` (`ai-migration-kit:merge-pr <PR>` when
+installed as a plugin — the same namespacing rule Step 1 already states for dispatched skill names)
+for **local cleanup only**: `merge-pr`'s own Step 1 resume contract sees `state == MERGED` and
+routes straight to Steps 6-7 — follow-up triage, then the worker's `implement-issue`
+worktree/branch teardown — so this call can never attempt a second merge, it only finishes the half
+`guarded-pr-merge.sh`'s own header comment explicitly leaves to the caller. Only once that cleanup
+session reports back does the slot's bookkeeping in the state file count as fully closed — the
+worker itself was already shut down at the takeover, so this is strictly the local half catching
+up. If the cleanup session fails or times out, don't block the fleet on it: surface it the same way
+Step 4 already surfaces any other dispatched-session failure (re-derive real state from GitHub at
+the next heartbeat rather than trusting the session's silence) and note the worktree/branch as
+needing a manual sweep — the PR itself stayed merged regardless. `1` (QUEUED) → leave the slot held, do not
 retry the merge, re-check next heartbeat. `2` (REJECTED) or `3` (CLOSED) → a real problem the
 takeover didn't cause and can't fix by retrying — leave the slot held (do **not** refill it; the
 issue isn't actually done), surface it to a human, and don't dispatch a fresh worker onto it until
