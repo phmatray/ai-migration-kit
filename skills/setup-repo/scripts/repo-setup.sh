@@ -134,7 +134,9 @@ DELTA="$WORKDIR/delta.tsv"
 # machine-readable delta cannot fall out of step with what the human was shown: one call writes
 # both. `apply` re-reads $DELTA rather than re-deriving the diff.
 emit() {
-  printf '%-7s %-8s %s\n' "$1" "$2" "$3"
+  # %-8s, not %-7s: `!REFUSED` is eight characters, and a narrower column pushes every refusal one
+  # place right of the rows the reader is comparing it against.
+  printf '%-8s %-8s %s\n' "$1" "$2" "$3"
   printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${4:-}" "${5:-}" "${6:-}" >> "$DELTA"
   case "$1" in
     "+ADD"|"~EDIT"|"-DEL") DRIFT=$((DRIFT + 1)) ;;
@@ -142,7 +144,7 @@ emit() {
 }
 
 refuse() {
-  printf '%-7s %-8s %s\n' "!REFUSED" "$1" "$2"
+  printf '%-8s %-8s %s\n' "!REFUSED" "$1" "$2"
   REFUSED=$((REFUSED + 1))
 }
 
@@ -173,6 +175,12 @@ SLUG=""
 if [ "$GH_OK" = 1 ]; then
   SLUG="$(gh repo view --json nameWithOwner 2>/dev/null | jq -r '.nameWithOwner // empty' 2>/dev/null)"
 fi
+
+# The header goes out BEFORE the first probe, because probes can refuse — and a refusal printed
+# above "manifest:" reads as though the script failed before it had decided anything.
+echo "manifest: $MANIFEST"
+[ -n "$SLUG" ] && echo "repo:     $SLUG"
+echo ""
 
 LIVE_LABELS="$WORKDIR/live-labels.tsv"
 : > "$LIVE_LABELS"
@@ -208,10 +216,6 @@ elif gh api "repos/$SLUG" > "$LIVE_SETTINGS" 2>/dev/null; then
 else
   refuse "settings" "gh api repos/$SLUG failed — settings were not read"
 fi
-
-echo "manifest: $MANIFEST"
-[ -n "$SLUG" ] && echo "repo:     $SLUG"
-echo ""
 
 # ------------------------------------------------------------------------------------- the diff
 
