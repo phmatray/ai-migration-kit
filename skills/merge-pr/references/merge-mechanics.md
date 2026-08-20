@@ -452,10 +452,30 @@ Guards matter — this step runs after the irreversible merge, so it must never 
 because something was already cleaned up. "Already gone" is success. The **remote** branch is *usually*
 gone by now — via Step 5's `--delete-branch`, or GitHub's own `delete_branch_on_merge` — but don't
 bank on it: when gh's local step fails first, `--delete-branch` may never reach the remote side (SKILL
-Step 5, *The exit code doesn't decide*). Check with `git ls-remote --heads origin <headRefName>`
-rather than assume. gh leaves the **local** side untouched when the branch is checked out in a
-worktree (you'll see `failed to delete local branch … used by worktree` or `'main' is already
-used by worktree`), which is exactly why this step exists.
+Step 5, *The exit code doesn't decide*). gh leaves the **local** side untouched when the branch is
+checked out in a worktree (you'll see `failed to delete local branch … used by worktree` or `'main'
+is already used by worktree`), which is exactly why this step exists.
+
+**Confirmed, not assumed (#185):** reading gh's own `mergeRun` (`pkg/cmd/pr/merge/merge.go`,
+`cli/cli@trunk`) shows `deleteLocalBranch` runs before `deleteRemoteBranch`, and the first error
+short-circuits the rest — the local-worktree failure above *is* that first error on this kit's usual
+layout, so the remote delete is skipped, not merely delayed. And `delete_branch_on_merge` is `false`
+by GitHub's own default; a repo the profile targets may not have turned it on the way this one has.
+So finish the job here instead of assuming either mechanism reached it:
+
+```bash
+skills/merge-pr/scripts/remote-branch-teardown.sh "$HEAD_BRANCH" "$OWNER/$REPO"
+```
+
+It runs `git ls-remote --heads origin <headRefName>` and, only if the branch is still there, `gh api
+-X DELETE repos/{owner}/{repo}/git/refs/heads/<headRefName>` — tolerant of the same race gh's own
+`deleteRemoteBranch` tolerates (a 422/404 "Reference does not exist" from a concurrent
+`delete_branch_on_merge` or a slow `--delete-branch` winning first). It always runs this check
+regardless of the repo's `delete_branch_on_merge` setting: that value is read from a profile
+snapshot that can go stale between refreshes, where a wrongly-trusted `true` would leave a branch
+leaked forever, against the cost of one extra `ls-remote` call when it is genuinely `true`. Prints
+`already-gone` or `deleted` and exits 0 either way; a genuine API failure exits 1 with the error —
+report it, don't swallow it (§8).
 
 **Safety:** never remove `$MAIN` or a worktree whose branch isn't the PR's head. Match the path to the
 branch (via §2's listing) before removing — a wrong `git worktree remove --force` throws away someone
@@ -477,3 +497,5 @@ else's in-progress work.
 | `guarded-merge: REFUSED — the index … already carries an UNRESOLVED merge` (exit 2) | A previous sync stopped at exit 5 and was never finished; git refuses a second merge on an unmerged index (its own exit 128) | **Nothing merged.** Finish the one in flight (resolve + `guarded-commit … -- --no-edit`) or abandon it (`-- --abort`), then sync again |
 | `guarded-commit.sh: No such file or directory` in the corrections loop | `$GUARDS`/`$WORKTREE`/`$BRANCH` were never recorded — Step 2 deferred the worktree and Step 4 created one without setting them | Record all four names (Step 2's block) at the point the worktree appears, then re-run the correction |
 | `guarded-*: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: the corrections are being run from the wrong checkout | **Nothing was written.** Move to the PR branch's own worktree (§2) and retry — never "just commit anyway" |
+| `remote-branch-teardown: failed to delete origin/<branch>: …` (exit 1) | The remote branch survived the merge (Step 5's `--delete-branch` never reached it, and `delete_branch_on_merge` is off or didn't fire) and the DELETE call itself failed for a reason other than "already gone" — permissions, rate limit, network | **Not tolerable — a real leak, not a race.** Read the API error, fix what it names, and re-run `remote-branch-teardown.sh` with the same two arguments; it's idempotent (an already-gone branch on retry is just another `already-gone`) |
+| `remote-branch-teardown: usage: … <head-branch> <owner>/<repo>` (exit 2) | Called without both arguments — a script/prerequisite error, not a merge or teardown failure | Supply `$HEAD_BRANCH` and `$OWNER/$REPO` (§2 already resolved both) and re-run |
