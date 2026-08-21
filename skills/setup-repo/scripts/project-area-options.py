@@ -32,6 +32,11 @@ def die(code, message):
 
 
 def find_area_field(doc):
+    if not isinstance(doc, dict):
+        # A form whose top-level YAML parses but isn't a mapping (a bare list, a scalar) has no
+        # `body:` to look in — treated the same as "no dropdown field with id: area" (exit 3),
+        # not an uncaught AttributeError from `.get()` on a list/str outside the 0/2/3 contract.
+        return None
     for entry in doc.get("body") or []:
         if isinstance(entry, dict) and entry.get("id") == "area" and entry.get("type") == "dropdown":
             return entry

@@ -110,6 +110,7 @@ fi
 
 [ -r "$MANIFEST" ] || { echo "ERR: cannot read the manifest '$MANIFEST'" >&2; exit 2; }
 [ -r "$PARSER" ] || { echo "ERR: parser missing at '$PARSER'" >&2; exit 2; }
+[ -r "$PROJECTOR" ] || { echo "ERR: area-options projector missing at '$PROJECTOR'" >&2; exit 2; }
 
 # The parser exits 2 and explains on stderr for every refusal, so its status is carried straight
 # through rather than restated. Captured into a variable because the diff below walks it twice.
