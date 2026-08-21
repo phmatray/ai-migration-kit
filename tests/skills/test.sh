@@ -159,3 +159,68 @@ if [ "$fails" -ne 0 ]; then
   exit 1
 fi
 echo "check-frontmatter golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
+# The main-worktree derivation has one home now (#125): scripts/main-worktree.sh. Two broken
+# spellings kept getting re-introduced before that — a caller resolving `-C` from
+# `git rev-parse --show-toplevel` right next to a worktrees-ignored.sh call (fails OPEN from a
+# linked worktree, tests/worktrees-ignored/test.sh case 22) and an `awk '{p=$2}'` listing that
+# truncates a checkout under a path containing a space. This is the anti-recurrence guard: it
+# scans the real skills/ tree, not a scratch copy, because the defect IS the committed prose and
+# scripts, not something a fixture could stand in for.
+#
+# Proximity, not "the file mentions both": skills/get-repo-profile/scripts/repo-profile.sh
+# legitimately carries an UNRELATED `rev-parse --show-toplevel` (line ~30, resolving the profile
+# PATH argument — out of scope for #125, see the issue's own Assumptions) alongside four
+# worktrees-ignored.sh mentions dozens of lines away. A whole-file substring check would flag that
+# file forever; only a call sitting near a guard invocation is the actual bug.
+echo "== the main-worktree derivation is not re-spelled (#125) =="
+python3 - "$KIT_ROOT/skills" <<'PY'
+import sys, pathlib
+
+root = pathlib.Path(sys.argv[1])
+REV_PARSE = "rev-parse --show-toplevel"
+GUARD = "worktrees-ignored.sh"
+AWK_BAD = "{p=$2}"
+WINDOW = 5  # lines
+
+failures = []
+for path in sorted(root.rglob("*")):
+    if not path.is_file():
+        continue
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (UnicodeDecodeError, OSError):
+        continue
+
+    # Comment lines are explanatory prose, not re-introduced code — repo-profile.sh's own fix
+    # comment says "this replaces `git rev-parse --show-toplevel`" a few lines above the guard
+    # call it replaced it with, and that sentence is the point, not a regression.
+    code_lines = [(i, l) for i, l in enumerate(lines) if not l.lstrip().startswith("#")]
+    rev_lines = [i for i, l in code_lines if REV_PARSE in l]
+    guard_lines = [i for i, l in code_lines if GUARD in l]
+    for r in rev_lines:
+        for g in guard_lines:
+            if abs(r - g) <= WINDOW:
+                failures.append(
+                    "%s: '%s' (line %d) sits next to a '%s' call (line %d) — "
+                    "resolve the main checkout via scripts/main-worktree.sh instead (#125)"
+                    % (path, REV_PARSE, r + 1, GUARD, g + 1)
+                )
+                break
+
+    for i, l in enumerate(lines):
+        if AWK_BAD in l and "worktree" in l:
+            failures.append(
+                "%s:%d: the truncating awk spelling ('{p=$2}') is back — a path containing a "
+                "space would be cut at the first space (#125)" % (path, i + 1)
+            )
+
+if failures:
+    print("FAIL: the main-worktree derivation was re-spelled:")
+    for f in failures:
+        print("  " + f)
+    sys.exit(1)
+print("ok   no file under skills/ re-spells the main-worktree derivation")
+PY
+echo "skills golden test: all cases behaved as specified"
