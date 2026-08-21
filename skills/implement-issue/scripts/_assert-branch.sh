@@ -202,7 +202,9 @@ head_state_unreadable() { [ -z "${1:-}" ] && [ "${2:-}" = '<unreadable>' ]; }
 # tests for `assert_branch` and `refuse`, the last and the first function here, so a helper
 # truncated anywhere in between still fails the check instead of surviving to a `command not
 # found` (exit 127) at the first call. Adding a function BELOW this one would quietly break that
-# — put new helpers above it.
+# — put new helpers above it. Enforced by tests/guarded-git/test.sh case 33e (#161): it extracts
+# this file's top-level function names in order and fails if the first is not `refuse` or the
+# last is not `assert_branch`, and it fails separately if any guard's bootstrap stops naming both.
 assert_branch() {
   local tool="$1" detached_message="$2" mismatch_message="$3"
   local head_branch

@@ -1586,6 +1586,46 @@ OUT=""
   "the full-sha witness read must have exactly ONE home in _assert-branch.sh (head_sha_full_of), found $witness_homes"
 echo "  ok: witness-one-spelling — the full-sha witness read has one home in _assert-branch.sh (head_sha_full_of), distinct from the abbreviating and named-ref reads"
 
+# 33e. …and _assert-branch.sh's own function ordering, which every guard's bootstrap leans on:
+# "assert_branch is defined LAST on purpose" was a comment at its own tail, and nothing enforced
+# either half of that sentence (#161). Each guard bootstraps the helper and then probes for
+# `assert_branch` and `refuse` BY NAME — the last and the first function in the file — so a
+# truncation anywhere between them still fails that probe instead of surviving to a bare
+# `command not found` (127) at the first call a truncation actually breaks. That is only true
+# while those two really are the first and last functions AND every bootstrap really names both,
+# and #148 alone added four functions to this file that had to land ABOVE assert_branch for the
+# claim to keep holding — correctly, but on the honour system.
+#
+# A static extraction, not a behavioural probe: sourcing the helper and calling
+# `declare -F` would report functions in DEFINITION order on some shells and ALPHABETICAL order
+# on others (bash 3.2, which is what /bin/bash still is on macOS, sorts it), so the one property
+# under test — file order — is exactly the one a runtime probe cannot be trusted to preserve.
+# Reading the source is what 33a-d already do for the same reason.
+helper_fns=$(guard_code "$HELPER" \
+  | sed -E 's/^[^:]+:[0-9]+: //' \
+  | grep -E '^[a-z_][a-z0-9_]*\(\)' \
+  | sed -E 's/^([a-z_][a-z0-9_]*)\(\).*/\1/')
+first_fn=$(printf '%s\n' "$helper_fns" | head -1)
+last_fn=$(printf '%s\n' "$helper_fns" | tail -1)
+
+[ "$first_fn" = refuse ] || fail helper-fn-order \
+  "_assert-branch.sh's FIRST function must be refuse — every guard's bootstrap probes it — found: $first_fn"
+[ "$last_fn" = assert_branch ] || fail helper-fn-order \
+  "_assert-branch.sh's LAST function must be assert_branch — the ordering the truncation probe leans on — found: $last_fn"
+
+# …and the other half of the claim: every bootstrap must still be probing BOTH of those names,
+# not merely that the names exist somewhere in the helper. Renaming either end without updating
+# the three copies of this probe would otherwise go unnoticed.
+for g in "$COMMIT" "$PUSH" "$MERGE"; do
+  bootstrap=$(guard_code "$g" | grep 'command -v' || true)
+  [ -n "$bootstrap" ] || fail helper-fn-order "$(basename "$g") has no 'command -v' bootstrap probe at all"
+  printf '%s' "$bootstrap" | grep -q 'assert_branch' \
+    || fail helper-fn-order "$(basename "$g")'s bootstrap probe does not name assert_branch"
+  printf '%s' "$bootstrap" | grep -q 'refuse' \
+    || fail helper-fn-order "$(basename "$g")'s bootstrap probe does not name refuse"
+done
+echo "  ok: helper-fn-order — _assert-branch.sh's function order (refuse first, assert_branch last) is asserted, and every guard's bootstrap probes both names"
+
 # ---------------------------------------------------------------- 34. `detached` is a MEASUREMENT
 #
 # head_branch_of() answers with nothing in TWO situations — HEAD is genuinely detached, and the
