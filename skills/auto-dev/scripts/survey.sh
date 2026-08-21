@@ -113,22 +113,27 @@ if [ -n "$MANIFEST" ] && [ -r "$PARSER" ]; then
       else
         VOCAB_PIPE_RC=("${PIPESTATUS[@]}")
       fi
-      VOCAB_JSON="$(cat -- "$VOCAB_TMP" 2>/dev/null)" || VOCAB_JSON=""
+      # `|| VOCAB_PIPE_FAILED=1`: reading the pipeline's own output back can fail even when every
+      # stage above exited 0 (the temp file vanished, a permissions race, a read error) — that is
+      # itself the extraction machinery breaking, not "no effort: labels found", and must be
+      # counted the same way a nonzero per-stage exit is below.
+      VOCAB_JSON="$(cat -- "$VOCAB_TMP" 2>/dev/null)" || { VOCAB_JSON=""; VOCAB_PIPE_FAILED=1; }
 
       # Stage 2 is `grep -i '^effort:'`, which legitimately exits 1 when the manifest declares no
       # effort: labels at all — an empty match, not a tool failure — so only a grep exit ABOVE 1
       # (a real grep error) counts there. Every other stage (printf, awk, sed, tr, jq) has no
       # "expected nonzero" case: any nonzero exit from one of those is the pipeline actually
       # breaking, which is what this issue's stub-jq reproduction exercises.
-      i=0
-      for rc in "${VOCAB_PIPE_RC[@]}"; do
-        if [ "$i" -eq 2 ]; then
-          [ "$rc" -gt 1 ] && VOCAB_PIPE_FAILED=1
-        else
-          [ "$rc" -ne 0 ] && VOCAB_PIPE_FAILED=1
-        fi
-        i=$((i + 1))
+      if [ "${VOCAB_PIPE_RC[2]}" -gt 1 ]; then
+        VOCAB_PIPE_FAILED=1
+      fi
+      for i in 0 1 3 4 5; do
+        [ "${VOCAB_PIPE_RC[$i]}" -ne 0 ] && VOCAB_PIPE_FAILED=1
       done
+    else
+      # mktemp itself failing (full/unwritable $TMPDIR) means the extraction pipeline never even
+      # ran — a real tool failure, same as a nonzero per-stage exit, not "no effort: labels found".
+      VOCAB_PIPE_FAILED=1
     fi
   fi
 fi
@@ -144,7 +149,15 @@ fi
 # the empty-vocabulary case without spawning a second jq just to ask it the length — on every
 # normal run, not only the degraded one, since a non-empty pipeline result is never the empty
 # bash string either.
-if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ]; then
+#
+# `|| [ "$VOCAB_PIPE_FAILED" -eq 1 ]` matters on its own, independent of VOCAB_JSON's content: a
+# pipe stage can die AFTER already flushing some of its input downstream (sed killed mid-stream,
+# a transient I/O error) — jq then slurps whatever reached it and happily emits a well-formed,
+# non-empty, non-"[]" array from truncated input. Without this clause a real pipeline failure with
+# partial output would silently pass through as the (wrong, truncated) vocabulary, with neither a
+# warning nor a revert to the safe small/medium/large default — the exact silent corruption this
+# fix's own instrumentation exists to catch.
+if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ] || [ "$VOCAB_PIPE_FAILED" -eq 1 ]; then
   if [ "$PARSER_RC" -ne 0 ]; then
     echo "survey.sh: parse-manifest.py failed (exit $PARSER_RC) reading $MANIFEST — falling back to small/medium/large; the manifest's effort: axis could not be confirmed. Parser said: $PARSER_STDERR" >&2
   elif [ "$PARSER_ATTEMPTED" -eq 0 ] && [ -n "$MANIFEST" ]; then

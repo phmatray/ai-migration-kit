@@ -415,3 +415,69 @@ if grep -qi "vocabulary-extraction pipeline" "$O4.err"; then
   exit 1
 fi
 echo "ok: degraded-fallback (recheck) — grep's expected no-match exit still reads as \"no effort axis declared\", not a pipeline failure"
+
+# ---------------------------------------------- 8. pipeline-partial-failure (mid-stream, not empty)
+#
+# Case 7's stub jq fails BEFORE writing anything, so VOCAB_JSON ends up empty and the existing
+# `[ -z "$VOCAB_JSON" ]` gate already catches it regardless of VOCAB_PIPE_FAILED. This case is
+# different and harder: `sed` dies mid-stream (a transient kill/I-O error, exit 2) AFTER already
+# forwarding its first matched line downstream, so jq still slurps that partial input and emits a
+# perfectly well-formed, NON-empty, NON-"[]" array — just missing "medium" and "large". Without
+# ORing VOCAB_PIPE_FAILED into the outer fallback gate, this truncated vocabulary would silently
+# pass through as if it were the real one: no stderr warning, and every "medium"/"large" issue
+# would rank past tier 2 (HOLD) instead of falling back to small/medium/large, where they QUEUE.
+W8="$WORK/pipeline-partial-failure"
+mkdir -p "$W8/.github" "$W8/bin"
+cat > "$W8/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+
+REAL_SED="$(command -v sed)"
+[ -n "$REAL_SED" ] || { echo "FAIL: no system sed found to build the pipeline-partial-failure stub"; exit 1; }
+# Forwards exactly the first input line through the real transform, then dies — reproducing a
+# tool that flushed partial output before breaking, not one that never produced any.
+cat > "$W8/bin/sed" <<STUB
+#!/usr/bin/env bash
+if [[ "\$*" == *"[Ee][Ff][Ff][Oo][Rr][Tt]"* ]]; then
+  IFS= read -r first_line
+  printf '%s\n' "\$first_line" | "$REAL_SED" -E 's/^[Ee][Ff][Ff][Oo][Rr][Tt]:[[:space:]]*//'
+  exit 2
+fi
+exec "$REAL_SED" "\$@"
+STUB
+chmod +x "$W8/bin/sed"
+
+F8="$WORK/pipeline-partial-failure-issues.json"
+mkissues "$F8" \
+  "801|Small task, pipeline partially failed|small|1" \
+  "802|Medium task, pipeline partially failed|medium|1" \
+  "803|Large task, pipeline partially failed|large|1"
+O8="$WORK/pipeline-partial-failure.out"
+
+( cd "$W8" && env PATH="$W8/bin:$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$F8" bash "$SURVEY" ) \
+  > "$O8" 2>"$O8.err" || { echo "FAIL: survey.sh exited $? on pipeline-partial-failure"; cat "$O8.err"; exit 1; }
+
+# The vocabulary could not be confirmed (it was truncated to just ["small"], not the manifest's
+# real small/medium/large), so all three fall back to the hardcoded ranking, same as every other
+# fallback case — NOT the corrupted tiering a truncated vocab would otherwise silently produce
+# (which would HOLD the medium-labeled issue because "medium" fell outside the truncated array).
+assert_bucket QUEUE 801 "$O8"
+assert_bucket QUEUE 802 "$O8"
+assert_bucket HOLD  803 "$O8"
+
+if ! grep -qi "vocabulary-extraction pipeline.*failed" "$O8.err"; then
+  echo "FAIL: survey.sh stderr does not name the vocabulary pipeline as the failure point for a mid-stream partial failure"
+  echo "---"
+  cat "$O8.err"
+  exit 1
+fi
+if grep -q "no effort: labels found" "$O8.err"; then
+  echo "FAIL: survey.sh stderr claims no effort axis was declared, masking a mid-stream pipeline failure that left truncated-but-valid output"
+  echo "---"
+  cat "$O8.err"
+  exit 1
+fi
+echo "ok: pipeline-partial-failure — a pipe stage that dies AFTER flushing partial output doesn't silently pass its truncated vocabulary through"
