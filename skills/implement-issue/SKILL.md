@@ -182,29 +182,17 @@ deterministic. Branch-name matching cannot catch that; asking GitHub whether thi
 has an open PR can — so run this fallback whenever the branch-name check just found nothing, before
 creating any worktree.
 
-**Run `references/github-mechanics.md` §5's exact recipe** — not a copy here, which is how the
-worktree-ignore table drifted apart (#71). It queries `gh pr list` for open PRs whose body actually
-*closes* this issue (GitHub's own closing-keyword set, not a bare mention) and writes the result to
-`/tmp/issue-$ISSUE-closers.json`; `tests/pr-existence-guard/test.sh` proves that program's behavior
-against fixtures shaped exactly like #195. Then act on the count:
-
-- **`0`** → nothing to resume onto; proceed to "Then reuse or create" below.
-- **`1`** → resume onto it instead of scaffolding a new one: fetch its `headRefName`, `git worktree
-  add` from it (existing local branch) or from `origin/<branch>` with `-b` (remote-only), and set
-  `BRANCH` to it — this issue already has a home, so it overrides the derived slug. Skip Step 5's
-  scaffold commit entirely — the branch already carries one, and the PR already exists — and continue
-  at Step 6.
-- **`2`+** → the exact shape of the #195 incident: a pre-existing duplicate pair (or worse) already on
-  GitHub. Don't silently pick one and say nothing. Resume onto the PR with the most real commits
-  (`gh pr view <n> --json commits --jq '.commits | length'` per candidate — an untouched scaffold has
-  exactly one) and **name the duplicate in the Step 10 report** ("found N open PRs already closing
-  this issue; resumed onto #X, Y other(s) left open for a human to close"). This is not a
-  stop-and-ask case under the Autonomy contract — picking the branch with the real implementation is
-  a safe, reasonable default — but a standing duplicate PR is worth a human's attention, so it always
-  goes in the report, resolved automatically or not.
-
-A PR that once closed this issue but is now **closed** (abandoned, superseded) never blocks a fresh
-scaffold — the search is already scoped to `--state open`.
+**Run `references/github-mechanics.md` §5's exact recipe, and read its 0/1/2+ decision table there**
+— not a copy here, which is how the worktree-ignore table drifted apart (#71), and this fallback's own
+first draft duplicated the same table once already, immediately going stale when the recipe grew a
+tie-break rule and an empty-fetch guard. §5's recipe queries `gh pr list` for open PRs whose body
+actually *closes* this issue (GitHub's own closing-keyword set, not a bare mention) and writes the
+result to `/tmp/issue-$ISSUE-closers.json`; `tests/pr-existence-guard/test.sh` proves that program's
+behavior against fixtures shaped exactly like #195. The short version: `0` → nothing to resume onto,
+proceed to "Then reuse or create" below; `1` → resume onto it and skip Step 5's scaffold entirely;
+`2`+ → the exact shape of the #195 incident, resume onto the most-implemented one (§5 has the
+tie-break) and **name the duplicate in the Step 10 report** — this is not a stop-and-ask case under
+the Autonomy contract, but a standing duplicate PR is worth a human's attention regardless.
 
 Then reuse or create, and record the two names every later step needs:
 
@@ -453,6 +441,7 @@ Short and concrete:
 - One line per task shipped (and confirmation every checkbox is ticked).
 - Code-review outcome — what you fixed, what you dismissed and why.
 - Merge sync — clean, or which conflicts you resolved (and how).
+- **If Step 4's issue-scoped fallback found 2+ pre-existing open PRs already closing this issue**, name them and which one you resumed onto — this is the one line this checklist cannot skip, because a resumed run that says nothing here silently reproduces the "pick one and say nothing" outcome #214 exists to stop.
 - Anything assumed, deferred, or unverifiable (e.g. full suite skipped for a missing local prerequisite the profile flags). Keep detail in the PR/issue; the report points there.
 
 Then **close the loop**: the PR is ready but not landed — a human owns the merge decision. Point the

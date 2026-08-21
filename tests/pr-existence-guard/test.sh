@@ -126,6 +126,12 @@ verdict no-open-prs.json 42 '-' \
 verdict mixed-keywords-case-insensitive.json 42 '60 61 62' \
   'the full closing-keyword set matches case-insensitively'
 
+# GitHub also recognizes the colon form ("Closes: #42"), and some PRs carry no space at all
+# ("Fixes:#42"). Both must still count as closing — a false negative here is what lets a
+# duplicate scaffold through on a PR that really does already close the issue.
+verdict colon-and-tight-spacing.json 42 '70 71' \
+  'the colon form and tight spacing between keyword and number still match'
+
 # ---------------------------------------------------------------------------------------- verdict
 if [ "$FAILED" -ne 0 ]; then
   echo

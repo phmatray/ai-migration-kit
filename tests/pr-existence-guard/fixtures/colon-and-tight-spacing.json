@@ -1,0 +1,14 @@
+[
+  {
+    "number": 70,
+    "headRefName": "fix/42-colon",
+    "body": "Closes: #42",
+    "url": "https://github.com/phmatray/ai-migration-kit/pull/70"
+  },
+  {
+    "number": 71,
+    "headRefName": "fix/42-tight",
+    "body": "Fixes:#42 with no space at all.",
+    "url": "https://github.com/phmatray/ai-migration-kit/pull/71"
+  }
+]
