@@ -1,0 +1,19 @@
+# Fixture desired state for tests/repo-setup (#198) — declares one REAL area: label
+# ("area: alpha") alongside one placeholder-SHAPED area: label that is NOT the literal shipped
+# placeholder text ("area: parser <experimental>"). Exercises AREA_LABELS_FILE's substring filter
+# agreeing with the main diff loop's substring test: both must treat "area: parser <experimental>"
+# as an unfilled placeholder (never created, never projected into a form's Area dropdown), while
+# still projecting "area: alpha" alone.
+labels:
+  - name: "area: alpha"
+    color: "c5def5"
+    description: "First area"
+  - name: "area: parser <experimental>"
+    color: "c5def5"
+    description: "Not yet decided"
+
+issueTemplates:
+  - bug_report.yml
+
+settings:
+  delete_branch_on_merge: true
