@@ -327,3 +327,91 @@ if grep -q "no effort: labels found" "$O6.err"; then
   exit 1
 fi
 echo "ok: parser-missing — a parser that never ran is named distinctly, not folded into \"no effort axis\""
+
+# -------------------------------------------------------------- 7. pipeline-failure (#251, not any of the above)
+#
+# The manifest declares a genuinely valid effort: axis and parse-manifest.py reads it without
+# complaint (PARSER_RC=0, PARSER_ATTEMPTED=1) — but the awk|grep|sed|tr|jq pipeline that turns the
+# parser's stdout into VOCAB_JSON breaks downstream of the parser, because one of ITS tools is
+# broken, not because the manifest declares nothing. Shadow jq on PATH with a stub that always
+# exits nonzero, leaving python3/awk/grep/sed/tr untouched so the parser itself keeps succeeding —
+# same shape as the issue's own reproduction. Today's code has no way to see this: it folds the
+# resulting empty VOCAB_JSON into the same "no effort: labels found" message #213/#230/#239 already
+# had to disambiguate from two OTHER causes, wrongly telling an operator the manifest is the
+# problem when the manifest and the parser are both fine.
+
+W7="$WORK/pipeline-failure"
+mkdir -p "$W7/.github" "$W7/bin"
+cat > "$W7/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+
+# A stub jq that fails ONLY the vocabulary-extraction invocation (`jq -R -s '...'`), ahead of the
+# real one on PATH. survey.sh's OWN final step also calls jq (`gh issue list | jq -r --argjson
+# vocab ... '...'`, no `-R`) to bucket the issues — that call is unrelated to the bug under test,
+# so the stub execs the real binary for it instead of failing the whole script for the wrong
+# reason. parse-manifest.py itself does not shell out to jq at all, so the parser is untouched.
+REAL_JQ="$(command -v jq)"
+[ -n "$REAL_JQ" ] || { echo "FAIL: no system jq found to build the pipeline-failure stub"; exit 1; }
+cat > "$W7/bin/jq" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "-R" ]; then
+  exit 1
+fi
+exec "$REAL_JQ" "\$@"
+STUB
+chmod +x "$W7/bin/jq"
+
+F7="$WORK/pipeline-failure-issues.json"
+mkissues "$F7" \
+  "701|Small task, vocabulary pipeline broken|small|1" \
+  "702|Large task, vocabulary pipeline broken|large|1"
+O7="$WORK/pipeline-failure.out"
+
+# run_survey's own PATH="$WORK/bin:$PATH" comes first for the `gh` stub; prepend $W7/bin here too
+# so the broken jq shadows the real one without disturbing that gh lookup.
+( cd "$W7" && env PATH="$W7/bin:$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$F7" bash "$SURVEY" ) \
+  > "$O7" 2>"$O7.err" || { echo "FAIL: survey.sh exited $? on pipeline-failure"; cat "$O7.err"; exit 1; }
+
+# The vocabulary could not be confirmed, so both fall back to the hardcoded small/medium/large
+# ranking — same ranking outcome as every other fallback case above. What must differ is the
+# stderr wording: it must name the pipeline as the failure point, not claim the manifest declared
+# no effort: axis (which would be false — it declares one correctly, and the parser read it fine).
+assert_bucket QUEUE 701 "$O7"
+assert_bucket HOLD  702 "$O7"
+
+if ! grep -qi "vocabulary-extraction pipeline.*failed" "$O7.err"; then
+  echo "FAIL: survey.sh stderr does not name the vocabulary pipeline as the failure point"
+  echo "---"
+  cat "$O7.err"
+  exit 1
+fi
+if grep -q "no effort: labels found" "$O7.err"; then
+  echo "FAIL: survey.sh stderr still claims no effort axis was declared, masking the broken pipeline"
+  echo "---"
+  cat "$O7.err"
+  exit 1
+fi
+echo "ok: pipeline-failure — a broken downstream tool after a successful parser run is named distinctly, not folded into \"no effort axis\""
+
+# --------------------------------------------------- 7b. degraded-fallback keeps its own wording
+#
+# Guards the boundary this fix must not cross: grep -i '^effort:' finding no match (because the
+# manifest genuinely declares no effort: axis) is NOT a pipeline failure and must still produce the
+# pre-existing "no effort: labels found" message, not the new one.
+if ! grep -q "no effort: labels found" "$O4.err"; then
+  echo "FAIL: degraded-fallback's stderr no longer says \"no effort: labels found\" — the new pipeline-failure branch may be over-firing on grep's expected no-match exit"
+  echo "---"
+  cat "$O4.err"
+  exit 1
+fi
+if grep -qi "vocabulary-extraction pipeline" "$O4.err"; then
+  echo "FAIL: degraded-fallback's stderr wrongly claims the pipeline failed — grep's expected no-match exit must not trip the new branch"
+  echo "---"
+  cat "$O4.err"
+  exit 1
+fi
+echo "ok: degraded-fallback (recheck) — grep's expected no-match exit still reads as \"no effort axis declared\", not a pipeline failure"
