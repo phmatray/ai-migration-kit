@@ -247,6 +247,27 @@ sed -i.bak 's/{verdict:"stop", rule:"other"}/{verdict:"maybe", rule:"other"}/' \
 git -C "$k" add -A
 refuses "$k" R4 "R4 — a verdict the program emits but the registry never declared is refused"
 
+# --- R5 causes are distinct, and a comment quoting the form it documents is not a branch --------
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    "set -euo pipefail\n",
+    'set -euo pipefail\n# always emits verdict:"stop" when state is not CLEAN\n',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R5 — a comment quoting the verdict form it documents is not counted as an extra branch"
+else
+  bad "R5 — a documentary comment made the guard refuse a kit that R5 must accept:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
 # --- R7 the owner must INVOKE, not merely mention -----------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 # Delete the fenced call, leaving the skill otherwise intact. This is the exact move that would

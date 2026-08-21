@@ -132,6 +132,41 @@ ANNOTATION_RE = re.compile(r"^<!--\s*decided-by:\s*([^\s]+)\s*-->$")
 ANNOTATION_LOOKBACK = 3
 
 
+def strip_comments(text):
+    """Strip a `#`-to-end-of-line comment from each line, without touching `#` inside a
+    double-quoted string.
+
+    Feeds R4 and R5 (VERDICT_LIT_RE / RULE_LIT_RE): those rules judge what a program EMITS, and a
+    comment documenting a verdict form (`# emits verdict:"stop" when …`) is prose about the
+    program, not a branch of it — counting it invents a phantom cause R5 then refuses for.
+
+    Every registered program is `#`-commented (jq and bash agree on that), so a line-oriented scan
+    is enough for the shapes this repo actually has; a future `program.kind` using another comment
+    syntax would need this made kind-aware. Single quotes are not tracked: R3 already refuses a
+    single quote outright in a `block` program, so a `#` cannot hide inside one there, and an `exec`
+    program's own single-quoted shell wrapping never contains a bare `#` in this kit's programs.
+    """
+    out = []
+    for line in text.split("\n"):
+        in_string = False
+        escaped = False
+        cut = len(line)
+        for i, ch in enumerate(line):
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\" and in_string:
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+            elif ch == "#" and not in_string:
+                cut = i
+                break
+        out.append(line[:cut])
+    return "\n".join(out)
+
+
 class Unanswerable(Exception):
     """A condition under which no verdict is possible — exit 2, never a pass."""
 
@@ -483,6 +518,7 @@ def check(repo, registry_path):
         programs[did] = program_text(repo, did)
         tokens_by_id[did] = set(TOKEN_RE.findall(programs[did]))
         prog = programs[did]
+        prog_emitted = strip_comments(prog)
         kind = (row.get("program") or {}).get("kind")
 
         # ------------------------------------------------------------------------ R1 ONE HOME
@@ -525,7 +561,7 @@ def check(repo, registry_path):
 
         # ------------------------------------------------------------ R4 VOCABULARY IS EXACT
         declared = set((row.get("verdict") or {}).get("vocabulary") or [])
-        emitted = set(VERDICT_LIT_RE.findall(prog))
+        emitted = set(VERDICT_LIT_RE.findall(prog_emitted))
         for word in sorted(emitted - declared):
             refuse("R4", _program_where(repo, row),
                    f"'{did}' can answer {word!r}, which is not in its declared vocabulary",
@@ -538,8 +574,8 @@ def check(repo, registry_path):
                    "Remove it, or restore the branch.")
 
         # ------------------------------------------------------------ R5 CAUSES ARE DISTINCT
-        verdict_lits = VERDICT_LIT_RE.findall(prog)
-        rule_lits = RULE_LIT_RE.findall(prog)
+        verdict_lits = VERDICT_LIT_RE.findall(prog_emitted)
+        rule_lits = RULE_LIT_RE.findall(prog_emitted)
         if len(verdict_lits) != len(rule_lits):
             refuse("R5", _program_where(repo, row),
                    f"'{did}' has {len(verdict_lits)} verdict literal(s) but {len(rule_lits)} "
