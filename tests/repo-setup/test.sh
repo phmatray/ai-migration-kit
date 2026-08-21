@@ -263,19 +263,37 @@ has_line() { printf '%s\n' "$2" | grep -q "$1"; }
 # used to compare a copied/generated form against the manifest without a bare grep, which would
 # also match the description prose above the list. A FILE, never `$(python3 - <<PY)`: bash 3.2's
 # command-substitution scanner does not honour heredoc quoting (#131).
+#
+# Loads project-area-options.py's own find_area_field() rather than re-deriving the id+type match
+# here — two independent implementations of the same "is this the area field" decision is this
+# repo's own recurring failure shape (#141, #163), and this exact decision already had to be
+# reconciled once during #198 (the placeholder-substring check, repo-setup.sh's is_placeholder_name).
+# UNQUOTED heredoc terminator (`<<PY`, not `<<'PY'`) is deliberate here — the one interpolation this
+# body needs is $KIT_ROOT, baked in as a literal path when the file is written; the body has no `$`
+# or backtick of its own to protect. Unrelated to #131: that bug is a heredoc NESTED inside `$(…)`,
+# not whether a top-level heredoc's terminator is quoted.
 AREA_READER="$(kit_scratch)/read-area-options.py"
-cat > "$AREA_READER" <<'PY'
-"""Print the options of a form's `area` dropdown, one per line, in file order."""
-import sys, yaml
+cat > "$AREA_READER" <<PY
+"""Print the options of a form's \`area\` dropdown, one per line, in file order."""
+import importlib.util
+import sys
+
+import yaml
+
+spec = importlib.util.spec_from_file_location(
+    "kit_project_area_options", "$KIT_ROOT/skills/setup-repo/scripts/project-area-options.py"
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
 
 sys.stdout.reconfigure(encoding="utf-8", newline="\n")
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     doc = yaml.safe_load(handle) or {}
-for field in doc.get("body") or []:
-    if field.get("id") == "area" and field.get("type") == "dropdown":
-        for option in field.get("attributes", {}).get("options") or []:
-            print(option)
+field = mod.find_area_field(doc)
+if field is not None:
+    for option in field.get("attributes", {}).get("options") or []:
+        print(option)
 PY
 
 rc=0; out=$(bash "$SCRIPT" plan "$repo" --manifest "$FIXTURE" 2>&1) || rc=$?
@@ -340,6 +358,15 @@ esac
 has_line "^!TODO .*area: <fill-me>" "$out" \
   || fail "plan: the placeholder line disappeared instead of counting as drift — output: $out"
 echo "  ok: plan — a converged repo with an unfilled area axis exits 1 (!TODO is drift), no +ADD/~EDIT"
+
+# "Run apply to converge" is FALSE advice here — apply never creates a placeholder (#198) — so the
+# verdict line has to say "edit the manifest", not repeat the one instruction that resolves nothing.
+has_line "^plan: 1 item(s) of drift, all unfilled placeholder(s)" "$out" \
+  || fail "plan: the all-placeholder verdict did not name the manifest as the fix — output: $out"
+case "$out" in
+  *"Run \`repo-setup.sh apply\` to converge."*) fail "plan told the operator to run apply when apply would fix nothing — output: $out" ;;
+esac
+echo "  ok: plan — when every drift item is an unfilled placeholder, the verdict says edit the manifest, not apply"
 
 # The uppercase "#B60205" in the fixture against gh's "b60205" is the case that proves it: without
 # normalisation this label would report ~EDIT forever and `apply` would rewrite it on every run.
@@ -543,6 +570,55 @@ diff_lines=$(diff "$KIT_ROOT/templates/issue-forms/bug_report.yml" \
 [ "$diff_lines" -eq 4 ] \
   || fail "the generated form differs from the shipped source by more than the options: block ($diff_lines changed line(s))"
 echo "  ok: apply — projecting the Area dropdown touches only the options: block, nothing else"
+
+# `plan` was only ever exercised against a PLACEHOLDER-only manifest (where it now permanently
+# exits 1, per Task 1). A manifest whose area axis is genuinely filled in must still reach a
+# converged plan once everything else lands — the property Task 1's change could plausibly break
+# for the "good" case while fixing the "bad" one.
+fresh_log formsareasplan
+rc=0; out=$(bash "$SCRIPT" plan "$repo4b" --manifest "$AREAS_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "plan after apply with real areas: expected exit 0 (converged), got $rc — output: $out"
+case "$out" in
+  *"!TODO"*) fail "plan after apply with real areas still reports !TODO — output: $out" ;;
+esac
+echo "  ok: plan — a manifest with a fully filled-in area axis reaches a converged plan"
+
+# A manifest can declare a placeholder-SHAPED area label that ISN'T the literal shipped
+# "area: <your-area>" — e.g. "area: parser <experimental>", a label someone is still deciding on.
+# The main diff loop's placeholder test is a SUBSTRING match (`*"<"*">"*`, a few lines above this
+# file), so it correctly !TODO's this and never creates it. AREA_LABELS_FILE's filter must agree —
+# an anchored pattern that only excluded the exact shipped placeholder would let this one through,
+# so `apply` would project an Area dropdown option pointing at a label that is never created.
+MIXED_FIXTURE="$KIT_ROOT/tests/repo-setup/fixtures/manifest-mixed-placeholder.yml"
+[ -r "$MIXED_FIXTURE" ] || fail "fixture $MIXED_FIXTURE missing"
+
+repo4c=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log mixedplaceholder
+rc=0; out=$(bash "$SCRIPT" plan "$repo4c" --manifest "$MIXED_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "plan with a mixed placeholder: expected exit 1, got $rc — output: $out"
+has_line "^!TODO .*area: parser <experimental>" "$out" \
+  || fail "plan: the substring placeholder is not reported as !TODO — output: $out"
+# Line-oriented, never a `case` glob over the whole multi-line report (the file's own §4 comment,
+# a few hundred lines up, explains why): "+ADD" from an unrelated line and "area: parser
+# <experimental>" from the !TODO line above would satisfy a cross-line glob with nothing wrong.
+! has_line "^\+ADD .*area: parser <experimental>" "$out" \
+  || fail "plan queued the substring placeholder for creation — output: $out"
+echo "  ok: plan — a substring-shaped placeholder (not the literal shipped one) is still !TODO, never +ADD"
+
+fresh_log mixedplaceholderapply
+rc=0; out=$(bash "$SCRIPT" apply "$repo4c" --manifest "$MIXED_FIXTURE" 2>&1) || rc=$?
+[ -f "$repo4c/.github/ISSUE_TEMPLATE/bug_report.yml" ] \
+  || fail "apply did not write .github/ISSUE_TEMPLATE/bug_report.yml"
+n=$(gh_calls_matching "experimental")
+[ "$n" -eq 0 ] || fail "apply sent the substring placeholder to gh $n time(s)"
+mixed_form_areas=$(python3 "$AREA_READER" "$repo4c/.github/ISSUE_TEMPLATE/bug_report.yml") \
+  || fail "the generated bug_report.yml does not parse as YAML"
+[ "$mixed_form_areas" = "area: alpha" ] \
+  || fail "the substring placeholder leaked into the generated Area dropdown — got: $mixed_form_areas"
+echo "  ok: apply — the substring placeholder never reaches gh and never leaks into the generated dropdown"
 
 # ------------------------------------------------------------------ 10. settings: one PATCH, once
 

@@ -126,27 +126,44 @@ python3 "$PARSER" "$MANIFEST" > "$DESIRED" || exit 2
 
 # --------------------------------------------------------------------------------- live state
 
-DRIFT=0            # +ADD / ~EDIT items — what `plan` exits 1 for
+DRIFT=0            # +ADD / ~EDIT / -DEL / !TODO items — what `plan` exits 1 for
+TODO_COUNT=0       # the !TODO subset of DRIFT — `apply` never resolves these (#198), so the
+                   # verdict message below has to say "edit the manifest", not "run apply"
 REFUSED=0          # surfaces that could not be read or written — exit 3, and named in the report
 DELTA="$WORKDIR/delta.tsv"
 : > "$DELTA"
 
-# Every report line goes through here so the column widths cannot drift between surfaces, and the
-# machine-readable delta cannot fall out of step with what the human was shown: one call writes
-# both. `apply` re-reads $DELTA rather than re-deriving the diff.
-emit() {
-  # %-8s, not %-7s: `!REFUSED` is eight characters, and a narrower column pushes every refusal one
-  # place right of the rows the reader is comparing it against.
+# Every report row — drift, refusal, or a plain note — shares this column layout, so one place
+# fixes it for emit()/refuse()/note() at once (#198): three independent `printf '%-8s %-8s %s\n'`
+# calls already had to be kept in sync by hand, and %-8s, not %-7s, matters — `!REFUSED` is eight
+# characters, and a narrower column pushes every refusal one place right of the rows the reader is
+# comparing it against.
+_report_line() {
   printf '%-8s %-8s %s\n' "$1" "$2" "$3"
+}
+
+# Every report line goes through here so the machine-readable delta cannot fall out of step with
+# what the human was shown: one call writes both. `apply` re-reads $DELTA rather than re-deriving
+# the diff.
+emit() {
+  _report_line "$1" "$2" "$3"
   printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${4:-}" "${5:-}" "${6:-}" >> "$DELTA"
   case "$1" in
     "+ADD"|"~EDIT"|"-DEL"|"!TODO") DRIFT=$((DRIFT + 1)) ;;
   esac
+  [ "$1" = "!TODO" ] && TODO_COUNT=$((TODO_COUNT + 1))
 }
 
 refuse() {
-  printf '%-8s %-8s %s\n' "!REFUSED" "$1" "$2"
+  _report_line "!REFUSED" "$1" "$2"
   REFUSED=$((REFUSED + 1))
+}
+
+# An informational line that is neither drift nor a refusal — apply did something the operator
+# should know about, but it is not a claim that anything is wrong. Kept separate from $DELTA since
+# there is nothing here for a later `apply` pass to re-read.
+note() {
+  _report_line "$1" "$2" "$3"
 }
 
 # Turns a failed `gh label create|edit`'s stderr into the cause it actually names, rather than
@@ -192,13 +209,35 @@ label_refusal() {
 KEEP_FILE="$WORKDIR/prune-keep.txt"
 awk -F'\t' '$1=="K" {print $2}' "$DESIRED" > "$KEEP_FILE"
 
-# The manifest's own real (non-placeholder) area: labels, in manifest order — read once, used
-# both to note in the report that a copied form's Area dropdown will be generated, and by `apply`
-# to actually generate it (#198). A placeholder-only manifest leaves this file empty, and a copied
-# form then keeps the kit's shipped placeholder untouched.
-AREA_LABELS_FILE="$WORKDIR/area-labels.txt"
-awk -F'\t' '$1=="L" && $2 ~ /^area: / && $2 !~ /^area: <.*>$/ { print $2 }' "$DESIRED" > "$AREA_LABELS_FILE"
-AREA_LABEL_COUNT=$(wc -l < "$AREA_LABELS_FILE" | tr -d ' ')
+# A <…> name is the manifest saying "an axis belongs here and nobody has filled it in" — a SUBSTRING
+# test, not an anchored one, so "area: parser <experimental>" counts too, not only the literal
+# shipped "area: <your-area>". Shared by the main diff loop below (the `L` case) and the area-labels
+# filter just past it (#198) so the two can never independently disagree again: they already did
+# once during this change (an anchored pattern in one place, a substring pattern in the other), and
+# a label the report `!TODO`'d as never-created still leaked into a copied form's Area dropdown.
+is_placeholder_name() {
+  case "$1" in
+    *"<"*">"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The manifest's own real (non-placeholder) area: labels, in manifest order — built once, here,
+# used both to note in the report that a copied form's Area dropdown will be generated, and by
+# `apply` to actually generate it (#198). Built straight into the array (no on-disk
+# area-labels.txt): the array already IS the single source of truth `[ "${#AREA_ARGS[@]}" -gt 0 ]`
+# reads below, so a second on-disk representation would just be one more thing to keep in sync. A
+# FILE, not a pipe, is still what's read FROM ($DESIRED) — a `while … done < <(…)` or `… | while`
+# would run this body in a subshell, where AREA_ARGS would be built on a copy and vanish.
+# A placeholder-only manifest leaves the array empty, and a copied form then keeps the kit's
+# shipped placeholder untouched.
+AREA_ARGS=()
+while IFS="$(printf '\t')" read -r kind f1 f2 f3; do
+  [ "$kind" = "L" ] || continue
+  case "$f1" in "area: "*) ;; *) continue ;; esac
+  is_placeholder_name "$f1" && continue
+  AREA_ARGS[${#AREA_ARGS[@]}]="$f1"
+done < "$DESIRED"
 
 is_kept() {
   local n="$1" pat
@@ -270,14 +309,13 @@ while IFS="$(printf '\t')" read -r kind f1 f2 f3; do
   case "$kind" in
     L)
       name="$f1"; color="$f2"; desc="$f3"
-      # A <…> name is the manifest saying "an axis belongs here and nobody has filled it in".
-      # Reported on every run so it stays visible, but never drift: a repo that has deliberately
-      # not filled it must still be able to reach a converged plan.
-      case "$name" in
-        *"<"*">"*)
-          emit "!TODO" "label" "$name — placeholder, fill it in $MANIFEST"
-          continue ;;
-      esac
+      # Reported on every run so it stays visible — and counted as drift (#198): an unfilled axis
+      # is precisely the state that makes the rest of this report's convergence claim a lie, so
+      # `plan` exits 1 on it exactly as it would on a real +ADD/~EDIT, until the manifest is filled in.
+      if is_placeholder_name "$name"; then
+        emit "!TODO" "label" "$name — placeholder, fill it in $MANIFEST"
+        continue
+      fi
       [ "$LABELS_READABLE" = 1 ] || continue
       live="$(awk -F'\t' -v n="$name" '$1=="L" && $2==n {print $3 "\t" $4; exit}' "$LIVE_LABELS")"
       if [ -z "$live" ]; then
@@ -299,7 +337,7 @@ while IFS="$(printf '\t')" read -r kind f1 f2 f3; do
       elif [ -e "$FORMS_TARGET/$name" ]; then
         # Never clobber: a consumer's tuned form outranks the kit's default.
         emit "!SKIP" "form" "$name — already present, left as is"
-      elif [ "$AREA_LABEL_COUNT" -gt 0 ]; then
+      elif [ "${#AREA_ARGS[@]}" -gt 0 ]; then
         emit "+ADD" "form" "$name — Area dropdown will be generated from the manifest" "$name"
       else
         emit "+ADD" "form" "$name" "$name"
@@ -346,7 +384,17 @@ if [ "$VERB" = "plan" ]; then
     exit 3
   fi
   if [ "$DRIFT" -gt 0 ]; then
-    echo "plan: $DRIFT item(s) of drift. Run \`repo-setup.sh apply\` to converge."
+    # "Run apply to converge" is only true advice for the +ADD/~EDIT/-DEL part of $DRIFT — `apply`
+    # never creates a `!TODO` placeholder (#198), so a repo whose only remaining drift is an
+    # unfilled axis would hit this message, run apply, apply nothing, and see the identical
+    # message on the next plan: telling it to do the one thing that never resolves it.
+    if [ "$TODO_COUNT" -eq 0 ]; then
+      echo "plan: $DRIFT item(s) of drift. Run \`repo-setup.sh apply\` to converge."
+    elif [ "$TODO_COUNT" -eq "$DRIFT" ]; then
+      echo "plan: $DRIFT item(s) of drift, all unfilled placeholder(s) — \`apply\` never creates one; edit $MANIFEST instead."
+    else
+      echo "plan: $DRIFT item(s) of drift ($TODO_COUNT unfilled placeholder(s)). Run \`repo-setup.sh apply\` for the rest; edit $MANIFEST for the placeholder(s)."
+    fi
     exit 1
   fi
   echo "plan: converged — nothing to do."
@@ -404,19 +452,24 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
         APPLIED=$((APPLIED + 1))
         # Project the manifest's own areas into the just-copied form, so its dropdown and this
         # repo's labels agree by construction. A placeholder-only manifest leaves the shipped
-        # placeholder untouched — AREA_LABEL_COUNT is 0 and nothing here runs.
-        if [ "$AREA_LABEL_COUNT" -gt 0 ]; then
-          AREA_ARGS=()
-          while IFS= read -r area_label; do
-            AREA_ARGS[${#AREA_ARGS[@]}]="$area_label"
-          done < "$AREA_LABELS_FILE"
+        # placeholder untouched — $AREA_ARGS is empty and nothing here runs. Built once, above —
+        # not rebuilt per form.
+        if [ "${#AREA_ARGS[@]}" -gt 0 ]; then
           proj_rc=0
-          proj_err=$(python3 "$PROJECTOR" "$FORMS_TARGET/$f1" "${AREA_ARGS[@]}" 2>&1 >/dev/null) || proj_rc=$?
+          # ${arr[@]+"${arr[@]}"}, not a bare "${arr[@]}" — the idiom this file uses everywhere
+          # under `set -u` on bash 3.2 (see the settings PATCH below). The `-gt 0` guard above
+          # already makes this expansion safe today, same as SET_COUNT does for SET_ARGS, but the
+          # file's own rule is to use the guarded form regardless, so a later refactor that loosens
+          # the guard can't reopen the "unbound variable" abort this idiom exists to prevent.
+          proj_err=$(python3 "$PROJECTOR" "$FORMS_TARGET/$f1" ${AREA_ARGS[@]+"${AREA_ARGS[@]}"} 2>&1 >/dev/null) || proj_rc=$?
+          # Flattened exactly like label_refusal()'s $flat above: a PyYAML error is routinely
+          # multi-line, and every report row is a single line by contract — an embedded newline
+          # would split a status row in two and could spuriously satisfy an unrelated `has_line`
+          # check reading the report.
+          proj_err="$(printf '%s' "$proj_err" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//')"
           case "$proj_rc" in
             0) : ;; # already reported +ADD by the diff pass above; nothing more to say
-            3)
-              printf '%-8s %-8s %s\n' "!NOTE" "form" \
-                "$f1 — copied, but its Area dropdown could not be generated ($proj_err)" ;;
+            3) note "!NOTE" "form" "$f1 — copied, but its Area dropdown could not be generated ($proj_err)" ;;
             *) refuse "forms" "could not project $f1's Area dropdown: $proj_err" ;;
           esac
         fi

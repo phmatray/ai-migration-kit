@@ -73,7 +73,10 @@ def main():
     try:
         with open(form_path, encoding="utf-8") as handle:
             text = handle.read()
-    except OSError as exc:
+    # UnicodeDecodeError too, not just OSError: it is a ValueError, not an OSError, and a form
+    # that is not valid UTF-8 would otherwise raise past this into an uncaught traceback — exit 1,
+    # outside this script's own documented 0/2/3 contract.
+    except (OSError, UnicodeDecodeError) as exc:
         die(2, f"cannot read {form_path}: {exc}")
 
     try:
@@ -139,7 +142,18 @@ def main():
 
 
 def _escape(label):
-    return label.replace("\\", "\\\\").replace('"', '\\"')
+    # \\ first, so the backslashes this introduces for \n/\r/\t are never themselves re-escaped.
+    # A label reaching here can carry a real control character (parse-manifest.py only forbids an
+    # embedded TAB; a YAML double-quoted scalar like "area: foo\nbar" decodes \n to an actual
+    # newline) — left unescaped, it would land as a raw newline inside a generated double-quoted
+    # scalar and corrupt the form's YAML instead of producing an invalid-but-contained string.
+    return (
+        label.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
 
 
 if __name__ == "__main__":
