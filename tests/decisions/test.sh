@@ -247,6 +247,56 @@ sed -i.bak 's/{verdict:"stop", rule:"other"}/{verdict:"maybe", rule:"other"}/' \
 git -C "$k" add -A
 refuses "$k" R4 "R4 — a verdict the program emits but the registry never declared is refused"
 
+# --- R5 causes are distinct, and a comment quoting the form it documents is not a branch --------
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    "set -euo pipefail\n",
+    'set -euo pipefail\n# always emits verdict:"stop" when state is not CLEAN\n',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R5 — a comment quoting the verdict form it documents is not counted as an extra branch"
+else
+  bad "R5 — a documentary comment made the guard refuse a kit that R5 must accept:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# --- the strip's own limit: a `#` legitimately inside a verdict value must survive intact --------
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'else {verdict:"stop", rule:"other"} end',
+    'elif .state == "HASH" then {verdict:"needs-#1", rule:"hash"}\n'
+    '       else {verdict:"stop", rule:"other"} end',
+)
+open(p, "w").write(t)
+PY
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"vocabulary": ["go", "stop"]', '"vocabulary": ["go", "stop", "needs-#1"]')
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "a '#' legitimately inside a verdict value (needs-#1) is still counted and R4/R5 both pass"
+else
+  bad "a '#' inside a quoted verdict value was truncated, breaking R4/R5 on an otherwise-coherent kit:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
 # --- R7 the owner must INVOKE, not merely mention -----------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 # Delete the fenced call, leaving the skill otherwise intact. This is the exact move that would
@@ -313,6 +363,35 @@ cat >> "$k/skills/demo/SKILL.md" <<'OVERREACH'
 | `MERGEABLE` | go |
 OVERREACH
 refuses "$k" R8 "R8 — an annotated table naming a state the program never tests is refused"
+
+# --- R8's annotated-table path must not let a comment-mentioned token silence a real gap ---------
+# tokens_by_id[ann] is SUBTRACTED on this path, so a comment-derived phantom token (widening that
+# set) could otherwise make a real, uncovered table row read as covered — the opposite of R8's
+# stated failure direction. A comment naming the same state OVERREACH annotates must not change the
+# verdict: the program still never tests MERGEABLE in real code, so R8 must still refuse.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    "set -euo pipefail\n",
+    'set -euo pipefail\n# a future release may also handle .state == "MERGEABLE" here\n',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+cat >> "$k/skills/demo/SKILL.md" <<'PHANTOM_TOKEN'
+
+<!-- decided-by: demo.rule -->
+
+| State | Then |
+|---|---|
+| `CLEAN` | go |
+| `MERGEABLE` | go |
+PHANTOM_TOKEN
+refuses "$k" R8 \
+  "R8 — a comment mentioning a state's == form does not silence a real annotated-table gap"
 
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 cat >> "$k/skills/demo/SKILL.md" <<'UNKNOWNID'
