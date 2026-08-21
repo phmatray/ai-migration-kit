@@ -268,6 +268,35 @@ else
   printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
 fi
 
+# --- the strip's own limit: a `#` legitimately inside a verdict value must survive intact --------
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'else {verdict:"stop", rule:"other"} end',
+    'elif .state == "HASH" then {verdict:"needs-#1", rule:"hash"}\n'
+    '       else {verdict:"stop", rule:"other"} end',
+)
+open(p, "w").write(t)
+PY
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"vocabulary": ["go", "stop"]', '"vocabulary": ["go", "stop", "needs-#1"]')
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "a '#' legitimately inside a verdict value (needs-#1) is still counted and R4/R5 both pass"
+else
+  bad "a '#' inside a quoted verdict value was truncated, breaking R4/R5 on an otherwise-coherent kit:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
 # --- R7 the owner must INVOKE, not merely mention -----------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 # Delete the fenced call, leaving the skill otherwise intact. This is the exact move that would

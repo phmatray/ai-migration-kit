@@ -66,6 +66,14 @@ object inside the shape counts as emitted, so R6 misses some real mismatches but
 A decision whose `shape` is null is not checked by R6 at all, and is printed BY ID as uncovered on
 the success line — a guard that cannot answer must say so rather than serve silence as a pass.
 
+R4 and R5 read the program through `strip_comments`, which is line-oriented and `#`-only: it does
+not know any comment syntax but `#`-to-end-of-line, so a future `program.kind` in another language
+would need it made kind-aware first. TOKEN_RE (R8's token derivation, just below) is deliberately
+left reading the RAW, unstripped program text rather than the stripped one — a comment that happens
+to quote a `== "…"` comparison only ever WIDENS R8's token set, and R8's failure direction is to
+refuse more often on a wider set, never less; R4 and R5 run the other way, where a phantom literal
+is a false refusal, so only they are worth the strip.
+
 Usage:
   decision-check.py [--repo <path>] [--registry <path>]
 
