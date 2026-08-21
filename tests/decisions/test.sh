@@ -297,6 +297,55 @@ else
   printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
 fi
 
+# --- R6 reads subset emits, and a comment naming an unbuilt field is not a real read (#261) ------
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+# Give demo.rule a shape: the marked block is where R6 reads what the input state actually
+# contains, matched against what READ_RE finds the program reading (`.state`).
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(printf '%s' '"CLEAN"' | jq '{state: .}')
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R6 — a shape whose emitted keys cover the program's reads passes (baseline for the case below)"
+else
+  bad "R6 — the shape baseline itself does not pass, so the comment case below is meaningless:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# A comment naming a field the shape does NOT build must not be counted as a real read.
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    "set -euo pipefail\n",
+    "set -euo pipefail\n# also reads .legacy_field for back-compat\n",
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R6 — a comment mentioning a field the shape does not build is not counted as a real read"
+else
+  bad "R6 — a documentary comment made the guard refuse a shape-covered kit it must accept:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
 # --- R7 the owner must INVOKE, not merely mention -----------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 # Delete the fenced call, leaving the skill otherwise intact. This is the exact move that would
