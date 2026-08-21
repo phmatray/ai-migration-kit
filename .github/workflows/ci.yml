@@ -419,3 +419,6 @@ jobs:
           if python3 scripts/contrast-check.py "#777777:#888888" >/dev/null 2>&1; then
             echo "contrast-check aurait dû échouer sur une paire illisible"; exit 1
           fi
+
+      - name: Run-all-tests golden test (the three exits, and no drift from this file)
+        run: ./tests/run-all-tests/test.sh
