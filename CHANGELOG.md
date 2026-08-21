@@ -8,6 +8,22 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.15.0](https://github.com/phmatray/ai-migration-kit/compare/v1.14.0...v1.15.0) (2026-08-21)
+
+
+### Features
+
+* **auto-dev:** investigate and guard against double-dispatching an issue ([#248](https://github.com/phmatray/ai-migration-kit/issues/248)) ([#256](https://github.com/phmatray/ai-migration-kit/issues/256)) ([8518e7c](https://github.com/phmatray/ai-migration-kit/commit/8518e7cc079737730cf0d304a99221e134ce2f8b))
+
+
+### Bug Fixes
+
+* **auto-dev:** survey.sh distinguishes a failed vocabulary pipeline from a manifest with no effort axis ([#251](https://github.com/phmatray/ai-migration-kit/issues/251)) ([#262](https://github.com/phmatray/ai-migration-kit/issues/262)) ([6e1c9f9](https://github.com/phmatray/ai-migration-kit/commit/6e1c9f94d1e1ccf1eaa5d73ce71d51645d1d7eaf))
+* **decisions:** R4 and R5 read what a program emits, not what its comments say ([#253](https://github.com/phmatray/ai-migration-kit/issues/253)) ([#257](https://github.com/phmatray/ai-migration-kit/issues/257)) ([0c010ef](https://github.com/phmatray/ai-migration-kit/commit/0c010efab613781c4165ec7a2945ce12eb49298b))
+* **implement-issue:** make the Step 5 PR-title fallback path-first, not diff-shape-first ([#245](https://github.com/phmatray/ai-migration-kit/issues/245)) ([#255](https://github.com/phmatray/ai-migration-kit/issues/255)) ([9daaa00](https://github.com/phmatray/ai-migration-kit/commit/9daaa005f028631c788aec2906743c60722f1de5))
+* **implement-issue:** resume onto an existing open PR instead of scaffolding a second one ([#214](https://github.com/phmatray/ai-migration-kit/issues/214)) ([#246](https://github.com/phmatray/ai-migration-kit/issues/246)) ([849f0b5](https://github.com/phmatray/ai-migration-kit/commit/849f0b5541a6112da34b0606ea96b85a532ba190))
+* **repo-setup:** one home for deriving a repository's main working tree ([#125](https://github.com/phmatray/ai-migration-kit/issues/125)) ([#247](https://github.com/phmatray/ai-migration-kit/issues/247)) ([7b66a66](https://github.com/phmatray/ai-migration-kit/commit/7b66a6631c418160e80e953bbb08a45dbe4fc4ee))
+
 ## [1.14.0](https://github.com/phmatray/ai-migration-kit/compare/v1.13.1...v1.14.0) (2026-08-21)
 
 
