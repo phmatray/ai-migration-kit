@@ -113,12 +113,14 @@ assert_bucket() {
 
 run_survey() {
   # $1 = CWD the case runs from (controls whether .github/repo-setup.yml resolves), $2 = fixture,
-  # $3 = stdout capture path. Absolute $SURVEY so KIT_ROOT resolution inside it is unaffected by
-  # the cd — that resolution is exactly what repo-profile.sh and repo-setup.sh both rely on too.
-  local rc=0
-  ( cd "$1" && env PATH="$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$2" bash "$SURVEY" ) > "$3" 2>"$3.err" || rc=$?
+  # $3 = stdout capture path, $4 = optional survey.sh path (defaults to the real $SURVEY — case 6
+  # passes a scratch copy so KIT_ROOT resolves against a tree missing parse-manifest.py). Absolute
+  # so KIT_ROOT resolution inside it is unaffected by the cd — that resolution is exactly what
+  # repo-profile.sh and repo-setup.sh both rely on too.
+  local cwd="$1" fixture="$2" out="$3" script="${4:-$SURVEY}" rc=0
+  ( cd "$cwd" && env PATH="$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$fixture" bash "$script" ) > "$out" 2>"$out.err" || rc=$?
   if [ "$rc" -ne 0 ]; then
-    echo "FAIL: survey.sh exited $rc"; cat "$3.err"; exit 1
+    echo "FAIL: survey.sh exited $rc"; cat "$out.err"; exit 1
   fi
 }
 
@@ -290,8 +292,11 @@ YML
 
 SCRATCH_KIT="$WORK/scratch-kit-parser-missing"
 mkdir -p "$SCRATCH_KIT/skills/auto-dev/scripts"
-cp "$SURVEY" "$SCRATCH_KIT/skills/auto-dev/scripts/survey.sh"
-chmod +x "$SCRATCH_KIT/skills/auto-dev/scripts/survey.sh"
+# A symlink, not a copy: survey.sh resolves KIT_ROOT from `dirname "$0"`, which operates on the
+# path bash was invoked with, not the symlink's target — so this resolves KIT_ROOT to
+# $SCRATCH_KIT exactly like a real copy would, without a byte-for-byte snapshot of survey.sh's
+# own source that could silently drift from the file this suite is actually testing.
+ln -s "$SURVEY" "$SCRATCH_KIT/skills/auto-dev/scripts/survey.sh"
 # Deliberately no skills/setup-repo/scripts/parse-manifest.py anywhere under $SCRATCH_KIT.
 
 F6="$WORK/parser-missing-issues.json"
@@ -300,16 +305,7 @@ mkissues "$F6" \
   "602|Large task, parser missing|large|1"
 O6="$WORK/parser-missing.out"
 
-run_survey_with_script() {
-  # Same as run_survey but takes an explicit survey.sh path, so KIT_ROOT resolves against the
-  # scratch tree built above rather than the real kit's own scripts/ directory.
-  local script="$1" cwd="$2" fixture="$3" out="$4" rc=0
-  ( cd "$cwd" && env PATH="$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$fixture" bash "$script" ) > "$out" 2>"$out.err" || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    echo "FAIL: survey.sh exited $rc"; cat "$out.err"; exit 1
-  fi
-}
-run_survey_with_script "$SCRATCH_KIT/skills/auto-dev/scripts/survey.sh" "$W6" "$F6" "$O6"
+run_survey "$W6" "$F6" "$O6" "$SCRATCH_KIT/skills/auto-dev/scripts/survey.sh"
 
 # The vocabulary could not be confirmed (the parser never ran), so both fall back to the hardcoded
 # small/medium/large ranking — same ranking outcome as degraded-fallback. What must differ is the
