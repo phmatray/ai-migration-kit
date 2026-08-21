@@ -8,6 +8,32 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.14.0](https://github.com/phmatray/ai-migration-kit/compare/v1.13.1...v1.14.0) (2026-08-21)
+
+
+### Features
+
+* **decisions:** a decision gets one home, and the guard refuses a second ([#208](https://github.com/phmatray/ai-migration-kit/issues/208)) ([#241](https://github.com/phmatray/ai-migration-kit/issues/241)) ([29d07b5](https://github.com/phmatray/ai-migration-kit/commit/29d07b52c2b8c1b6100095249d268b1ba6884bac))
+* **tests:** give the kit one command for the whole CI gate ([#170](https://github.com/phmatray/ai-migration-kit/issues/170)) ([#235](https://github.com/phmatray/ai-migration-kit/issues/235)) ([443f99e](https://github.com/phmatray/ai-migration-kit/commit/443f99ea4688503c0c0398aac6fd255beb8aefb4))
+
+
+### Bug Fixes
+
+* **auto-dev:** decide the takeover merge on GitHub's state, not gh's exit code ([#184](https://github.com/phmatray/ai-migration-kit/issues/184)) ([#221](https://github.com/phmatray/ai-migration-kit/issues/221)) ([1841baa](https://github.com/phmatray/ai-migration-kit/commit/1841baad62ad0f365a98ee6d71e04f192c7bd444))
+* **auto-dev:** dispatch merge-pr for local cleanup after a takeover MERGED verdict ([#227](https://github.com/phmatray/ai-migration-kit/issues/227)) ([#228](https://github.com/phmatray/ai-migration-kit/issues/228)) ([7d093d3](https://github.com/phmatray/ai-migration-kit/commit/7d093d35db02ee85b5a8a40284be73e1f47c22dd))
+* **auto-dev:** read the WORKTREE field on a normal MERGED report ([#234](https://github.com/phmatray/ai-migration-kit/issues/234)) ([#243](https://github.com/phmatray/ai-migration-kit/issues/243)) ([054fddf](https://github.com/phmatray/ai-migration-kit/commit/054fddfe6c90f3442499f8132bac07102e056ff0))
+* **auto-dev:** survey.sh distinguishes a missing parser from a manifest with no effort axis ([#239](https://github.com/phmatray/ai-migration-kit/issues/239)) ([#249](https://github.com/phmatray/ai-migration-kit/issues/249)) ([b202433](https://github.com/phmatray/ai-migration-kit/commit/b2024332068dd628cc13b790aa680f64380ae9df))
+* **auto-dev:** survey.sh names a real parser failure instead of claiming no effort axis ([#230](https://github.com/phmatray/ai-migration-kit/issues/230)) ([#236](https://github.com/phmatray/ai-migration-kit/issues/236)) ([6ec8872](https://github.com/phmatray/ai-migration-kit/commit/6ec88728b702559d5e5b258b4f6b7820f55dface))
+* **ci-wiring:** refuse a wired suite that was never git-added ([#210](https://github.com/phmatray/ai-migration-kit/issues/210)) ([#225](https://github.com/phmatray/ai-migration-kit/issues/225)) ([0ae6ae7](https://github.com/phmatray/ai-migration-kit/commit/0ae6ae744e23c359eac6656f3d85fa39dca5bf41))
+* **ci:** the not-executable report never claims a step doesn't invoke a suite when one does ([#238](https://github.com/phmatray/ai-migration-kit/issues/238)) ([#244](https://github.com/phmatray/ai-migration-kit/issues/244)) ([8bd1380](https://github.com/phmatray/ai-migration-kit/commit/8bd138087e0097103b76ba4f38e8329b5bd4a3b0))
+* **create-issue:** derive the plan's example commit type from the issue label, not from prose-ness ([#233](https://github.com/phmatray/ai-migration-kit/issues/233)) ([#242](https://github.com/phmatray/ai-migration-kit/issues/242)) ([135ab06](https://github.com/phmatray/ai-migration-kit/commit/135ab0605728e98659264a2391e5f106d57217db))
+* **merge-pr:** the can't-push fallback doesn't cover a real DIRTY conflict ([#211](https://github.com/phmatray/ai-migration-kit/issues/211)) ([#229](https://github.com/phmatray/ai-migration-kit/issues/229)) ([b6dfc97](https://github.com/phmatray/ai-migration-kit/commit/b6dfc97bee69bdaae2ef12ac7d09716428f82759))
+* **merge-pr:** treat a run that has not started as pending, not as green ([#191](https://github.com/phmatray/ai-migration-kit/issues/191)) ([#226](https://github.com/phmatray/ai-migration-kit/issues/226)) ([3e70be6](https://github.com/phmatray/ai-migration-kit/commit/3e70be6751770fcd8c7ebe9b02f86b901b205bfb))
+* **merge-pr:** verify and finish the remote-branch delete in Step 7 ([#185](https://github.com/phmatray/ai-migration-kit/issues/185)) ([#219](https://github.com/phmatray/ai-migration-kit/issues/219)) ([5919191](https://github.com/phmatray/ai-migration-kit/commit/5919191d465375e14b1e25b4eb67da7375d4f3be))
+* **setup-repo:** a refused label write names the status it observed ([#200](https://github.com/phmatray/ai-migration-kit/issues/200)) ([#220](https://github.com/phmatray/ai-migration-kit/issues/220)) ([c87f67d](https://github.com/phmatray/ai-migration-kit/commit/c87f67d94c9e730a2a81fe2ef38ffc0a94260951))
+* **setup-repo:** plan fails on placeholder areas, apply projects real ones ([#198](https://github.com/phmatray/ai-migration-kit/issues/198)) ([#237](https://github.com/phmatray/ai-migration-kit/issues/237)) ([8de9466](https://github.com/phmatray/ai-migration-kit/commit/8de94669f3d21a1775832b5a5f161c297526e3ee))
+* **templates:** document the committed bundle-gate config ([#162](https://github.com/phmatray/ai-migration-kit/issues/162)) ([#232](https://github.com/phmatray/ai-migration-kit/issues/232)) ([aff82c8](https://github.com/phmatray/ai-migration-kit/commit/aff82c84706b28c14295d7ed6ae7c0c03e1a1c30))
+
 ## [1.13.1](https://github.com/phmatray/ai-migration-kit/compare/v1.13.0...v1.13.1) (2026-08-20)
 
 
