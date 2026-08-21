@@ -201,6 +201,16 @@ The plan MUST carry all three:
 2. A short **Goal / Architecture / Tech Stack** preamble and a **Global Constraints** list (version floors, architecture invariants from *Architecture grain*, commit identity from *Commit identity*, build constraints) — exact values from the spec and profile.
 3. One `### Task N: <name>` per task, each with **Files** + **Interfaces** lines, then **every step as its own `- [ ]` checkbox** (write the failing test → run red → implement → run green → commit). The final step is a `- [ ]` checkbox with the commit message.
 
+**Derive the Global Constraints' and every task's final commit-message example type from the issue's
+own `type` label — never from "this plan's diff reads like prose."** Pick it the same way the
+profile's *PR title convention* already does: `bug`→`fix`, `enhancement`→`feat`. Reserve `docs:`/`ci:`
+for a plan whose Step 5 Spec **scope/non-goals** name *only* non-shipped paths (`docs/`, `.github/`,
+`README.md`, `ARCHITECTURE.md`, …) — a plan that edits prose inside a shipped directory (`skills/`,
+`scripts/`, `commands/`, `templates/`, `hooks/`, `requirements.json`) still needs a releasable type,
+because `scripts/release-title-gate.sh` gates on the changed *paths*, not on whether the diff is code
+or prose. A `docs:` example on such a plan fails that gate at `implement-issue`'s Step 9 — discovered
+only after the branch, worktree and draft PR already exist.
+
 Shape (abbreviated — keep the checkboxes, never flatten to prose):
 
 ```markdown
