@@ -120,6 +120,32 @@ grep -qF 'ignored on this machine only' <<<"$sec" \
   || fail "detect: a machine-local rule was recorded as a property of the repo:
 $sec"
 
+# 5e. THE fail-open case (#125): asked from inside a LINKED worktree — the normal state during
+#     implement-issue/merge-pr — the probe must judge the MAIN checkout, never the worktree it
+#     happens to be invoked from. Reproduces exactly the shape
+#     tests/worktrees-ignored/test.sh case 22 pins for the guard itself: the ignore rule was
+#     committed, then dropped from the main working tree, while a linked worktree's own checked-out
+#     .gitignore (from the earlier commit) still carries it.
+wt3=$(kit_scratch)
+git -C "$wt3" init -q -b main
+git -C "$wt3" config user.email t@example.com
+git -C "$wt3" config user.name "Golden Test"
+printf '.claude/worktrees/\n.worktrees/\n' > "$wt3/.gitignore"
+git -C "$wt3" add -A
+git -C "$wt3" commit -qm base
+git -C "$wt3" worktree add -q .claude/worktrees/feat -b feat
+LINKED="$wt3/.claude/worktrees/feat"
+
+# Drop the rule from the MAIN working tree only — nothing about the linked worktree's own files
+# changes, so a probe reading THAT checkout's .gitignore still finds the (now stale) rule.
+: > "$wt3/.gitignore"
+
+sec=$(wt_section "$(bash "$SCRIPT" detect "$LINKED")")
+grep -qF 'ignore status verified' <<<"$sec" \
+  && fail "detect: judged the LINKED worktree instead of the main checkout — the main checkout's
+      own ignore rule was dropped, so 'ignore status verified' is a false pass (#125):
+$sec"
+
 # 6. THIS repository's own profile must be TRACKED (#157). Every case above fixtures a profile into
 #    a scratch repo, so all of them passed while the kit itself carried none: the file existed in
 #    exactly one checkout and reached no clone, no CI job and — the common case — no linked worktree,

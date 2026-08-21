@@ -159,27 +159,55 @@ case "$CMD" in
     fi
 
     if [ -x "$KIT_ROOT/scripts/worktrees-ignored.sh" ]; then
-      # -C takes the worktree ROOT, not `.`: this script's cd honours an explicit [dir] argument,
-      # which may be a subdirectory, and `.claude/worktrees/` is an anchored pattern — asked about a
-      # subdirectory, a correctly configured repo answers "NOT ignored" and the profile would record
-      # that falsehood. Measured: `detect src/app` did exactly that.
-      wt_root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
-      wt_out="$("$KIT_ROOT/scripts/worktrees-ignored.sh" -C "$wt_root" 2>&1)"; wt_rc=$?
-      printf '%s\n' "$wt_out" | sed 's/^/  /'
-      case "$wt_rc" in
-        0) echo "  -> ignore status verified; record it with the home above" ;;
-        1) echo "  -> TODO: a worktree home is NOT ignored — say so in the profile, and do not" \
-                "write \"(git-ignored)\"; the lifecycle skills refuse to create a worktree here" ;;
-        2) echo "  -> both homes ARE ignored (no worktree hazard), but the rule also hides" \
-                "$PROFILE_REL — TODO: narrow it, or this repo cannot carry a committed profile" ;;
-        *) echo "  -> TODO: the guard could not reach a verdict (exit $wt_rc) — not a pass" ;;
-      esac
-      # A `note:` line above means the rule is machine-local or untracked: true here, false for
-      # everyone else. It must not be written down as a property of the repo.
-      case "$wt_out" in
-        *"note:"*) echo "  -> TODO: the rule is not committed (see note above) — record it as" \
-                        "\"ignored on this machine only\", not as a fact about the repo" ;;
-      esac
+      if [ -x "$KIT_ROOT/scripts/main-worktree.sh" ]; then
+        # `.` because the top of this script already cd'd into the explicit [dir] argument (or the
+        # git top-level) — main-worktree.sh resolves the MAIN checkout's root from here regardless
+        # of whether "here" is that main checkout, a linked worktree, or a subdirectory of either.
+        #
+        # This replaces `git rev-parse --show-toplevel`, which — asked from inside a LINKED
+        # worktree, the normal state during implement-issue/merge-pr — answered with the linked
+        # worktree itself, not the main checkout. worktrees-ignored.sh then judged the wrong
+        # directory's .gitignore, and a MEASURED false pass got written into the profile as a
+        # durable fact about the repo (#125). The `2>/dev/null` tolerance carries over unchanged.
+        wt_root="$("$KIT_ROOT/scripts/main-worktree.sh" -C . 2>/dev/null)"
+        if [ -z "$wt_root" ]; then
+          # Empty output means main-worktree.sh reached a verdict of "no main working tree" — this
+          # DIR sits under a bare repository's worktree set. A bare repo has no working tree for a
+          # stray `git add -A` to run in, so there is no #43 hazard to check — skip the guard
+          # rather than feed it a bare path, which check-ignore refuses ("must be run in a work
+          # tree") and this branch would otherwise misreport as "NOT ignored". Never "-> ignore
+          # status verified": no verdict was reached, so nothing here is a pass.
+          echo "  no main working tree here (bare repository) — nothing for the ignore guard to check"
+        else
+          wt_out="$("$KIT_ROOT/scripts/worktrees-ignored.sh" -C "$wt_root" 2>&1)"; wt_rc=$?
+          printf '%s\n' "$wt_out" | sed 's/^/  /'
+          case "$wt_rc" in
+            0) echo "  -> ignore status verified; record it with the home above" ;;
+            1) echo "  -> TODO: a worktree home is NOT ignored — say so in the profile, and do not" \
+                    "write \"(git-ignored)\"; the lifecycle skills refuse to create a worktree here" ;;
+            2) echo "  -> both homes ARE ignored (no worktree hazard), but the rule also hides" \
+                    "$PROFILE_REL — TODO: narrow it, or this repo cannot carry a committed profile" ;;
+            *) echo "  -> TODO: the guard could not reach a verdict (exit $wt_rc) — not a pass" ;;
+          esac
+          # A `note:` line above means the rule is machine-local or untracked: true here, false for
+          # everyone else. It must not be written down as a property of the repo.
+          case "$wt_out" in
+            *"note:"*) echo "  -> TODO: the rule is not committed (see note above) — record it as" \
+                            "\"ignored on this machine only\", not as a fact about the repo" ;;
+          esac
+        fi
+      else
+        # A missing tool, not a refusal (mirrors skills/_shared/worktree-ignore-check.md's own
+        # fallback for a kit whose scripts/ was adopted incompletely): the guard itself is present,
+        # but nothing here can safely resolve the main checkout's root from a directory that might
+        # be a linked worktree. Rather than fall back to the derivation that produced #125, say so
+        # and hand the reader the manual recipe, judged from the MAIN checkout.
+        echo "  TODO: scripts/main-worktree.sh not found — cannot safely resolve the main working"
+        echo "        tree from here (this may be a linked worktree). Verify BOTH homes by hand,"
+        echo "        from the MAIN checkout, never a linked worktree:"
+        echo "        git check-ignore -q .claude/worktrees/ && git check-ignore -q .worktrees/"
+        echo "        (the trailing slash is load-bearing; -q, never -v)"
+      fi
     else
       echo "  TODO: guard not found at <kit>/scripts/worktrees-ignored.sh — verify BOTH homes by hand:"
       echo "        git check-ignore -q .claude/worktrees/ && git check-ignore -q .worktrees/"
