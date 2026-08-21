@@ -169,14 +169,16 @@ fi
 # finds the expected branch sitting at its old tip — which happens to equal the `head_sha` captured
 # earlier, so the guard would certify a push it never made.
 #
-# `--verify --quiet` for the sha, matching the tail of assert_branch() in _assert-branch.sh, which
-# is where the trap is written down in full: a bare `rev-parse HEAD 2>/dev/null || true` hands back
-# the literal string "HEAD" on an unborn branch. This line carried that spelling and the ALERT
-# below printed `HEAD is now  wip @ HEAD` — a commit an operator could go look up (#92). The
-# verdict was never wrong; the diagnostic was. Cited by function and not by line number, because
-# the file it points at rejects hardcoded line references for exactly the reason they rot.
+# Through head_sha_full_of, which is where this read now has its ONE home (#161) — shared with
+# assert_branch's own pre-flight witness rather than a second copy of `--verify --quiet HEAD`.
+# That is the same spelling the tail of assert_branch() in _assert-branch.sh documents in full: a
+# bare `rev-parse HEAD 2>/dev/null || true` hands back the literal string "HEAD" on an unborn
+# branch. This line once carried that spelling and the ALERT below printed `HEAD is now  wip @
+# HEAD` — a commit an operator could go look up (#92). The verdict was never wrong; the
+# diagnostic was. Cited by function and not by line number, because the file it points at rejects
+# hardcoded line references for exactly the reason they rot.
 now_branch=$(head_branch_of "$REPO")
-now_sha=$(git -C "$REPO" rev-parse --verify --quiet HEAD 2>/dev/null || true)
+now_sha=$(head_sha_full_of "$REPO")
 
 # The sha field already said `<unreadable>` rather than inventing something (#92). The branch
 # field beside it still said `detached`, which is not the same kind of answer: head_branch_of is

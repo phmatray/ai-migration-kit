@@ -1553,6 +1553,39 @@ fi
 OUT=""
 echo "  ok: one-spelling — the sha read has one home, no message builds one inline, and #92's spelling stays out"
 
+# 33d. …and the FULL-sha WITNESS read — assert_branch's own pre-flight $head_sha, and
+# guarded-push.sh's post-push re-assert — gets the exact same treatment as 33a, mirrored (#161).
+# It was never a typo either: reading a branch had a home (#44), reading an ABBREVIATED sha got
+# one after #129 (33a above), and this is the third read-kind — a full sha used as a WITNESS to
+# compare rather than a DISPLAY value — which still had two spellings: _assert-branch.sh's own
+# tail and guarded-push.sh's post-push re-assert each wrote out `rev-parse --verify --quiet HEAD`
+# independently.
+#
+# The pattern is anchored on the flags in THIS order — `--verify` then `--quiet` — which is what
+# keeps it off two things it must not touch: head_sha_of's own definition (`--verify --quiet
+# --short …`, a DIFFERENT read-kind, already the subject of 33a/33c — excluded below by the
+# `--short` filter, since the flag sequence alone is a prefix of that line too) and the NAMED-REF
+# witness in guarded-commit.sh/guarded-merge.sh (`rev-parse --quiet --verify "refs/heads/…"` —
+# reversed order, a third kind again, explicitly out of scope for #161: it has different fallback
+# semantics and folding it in here would double this issue's diff for no shared fix).
+witness_spellings=""
+for g in "$COMMIT" "$PUSH" "$MERGE"; do
+  hits=$(guard_code "$g" | grep -E 'rev-parse[[:space:]]+--verify[[:space:]]+--quiet' | grep -v -- '--short' || true)
+  [ -z "$hits" ] || witness_spellings="$witness_spellings$hits
+"
+done
+if [ -n "$witness_spellings" ]; then
+  OUT="$WORK/out.witness-one-spelling"
+  printf '%s' "$witness_spellings" > "$OUT"
+  fail witness-one-spelling "the full-sha witness read belongs to head_sha_full_of in _assert-branch.sh; these guards still spell it themselves:"
+fi
+
+witness_homes=$(guard_code "$HELPER" | grep -E 'rev-parse[[:space:]]+--verify[[:space:]]+--quiet' | grep -vc -- '--short' || true)
+OUT=""
+[ "$witness_homes" -eq 1 ] || fail witness-one-spelling-home \
+  "the full-sha witness read must have exactly ONE home in _assert-branch.sh (head_sha_full_of), found $witness_homes"
+echo "  ok: witness-one-spelling — the full-sha witness read has one home in _assert-branch.sh (head_sha_full_of), distinct from the abbreviating and named-ref reads"
+
 # ---------------------------------------------------------------- 34. `detached` is a MEASUREMENT
 #
 # head_branch_of() answers with nothing in TWO situations — HEAD is genuinely detached, and the
