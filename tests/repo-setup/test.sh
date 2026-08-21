@@ -585,9 +585,9 @@ echo "  ok: plan — a manifest with a fully filled-in area axis reaches a conve
 # A manifest can declare a placeholder-SHAPED area label that ISN'T the literal shipped
 # "area: <your-area>" — e.g. "area: parser <experimental>", a label someone is still deciding on.
 # The main diff loop's placeholder test is a SUBSTRING match (`*"<"*">"*`, a few lines above this
-# file), so it correctly !TODO's this and never creates it. AREA_LABELS_FILE's filter must agree —
-# an anchored pattern that only excluded the exact shipped placeholder would let this one through,
-# so `apply` would project an Area dropdown option pointing at a label that is never created.
+# file), so it correctly !TODO's this and never creates it. AREA_ARGS's filter must agree — an
+# anchored pattern that only excluded the exact shipped placeholder would let this one through, so
+# `apply` would project an Area dropdown option pointing at a label that is never created.
 MIXED_FIXTURE="$KIT_ROOT/tests/repo-setup/fixtures/manifest-mixed-placeholder.yml"
 [ -r "$MIXED_FIXTURE" ] || fail "fixture $MIXED_FIXTURE missing"
 
