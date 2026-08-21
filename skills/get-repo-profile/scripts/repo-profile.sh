@@ -169,13 +169,22 @@ case "$CMD" in
         # worktree itself, not the main checkout. worktrees-ignored.sh then judged the wrong
         # directory's .gitignore, and a MEASURED false pass got written into the profile as a
         # durable fact about the repo (#125). The `2>/dev/null` tolerance carries over unchanged.
-        wt_root="$("$KIT_ROOT/scripts/main-worktree.sh" -C . 2>/dev/null)"
-        if [ -z "$wt_root" ]; then
-          # Empty output means main-worktree.sh reached a verdict of "no main working tree" — this
-          # DIR sits under a bare repository's worktree set. A bare repo has no working tree for a
-          # stray `git add -A` to run in, so there is no #43 hazard to check — skip the guard
-          # rather than feed it a bare path, which check-ignore refuses ("must be run in a work
-          # tree") and this branch would otherwise misreport as "NOT ignored". Never "-> ignore
+        #
+        # The exit code is checked explicitly, not just the string: main-worktree.sh's own contract
+        # is "0 with empty stdout" for bare and "3" for no verdict, but empty stdout alone cannot
+        # tell those apart. Trusting `[ -z "$wt_root" ]` on its own would read a real failure (exit 3
+        # — a `git worktree list` error, not bareness) as "verified bare, nothing to check" and skip
+        # the #43 ignore-hazard check silently instead of surfacing a TODO.
+        wt_root="$("$KIT_ROOT/scripts/main-worktree.sh" -C . 2>/dev/null)"; wt_root_rc=$?
+        if [ "$wt_root_rc" -ne 0 ]; then
+          echo "  TODO: scripts/main-worktree.sh could not reach a verdict (exit $wt_root_rc) —" \
+               "not a pass; verify BOTH homes by hand from the MAIN checkout"
+        elif [ -z "$wt_root" ]; then
+          # Empty output AND exit 0 means main-worktree.sh reached a verdict of "no main working
+          # tree" — this DIR sits under a bare repository's worktree set. A bare repo has no working
+          # tree for a stray `git add -A` to run in, so there is no #43 hazard to check — skip the
+          # guard rather than feed it a bare path, which check-ignore refuses ("must be run in a
+          # work tree") and this branch would otherwise misreport as "NOT ignored". Never "-> ignore
           # status verified": no verdict was reached, so nothing here is a pass.
           echo "  no main working tree here (bare repository) — nothing for the ignore guard to check"
         else
