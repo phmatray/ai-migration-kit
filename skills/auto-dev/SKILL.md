@@ -176,8 +176,11 @@ Track these as todos. Steps 4–6 are the long-running supervision loop.
 5. **Heartbeat** — keep a self-paced wakeup armed (via `loop`) as the safety net; poll CI only while actively driving a merge.
 6. **Stop & report** — when the queue drains (or the user stops), let the last workers finish, then summarize merged PRs, filed follow-ups, and anything blocked.
 
-Resume-safe: the state file + live GitHub state are the source of truth, so a re-run (or `loop` re-fire)
-reconstructs the fleet rather than double-dispatching.
+Resume-safe: the state file is the source of truth for a re-run (or `loop` re-fire) to reconstruct the
+fleet from. It is not, by itself, proof against double-dispatching an issue whose record it lost — Step
+3's dispatch-time guard is what closes that gap by checking live GitHub state (not the "live GitHub
+state" of `scripts/reconcile.sh`, which never maps a PR back to the issue it closes) immediately before
+every dispatch, first batch or refill.
 
 ---
 
@@ -242,8 +245,13 @@ each in the state file's *In flight* section.
 
 ### ⛔ Dispatch-time guard — confirm GitHub agrees the issue is unclaimed, every time
 
-This applies to **every** dispatch, not only this step's first batch — the Step 4 refill path ("pick
-the next queued issue ... dispatch a fresh worker (Step 3)") reaches this same guard.
+This applies whenever a slot is being pointed at an issue it doesn't already own — this step's first
+batch, and every Step 4 refill ("pick the next queued issue ... dispatch a fresh worker (Step 3)")
+reaches this same guard. **It does not apply to a BLOCKED/FAILED tier-escalation re-dispatch** (Step 4:
+"re-dispatch the *same* issue once on the top model") — that call is deliberately re-entering
+`implement-issue` for an issue this fleet already owns, on a branch/PR `implement-issue`'s own Step 4
+resume contract expects to find and continue; running this guard there would read that worker's own
+draft PR as "already claimed" and wrongly drop the issue it was meant to retry.
 
 The state file's *In flight* section is not proof by itself, because recording a dispatch is a
 **separate, later step from making it**: "Dispatch each ... record each" above are two actions, in
@@ -257,22 +265,26 @@ they close — so a re-derived queue and a fresh reconcile both stay blind to an
 started supervisor sessions share the same blind spot, since nothing pins the state file to one
 contended path.
 
-So before spawning issue `#$ISSUE`'s worker — first batch or refill — ask GitHub directly, reusing
-#214's issue-scoped PR-existence query
-(`skills/implement-issue/references/github-mechanics.md` §5):
+So before spawning issue `#$ISSUE`'s worker — first batch or refill — run the **exact** issue-scoped
+PR-existence guard from `skills/implement-issue/references/github-mechanics.md` §5 against `$ISSUE`:
+its `case "$ISSUE" in ''|*[!0-9]*)` validation, the `gh pr list --search … > /tmp/issue-$ISSUE-mentions.json`
+fetch, its `[ -s … ] || { … REFUSED …; exit 1; }` empty-fetch check, then the marked `jq` filter
+(`>>> issue-scoped PR-existence guard`). Paste that block verbatim, not a paraphrase — one home for
+it, `tests/pr-existence-guard/test.sh` pins the marked copy there as the only one, and a second copy
+here would drift the way `docs/decisions.md`'s "Why (#208)" describes happening already.
 
-```bash
-gh pr list --search "$ISSUE in:body" --state open --limit 100 --json number,headRefName,body,url,isDraft \
-  | jq --arg issue "$ISSUE" \
-      '[.[] | select(.body | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s*#" + $issue + "\\b"))]
-       | length'
-```
-
-`0` → clear to dispatch. Anything else → an open PR already closes this issue (another worker's, or a
-leftover the state file forgot) — skip it, drop it from the queue with a one-line note in the state
-file, and dispatch the next eligible issue instead. This is defense-in-depth alongside the state file,
-not a replacement for it: it closes the specific window where a dispatch record is lost before it's
-written; the state file remains what enforces area-disjointness across the fleet.
+Read its verdict the same way that section does: `0` → clear to dispatch. `1`+ → an open PR already
+closes this issue (another worker's, or a leftover the state file forgot) — skip it, drop it from the
+queue with a one-line note in the state file, and dispatch the next eligible issue instead. `REFUSED`
+(empty fetch, or a non-digit `$ISSUE`) → a transient failure, not a verdict — retry the check, never
+read it as "0 found" and never drop the issue from the queue on it. §5's own `⚠️ Residual limitation`
+note applies here unchanged (the Search API is eventually consistent — a PR opened seconds ago by a
+racing session can still search as absent), so this narrows the #195-shaped race, it does not close it
+to zero. This is defense-in-depth alongside the state file, not a replacement for it: it closes the
+specific window where a dispatch record is lost before it's written; the state file remains what
+enforces area-disjointness across the fleet, and its per-dispatch cost is bounded by how often a slot
+actually turns over, not by the higher-frequency Step 4 reconcile loop (Token economics lever 6 is
+about collapsing *that* loop's queries; it doesn't apply here).
 
 **Pick each worker's model from its labels** (see Token economics): small/mechanical → cheap, typical
 single-area bug → mid, cross-cutting/hard → top. Pass it explicitly on spawn (the background-agent
@@ -495,3 +507,4 @@ that frees. Hold the line at N unless told otherwise.
 - **End finished agents** once their PR merges; the fresh replacement starts clean.
 - **File, don't fix, off-scope work** — a filed follow-up keeps both the diff and the issue's scope clean.
 - **Plans drive eligibility, effort labels drive ordering** — no plan → not eligible (seed one with `create-issue` if the user insists); manual-QA → skip with a noted reason.
+- **The state file's *In flight* list is not proof an issue is unclaimed** — a `/compact`, a session restart, or a non-resuming `loop` re-fire can land between "dispatch" and "record," losing the record while the worker keeps running (#248). Run Step 3's dispatch-time guard before *every* dispatch (first batch or refill), not just when the state file looks stale.
