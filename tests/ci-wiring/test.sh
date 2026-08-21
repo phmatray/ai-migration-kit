@@ -29,6 +29,8 @@
 #      invokes it" — a step does, it just can't fail the build (#238)
 #  22. untracked AND wired-but-pull_request-only          -> same contradiction, reached via the
 #      workflow-level reason instead of the step-level one (#238)
+#  23. wrong index mode AND genuinely uninvoked            -> the sibling contradiction on the
+#      wrong-mode print branch, mirroring 21/22 on the mode-is-None branch (#238)
 #
 # The refusal cases are the point. A gate is worth exactly what its refusal path is worth, and an
 # inline `run:` block cannot have one — which is why scripts/release-title-gate.sh was extracted
@@ -481,7 +483,8 @@ git -C "$R" rm --cached -q -- tests/beta/test.sh
   || bad "fixture bug: tests/beta/test.sh was staged — the whole point is that it is not"
 out=$(run_check "$R"); rc=$?
 if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'cannot fail the build' \
-   && ! printf '%s' "$out" | grep -q 'no step invokes it either'; then
+   && ! printf '%s' "$out" | grep -q 'no step invokes it either' \
+   && printf '%s' "$out" | grep -q 'CI invokes it as ./tests/beta/test.sh'; then
   ok "an untracked suite invoked by a continue-on-error step does not claim no step invokes it"
 else bad "expected refusal without the false 'no step invokes it either' claim; got rc=$rc: $out"; fi
 
@@ -497,9 +500,26 @@ git -C "$R" rm --cached -q -- tests/ghost2/test.sh
   || bad "fixture bug: tests/ghost2/test.sh was staged — the whole point is that it is not"
 out=$(run_check "$R"); rc=$?
 if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'never on a push to main' \
-   && ! printf '%s' "$out" | grep -q 'no step invokes it either'; then
+   && ! printf '%s' "$out" | grep -q 'no step invokes it either' \
+   && printf '%s' "$out" | grep -q 'CI invokes it as ./tests/ghost2/test.sh'; then
   ok "an untracked suite invoked only on a pull_request-only workflow does not claim no step invokes it"
 else bad "expected refusal without the false 'no step invokes it either' claim; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 23. wrong mode AND genuinely uninvoked
+# The sibling of section 21/22 on the OTHER print branch (~403-409): a suite committed at the wrong
+# index mode that no step names at all (mirrors section 2's orphan, but staged 100644 instead of
+# untracked). Before this diff the wrong-mode branch printed "CI invokes it as ./{suite}"
+# unconditionally, contradicting the "not enforced" section's "no step invokes it" verdict for the
+# very same suite in the very same run.
+R="$WORK/badmodeorphan"; scaffold "$R" alpha
+mkdir -p "$R/tests/orphan3"; touch "$R/tests/orphan3/test.sh"
+stage_at_mode "$R" tests/orphan3/test.sh 100644 "wrong mode, nothing invokes it"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/orphan3/test.sh' \
+   && printf '%s' "$out" | grep -q 'but no step invokes it either' \
+   && ! printf '%s' "$out" | grep -q 'CI invokes it as ./tests/orphan3/test.sh'; then
+  ok "a suite committed at the wrong mode that nothing invokes does not claim CI invokes it"
+else bad "expected refusal without the false 'CI invokes it' claim; got rc=$rc: $out"; fi
 
 echo
 if [ "$fails" -eq 0 ]; then
