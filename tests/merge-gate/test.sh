@@ -49,36 +49,15 @@ note_fail() { echo "FAIL: $1"; FAILED=1; }
 
 # ------------------------------------------------------------------ 1. extract the shipped program
 #
-# The markers are jq comments, so they can sit inside the program without changing it, and the
-# recipe stays a single pasteable block. Both are matched as fixed strings.
-BEGIN_MARK='# >>> merge-gate verdict'
-END_MARK='# <<< merge-gate verdict'
-
-n_begin=$(grep -c -F -- "$BEGIN_MARK" "$RECIPE" || true)
-n_end=$(grep -c -F -- "$END_MARK" "$RECIPE" || true)
-if [ "$n_begin" != "1" ] || [ "$n_end" != "1" ]; then
-  echo "FAIL: $RECIPE must carry EXACTLY ONE marked verdict program"
-  echo "      found $n_begin '$BEGIN_MARK' and $n_end '$END_MARK'"
-  echo "      Two blocks means two homes for the gate, and a gate with two homes drifts."
-  exit 1
-fi
-
+# The extraction is NOT re-implemented here. `scripts/decide.sh --program ci.verdict` is the one
+# home for it in this repo (#208), so an extraction bug reddens here too instead of being papered
+# over by a second copy of the awk that happens to agree with the first. The marker-uniqueness
+# refusal ("two homes for the gate") now lives inside that dispatcher, and the single-quote check
+# moved to scripts/decision-check.py R3 — one rule, one implementation.
 PROG="$WORK/verdict.jq"
-awk -v b="$BEGIN_MARK" -v e="$END_MARK" '
-  index($0, b) { inside = 1 }
-  inside       { print }
-  inside && index($0, e) { exit }
-' "$RECIPE" > "$PROG"
-
-[ -s "$PROG" ] || { echo "FAIL: extracted an empty program from $RECIPE"; exit 1; }
-
-# The block lives inside a shell `jq '...'` single-quoted string in the recipe. A single quote
-# anywhere in it would terminate that string early, so the snippet an agent pastes would not be the
-# snippet tested here — it would not even run. Cheap to check, invisible when it breaks.
-if grep -q "'" "$PROG"; then
-  note_fail "the verdict program contains a single quote, which would close the jq '...' string it
-      is pasted inside. Rewrite the offending line without one."
-fi
+"$KIT_ROOT/scripts/decide.sh" --program ci.verdict > "$PROG" || {
+  echo "FAIL: could not extract the ci.verdict program"; exit 1; }
+[ -s "$PROG" ] || { echo "FAIL: extracted an empty program"; exit 1; }
 
 # jq compiles the whole program before it reads any input, so empty input is a pure parse check.
 if ! jq -f "$PROG" < /dev/null > /dev/null 2>"$WORK/parse.err"; then
