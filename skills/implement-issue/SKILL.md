@@ -180,34 +180,20 @@ routinely substitutes a hand-picked, paraphrased branch name for the prescribed 
 independent runs against the same issue can diverge in branch name even though the recipe itself is
 deterministic. Branch-name matching cannot catch that; asking GitHub whether this **issue** already
 has an open PR can — so run this fallback whenever the branch-name check just found nothing, before
-creating any worktree:
+creating any worktree.
 
-```bash
-# Cast a wide net first (a plain-text search can hit anything mentioning the number, and can
-# false-positive on a PR that merely *mentions* this issue), then narrow to PRs whose body actually
-# closes it via GitHub's own closing-keyword set. `\b…#$ISSUE\b` keeps e.g. #214 from matching a
-# #2140/#1214 substring. Written to a file, not piped through further shells, because the body text
-# it carries can contain characters ordinary pipelines mishandle.
-JQ_FILTER="[.[] | select(.body | test(\"(?i)\\\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\\\s+#$ISSUE\\\\b\"))]"
-gh pr list --search "$ISSUE in:body" --state open --json number,headRefName,body,url --jq "$JQ_FILTER" \
-  > /tmp/issue-$ISSUE-closers.json
-jq 'length' /tmp/issue-$ISSUE-closers.json
-```
+**Run `references/github-mechanics.md` §5's exact recipe** — not a copy here, which is how the
+worktree-ignore table drifted apart (#71). It queries `gh pr list` for open PRs whose body actually
+*closes* this issue (GitHub's own closing-keyword set, not a bare mention) and writes the result to
+`/tmp/issue-$ISSUE-closers.json`; `tests/pr-existence-guard/test.sh` proves that program's behavior
+against fixtures shaped exactly like #195. Then act on the count:
 
 - **`0`** → nothing to resume onto; proceed to "Then reuse or create" below.
-- **`1`** → resume onto it instead of scaffolding a new one:
-  ```bash
-  FOUND_BRANCH=$(jq -r '.[0].headRefName' /tmp/issue-$ISSUE-closers.json)
-  git fetch origin "$FOUND_BRANCH"
-  if git show-ref --verify --quiet "refs/heads/$FOUND_BRANCH"; then
-    git worktree add "$WORKTREE" "$FOUND_BRANCH"
-  else
-    git worktree add "$WORKTREE" -b "$FOUND_BRANCH" "origin/$FOUND_BRANCH"
-  fi
-  BRANCH="$FOUND_BRANCH"   # this issue already has a home — override the derived slug
-  ```
-  Skip Step 5's scaffold commit entirely — the branch already carries one, and the PR already exists —
-  and continue at Step 6.
+- **`1`** → resume onto it instead of scaffolding a new one: fetch its `headRefName`, `git worktree
+  add` from it (existing local branch) or from `origin/<branch>` with `-b` (remote-only), and set
+  `BRANCH` to it — this issue already has a home, so it overrides the derived slug. Skip Step 5's
+  scaffold commit entirely — the branch already carries one, and the PR already exists — and continue
+  at Step 6.
 - **`2`+** → the exact shape of the #195 incident: a pre-existing duplicate pair (or worse) already on
   GitHub. Don't silently pick one and say nothing. Resume onto the PR with the most real commits
   (`gh pr view <n> --json commits --jq '.commits | length'` per candidate — an untouched scaffold has
@@ -218,7 +204,7 @@ jq 'length' /tmp/issue-$ISSUE-closers.json
   goes in the report, resolved automatically or not.
 
 A PR that once closed this issue but is now **closed** (abandoned, superseded) never blocks a fresh
-scaffold — the search above is already scoped to `--state open`.
+scaffold — the search is already scoped to `--state open`.
 
 Then reuse or create, and record the two names every later step needs:
 

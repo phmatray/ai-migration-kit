@@ -1,0 +1,20 @@
+[
+  {
+    "number": 60,
+    "headRefName": "fix/42-a",
+    "body": "FIXED #42",
+    "url": "https://github.com/phmatray/ai-migration-kit/pull/60"
+  },
+  {
+    "number": 61,
+    "headRefName": "fix/42-b",
+    "body": "resolves #42",
+    "url": "https://github.com/phmatray/ai-migration-kit/pull/61"
+  },
+  {
+    "number": 62,
+    "headRefName": "fix/42-c",
+    "body": "closes #42\n",
+    "url": "https://github.com/phmatray/ai-migration-kit/pull/62"
+  }
+]

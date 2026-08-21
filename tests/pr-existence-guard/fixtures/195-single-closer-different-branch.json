@@ -1,0 +1,8 @@
+[
+  {
+    "number": 205,
+    "headRefName": "fix/195-ci-wiring-executable-mode",
+    "body": "Implements #195.\n\nCloses #195.\n\nExecuting the implementation plan task-by-task.",
+    "url": "https://github.com/phmatray/ai-migration-kit/pull/205"
+  }
+]

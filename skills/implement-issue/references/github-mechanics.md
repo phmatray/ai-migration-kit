@@ -259,13 +259,26 @@ at what a prior run called itself.** Ask GitHub about the *issue* directly befor
 (#214 — two sessions scaffolded #195 under two different branch names because the second one never
 ran the `SLUG` recipe above, it invented its own):
 
+Wide net first (a plain search can hit a PR that merely *mentions* the issue), then narrow to PRs
+whose body actually closes it via GitHub's closing-keyword set. `gh pr list --jq` cannot take
+`--arg`, so the fetch and the filter are two steps — which also makes the filter a standalone jq
+program `tests/pr-existence-guard/test.sh` can run against fixtures without ever calling `gh`:
+
 ```bash
-# Wide net first (a plain search can hit a PR that merely *mentions* the issue), then narrow to PRs
-# whose body actually closes it via GitHub's closing-keyword set. `\b…#$ISSUE\b` stops #214 from
-# matching a #2140/#1214 substring. Write to a file — the body text can carry characters an inline
-# pipe mishandles.
-JQ_FILTER="[.[] | select(.body | test(\"(?i)\\\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\\\s+#$ISSUE\\\\b\"))]"
-gh pr list --search "$ISSUE in:body" --state open --json number,headRefName,body,url --jq "$JQ_FILTER" \
+gh pr list --search "$ISSUE in:body" --state open --json number,headRefName,body,url \
+  > /tmp/issue-$ISSUE-mentions.json
+```
+
+```jq
+# >>> issue-scoped PR-existence guard
+# $issue is the numeric issue id, passed via --arg issue "$ISSUE". `\b…#<n>\b` stops "214" from
+# matching a #2140/#1214 substring; the keyword set mirrors GitHub's own closing-keyword parsing.
+[.[] | select(.body | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\s+#" + $issue + "\\b"))]
+# <<< issue-scoped PR-existence guard
+```
+
+```bash
+jq --arg issue "$ISSUE" -f close-filter.jq /tmp/issue-$ISSUE-mentions.json \
   > /tmp/issue-$ISSUE-closers.json
 jq 'length' /tmp/issue-$ISSUE-closers.json
 ```
