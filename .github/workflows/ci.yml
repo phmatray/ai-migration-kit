@@ -437,6 +437,9 @@ jobs:
       - name: Auto-dev never-wait golden test (worker prompt + recovery clause pinned)
         run: ./tests/auto-dev-never-wait/test.sh
 
+      - name: Auto-dev takeover-cleanup golden test (MERGED verdict dispatches merge-pr for local cleanup)
+        run: ./tests/auto-dev-takeover-cleanup/test.sh
+
       - name: Survey golden test (effort tiers by the manifest's own vocabulary, not S/M/L)
         run: ./tests/survey/test.sh
 
@@ -446,3 +449,6 @@ jobs:
           if python3 scripts/contrast-check.py "#777777:#888888" >/dev/null 2>&1; then
             echo "contrast-check aurait dû échouer sur une paire illisible"; exit 1
           fi
+
+      - name: Run-all-tests golden test (the three exits, and no drift from this file)
+        run: ./tests/run-all-tests/test.sh

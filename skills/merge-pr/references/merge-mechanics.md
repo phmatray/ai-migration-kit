@@ -161,7 +161,7 @@ R1 refuses a second copy of these markers, because two homes for a gate is how a
   # >>> decision ci.verdict rule — extracted verbatim and run over fixtures by tests/merge-gate/test.sh >>>
   # One SHA carries a HISTORY PER JOB, not one run per job, so reduce before judging: keep the
   # newest run of each job and apply the rules to that alone.
-  [ .[].check_runs[] | {name, id, app: .app.id, started_at, state: (.conclusion // .status)} ]
+  [ .[].check_runs[] | {name, id, app: .app.id, started_at, html_url, state: (.conclusion // .status)} ]
   # A job is identified by the check name AND the app that posted it. Two products can both
   # publish a check called build — GitHub Actions and a CI app — and grouping on the name alone
   # would let whichever posted later silently retire the other one verdict.
@@ -179,11 +179,28 @@ R1 refuses a second copy of these markers, because two homes for a gate is how a
         | ((map(select(.state != "skipped")) | last) // last))
   | { latest: .,
       failed:  [ .[] | select(.state == "failure" or .state == "cancelled" or .state == "timed_out" or .state == "action_required") ],
-      pending: [ .[] | select(.state == "queued" or .state == "in_progress") ] }
+      # queued/in_progress are a run under way; waiting/requested/pending are a run that has not
+      # started at all (behind an environment protection rule, or an app posting the check before
+      # it begins). None of the five has a conclusion, and none is skipped, so none is evidence of
+      # anything — merging on it would be merging on a job that never ran. This is an ENUMERATION
+      # of the check-run status enum, not a proof: a status GitHub adds later still falls in the
+      # unhandled default and reads as green. Re-check https://docs.github.com/rest/checks/runs
+      # when this gate is next touched.
+      pending: [ .[] | select(.state == "queued" or .state == "in_progress" or .state == "waiting" or .state == "requested" or .state == "pending") ] }
   # Same program, one more question: the reduction above, and the verdict a caller acts on. Purely
   # additive — .latest, .failed and .pending are untouched, so every fixture assertion in
   # tests/merge-gate keeps its exact meaning. The rule name is what the event log attributes a
   # cause to; no-checks and clear are different silences and must not share one name.
+  #
+  # The widened `pending` above (#191) and this tail were written on separate branches and compose
+  # exactly: #191 decides WHICH runs count as pending, this decides what a caller DOES about them.
+  # A waiting deployment gate therefore now reaches the pending branch rather than falling through
+  # to the clear one — which was the whole point of #191, carried into the registered decision.
+  #
+  # Spelled WITHOUT the literal key-and-quote form on purpose: R5 counts those pairs to prove every
+  # branch names both a verdict and a rule, and it reads the program as text — so a comment that
+  # quotes one adds a fifth verdict with no rule beside it. Measured here, resolving this very
+  # conflict: the first draft of these lines did exactly that and the guard refused it.
   | . + (if   (.latest | length) == 0  then {verdict:"no-ci",   rule:"no-checks"}
          elif (.pending | length) > 0  then {verdict:"pending", rule:"pending"}
          elif (.failed  | length) > 0  then {verdict:"failed",  rule:"failed"}
@@ -352,6 +369,15 @@ This is strictly stronger than a sync-and-re-wait for catching semantic breakage
 happened by hand while landing #147 — but it moves the verdict off CI and onto the agent's machine,
 which this skill otherwise refuses to do. That trade is why it is a **fallback**, not the default path,
 and why SKILL.md Step 8 requires it to be named in the report as a deviation.
+
+This fallback only covers the self-imposed staleness check (`behind_by > 0` while `mergeStateStatus`
+still reports `CLEAN`) — GitHub doesn't block that merge either way. It does not cover a real
+GitHub-side gate: a PR reported `DIRTY` needs its conflict resolution pushed to the real branch, and a
+PR reported literal `BEHIND` (base requires branches to be up to date) needs the real branch actually
+updated — `gh pr merge` won't succeed on either without that push. If the branch has no writable
+checkout (not the transient sandbox push failure of Step 2/§8, which is just a retry) and
+`mergeStateStatus` is `DIRTY` or `BEHIND`, that combination is a genuine blocker: stop and report it
+rather than running this fallback.
 
 ---
 

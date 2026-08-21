@@ -1,0 +1,22 @@
+# Fixture desired state for tests/repo-setup (#198) — declares three REAL area: labels, unlike
+# fixtures/manifest.yml's lone placeholder, so `apply` has something to project into a copied
+# form's Area dropdown.
+labels:
+  - name: "priority: high"
+    color: "#B60205"
+    description: "Pull this first"
+  - name: "area: alpha"
+    color: "c5def5"
+    description: "First area"
+  - name: "area: beta"
+    color: "c5def5"
+    description: "Second area"
+  - name: "area: gamma"
+    color: "c5def5"
+    description: "Third area"
+
+issueTemplates:
+  - bug_report.yml
+
+settings:
+  delete_branch_on_merge: true

@@ -47,6 +47,7 @@ blocker:
 - **CI stays red after a real fix attempt.** Don't merge over a red bar, don't disable a failing test, don't `--admin`-override a required check. Fix it for real or stop and show the failing output.
 - **A merge conflict you can't resolve with confidence** — both `main` and the branch rewrote the *same logic*. The mechanical conflicts (version, changelog, snapshots, lockfiles) have known-correct fixes (Step 4) — handle those; stop only for genuinely ambiguous ones, showing both sides.
 - **A reviewer requested changes you can't satisfy** without guessing intent, or a branch-protection rule you can't legitimately clear (required approvals you can't self-give).
+- **The branch has no writable checkout — not the transient sandbox push failure Step 2/§8 already covers — and GitHub reports `mergeStateStatus == DIRTY` or literal `BEHIND`.** The can't-push fallback (Step 4) only substitutes for the self-imposed staleness check (`behind_by > 0` while `mergeStateStatus` still reports `CLEAN`) — it never pushes anything to the PR's real branch, and only a push clears a real conflict or a GitHub-enforced up-to-date gate. That combination is a genuine blocker: stop and report it.
 
 The merge is the irreversible act — earn it. Merge only when CI is **green on the just-corrected
 branch** and GitHub reports the PR mergeable; a textual merge of `main` is not a semantic one, so
@@ -175,7 +176,11 @@ job re-triggers), so don't act on its verdict directly. **Run the check-runs rec
 `references/merge-mechanics.md` §3**: it collects every check-run on the head SHA (paginated),
 **reduces them to the latest run of each job** — a SHA carries a *history per job*, not one run per
 job (#91) — and derives two sets from that reduced set: `failed` (failure / cancelled / timed_out /
-action_required) and `pending` (queued / in_progress).
+action_required) and `pending` (queued / in_progress / waiting / requested / pending) — the first pair
+is a run under way, the last three are a run that has **not started at all**, behind an environment
+protection rule or posted by an app before it begins (#191). None of the five has a conclusion, so
+none is evidence of anything; reading them as green is how a gated `deploy` job merges without ever
+running.
 
 That reduction **and** the rule that reads it are the registered decision `ci.verdict`, so run it —
 do not re-derive it here. `$DECIDE` is Step 2's variable; the recipe in §3 is the same call with the
@@ -221,6 +226,7 @@ cases, and what actually guards each:
 | A workflow path filter correctly skips a job the PR's files don't touch (e.g. the back-end test job on a front-end-only PR) | Yes — by design, there's nothing for that job to test | Nothing — this is the legitimate case a naive gate hangs on |
 | A run **superseded by a later run of the same job** — `cancel-in-progress` cancels it, and that `cancelled` stays attached to the SHA forever, beside the real conclusion (#91) | Yes, if the job's latest run is green — the superseded run never reached a verdict | The **reduction**: only the newest run per job name is in the set the rules see, so the superseded one cannot vote. Reference §3 records the measurement (three `kit` runs on one SHA, PR #85) |
 | A job whose **latest** run is `cancelled` — a human pressing Cancel, or a job cancelled on timeout | **No** — a real cancellation is a non-verdict | Nothing else, which is why the fix is a reduction rather than dropping `cancelled` from the blocking set: after reducing, a latest `cancelled` is still in `failed` and still blocks |
+| A job is `waiting` (behind an environment protection rule), `requested` (an app posted the check before starting it), or literally `pending` (a legacy status-API check) | **No** — not safe to merge, it has not run yet | The **`pending` predicate** (#191) — the distinction from `skipped` is `skipped` means this job will not run, `waiting`/`requested`/`pending` means it has not run **yet** |
 
 ⏳ **Re-poll a latest `cancelled` once before believing it.** `cancel-in-progress` flips the old
 run's check-runs to `cancelled` the moment the new push lands, and the replacement run's check-runs
@@ -234,6 +240,15 @@ So never hard-code "wait for `<job-name> == success`" — that hangs forever on 
 and reintroduces the same bug the moment another job grows a path filter. Gate on the shape instead:
 nothing failed, nothing pending, PR not a draft. Repo-specific CI quirks of this kind belong in the
 profile's *CI gates* section — record them there, not in this skill.
+
+⚠️ **A `waiting`, `requested`, or `pending` job may be waiting on a human** — a required reviewer on a
+deployment environment, for instance, or a stale legacy status check nobody will ever update — and
+this skill has no way to clear that itself. If a job's state stays in one of those three across
+several polls with no change, stop polling silently and **surface it as a named blocker** (job name +
+its `html_url`, both already in the reduced set §3 produces — no extra query, and never
+`statusCheckRollup`, which is out of scope here) for the user to clear, the same way an unclearable
+required-approvals block is surfaced rather than waited on (§5). Polling it to the timeout with no
+explanation is the failure this step exists to avoid.
 
 `gh pr checks "$PR" --watch` is still fine as a **human-facing convenience** for watching progress in
 a terminal, but don't treat its printed verdict as authoritative (the phantom-`skipped` case above) —
@@ -345,6 +360,15 @@ substitute is to verify the **merged result** locally instead of syncing the bra
 This moves the verdict from CI onto the agent's machine, which the rest of this skill deliberately
 avoids — so **record it as a deviation in the Step 8 report**: what was run, and that the green (or
 red) verdict came from this machine rather than from GitHub's check-runs.
+
+This fallback only covers the self-imposed staleness check (`behind_by > 0` while `mergeStateStatus`
+still reports `CLEAN`) — GitHub doesn't block that merge either way. It does not cover a real
+GitHub-side gate: a PR reported `DIRTY` needs its conflict resolution pushed to the real branch, and a
+PR reported literal `BEHIND` (base requires branches to be up to date) needs the real branch actually
+updated — `gh pr merge` won't succeed on either without that push. If the branch has no writable
+checkout (not the transient sandbox push failure of Step 2/§8, which is just a retry) and
+`mergeStateStatus` is `DIRTY` or `BEHIND`, that combination is a genuine blocker: stop and report it
+rather than running this fallback.
 
 **Address unresolved review (for `CHANGES_REQUESTED` / open threads).** Read the comments and unresolved
 threads, implement the real asks in the worktree, commit + push, and reply to / resolve the threads so

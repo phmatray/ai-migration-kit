@@ -59,7 +59,7 @@ Read the exit code — it is the report, and each value means one thing:
 | Exit | Meaning | What to do |
 |---|---|---|
 | 0 | converged | Say so. Nothing to do. |
-| 1 | `plan` found drift | Show the delta, then run `apply`. |
+| 1 | `plan` found drift | Show the delta, then run `apply` — **except** a `!TODO` line: `apply` never creates a placeholder, so fill it into the manifest instead (#198). |
 | 2 | bad usage, or an unreadable/unparseable manifest | Fix the manifest; never partially apply. |
 | 3 | a surface was refused | Relay **which** surface and why — the report names it. The rest did land. |
 | 4 | not inside a git repository | Say so and stop. |
@@ -83,9 +83,10 @@ before the first run against a repo that already has labels:
   `--prune` on it.
 - **Never clobber.** An issue form that already exists is reported `!SKIP`. A tuned form outranks
   the kit's default.
-- **A name in angle brackets is a placeholder** — never created, and reported `!TODO` on every run
-  so an unfilled axis stays visible instead of looking converged. The `area:` axis ships this way
-  because it names the consumer's code, not the kit's: fill it in before `auto-dev` runs a fleet.
+- **A name in angle brackets is a placeholder** — never created, and reported `!TODO` **and counted
+  as drift** on every run (`plan` exits 1), so an unfilled axis stays visible instead of looking
+  converged (#198). The `area:` axis ships this way because it names the consumer's code, not the
+  kit's: fill it in before `auto-dev` runs a fleet — `apply` will not resolve this one for you.
 
 ## Autonomy contract
 

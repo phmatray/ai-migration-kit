@@ -26,12 +26,12 @@
 - **Build:** none — this repo ships as files (bash + python + markdown skills/templates); there is no
   build marker at the root and no compile step. The only compiled artifact is the frozen .NET fixture
   under `samples/LegacyShop`.
-- **Full test:** no aggregate runner exists. CI invokes each suite individually; reproduce with
-  `for t in tests/*/test.sh; do echo "== $t"; "$t" || break; done`, then the standalone script gates
-  (`./scripts/parse-sweep.sh`, `python3 scripts/ci-wiring-check.py`,
-  `python3 scripts/pinned-literals-check.py`, `python3 tests/skills/check-frontmatter.py`,
-  `./scripts/preflight.sh`, `./scripts/worktrees-ignored.sh`) and
-  `dotnet test samples/LegacyShop --nologo`.
+- **Full test:** `./scripts/run-all-tests.sh` — one command that runs every structural gate and
+  every golden suite in the same order CI does (#170), and refuses with a distinct exit 2 rather
+  than 40 lines of false failures when a prerequisite (e.g. PyYAML) is missing. `--quick` skips the
+  `dotnet test samples/LegacyShop` leg for a faster local pass; `--with-network` adds the
+  network-dependent renovate.json acceptance gate CI also runs. `--list` prints the plan without
+  running anything.
 - **Single-suite filter (per-task, fast):** `./tests/<suite>/test.sh` — e.g. `./tests/preflight/test.sh`.
   This is the per-task command the lifecycle skills should lean on; suites are independent.
 - **Format/lint apply:** none — no formatter is configured for the shell/python/markdown sources.
@@ -39,9 +39,11 @@
   `./scripts/parse-sweep.sh` (every suite parses under macOS bash 3.2, #131),
   `python3 scripts/ci-wiring-check.py` (every suite is wired into CI),
   `python3 scripts/pinned-literals-check.py` (every spelling of the pinned version is marked) and
-  `python3 tests/skills/check-frontmatter.py` (skill frontmatter/compatibility tokens).
-- **Prerequisites / caveats:** `python3` with `PyYAML` (CI pip-installs it), a `dotnet` SDK for the
-  `samples/LegacyShop` fixture only, and `gh` authenticated for anything issue/PR shaped.
+  `python3 tests/skills/check-frontmatter.py` (skill frontmatter/compatibility tokens). All four run
+  as part of `./scripts/run-all-tests.sh`.
+- **Prerequisites / caveats:** `python3` with `PyYAML` — declared in `requirements.json` and
+  enforced by `./scripts/preflight.sh` (#170; CI also pip-installs it as a setup step), a `dotnet`
+  SDK for the `samples/LegacyShop` fixture only, and `gh` authenticated for anything issue/PR shaped.
   `samples/` is a **frozen fixture** — several suites assert its immutability, so a change there
   fails tests by design.
 - **The fixture needs the .NET 6 *runtime*, not just an SDK.** `samples/LegacyShop` targets `net6.0`
@@ -52,6 +54,11 @@
   and say in the report that `dotnet test` was not executed locally.
 
 ## CI gates (the exact commands CI fails on — satisfy these locally before ready/merge)
+Run them all at once with `./scripts/run-all-tests.sh` (#170) — it mirrors `.github/workflows/ci.yml`'s
+`kit` job in step order, and `tests/run-all-tests/test.sh` asserts it has not drifted from that file.
+The list below is what it runs, for reference; ask the workflow for the current shape rather than
+hand-copying it further.
+
 `.github/workflows/ci.yml`, job `kit` — one step per line, in file order:
 - `./scripts/worktrees-ignored.sh`
 - `python3 scripts/ci-wiring-check.py`
@@ -141,11 +148,10 @@
 
 ## Issue templates
 - **Location:** `.github/ISSUE_TEMPLATE/` — copied there by `repo-setup.sh apply` from the kit's
-  `templates/issue-forms/`, then **hand-edited** to carry this repo's real Area options, and
-  committed (#196). ⚠️ Deleting the directory and re-running `apply` does **not** regenerate them:
-  `apply` copies the shipped forms verbatim, so the dropdowns would come back with the single
-  `area: <your-area>` placeholder and `tests/repo-setup/test.sh` would go red. Restore them from
-  git, not from the tool.
+  `templates/issue-forms/`, then committed. **Generated, not hand-edited** (#198): `apply` projects
+  this repo's own `area:` labels into the copied form's Area dropdown by construction, so deleting
+  the directory and re-running `apply` regenerates the same committed bytes rather than bringing
+  back the shipped `area: <your-area>` placeholder.
 - **Forms:** `feature_request.yml` (labels the issue `enhancement`) and `bug_report.yml`.
 - **Default for ideas:** `feature_request.yml` · **for defects:** `bug_report.yml`.
 - **What to do:** `create-issue` should reconstruct the form's fields rather than falling back to
@@ -222,7 +228,9 @@
   Git Bash, and CI's `./tests/x/test.sh` then dies with "Permission denied", exit 126 (#195). Fix
   with `git update-index --chmod=+x tests/<name>/test.sh` before committing a new suite —
   `scripts/ci-wiring-check.py` now reads the index mode, not the filesystem, and refuses if you
-  forget.
+  forget. It also refuses a suite that was never `git add`ed at all (#210) — a wired,
+  `chmod +x`'d suite still absent from the index — with a distinct "not staged in the index at
+  all" message and a `git add` remedy, not the mode/`chmod` one.
 - Use `git -C <path>`, not `cd`, when driving this repo from another working directory.
 - `gh` needs `--repo phmatray/ai-migration-kit` when invoked from outside the clone; note the flag is
   `--repo`/`-R` on `issue`/`pr` but **not** on `gh repo view`, which takes the slug positionally.

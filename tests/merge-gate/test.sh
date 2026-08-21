@@ -180,6 +180,22 @@ verdict latest-in-progress.json 1 - kit \
 verdict multi-job-paginated.json 3 legacy-suite - \
   'jobs are reduced independently, across pages, and a vanished job keeps blocking'
 
+# `waiting` / `requested` / `pending` (#191): a run behind an environment protection rule, or one an
+# app has posted before starting, has no conclusion and is not `skipped` either — it has not run
+# YET, which is not evidence of anything and must not read as green. Each fixture pairs the gated
+# job with an unrelated green `kit` run so the case is a real PR with a gate, not a degenerate one.
+verdict waiting-deployment-gate.json 2 - deploy \
+  'a run waiting behind a deployment protection rule is pending, not green'
+verdict requested-run.json 2 - preview-app \
+  'a run an app has only requested is pending, not green'
+verdict pending-status.json 2 - legacy-status-check \
+  'a run whose status is literally "pending" is pending, not green'
+
+# The mixed case, pinned separately: an unrelated job's success must not retire a waiting job, and
+# only the waiting job's name should surface in `pending`.
+verdict waiting-blocks-other-success.json 2 - deploy \
+  'a waiting run blocks the gate even when a different job has already succeeded'
+
 # ---------------------------------------------------------------------------------------- verdict
 if [ "$FAILED" -ne 0 ]; then
   echo
