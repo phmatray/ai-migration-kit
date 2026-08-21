@@ -240,6 +240,40 @@ Choose the first N issues so **no two share an area** — that disjointness is t
 strategy. Dispatch each as a **background sub-agent** using the worker-prompt contract below; record
 each in the state file's *In flight* section.
 
+### ⛔ Dispatch-time guard — confirm GitHub agrees the issue is unclaimed, every time
+
+This applies to **every** dispatch, not only this step's first batch — the Step 4 refill path ("pick
+the next queued issue ... dispatch a fresh worker (Step 3)") reaches this same guard.
+
+The state file's *In flight* section is not proof by itself, because recording a dispatch is a
+**separate, later step from making it**: "Dispatch each ... record each" above are two actions, in
+that order. Anything that interrupts the supervisor between them — a `/compact` landing mid-turn, the
+session being killed and restarted, a fresh `loop` re-fire that isn't a resume of the same process —
+can lose the record while the worker it describes is already running. Nothing else catches that:
+`scripts/survey.sh` classifies the QUEUE from issue metadata alone (title/labels/body) and never
+queries PRs, and `scripts/reconcile.sh` lists open PRs without mapping any of them back to the issue
+they close — so a re-derived queue and a fresh reconcile both stay blind to an already-claimed issue
+(traced in #248, hardening the mechanism #214 fixed the worker-side symptom of). Two independently
+started supervisor sessions share the same blind spot, since nothing pins the state file to one
+contended path.
+
+So before spawning issue `#$ISSUE`'s worker — first batch or refill — ask GitHub directly, reusing
+#214's issue-scoped PR-existence query
+(`skills/implement-issue/references/github-mechanics.md` §5):
+
+```bash
+gh pr list --search "$ISSUE in:body" --state open --limit 100 --json number,headRefName,body,url,isDraft \
+  | jq --arg issue "$ISSUE" \
+      '[.[] | select(.body | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s*#" + $issue + "\\b"))]
+       | length'
+```
+
+`0` → clear to dispatch. Anything else → an open PR already closes this issue (another worker's, or a
+leftover the state file forgot) — skip it, drop it from the queue with a one-line note in the state
+file, and dispatch the next eligible issue instead. This is defense-in-depth alongside the state file,
+not a replacement for it: it closes the specific window where a dispatch record is lost before it's
+written; the state file remains what enforces area-disjointness across the fleet.
+
 **Pick each worker's model from its labels** (see Token economics): small/mechanical → cheap, typical
 single-area bug → mid, cross-cutting/hard → top. Pass it explicitly on spawn (the background-agent
 spawn takes a model parameter; a `claude -p` worker takes the `--model` flag). Record the chosen tier
