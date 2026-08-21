@@ -198,13 +198,8 @@ R1 refuses a second copy of these markers, because two homes for a gate is how a
   #
   # The widened `pending` above (#191) and this tail were written on separate branches and compose
   # exactly: #191 decides WHICH runs count as pending, this decides what a caller DOES about them.
-  # A waiting deployment gate therefore now reaches the pending branch rather than falling through
-  # to the clear one — which was the whole point of #191, carried into the registered decision.
-  #
-  # Spelled WITHOUT the literal key-and-quote form on purpose: R5 counts those pairs to prove every
-  # branch names both a verdict and a rule, and it reads the program as text — so a comment that
-  # quotes one adds a fifth verdict with no rule beside it. Measured here, resolving this very
-  # conflict: the first draft of these lines did exactly that and the guard refused it.
+  # A waiting deployment gate therefore now reaches verdict:"pending" rather than falling through
+  # to clear — which was the whole point of #191, carried into the registered decision.
   | . + (if   (.latest | length) == 0  then {verdict:"no-ci",   rule:"no-checks"}
          elif (.pending | length) > 0  then {verdict:"pending", rule:"pending"}
          elif (.failed  | length) > 0  then {verdict:"failed",  rule:"failed"}
