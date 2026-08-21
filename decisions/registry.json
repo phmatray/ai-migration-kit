@@ -1,0 +1,27 @@
+{
+  "description": "Every control-flow decision the methodology makes: one id, one program, one home. scripts/decide.sh runs them; scripts/decision-check.py refuses a second copy, a silent owner, a shape that does not build what the program reads, and prose that restates a decision as a table. See docs/decisions.md.",
+  "decisions": [
+    {
+      "id": "merge.step4",
+      "issue": 208,
+      "program": { "kind": "exec", "path": "skills/merge-pr/scripts/merge-verdict.sh" },
+      "shape":   { "home": "skills/merge-pr/references/merge-mechanics.md", "marker": "merge.step4 shape" },
+      "owner":   "skills/merge-pr/SKILL.md",
+      "suites":  ["tests/merge-freshness/test.sh", "tests/decisions/test.sh"],
+      "stdin": true,
+      "verdict": { "source": "stdout-json",
+                   "vocabulary": ["merge","sync","fix-check","wait","ready","review"] }
+    },
+    {
+      "id": "ci.verdict",
+      "issue": 170,
+      "program": { "kind": "block", "home": "skills/merge-pr/references/merge-mechanics.md", "marker": "ci.verdict rule" },
+      "shape":   null,
+      "owner":   "skills/merge-pr/SKILL.md",
+      "suites":  ["tests/merge-gate/test.sh", "tests/decisions/test.sh"],
+      "stdin": true,
+      "verdict": { "source": "stdout-json",
+                   "vocabulary": ["no-ci","pending","failed","clear"] }
+    }
+  ]
+}

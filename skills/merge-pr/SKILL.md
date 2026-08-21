@@ -141,7 +141,7 @@ Don't run corrections from the current session's worktree if it isn't the PR's b
 wrong checkout (a known footgun here). Use `git -C <path>` rather than `cd` (a `cd` in a compound
 command gets reset between calls). Raw `git fetch`/`git push` may be sandbox-blocked even though `gh`
 works (a `port 443` timeout) — re-run just those with the sandbox disabled; local git needs no network.
-See `references/merge-mechanics.md` §8.
+See `references/merge-mechanics.md` §9.
 
 **The moment a worktree is in hand — here, or later in Step 4 if this step deferred creating one —**
 record the four names Step 4's guarded writes need. Same convention `implement-issue` Step 4 defines,
@@ -151,6 +151,7 @@ so the shared main-sync procedure reads the same variables from either skill:
 BRANCH=<headRefName from Step 1>
 WORKTREE=<absolute path of that branch's worktree>
 GUARDS=<the kit's skills/implement-issue/scripts directory>
+DECIDE=<the kit's scripts/decide.sh>   # runs a registered decision by id — Steps 3 and 4 call it
 BASE=<baseRefName from Step 1>     # NOT assumed to be main — plenty of repos default to dev
 ```
 
@@ -181,6 +182,19 @@ protection rule or posted by an app before it begins (#191). None of the five ha
 none is evidence of anything; reading them as green is how a gated `deploy` job merges without ever
 running.
 
+That reduction **and** the rule that reads it are the registered decision `ci.verdict`, so run it —
+do not re-derive it here. `$DECIDE` is Step 2's variable; the recipe in §3 is the same call with the
+`gh api` half spelled out:
+
+```bash
+ci=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp \
+       | "$DECIDE" ci.verdict --json)
+[ -n "$ci" ] || { echo "check-runs query returned nothing — no verdict; do not merge"; exit 1; }
+```
+
+Keep `$ci`: Step 4's state block folds its `failed` and `pending` sets into the merge-state decision,
+which is what stops the two steps from asking the same PR two unrelated questions.
+
 While `pending` is non-empty, wait (re-poll, or come back later via `ScheduleWakeup` rather than
 busy-looping) — then judge:
 
@@ -194,14 +208,16 @@ busy-looping) — then judge:
 moved, the proof does not transfer.** Step 3 alone cannot see this — the check-runs it reads are
 attached to the head SHA, and they stay green even when `main` has moved on since they last ran (#171,
 measured landing #147: green checks, `mergeStateStatus: CLEAN`, six commits and 95 minutes stale).
-Step 4's divergence read is what closes that gap; it runs **before** the merge-state table below is
-even consulted.
+Step 4's divergence read is what closes that gap, and it outranks the merge state inside the
+precedence Step 4 runs — it is not a judgement made afterwards.
 
 **Not every check-run on a SHA is a verdict**, and the ways that bites share one cause: the SHA
 carries a job's *history*, and only its newest entry speaks for it. A `skipped` run is neither
 `failed` nor `pending`, so the recipe treats it as a non-event; a run that a later run of the same
 job superseded never reaches the rules at all, because the reduction has already dropped it. The
 cases, and what actually guards each:
+
+<!-- decided-by: ci.verdict -->
 
 | Why a check-run is not the job's verdict | Safe to merge? | What actually guards it |
 |---|---|---|
@@ -246,8 +262,14 @@ the branch can't be synced to pick up a moved base at all.
 
 ## Step 4 — Apply corrections (the loop)
 
-The heart of the skill. Re-read the merge state, clear whatever it reports, push, re-wait — until
-GitHub reports `CLEAN`. `mergeStateStatus` is the driver — but it is not the first thing read (below).
+The heart of the skill. Re-read the merge state, run the decision, apply the correction it names,
+push, re-wait — until it answers `merge`.
+
+**You do not derive the correction from `mergeStateStatus` by hand.** Which correction a state calls
+for is the registered decision `merge.step4`, and its thirteen-rule precedence lives in exactly one
+place: `skills/merge-pr/scripts/merge-verdict.sh`. Re-deriving it here is what this step used to do,
+and the two drifted (#208) — so the enumeration is gone from this file on purpose. Your job is to
+build the state, run the decision, and act on the word it returns.
 
 ⚠️ **If Step 2 deferred the worktree** — the normal outcome when the PR looked `CLEAN` there — this is
 where it appears, so run Step 2's ignore check **here, before `git worktree add`**, and then record
@@ -256,29 +278,51 @@ that deferring the worktree does not defer the guard past the thing it guards �
 [`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md). Reading the check in
 Step 2 and then obtaining the worktree here is how it ends up never running at all.
 
-Before reading `mergeStateStatus`, read the branch's divergence from its base:
+Build the state and run the decision. The state block — three reads folded into one object — is
+[`references/merge-mechanics.md` §4](references/merge-mechanics.md), which is its single home
+because the program reads those five fields **by name** and a rename on one side only is the exact
+bug this replaced. Run that block, then:
 
 ```bash
-gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind_by:.behind_by}'
-gh pr view "$PR" --json mergeStateStatus,mergeable,reviewDecision \
-  --jq '{state:.mergeStateStatus, mergeable, review:.reviewDecision}'
+verdict=$(printf '%s' "$state" | "$DECIDE" merge.step4)
 ```
+
+`$ci` in that block is Step 3's `$ci`. `decide.sh` exits non-zero rather than printing a word it
+cannot stand behind — an empty `$state` is exit 2, not a silent pass — so an empty `$verdict` is a
+plumbing failure to fix, never a green light.
 
 **`behind_by > 0` is the `BEHIND` correction**, whatever `mergeStateStatus` reports. GitHub only
 emits the `BEHIND` state when the base branch requires branches to be up to date; without that rule
 a branch six commits behind reports `CLEAN`, and the head SHA's green check-runs describe a merge
 into a base that no longer exists (#171 — measured landing #147: green checks, `CLEAN`, and the
-branch six commits and 95 minutes stale; a literal reading of the table below merged it).
+branch six commits and 95 minutes stale; reading the merge state on its own merged it). The
+precedence already puts that read above the merge state; this paragraph is *why*, not a rule to
+apply.
 
-| `mergeStateStatus` | What it means | Correction |
-|---|---|---|
-| `CLEAN` | mergeable, all gates satisfied | Done — go to Step 5. |
-| `UNKNOWN` | GitHub still computing | Re-poll after a short wait; don't act on it. |
-| `DRAFT` | PR is a draft | `gh pr ready "$PR"` (per Step 1's assumption), re-poll. |
-| `BEHIND` | base advanced; branch behind `main` — GitHub only reports this row when the base branch requires branches to be up to date, so most repos never see it; **the `behind_by > 0` rule above is the row that actually guards freshness** | **Sync with `main`** (below), push, re-wait CI. |
-| `DIRTY` | merge conflicts with the base | **Sync with `main`** and resolve conflicts (below). |
-| `UNSTABLE` | mergeable, but a check is pending/failing | Pending → wait (Step 3). Failing → **fix the red check** (below). A lone `skipped` check-run does **not** produce `UNSTABLE` — Step 3's recipe already treats `skipped` as a non-event, so landing here means something is genuinely pending or failing. |
-| `BLOCKED` | a branch-protection gate is unmet | Usually `reviewDecision == CHANGES_REQUESTED` → **address review** (below). If it's *required approvals* you can't self-give, that's a genuine blocker — surface it. |
+Then act on the word. The **program** owns *which* correction; this table owns *how* to apply it:
+
+| `$verdict` | What to do |
+|---|---|
+| `merge` | Nothing left to correct — go to Step 5. |
+| `wait` | Not actionable yet. Re-poll (Step 3) and re-derive; do not act on it. |
+| `fix-check` | **Fix the red check** (below), push, loop back to Step 3. |
+| `sync` | **Sync with `main`** (below) — resolving conflicts if there are any — push, re-wait CI. |
+| `ready` | The PR is still a draft: `gh pr ready "$PR"` (per Step 1's assumption), then re-derive. |
+| `review` | **Address the review** (below) — or surface a blocker you cannot clear yourself. |
+
+⚠️ **`review` is two situations wearing one word, and only you can tell them apart.** Run
+`gh pr view "$PR" --json reviewDecision` (the state block already fetched it): `CHANGES_REQUESTED`
+means someone asked for changes and the correction is below. Anything else means a branch-protection
+gate you cannot satisfy on your own — typically *required approvals* — and the right move is to
+**surface it and stop**, not to loop. The event log records which rule fired
+(`blocked-changes-requested` vs `blocked-approval`), so the two are distinguishable after the fact
+even though they share an action.
+
+⚠️ **`ready` outranks `sync`, deliberately.** A draft is not a merge candidate at all, so syncing a
+branch nobody has asked to land is work spent on a question that has not been asked yet. But a red
+or pending check outranks *both*: flipping a draft to ready only publishes the red bar. That
+ordering is fixed in the program's header, and it is the reason the answer is a word rather than a
+set of conditions to weigh.
 
 **Fix a red CI check.** Reproduce locally in the branch's worktree, fix it for real, commit + push. Run
 the profile's *Build & test* and *CI gates* — the same ones CI runs: the **build** for compile errors,
@@ -301,7 +345,7 @@ not). This loop can run several times against a moving branch, which is precisel
 is mergeable again. Follow the shared procedure in
 [`../_shared/sync-with-main.md`](../_shared/sync-with-main.md) (merge-not-rebase, the conflict
 rule-of-thumb keyed off the profile's *Conflict hot-spots*, and finish-and-verify);
-`references/merge-mechanics.md` §4 has the merge-pr framing. A clean *text* merge can still break the
+`references/merge-mechanics.md` §5 has the merge-pr framing. A clean *text* merge can still break the
 build — re-build/re-test before pushing.
 
 **The fallback when the branch can't be pushed.** Syncing needs a push, and a push needs the branch
@@ -329,7 +373,7 @@ rather than running this fallback.
 **Address unresolved review (for `CHANGES_REQUESTED` / open threads).** Read the comments and unresolved
 threads, implement the real asks in the worktree, commit + push, and reply to / resolve the threads so
 the decision flips off `CHANGES_REQUESTED`. GraphQL for listing/resolving threads in
-`references/merge-mechanics.md` §5. Triage with `superpowers:receiving-code-review` rigor — fix the
+`references/merge-mechanics.md` §6. Triage with `superpowers:receiving-code-review` rigor — fix the
 legitimate ones; for any you disagree with, reply on the thread rather than silently ignoring. (This
 skill does **not** run a fresh `code-review` pass — `implement-issue` did that before ready; it only
 reacts to review already on the PR.)
@@ -368,7 +412,7 @@ failed to run git: fatal: 'main' is already used by worktree at '<path>/ai-migra
 ```
 
 That merge **landed** — only gh's post-merge `git checkout` failed. Run from the primary checkout
-instead and you get the *other* message, `failed to delete local branch … used by worktree` (§8's
+instead and you get the *other* message, `failed to delete local branch … used by worktree` (§9's
 long-standing row), because gh only needs to switch branches when you are sitting on the head branch.
 Two messages, one rule: **the merge call's exit status is advisory.** Its stderr is worth reporting;
 it concludes nothing. `guarded-pr-merge.sh` is the one home for that decision (#184) — it runs the
@@ -394,8 +438,8 @@ script — is the only signal that answers the question.
 
 Local cleanup is Step 7's either way (gh can't delete a branch checked out in a worktree; its **Case
 B** is this same collision one step later). Take the `|| git switch --detach` fallback from
-`references/merge-mechanics.md` §7 when you get there — the obvious "switch back to `main`" walks
-straight into the collision that got you here. §8 of that reference carries the row keyed on the
+`references/merge-mechanics.md` §8 when you get there — the obvious "switch back to `main`" walks
+straight into the collision that got you here. §9 of that reference carries the row keyed on the
 literal message.
 
 ### Multi-issue PRs: keep the changelog honest
@@ -422,7 +466,7 @@ Landing a PR often leaves a tail of "not now, but worth doing" work. Gather it f
 **de-duplicate**:
 
 1. **Inline args** — every `--follow-up "<idea>"` passed on the command.
-2. **Discovered in the PR** — a `## Follow-ups` / "Deferred" / "Out of scope" section in the PR body, and review comments that explicitly defer work ("let's do X in a separate PR", "follow-up:", "TODO in a future change"). Pull the PR body + review comments and scan (snippets in `references/merge-mechanics.md` §6). Don't manufacture follow-ups from ordinary code comments.
+2. **Discovered in the PR** — a `## Follow-ups` / "Deferred" / "Out of scope" section in the PR body, and review comments that explicitly defer work ("let's do X in a separate PR", "follow-up:", "TODO in a future change"). Pull the PR body + review comments and scan (snippets in `references/merge-mechanics.md` §7). Don't manufacture follow-ups from ordinary code comments.
 
 Then **triage before filing**. An issue is a commitment to do work, not a record of an observation,
 and the two must not share a channel. Filing costs seconds; resolving costs a PR — so a Step 6 that
@@ -436,7 +480,7 @@ render path reported three times. Name the shared cause — that, not the sympto
 
 **6b — Look for a root that's already tracked, open *or* just closed.** For each cluster, search for
 the issue that already owns the cause — typically a `type:refactor` issue naming the same file
-(commands in `references/merge-mechanics.md` §6). Search by **file and subsystem**, not by the
+(commands in `references/merge-mechanics.md` §7). Search by **file and subsystem**, not by the
 symptom's wording: a root issue and its symptoms share almost no vocabulary, which is exactly why
 `create-issue`'s own duplicate check won't surface it. This search has to happen here.
 
@@ -501,7 +545,7 @@ A native `ExitWorktree`/equivalent is the harness-aware way to leave the current
 place of the manual `switch` if you have one.
 
 Either way, make each step tolerant of "already gone" — if Step 5's `--delete-branch` already removed
-the local branch, or no worktree existed, that's success (guard with `|| true`; reference §7). Never
+the local branch, or no worktree existed, that's success (guard with `|| true`; reference §8). Never
 delete the main checkout or an unrelated worktree — match the path to the PR's branch exactly.
 
 **Then finish the remote side too** — don't assume Step 5's `--delete-branch` or the repo's
@@ -514,7 +558,7 @@ skills/merge-pr/scripts/remote-branch-teardown.sh "<headRefName>" "<owner>/<repo
 ```
 
 Prints `already-gone` or `deleted` and exits 0 either way — both are success. A genuine delete
-failure exits 1 with the API error on stderr; report that, don't swallow it (reference §7).
+failure exits 1 with the API error on stderr; report that, don't swallow it (reference §8).
 
 ## Step 8 — Report
 

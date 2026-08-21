@@ -12,9 +12,11 @@
 # actually landing. This suite pins that exact fixture, plus the four other rows the fix's spec
 # lays out, against `skills/merge-pr/scripts/merge-verdict.sh` — the reference implementation of
 # the precedence rule, so a rewrite of ITS ordering goes red here instead of shipping quietly.
-# SKILL.md Step 4 currently restates the same rule as prose for the agent to apply by hand; this
-# suite does not read that prose, so it cannot catch the two drifting apart (tracked in #171's
-# follow-up — see the PR description).
+# The restatement is gone (#208): SKILL.md Step 4 no longer carries a `mergeStateStatus` table for
+# the agent to apply by hand — it INVOKES this decision through `scripts/decide.sh merge.step4`.
+# What keeps it gone is not this suite, which still reads no prose, but `scripts/decision-check.py`
+# — R7 refuses an owner that stops invoking its decision, and R8 refuses a markdown table that
+# re-enumerates the states this program tests.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -23,11 +25,20 @@ KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   echo "FAIL: cannot source $KIT_ROOT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$KIT_ROOT"
 
-VERDICT_SCRIPT="$KIT_ROOT/skills/merge-pr/scripts/merge-verdict.sh"
+# The decision is reached the way merge-pr reaches it: through the dispatcher, by id. Calling the
+# script directly would test a path no caller uses, and would skip the vocabulary refusal that
+# turns an unregistered verdict word into a red build.
+VERDICT_SCRIPT="$KIT_ROOT/scripts/decide.sh"
 FIXTURES="$KIT_ROOT/tests/merge-freshness/fixtures"
 
 [ -x "$VERDICT_SCRIPT" ] || {
   echo "FAIL: $VERDICT_SCRIPT is missing or not executable"; exit 1; }
+
+# Telemetry into the scratch dir, never the checkout: a suite must not append to the developer's
+# own event log, and `2>&1` below would fold any refusal about the log into the verdict string.
+WORK=$(kit_scratch)
+KIT_DECISION_LOG="$WORK/decision-events.jsonl"
+export KIT_DECISION_LOG
 
 FAILED=0
 note_fail() { echo "FAIL: $1"; FAILED=1; }
@@ -39,9 +50,9 @@ verdict() {
     note_fail "$fixture — fixture missing ($what)"
     return 0
   fi
-  out=$("$VERDICT_SCRIPT" "$path" 2>&1) || rc=$?
+  out=$("$VERDICT_SCRIPT" merge.step4 "$path" 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
-    note_fail "$fixture — merge-verdict.sh exited $rc ($what):
+    note_fail "$fixture — decide.sh merge.step4 exited $rc ($what):
 $(printf '%s\n' "$out" | sed 's/^/      /')"
     return 0
   fi

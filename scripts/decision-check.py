@@ -1,0 +1,767 @@
+#!/usr/bin/env python3
+"""decision-check.py — every registered decision is single-homed, invoked, and unrestated by prose.
+
+Why this exists (#208). A control-flow decision in this kit had TWO homes: `merge-verdict.sh`
+encoded the whole Step 4 precedence, was pinned by fixtures and wired into CI — and nothing called
+it, while `skills/merge-pr/SKILL.md` restated the same rule as a markdown table the agent applied by
+hand. Two homes drift, and these two did: a `--jq` object construction renamed `behind_by` to
+`behind` while the script still read `behind_by`, so the freshness guard read `null` forever. A
+human reviewer caught it, not CI, and the twin defect one line below survived the fix — composed
+exactly as Step 4 documented it, the verdict was `wait` for CLEAN, DIRTY and BLOCKED alike.
+
+So a decision now gets ONE id, ONE program and ONE home, listed in `decisions/registry.json`.
+`scripts/decide.sh` runs them. THIS script is what refuses the four ways that arrangement rots:
+
+  * a second copy of the program                          (R1)
+  * a program that no longer compiles, or cannot be
+    pasted where it is pasted                             (R2, R3)
+  * a vocabulary that has drifted from the registry, or
+    branches whose causes are indistinguishable           (R4, R5)
+  * a shape that stopped building what the program reads  (R6)   <- the live bug above
+  * an owner that stopped invoking its own decision       (R7)
+  * prose that re-enumerates the states the program tests (R8)
+  * a registry that is not internally coherent            (R9)
+
+Every program's text is obtained by running `scripts/decide.sh --program <id>`. That is deliberate:
+one home for extraction. A second implementation of the marker walk here would agree with the
+dispatcher right up until the day it did not, and the disagreement would surface as this guard
+passing over a program nobody actually runs.
+
+Scope for the prose rules (R7, R8): `skills/**/*.md`, `commands/**/*.md`, `.claude/skills/*.md`.
+`docs/`, `ARCHITECTURE.md`, `README.md`, `tests/**`, `templates/**` and `samples/**` are OUT of
+scope — they are human-facing, or fixtures that legitimately contain these tokens. `docs/decisions.md`
+in particular explains R8 with an illustrative table, and a guard that refused its own documentation
+would be uninstallable.
+
+------------------------------------------------------------------ WHAT THIS GUARD CANNOT SEE
+
+Stated here rather than left to be rediscovered, per the doctrine `tests/_lib.sh` states about its
+own contract: a docstring promising prevention the code does not perform is worse than no
+docstring, because it stops the next reader adding the check that is missing.
+
+R8 catches ONE SHAPE: a decision written as a markdown table keyed, in its first column, on a small
+set of literal tokens the program tests. It is blind by construction to a decision restated as prose
+paragraphs, as a bulleted list (`SKILL.md`'s precedence-in-bullet-clothing is exactly that), as a
+mermaid diagram, or as a table that names states in its *second* column. Of the ten issues in this
+defect class it cannot see #175 (a mermaid hand-off chain), #161 (a function-ordering comment), #163
+(two duplicated `case` statements inside isolated workflow `run:` shells), #158 (version literals),
+#144 (a bash-3.2 emulator) or #170's own command-list restatement. An author who knows the rule can
+trivially evade it. The claim is "this specific, already-observed restatement shape becomes
+impossible", not "restatement becomes impossible".
+
+And the counter-guard hole, which is the larger one:
+
+R1 proves everything IN the registry is real. NOTHING HERE PROVES EVERYTHING REAL IS IN THE
+REGISTRY. Delete the `merge.step4` row, paste the `mergeStateStatus` table back, and this guard is
+silent — the same shape as the stale suite inventory `ci-wiring-check.py` exists to close, which was
+solved by DISCOVERING suites from the filesystem. There is no discovery predicate for "this script
+is a decision", and a heuristic one would be worse than the manifest: it would either miss the next
+decision or cry wolf on every helper, and both teach the reader to stop believing it. The honest
+counter-guard is a recorded-exception list in `scripts/pinned-literals-check.py`'s style — every
+executable under `scripts/` and `skills/**/scripts/` is either registered or listed by path with a
+reason — and it is SLICE TWO, not slice one.
+
+R6 is over-approximated on purpose in the direction of silence: a field constructed by a NESTED
+object inside the shape counts as emitted, so R6 misses some real mismatches but never false-alarms.
+A decision whose `shape` is null is not checked by R6 at all, and is printed BY ID as uncovered on
+the success line — a guard that cannot answer must say so rather than serve silence as a pass.
+
+Usage:
+  decision-check.py [--repo <path>] [--registry <path>]
+
+Exit codes:
+  0  every decision is well-formed, single-homed, invoked by its owner, and unrestated by prose
+  1  REFUSE — one or more of R1..R8. ALL failures are reported, never the first one only
+  2  no verdict is possible — the registry is unreadable or not JSON, `decisions` is empty, a
+     declared home cannot be read, or `decide.sh --program` could not produce a program (which is
+     also how a missing `jq` arrives here)
+"""
+
+import argparse
+import json
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+
+# A decision id: a lowercase family, then at least one dotted segment. Matches the registry's own
+# documented shape, and is checked rather than assumed because ids end up in filenames, log lines
+# and `--only`-style filters where a stray space or capital is a silent miss.
+ID_RE = re.compile(r"^[a-z][a-z0-9]*(\.[a-z0-9-]+)+$")
+
+# The only index mode CI can execute a program at. Read from the INDEX, never the filesystem: a
+# checkout with core.filemode=false reports its working copy as executable no matter what git
+# actually recorded, which is what makes the defect invisible on the machine that introduced it.
+REQUIRED_MODE = "100755"
+
+# `verdict.source` values this kit can run. `exit-map` is the planned second kind (#170's local
+# half, #163); it is validated here so that adding it later is a registry row plus a dispatcher
+# branch, not a redesign — and so a row that declares it today goes red instead of being run as if
+# it were JSON.
+VERDICT_SOURCES = ("stdout-json",)
+
+# Where a marked block may be copied to. The declared home is excluded from its own search.
+COPY_ROOTS = ("skills", "scripts", "tests", "commands")
+
+# The prose R7 and R8 read. Everything else is human-facing or a fixture — see the docstring.
+PROSE_SCOPES = (("skills", "**/*.md"), ("commands", "**/*.md"), (".claude/skills", "*.md"))
+
+# A field read at the HEAD of a path: `.foo`, but not `x.foo`, not `)[0].foo`, not `"a".foo`. The
+# lookbehind is what keeps `merge-verdict.sh` and `registry.json` from parsing as field reads.
+READ_RE = re.compile(r'(?<![A-Za-z0-9_)\]"])\.([A-Za-z_][A-Za-z0-9_]*)')
+
+# `verdict:"x"` / `rule:"x"` inside a jq object construction. The `-` in the lookbehind matters:
+# without it, `merge-verdict: cannot read ...` in an error message parses as a verdict literal.
+VERDICT_LIT_RE = re.compile(r'(?<![A-Za-z0-9_-])verdict\s*:\s*"([^"]*)"')
+RULE_LIT_RE = re.compile(r'(?<![A-Za-z0-9_-])rule\s*:\s*"([^"]*)"')
+
+# R8's token derivation: every string compared against inside the program. Derived FROM THE PROGRAM,
+# never listed in the registry, so the token list cannot drift away from the thing it describes.
+TOKEN_RE = re.compile(r'[=!]=\s*"([^"]*)"')
+
+# A shouted state literal in a table cell — `CLEAN`, `BEHIND`, `CHANGES_REQUESTED`, `MERGEABLE`.
+# Only ever used INSIDE an annotated run, for the subset check; see `run_candidates`.
+SHOUTED_RE = re.compile(r"(?<![A-Za-z0-9_-])([A-Z][A-Z0-9_]{3,})(?![A-Za-z0-9_-])")
+
+ANNOTATION_RE = re.compile(r"^<!--\s*decided-by:\s*([^\s]+)\s*-->$")
+
+# How far above a table run its annotation may sit. Three lines covers "blank line, comment, blank
+# line" and nothing looser: an annotation five paragraphs up would not be read as belonging to the
+# table by anyone editing it, so it must not be read that way here either.
+ANNOTATION_LOOKBACK = 3
+
+
+class Unanswerable(Exception):
+    """A condition under which no verdict is possible — exit 2, never a pass."""
+
+
+# --------------------------------------------------------------------------------- the registry
+
+
+def load_registry(path):
+    try:
+        text = path.read_text()
+    except OSError as exc:
+        raise Unanswerable(f"cannot read the registry {path}: {exc}")
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise Unanswerable(f"{path} is not valid JSON: {exc}")
+    if not isinstance(doc, dict):
+        raise Unanswerable(f"{path} must be a JSON object, got {type(doc).__name__}")
+    decisions = doc.get("decisions")
+    if not isinstance(decisions, list) or not decisions:
+        # The #45 refusal, one file over: reporting "all clean" over an empty manifest is how a
+        # registry that lost its contents reads exactly like a registry with nothing to complain
+        # about.
+        raise Unanswerable(
+            f"{path} declares no decisions — refusing to report 'all single-homed' over an "
+            "empty set. An empty registry is not 'nothing to do'; it is a registry that lost "
+            "its contents."
+        )
+    return decisions
+
+
+def program_text(repo, did):
+    """The decision's program, obtained the one way this repo extracts a program."""
+    decide = repo / "scripts" / "decide.sh"
+    if not decide.is_file():
+        raise Unanswerable(f"{decide} does not exist — there is no way to extract a program.")
+    try:
+        proc = subprocess.run(
+            ["bash", str(decide), "--program", did],
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+        )
+    except OSError as exc:
+        raise Unanswerable(f"could not run {decide}: {exc}")
+    if proc.returncode != 0:
+        raise Unanswerable(
+            f"`decide.sh --program {did}` exited {proc.returncode}, so its program is unknown:\n"
+            + "\n".join("    " + l for l in proc.stderr.strip().splitlines())
+        )
+    return proc.stdout
+
+
+def index_modes(repo, paths):
+    """The git INDEX mode of each path. Returns (modes, error); an unreadable index is an error.
+
+    The filesystem mode is the wrong authority: `chmod +x` on a checkout with core.filemode=false
+    never reaches the index, so the working copy reports itself executable while CI receives 100644
+    and dies with "Permission denied". `-z` because git C-quotes any path it considers unusual,
+    which would silently miss the lookup rather than refuse.
+    """
+    if not paths:
+        return {}, None
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-s", "-z", "--", *paths],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        return {}, f"git is not available ({exc})"
+    if proc.returncode != 0:
+        return {}, proc.stderr.strip() or f"git ls-files exited {proc.returncode}"
+    modes = {}
+    for record in proc.stdout.split("\0"):
+        if not record:
+            continue
+        meta, _, path = record.partition("\t")
+        modes[path] = meta.split()[0]
+    return modes, None
+
+
+# ------------------------------------------------------------------------------ marked blocks
+
+
+def marker_lines(marker):
+    return f"# >>> decision {marker}", f"# <<< decision {marker}"
+
+
+def extract_marked(text, marker):
+    """The lines from the begin marker through the end marker, inclusive, or a reason it failed.
+
+    Fixed-string PREFIX matching, the same rule `decide.sh` applies, so free text may follow the
+    marker on its line — the shipped `ci.verdict` block carries an em-dash sentence naming the
+    suite that runs it.
+    """
+    begin, end = marker_lines(marker)
+    lines = text.splitlines()
+    starts = [i for i, l in enumerate(lines) if begin in l]
+    ends = [i for i, l in enumerate(lines) if end in l]
+    if len(starts) != 1 or len(ends) != 1:
+        return None, (
+            f"found {len(starts)} '{begin}' and {len(ends)} '{end}'; each must appear exactly "
+            "once. Two blocks means two homes for the gate, and a gate with two homes drifts."
+        )
+    if ends[0] < starts[0]:
+        return None, f"'{end}' appears before '{begin}'"
+    return "\n".join(lines[starts[0] : ends[0] + 1]), None
+
+
+def marked_regions(text):
+    """Line numbers (1-based, inclusive) covered by ANY `>>> decision` / `<<< decision` pair.
+
+    R8 exempts them: those lines are the program itself, and a program that tests seven states is
+    not prose restating them.
+    """
+    regions, open_at = [], None
+    for n, line in enumerate(text.splitlines(), start=1):
+        if "# >>> decision " in line and open_at is None:
+            open_at = n
+        elif "# <<< decision " in line and open_at is not None:
+            regions.append((open_at, n))
+            open_at = None
+    if open_at is not None:
+        regions.append((open_at, 10**9))
+    return regions
+
+
+def emitted_keys(block):
+    """Top-level keys of every `{...}` object construction in the block, over-approximated.
+
+    Over-approximated because a NESTED construction's keys count too: the walk does not track which
+    braces are top-level for the shape as a whole, only which text sits inside a matched pair. That
+    direction is chosen deliberately — R6 may therefore MISS a mismatch, but it will not invent one,
+    and a guard that cries wolf gets disabled while a guard that occasionally stays quiet only
+    fails to help.
+    """
+    keys = set()
+    text = block
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        depth, j, quote = 0, i, None
+        while j < n:
+            ch = text[j]
+            if quote:
+                if ch == "\\":
+                    j += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in "\"'":
+                quote = ch
+            elif ch in "{[(":
+                depth += 1
+            elif ch in "}])":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if j >= n:
+            break
+        for part in _split_depth0(text[i + 1 : j]):
+            key = _key_of(part)
+            if key:
+                keys.add(key)
+        i += 1
+    return keys
+
+
+def _split_depth0(text):
+    parts, depth, quote, buf = [], 0, None, []
+    for ch in text:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch in "{[(":
+            depth += 1
+        elif ch in "}])":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+            continue
+        buf.append(ch)
+    parts.append("".join(buf))
+    return parts
+
+
+def _key_of(part):
+    """`a` -> a, `a: .b` -> a, `.c` -> c. Anything else contributes no key."""
+    head = part.split(":", 1)[0].strip()
+    head = head.lstrip(".").strip()
+    m = re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", head)
+    return m.group(0) if m else None
+
+
+# ------------------------------------------------------------------------------- prose scanning
+
+
+def prose_files(repo):
+    found = []
+    for root, pattern in PROSE_SCOPES:
+        base = repo / root
+        if base.is_dir():
+            found.extend(sorted(base.glob(pattern)))
+    return found
+
+
+def fence_flags(lines):
+    """Per line: is this line inside a fenced code block? Toggling on any ``` line."""
+    flags, inside = [], False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            flags.append(False)  # the fence line itself is not content
+            inside = not inside
+            continue
+        flags.append(inside)
+    return flags
+
+
+def table_runs(lines):
+    """Maximal runs of >=2 consecutive lines starting with `|`, as (begin, end, first_cells)."""
+    i, n = 0, len(lines)
+    while i < n:
+        if re.match(r"^\s*\|", lines[i]):
+            j = i
+            while j < n and re.match(r"^\s*\|", lines[j]):
+                j += 1
+            if j - i >= 2:
+                cells = " | ".join(
+                    l.split("|")[1] for l in lines[i:j] if len(l.split("|")) >= 3
+                )
+                yield i + 1, j, cells
+            i = j
+        else:
+            i += 1
+
+
+def annotation_for(lines, begin):
+    """The id in a `<!-- decided-by: <id> -->` within ANNOTATION_LOOKBACK lines above the run."""
+    for k in range(begin - 2, max(begin - 2 - ANNOTATION_LOOKBACK, -1), -1):
+        m = ANNOTATION_RE.match(lines[k].strip())
+        if m:
+            return m.group(1)
+    return None
+
+
+def found_tokens(cells, tokens):
+    """The tokens present in `cells`, matched on identifier boundaries.
+
+    The boundaries are what keep `skips` from matching `skipped` and `cancel-in-progress` from
+    matching `in_progress`. Without them the rule fires on ordinary English and gets turned off.
+    """
+    return {
+        t
+        for t in tokens
+        if t
+        and re.search(
+            r"(?<![A-Za-z0-9_-])" + re.escape(t) + r"(?![A-Za-z0-9_-])", cells
+        )
+    }
+
+
+def run_candidates(cells, all_tokens):
+    """The state literals an ANNOTATED run enumerates, for R8's subset check.
+
+    Two sources, and the second one is an interpretation this file owns rather than inherits: a
+    token of any registered decision (so `skipped` and `cancelled` count), plus any SHOUTED
+    identifier of four characters or more (so `MERGEABLE` and `BEHIND` count even though no program
+    tests them — which is the entire point of the subset rule: prose may enumerate FEWER states than
+    the program handles, never MORE).
+
+    The cost, stated because it is real: an annotated table whose first column happens to shout an
+    unrelated word gets refused. That is opt-in blast radius — only a run someone deliberately
+    annotated is subject to it — and the remedy is to not shout in a first cell.
+    """
+    return found_tokens(cells, all_tokens) | set(SHOUTED_RE.findall(cells))
+
+
+def invocation_re(did):
+    """A CALL to the dispatcher for `did`, not a mention of it.
+
+    The spelling accepted is `decide.sh <id>` or the `$DECIDE` variable an owner establishes for
+    the same script, followed by the id. See the divergence note in `docs/decisions.md`: the
+    criterion is "the owner INVOKES it", and a kit whose own convention is `"$GUARDS/guarded-*.sh"`
+    reaches its scripts through a variable. The fence requirement is what carries the guarantee —
+    prose naming a script is still not calling it.
+    """
+    dispatcher = r'(?:decide\.sh|"\$\{?DECIDE\}?"|\$\{?DECIDE\}?)'
+    return re.compile(dispatcher + r"\s+" + re.escape(did) + r"(?![A-Za-z0-9_.-])")
+
+
+# ------------------------------------------------------------------------------------- the check
+
+
+def check(repo, registry_path):
+    decisions = load_registry(registry_path)
+    failures = []
+    rel_registry = _rel(repo, registry_path)
+
+    def refuse(rule, where, message, *remedy):
+        failures.append((rule, where, message, remedy))
+
+    # ------------------------------------------------------------------- R9 registry integrity
+    seen = {}
+    for row in decisions:
+        did = row.get("id")
+        if not isinstance(did, str) or not ID_RE.match(did):
+            refuse("R9", rel_registry, f"decision id {did!r} is missing or malformed",
+                   "Ids match ^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$ — e.g. merge.step4.")
+            continue
+        if did in seen:
+            refuse("R9", rel_registry, f"decision id '{did}' is declared more than once",
+                   "One id, one program, one home. Two rows is two answers to one question.")
+        seen[did] = row
+
+    for did, row in seen.items():
+        source = (row.get("verdict") or {}).get("source")
+        if source not in VERDICT_SOURCES:
+            refuse("R9", rel_registry,
+                   f"'{did}' declares verdict.source={source!r}, which no dispatcher implements",
+                   "Only 'stdout-json' exists in slice one. 'exit-map' is the planned extension "
+                   "point and is deliberately NOT implemented — build it in decide.sh before "
+                   "registering a row that needs it.")
+        owner = row.get("owner")
+        if not owner or not (repo / owner).is_file():
+            refuse("R9", rel_registry, f"'{did}' names an owner that cannot be read: {owner!r}",
+                   "The owner is the file that must INVOKE this decision (R7).")
+        for suite in row.get("suites") or []:
+            if not (repo / suite).is_file():
+                refuse("R9", rel_registry, f"'{did}' names a suite that does not exist: {suite}",
+                       "A suite listed but absent is an assertion nobody makes.")
+        # Wiring of those suites is deliberately NOT re-checked here: ci-wiring-check.py already
+        # guarantees every tests/<name>/test.sh is enforced by a step that can fail the build, and
+        # one rule gets one implementation.
+
+    # ------------------------------------------------------------- per-decision program checks
+    programs, tokens_by_id, shaped = {}, {}, []
+    exec_paths = []
+    for did, row in seen.items():
+        programs[did] = program_text(repo, did)
+        tokens_by_id[did] = set(TOKEN_RE.findall(programs[did]))
+        prog = programs[did]
+        kind = (row.get("program") or {}).get("kind")
+
+        # ------------------------------------------------------------------------ R1 ONE HOME
+        if kind == "exec":
+            exec_paths.append((did, (row.get("program") or {}).get("path")))
+        elif kind == "block":
+            home = (row.get("program") or {}).get("home")
+            marker = (row.get("program") or {}).get("marker")
+            home_path = repo / home
+            if not home_path.is_file():
+                raise Unanswerable(f"'{did}' declares its home as {home}, which cannot be read.")
+            begin, _end = marker_lines(marker)
+            for other in _marker_copies(repo, begin, exclude=home_path):
+                refuse("R1", _rel(repo, other),
+                       f"a second copy of '{did}'s marked block lives here",
+                       f"Its one home is {home}. Delete this copy — two homes for a gate is how "
+                       "a gate drifts, and the copy that is not run is the one that goes wrong.")
+            _text, err = extract_marked(home_path.read_text(), marker)
+            if err:
+                refuse("R1", home, f"'{did}': {err}")
+
+            # --------------------------------------------------- R2 IT COMPILES (block only)
+            complaint = _jq_compiles(prog)
+            if complaint is not None:
+                refuse("R2", home, f"'{did}'s program does not compile:\n{complaint}",
+                       "jq compiles the whole program before it reads any input, so this is a "
+                       "pure parse failure — the program could never have run at all.")
+
+            # ------------------------------------------------ R3 NO SINGLE QUOTE (block only)
+            if "'" in prog:
+                bad = [str(n) for n, l in enumerate(prog.splitlines(), 1) if "'" in l]
+                refuse("R3", home,
+                       f"'{did}'s program contains a single quote (line(s) {', '.join(bad)})",
+                       "The block is pasted inside a shell `jq '…'` argument, so a single quote "
+                       "closes that string early: the pasted snippet would not be the tested "
+                       "snippet — it would not even run. Rewrite the line without one.")
+        else:
+            refuse("R9", rel_registry, f"'{did}' declares program.kind={kind!r}",
+                   "Known kinds: exec (a script) and block (a marked jq program in a reference).")
+
+        # ------------------------------------------------------------ R4 VOCABULARY IS EXACT
+        declared = set((row.get("verdict") or {}).get("vocabulary") or [])
+        emitted = set(VERDICT_LIT_RE.findall(prog))
+        for word in sorted(emitted - declared):
+            refuse("R4", _program_where(repo, row),
+                   f"'{did}' can answer {word!r}, which is not in its declared vocabulary",
+                   f"Add it to {rel_registry}, or stop emitting it. `decide.sh` REFUSES an "
+                   "unregistered word at run time (exit 1), so shipping this is a broken gate.")
+        for word in sorted(declared - emitted):
+            refuse("R4", rel_registry,
+                   f"'{did}' declares {word!r}, which no branch of its program can emit",
+                   "A dead word in the vocabulary is a branch someone deleted without saying so. "
+                   "Remove it, or restore the branch.")
+
+        # ------------------------------------------------------------ R5 CAUSES ARE DISTINCT
+        verdict_lits = VERDICT_LIT_RE.findall(prog)
+        rule_lits = RULE_LIT_RE.findall(prog)
+        if len(verdict_lits) != len(rule_lits):
+            refuse("R5", _program_where(repo, row),
+                   f"'{did}' has {len(verdict_lits)} verdict literal(s) but {len(rule_lits)} "
+                   "rule literal(s)",
+                   "Every branch names both. Without the rule name the event log cannot attribute "
+                   "a cause, and two branches answering one word become indistinguishable.")
+        dupes = sorted({r for r in rule_lits if rule_lits.count(r) > 1})
+        if dupes:
+            refuse("R5", _program_where(repo, row),
+                   f"'{did}' reuses rule name(s): {', '.join(dupes)}",
+                   "Rule names are the identity of a branch. Two branches sharing one name make "
+                   "the event log's central signal — does this gate redden on ONE cause? — noise.")
+
+        # -------------------------------------------------------------- R6 READS SUBSET EMITS
+        shape = row.get("shape")
+        if not shape:
+            continue
+        shaped.append(did)
+        shome = repo / shape["home"]
+        if not shome.is_file():
+            raise Unanswerable(
+                f"'{did}' declares its shape home as {shape['home']}, which cannot be read."
+            )
+        block, err = extract_marked(shome.read_text(), shape["marker"])
+        if err:
+            refuse("R6", shape["home"], f"'{did}'s shape block: {err}")
+            continue
+        emits = emitted_keys(block)
+        reads = set(READ_RE.findall(prog))
+        missing = sorted(reads - emits)
+        if missing:
+            refuse("R6", shape["home"],
+                   f"'{did}' reads {', '.join('.' + m for m in missing)}, which the shape block "
+                   "does not build",
+                   f"program: {_program_where(repo, row)}   shape: {shape['home']} "
+                   f"(marker '{shape['marker']}')",
+                   f"The shape builds: {', '.join(sorted(emits)) or '(nothing)'}.",
+                   "This is the live bug that made this engine necessary: a renamed key on one "
+                   "side only, read as null forever, with every test still green.")
+
+    # --------------------------------------------------------------- R1, the index-mode half
+    modes, mode_error = index_modes(repo, [p for _d, p in exec_paths if p])
+    for did, path in exec_paths:
+        if not path or not (repo / path).is_file():
+            refuse("R1", rel_registry, f"'{did}' names a program that does not exist: {path!r}",
+                   "Restore the file, or remove the row.")
+            continue
+        mode = modes.get(path)
+        if mode is None:
+            if not mode_error:
+                refuse("R1", path, f"'{did}'s program is not in the git index",
+                       "An untracked program is not what CI or a plugin install receives. "
+                       f"`git add {path}`.")
+        elif mode != REQUIRED_MODE:
+            refuse("R1", path,
+                   f"'{did}'s program is committed at index mode {mode}, not {REQUIRED_MODE}",
+                   f"`git update-index --chmod=+x {path}` — a checkout with core.filemode=false "
+                   "makes the working copy lie, so chmod alone never reaches the index, and "
+                   "`decide.sh` refuses a program it cannot execute.")
+    if mode_error:
+        # Reported ALONGSIDE the rules above, never instead of them: the prose verdicts are
+        # independent of git entirely, so an unreadable index must not hide an unrelated defect.
+        refuse("R1", rel_registry, f"the git index could not be read: {mode_error}",
+               "No program's executability is knowable. An unanswerable question is not a pass.")
+
+    # ---------------------------------------------------------------------- R7 and R8, prose
+    all_tokens = set()
+    for toks in tokens_by_id.values():
+        all_tokens |= toks
+
+    for did, row in seen.items():
+        owner = row.get("owner")
+        if not owner or not (repo / owner).is_file():
+            continue  # already refused by R9
+        lines = (repo / owner).read_text().splitlines()
+        flags = fence_flags(lines)
+        pattern = invocation_re(did)
+        if not any(flag and pattern.search(line) for line, flag in zip(lines, flags)):
+            refuse("R7", owner,
+                   f"is the registered owner of '{did}' but never invokes it",
+                   "Prose naming a script is not calling it. Put the call inside a fenced code "
+                   f"block, e.g. `\"$DECIDE\" {did}` or `scripts/decide.sh {did}`.",
+                   "Without this rule a contributor can delete the invocation, re-derive the "
+                   "verdict by hand, and every other rule here stays green.")
+
+    for path in prose_files(repo):
+        rel = _rel(repo, path)
+        text = path.read_text(errors="replace")
+        lines = text.splitlines()
+        exempt = marked_regions(text)
+        for begin, end, cells in table_runs(lines):
+            if any(a <= begin and end <= b for a, b in exempt):
+                continue
+            ann = annotation_for(lines, begin)
+            if ann is None:
+                for did in seen:
+                    hit = found_tokens(cells, tokens_by_id[did])
+                    if len(hit) >= 2:
+                        refuse("R8", f"{rel}:{begin}-{end}",
+                               f"this table re-enumerates states '{did}' tests: "
+                               f"{', '.join(sorted(hit))}",
+                               "The program owns WHICH correction; a table may own HOW to apply "
+                               "one, keyed on the VERDICT words, never on the states. Delete the "
+                               f"enumeration, or — if it explains something no program can — put "
+                               f"`<!-- decided-by: {did} -->` on its own line just above the "
+                               "table, which costs you the freedom to name a state the program "
+                               "does not test.")
+                continue
+            if ann not in seen:
+                refuse("R8", f"{rel}:{begin}-{end}",
+                       f"annotated `<!-- decided-by: {ann} -->`, but no such decision is registered",
+                       f"Registered ids: {', '.join(sorted(seen)) or '(none)'}.")
+                continue
+            extra = sorted(run_candidates(cells, all_tokens) - tokens_by_id[ann])
+            if extra:
+                refuse("R8", f"{rel}:{begin}-{end}",
+                       f"annotated for '{ann}', but names state(s) its program never tests: "
+                       f"{', '.join(extra)}",
+                       "Prose may enumerate FEWER states than the program handles, never more. "
+                       "A row for a state with no branch hides the program's gap instead of "
+                       "making it visible — add the branch, or drop the row.")
+
+    return failures, sorted(seen), shaped
+
+
+def _jq_compiles(prog):
+    """None when the program compiles, else jq's own complaint, indented.
+
+    Run over EMPTY input, which makes this a pure parse check: jq compiles the whole program before
+    it reads anything, and with zero inputs the filter is never applied even once — so a non-zero
+    exit here can only be a compile error, never a runtime one. Same idiom, and the same reason,
+    as `tests/merge-gate/test.sh`'s parse gate.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        path = pathlib.Path(tmp) / "program.jq"
+        path.write_text(prog)
+        try:
+            proc = subprocess.run(
+                ["jq", "-f", str(path)],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            raise Unanswerable(
+                f"jq is not available ({exc}) — it is a `required` prerequisite in "
+                "requirements.json, and every registered decision is read or run through it."
+            )
+    if proc.returncode == 0:
+        return None
+    return "\n".join("    " + l for l in (proc.stderr.strip() or "(no message)").splitlines())
+
+
+def _marker_copies(repo, begin, exclude):
+    for root in COPY_ROOTS:
+        base = repo / root
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or path == exclude:
+                continue
+            try:
+                if begin in path.read_text(errors="replace"):
+                    yield path
+            except OSError:
+                continue
+
+
+def _rel(repo, path):
+    try:
+        return str(pathlib.Path(path).relative_to(repo))
+    except ValueError:
+        return str(path)
+
+
+def _program_where(repo, row):
+    prog = row.get("program") or {}
+    return prog.get("path") or f"{prog.get('home')} ({prog.get('marker')})"
+
+
+def report(failures, ids, shaped):
+    if failures:
+        print("decision-check: REFUSED.\n")
+        for rule, where, message, remedy in failures:
+            print(f"  {rule}  {where}")
+            print(f"      {message}")
+            for line in remedy:
+                print(f"      → {line}")
+            print()
+        print(f"decision-check: {len(failures)} refusal(s) above. All of them, not the first.")
+        return 1
+    uncovered = [i for i in ids if i not in shaped]
+    print(
+        f"decision-check: {len(ids)} decisions, {len(shaped)} with a shape block, all "
+        "single-homed, invoked and unrestated."
+    )
+    if uncovered:
+        # Counted rather than silent: R6 cannot speak for these, and a guard that cannot answer
+        # must say which questions it did not answer.
+        print(
+            "  no shape block, so R6 does not cover them: " + ", ".join(uncovered)
+        )
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True, description=__doc__.splitlines()[0])
+    ap.add_argument("--repo", default=".", help="kit root (default: cwd)")
+    ap.add_argument("--registry", default=None, help="registry path (default: <repo>/decisions/registry.json)")
+    args = ap.parse_args()
+
+    repo = pathlib.Path(args.repo).resolve()
+    registry = pathlib.Path(args.registry).resolve() if args.registry \
+        else repo / "decisions" / "registry.json"
+    try:
+        failures, ids, shaped = check(repo, registry)
+    except Unanswerable as exc:
+        print(f"decision-check: {exc}", file=sys.stderr)
+        print("  No verdict is possible, which is not a pass.", file=sys.stderr)
+        return 2
+    return report(failures, ids, shaped)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
