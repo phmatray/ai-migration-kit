@@ -20,6 +20,11 @@
 #   degraded-fallback  repo-local manifest present and parses, but declares no effort: axis —
 #                   the hardcoded case-insensitive fallback must still classify correctly, not
 #                   silently reproduce the all-HOLD bug this issue reports
+#   parser-missing  repo-local manifest declares a valid effort: axis, but
+#                   skills/setup-repo/scripts/parse-manifest.py itself does not exist relative to
+#                   the running survey.sh — the parser is never invoked at all (#239), a THIRD
+#                   case #230's PARSER_RC path does not cover: "ran and declared nothing" and
+#                   "ran and died" both differ from "never ran"
 #
 # word-vocab also carries a no-plan and a manual-QA issue, so the SKIP branch (untouched by this
 # fix) is proven still reachable and the bucket names stay QUEUE/HOLD/SKIP.
@@ -108,12 +113,14 @@ assert_bucket() {
 
 run_survey() {
   # $1 = CWD the case runs from (controls whether .github/repo-setup.yml resolves), $2 = fixture,
-  # $3 = stdout capture path. Absolute $SURVEY so KIT_ROOT resolution inside it is unaffected by
-  # the cd — that resolution is exactly what repo-profile.sh and repo-setup.sh both rely on too.
-  local rc=0
-  ( cd "$1" && env PATH="$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$2" bash "$SURVEY" ) > "$3" 2>"$3.err" || rc=$?
+  # $3 = stdout capture path, $4 = optional survey.sh path (defaults to the real $SURVEY — case 6
+  # passes a scratch copy so KIT_ROOT resolves against a tree missing parse-manifest.py). Absolute
+  # so KIT_ROOT resolution inside it is unaffected by the cd — that resolution is exactly what
+  # repo-profile.sh and repo-setup.sh both rely on too.
+  local cwd="$1" fixture="$2" out="$3" script="${4:-$SURVEY}" rc=0
+  ( cd "$cwd" && env PATH="$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$fixture" bash "$script" ) > "$out" 2>"$out.err" || rc=$?
   if [ "$rc" -ne 0 ]; then
-    echo "FAIL: survey.sh exited $rc"; cat "$3.err"; exit 1
+    echo "FAIL: survey.sh exited $rc"; cat "$out.err"; exit 1
   fi
 }
 
@@ -262,3 +269,61 @@ if grep -q "no effort: labels found" "$O5.err"; then
   exit 1
 fi
 echo "ok: parser-failure — a parser death on an UNRELATED label is named, not folded into \"no effort axis\""
+
+# ------------------------------------------------------------- 6. parser-missing (#239, not #230)
+#
+# The manifest declares a genuinely valid effort: axis, but parse-manifest.py itself does not
+# exist — `[ -n "$MANIFEST" ] && [ -r "$PARSER" ]` is false, so the whole parser-invocation block
+# (including PARSER_RC) is skipped entirely. survey.sh's KIT_ROOT is resolved relative to its OWN
+# path (dirname "$0"), not the caller's CWD, so simulating "the parser file is missing" means
+# running a COPY of survey.sh from a scratch tree that never had
+# skills/setup-repo/scripts/parse-manifest.py in the first place — not chmod'ing the real kit's
+# copy, and not merely removing execute permission (python3 reads the file as an argument, so
+# `-r` — the check survey.sh actually makes — stays true after a bare `chmod -x`).
+
+W6="$WORK/parser-missing"
+mkdir -p "$W6/.github"
+cat > "$W6/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+
+SCRATCH_KIT="$WORK/scratch-kit-parser-missing"
+mkdir -p "$SCRATCH_KIT/skills/auto-dev/scripts"
+# A symlink, not a copy: survey.sh resolves KIT_ROOT from `dirname "$0"`, which operates on the
+# path bash was invoked with, not the symlink's target — so this resolves KIT_ROOT to
+# $SCRATCH_KIT exactly like a real copy would, without a byte-for-byte snapshot of survey.sh's
+# own source that could silently drift from the file this suite is actually testing.
+ln -s "$SURVEY" "$SCRATCH_KIT/skills/auto-dev/scripts/survey.sh"
+# Deliberately no skills/setup-repo/scripts/parse-manifest.py anywhere under $SCRATCH_KIT.
+
+F6="$WORK/parser-missing-issues.json"
+mkissues "$F6" \
+  "601|Small task, parser missing|small|1" \
+  "602|Large task, parser missing|large|1"
+O6="$WORK/parser-missing.out"
+
+run_survey "$W6" "$F6" "$O6" "$SCRATCH_KIT/skills/auto-dev/scripts/survey.sh"
+
+# The vocabulary could not be confirmed (the parser never ran), so both fall back to the hardcoded
+# small/medium/large ranking — same ranking outcome as degraded-fallback. What must differ is the
+# stderr wording: it must name the parser as missing/unreadable, not claim the manifest declared
+# no effort: axis (which would be false — it declares one correctly).
+assert_bucket QUEUE 601 "$O6"
+assert_bucket HOLD  602 "$O6"
+
+if ! grep -qi "parser.*missing or unreadable" "$O6.err"; then
+  echo "FAIL: survey.sh stderr does not name the parser as missing/unreadable"
+  echo "---"
+  cat "$O6.err"
+  exit 1
+fi
+if grep -q "no effort: labels found" "$O6.err"; then
+  echo "FAIL: survey.sh stderr still claims no effort axis was declared, masking the missing parser"
+  echo "---"
+  cat "$O6.err"
+  exit 1
+fi
+echo "ok: parser-missing — a parser that never ran is named distinctly, not folded into \"no effort axis\""

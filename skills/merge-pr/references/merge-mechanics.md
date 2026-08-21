@@ -118,10 +118,47 @@ when a draft-gated job re-triggers), so its verdict can't be trusted directly:
 
 ```bash
 SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
-# --slurp piped to a separate jq (gh's --jq can't combine with --slurp) flattens every page's
+# --slurp piped into the dispatcher (gh's --jq can't combine with --slurp) flattens every page's
 # {total_count, check_runs:[...]} into one list — safe even if check-runs ever exceed a page.
-verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp | jq '
-  # >>> merge-gate verdict — extracted verbatim and run over fixtures by tests/merge-gate/test.sh >>>
+#
+# The reduction and the rules are NOT pasted here any more (#208). `decide.sh` extracts them from
+# the marked block below and runs THAT, so the program applied to a real PR is byte-for-byte the
+# one tests/merge-gate/test.sh pins over fixtures — a pasted copy could drift from it, and a
+# drifted copy of a gate is the failure this whole reduction exists to prevent, wearing a passing
+# test. `--json` asks for the whole object, because the counts read below are part of it.
+verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp | "$DECIDE" ci.verdict --json)
+
+# A failed query prints nothing, and without `pipefail` the pipeline still exits 0 — at which point
+# an empty verdict reads as "this SHA has no check-runs", i.e. as a pass. No verdict is not a pass.
+# `decide.sh` makes the same refusal one layer down (exit 2 on empty input); this line is what
+# catches a `gh` that failed BEFORE the pipe, where the dispatcher was never reached at all.
+[ -n "$verdict" ] || { echo "check-runs query returned nothing — no verdict; do not merge"; exit 1; }
+
+latest=$(printf '%s' "$verdict"  | jq .latest)   # one run per job — the set the rules apply to
+failed=$(printf '%s' "$verdict"  | jq .failed)
+pending=$(printf '%s' "$verdict" | jq .pending)
+
+# Ask the JSON how many, never the shell string: an empty set is the four bytes `[]`, which every
+# `[ -z "$x" ]` test in sight reports as non-empty.
+n_latest=$(printf  '%s' "$verdict" | jq '.latest  | length')
+n_failed=$(printf  '%s' "$verdict" | jq '.failed  | length')
+n_pending=$(printf '%s' "$verdict" | jq '.pending | length')
+
+# The same object carries the decision's own answer and the name of the rule that produced it —
+# no-ci | pending | failed | clear. The counts above are what the prose below explains; this is
+# the word to act on, and `decide.sh` has already refused any word outside that vocabulary.
+ci_verdict=$(printf '%s' "$verdict" | jq -r .verdict)
+```
+
+**The rules themselves are the registered decision `ci.verdict`** (#170, #208): one id, one
+program, one home — and this file is the home. `scripts/decide.sh` extracts everything between the
+two markers and runs it; `tests/merge-gate/test.sh` obtains it through that same call before
+driving it over thirteen fixtures, so there is exactly one extraction in the repo and a bug in it
+reddens both places at once. Read this here. Never copy it anywhere — `scripts/decision-check.py`
+R1 refuses a second copy of these markers, because two homes for a gate is how a gate drifts.
+
+```jq
+  # >>> decision ci.verdict rule — extracted verbatim and run over fixtures by tests/merge-gate/test.sh >>>
   # One SHA carries a HISTORY PER JOB, not one run per job, so reduce before judging: keep the
   # newest run of each job and apply the rules to that alone.
   [ .[].check_runs[] | {name, id, app: .app.id, started_at, html_url, state: (.conclusion // .status)} ]
@@ -150,22 +187,25 @@ verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slu
       # unhandled default and reads as green. Re-check https://docs.github.com/rest/checks/runs
       # when this gate is next touched.
       pending: [ .[] | select(.state == "queued" or .state == "in_progress" or .state == "waiting" or .state == "requested" or .state == "pending") ] }
-  # <<< merge-gate verdict <<<
-')
-
-# A failed query prints nothing, and without `pipefail` the pipeline still exits 0 — at which point
-# an empty verdict reads as "this SHA has no check-runs", i.e. as a pass. No verdict is not a pass.
-[ -n "$verdict" ] || { echo "check-runs query returned nothing — no verdict; do not merge"; exit 1; }
-
-latest=$(printf '%s' "$verdict"  | jq .latest)   # one run per job — the set the rules apply to
-failed=$(printf '%s' "$verdict"  | jq .failed)
-pending=$(printf '%s' "$verdict" | jq .pending)
-
-# Ask the JSON how many, never the shell string: an empty set is the four bytes `[]`, which every
-# `[ -z "$x" ]` test in sight reports as non-empty.
-n_latest=$(printf  '%s' "$verdict" | jq '.latest  | length')
-n_failed=$(printf  '%s' "$verdict" | jq '.failed  | length')
-n_pending=$(printf '%s' "$verdict" | jq '.pending | length')
+  # Same program, one more question: the reduction above, and the verdict a caller acts on. Purely
+  # additive — .latest, .failed and .pending are untouched, so every fixture assertion in
+  # tests/merge-gate keeps its exact meaning. The rule name is what the event log attributes a
+  # cause to; no-checks and clear are different silences and must not share one name.
+  #
+  # The widened `pending` above (#191) and this tail were written on separate branches and compose
+  # exactly: #191 decides WHICH runs count as pending, this decides what a caller DOES about them.
+  # A waiting deployment gate therefore now reaches the pending branch rather than falling through
+  # to the clear one — which was the whole point of #191, carried into the registered decision.
+  #
+  # Spelled WITHOUT the literal key-and-quote form on purpose: R5 counts those pairs to prove every
+  # branch names both a verdict and a rule, and it reads the program as text — so a comment that
+  # quotes one adds a fifth verdict with no rule beside it. Measured here, resolving this very
+  # conflict: the first draft of these lines did exactly that and the guard refused it.
+  | . + (if   (.latest | length) == 0  then {verdict:"no-ci",   rule:"no-checks"}
+         elif (.pending | length) > 0  then {verdict:"pending", rule:"pending"}
+         elif (.failed  | length) > 0  then {verdict:"failed",  rule:"failed"}
+         else                               {verdict:"clear",   rule:"clear"} end)
+  # <<< decision ci.verdict rule <<<
 ```
 
 Merge is permitted (CI-wise) when `failed` is empty **and** `pending` is empty **and** the PR is not a
@@ -190,7 +230,7 @@ Measured on PR #85 — head sha `8c58eb2` carried three check-runs, all named `k
 | 09:48:09 | `success` | re-run after the base retargeted to `main` when #76 merged |
 
 GitHub itself reported `mergeStateStatus: CLEAN` / `mergeable: MERGEABLE` throughout. Read as a flat
-set that PR is **failed**: §4's corrections loop would have gone hunting for a red check, found
+set that PR is **failed**: SKILL.md Step 4's corrections loop would have gone hunting for a red check, found
 nothing to fix, exhausted its rounds and refused a PR that was green on two separate runs. The
 symmetric hazard was equally unguarded and is the worse one — a stale `success` sitting beside a
 newer `failure` for the same job, where "some run succeeded" reads as fine. One reduction closes
@@ -229,22 +269,69 @@ caveats — some analyzer diagnostics can't be auto-fixed and must be hand-corre
 ### Measuring divergence from the base (#171)
 
 The check-runs above speak only to the head SHA — they say nothing about whether `main` has moved
-since they ran. That's a separate read, sitting next to this one because both feed the judgment in
-SKILL.md Step 4, which weighs it *before* `mergeStateStatus`:
+since they ran. That is a separate read, and it is **not written out here**: it is one of the three
+reads §4's shape block composes, and this file deliberately builds that state in exactly one place.
+A second copy of the `compare` call in this file is how the `behind` / `behind_by` rename got past
+review the first time.
 
-```bash
-gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --jq '{ahead:.ahead_by, behind_by:.behind_by}'
-```
-
-`$BASE...$BRANCH` (three dots) gives `behind_by` relative to the base — reversing it silently inverts
-the answer. `behind_by > 0` outranks `mergeStateStatus` in Step 4's table, because GitHub's own
-`BEHIND` state is only emitted when the base branch requires branches to be up to date before merging;
-without that rule a stale branch reports `CLEAN`, and the check-runs recipe above would still call the
-head SHA green — correctly, and misleadingly, since the base it was green against no longer exists.
+Why it matters, which §4's block cannot say for itself: `behind_by > 0` outranks `mergeStateStatus`
+in the precedence, because GitHub's own `BEHIND` state is only emitted when the base branch requires
+branches to be up to date before merging. Without that rule a stale branch reports `CLEAN`, and the
+check-runs recipe above still calls the head SHA green — correctly, and misleadingly, since the base
+it was green against no longer exists.
 
 ---
 
-## 4. Sync with `main` and resolve conflicts (a stale branch, or `DIRTY`)
+## 4. The merge-state decision (SKILL.md Step 4)
+
+Step 4 does not read `mergeStateStatus` and work out what to do about it. It builds one state object
+and hands it to the registered decision **`merge.step4`** (#208), whose program is
+`skills/merge-pr/scripts/merge-verdict.sh` and whose precedence — thirteen named rules, in order —
+is written in that file's header, once.
+
+The **shape** below is the other half of that contract, and the reason it carries markers: the
+program reads five fields by name, and this block is what has to build them. They drifted apart once
+already — a `--jq` object construction renamed `behind_by` to `behind` while the script still read
+`behind_by`, so the freshness guard read `null` forever and a human reviewer, not CI, caught it
+(#171 / #147). `scripts/decision-check.py` R6 now compares the two mechanically: every field the
+program reads at the head of a path must be a key this block constructs, so a rename that touches
+only one side is a red build rather than a guard that silently stops guarding.
+
+```bash
+# >>> decision merge.step4 shape >>>
+state=$( { gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" \
+             --jq '{behind_by, ahead_by}'
+           gh pr view "$PR" --json mergeStateStatus,isDraft,reviewDecision \
+             --jq '{mergeStateStatus, isDraft, reviewDecision}'
+           printf '%s' "$ci" | jq '{failed: [.failed[].name], pending: [.pending[].name]}'
+         } | jq -s add )
+# <<< decision merge.step4 shape <<<
+verdict=$(printf '%s' "$state" | "$DECIDE" merge.step4)
+```
+
+`$ci` is §3's `$verdict`, the check-runs object. That is what gives the two decisions a real
+composition instead of two unrelated reads of the same PR: the CI gate's *reduced* `failed` and
+`pending` sets are inputs to the merge-state precedence, not a separate question asked afterwards.
+
+`$BASE...$BRANCH` — three dots — gives `behind_by` relative to the base; reversing it silently
+inverts the answer.
+
+⚠️ **The compare read and the pr-view read are sequential and not atomic.** A sibling PR merging
+between them yields `behind_by: 0` beside a merge state of `BEHIND`, which is precisely why the
+program carries a `behind-state` rule as well as a `behind` one. Neither read can be made to answer
+for the other, so the program answers for both.
+
+`mergeable` is deliberately **not** fetched. Step 4 used to ask for it and nothing ever read it —
+and a field that is fetched and unread is the same shape as a field that is read and never fetched,
+which is the bug above.
+
+The verdict is one of six words — `merge`, `sync`, `fix-check`, `wait`, `ready`, `review` — and
+`decide.sh` has already refused anything outside that list. SKILL.md Step 4 is where each word maps
+to an action; this file is where the state that produces it is built.
+
+---
+
+## 5. Sync with `main` and resolve conflicts (a stale branch, or `DIRTY`)
 
 Clears a branch the corrections loop finds stale — `behind_by > 0` (§3), or a `DIRTY` merge state
 (SKILL.md Step 4): merge the latest base into the branch and resolve conflicts so the PR is mergeable
@@ -294,7 +381,7 @@ rather than running this fallback.
 
 ---
 
-## 5. Unresolved review threads (`CHANGES_REQUESTED` / open conversations)
+## 6. Unresolved review threads (`CHANGES_REQUESTED` / open conversations)
 
 The overall decision:
 
@@ -339,7 +426,7 @@ blocker — surface it.
 
 ---
 
-## 6. Discovering follow-ups in the PR
+## 7. Discovering follow-ups in the PR
 
 Two sources beyond the inline `--follow-up` args:
 
@@ -419,7 +506,7 @@ for traceability.
 
 ---
 
-## 7. Teardown — remove the worktree and local branch
+## 8. Teardown — remove the worktree and local branch
 
 You can't remove a worktree or delete a branch you're standing in, so the move depends on **where** the
 PR's branch is checked out. Decide the case from §2's worktree listing.
@@ -491,7 +578,7 @@ regardless of the repo's `delete_branch_on_merge` setting: that value is read fr
 snapshot that can go stale between refreshes, where a wrongly-trusted `true` would leave a branch
 leaked forever, against the cost of one extra `ls-remote` call when it is genuinely `true`. Prints
 `already-gone` or `deleted` and exits 0 either way; a genuine API failure exits 1 with the error —
-report it, don't swallow it (§8).
+report it, don't swallow it (§9).
 
 **Safety:** never remove `$MAIN` or a worktree whose branch isn't the PR's head. Match the path to the
 branch (via §2's listing) before removing — a wrong `git worktree remove --force` throws away someone
@@ -499,7 +586,7 @@ else's in-progress work.
 
 ---
 
-## 8. Troubleshooting (error → cause → solution)
+## 9. Troubleshooting (error → cause → solution)
 
 | Error | Cause | Solution |
 |---|---|---|
@@ -509,7 +596,7 @@ else's in-progress work.
 | `git branch -d` refuses: "not fully merged" | After a squash-merge the branch isn't "merged" by git's reckoning | Use `-D` (force) — the squash commit on `main` carries the work |
 | `mergeable=UNKNOWN` right after `main` moved | GitHub is recomputing the merge state | Not a blocker — re-poll shortly; nudge a main-sync only if it persists |
 | Commands act on the wrong checkout | A `cd` in a compound command gets reset between tool calls | Use `git -C <path>` / absolute paths — especially the teardown, which must run against `$MAIN`, not the worktree being deleted |
-| `guarded-merge: CONFLICTS on <branch>` (exit 5) | **Not an error** — the expected outcome of a `DIRTY` sync. HEAD is still your branch and the conflicts are in the working tree | Resolve per the rule-of-thumb (§4), then **complete** the merge: `guarded-commit.sh … -- --no-edit`. To walk away instead, `guarded-merge.sh … -- --abort` |
+| `guarded-merge: CONFLICTS on <branch>` (exit 5) | **Not an error** — the expected outcome of a `DIRTY` sync. HEAD is still your branch and the conflicts are in the working tree | Resolve per the rule-of-thumb (§5), then **complete** the merge: `guarded-commit.sh … -- --no-edit`. To walk away instead, `guarded-merge.sh … -- --abort` |
 | `guarded-merge: REFUSED — the index … already carries an UNRESOLVED merge` (exit 2) | A previous sync stopped at exit 5 and was never finished; git refuses a second merge on an unmerged index (its own exit 128) | **Nothing merged.** Finish the one in flight (resolve + `guarded-commit … -- --no-edit`) or abandon it (`-- --abort`), then sync again |
 | `guarded-commit.sh: No such file or directory` in the corrections loop | `$GUARDS`/`$WORKTREE`/`$BRANCH` were never recorded — Step 2 deferred the worktree and Step 4 created one without setting them | Record all four names (Step 2's block) at the point the worktree appears, then re-run the correction |
 | `guarded-*: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: the corrections are being run from the wrong checkout | **Nothing was written.** Move to the PR branch's own worktree (§2) and retry — never "just commit anyway" |
