@@ -62,7 +62,7 @@ Create a task per item and work them in order. Step 6 is the loop — one pass p
 1. **Preconditions** — `gh` works, you're in the target repo, resolve the issue number.
 2. **Read the plan** — fetch the `🛠️ Implementation plan` from the issue body (or a comment, on older issues); save it and note where it lives.
 3. **Pick the execution mode** — assess complexity → *Inline (Extra)* or *Subagent-per-task (Ultracode)*.
-4. **Create this issue's own worktree** — via `superpowers:using-git-worktrees`; branch off `main`. Never implement from the checkout you were launched in, even if it is already a worktree.
+4. **Create this issue's own worktree** — via `superpowers:using-git-worktrees`; branch off `main`. Never implement from the checkout you were launched in, even if it is already a worktree. If no branch-name match is found, fall back to an issue-scoped GitHub search before scaffolding a new one — a second open PR closing the same issue is the failure this step exists to prevent.
 5. **Open the draft PR** — empty scaffold commit, push, `gh pr create --draft` linking the issue; PR title carries a Conventional Commits prefix (`fix:`/`feat:`/…, CI-enforced) and ends with `(#<issue>)`.
 6. **Loop until every task is checked** — implement the next unchecked task → verify green → commit → tick that task on the issue plan *and* the PR description → push.
 7. **Code review** — run the `code-review` skill, apply + commit the fixes, push.
@@ -72,8 +72,9 @@ Create a task per item and work them in order. Step 6 is the loop — one pass p
 
 Resume-safe: re-running mid-flight is fine. A task is "done" when **all** its step checkboxes read
 `- [x]`; start at the first that isn't. Reuse **this issue's** worktree/branch/PR rather than making a
-second — matched on the issue's own branch name, never on "whatever checkout I woke up in"
-(see `references/github-mechanics.md`).
+second — matched first on the issue's own branch name, then, if that finds nothing, on whether GitHub
+already has an open PR closing this issue; never on "whatever checkout I woke up in" (see
+`references/github-mechanics.md`).
 
 ---
 
@@ -168,6 +169,57 @@ from a copy here, which is how the four copies of this table drifted apart in th
 scaffold commit · `2` ignored but over-broad, so **do** go ahead and mention the profile cost ·
 `3`/`127` no verdict was reached, which is not a pass.
 
+### If the branch-name check found nothing: check GitHub for the issue, not just the branch
+
+The branch-name check only catches a **matching name**, and a matching name is not guaranteed. It
+missed the incident this guard exists for (#214): two sessions scaffolded #195 under **different**
+branch names (`fix/195-ci-wiring-check-proves-a-suite-is-invoke` and
+`fix/195-ci-wiring-executable-mode`) because the second one never ran the `SLUG` recipe below at all —
+it composed its own branch name from its own reading of the issue instead. A worker's own judgment
+routinely substitutes a hand-picked, paraphrased branch name for the prescribed one-liner, so two
+independent runs against the same issue can diverge in branch name even though the recipe itself is
+deterministic. Branch-name matching cannot catch that; asking GitHub whether this **issue** already
+has an open PR can — so run this fallback whenever the branch-name check just found nothing, before
+creating any worktree:
+
+```bash
+# Cast a wide net first (a plain-text search can hit anything mentioning the number, and can
+# false-positive on a PR that merely *mentions* this issue), then narrow to PRs whose body actually
+# closes it via GitHub's own closing-keyword set. `\b…#$ISSUE\b` keeps e.g. #214 from matching a
+# #2140/#1214 substring. Written to a file, not piped through further shells, because the body text
+# it carries can contain characters ordinary pipelines mishandle.
+JQ_FILTER="[.[] | select(.body | test(\"(?i)\\\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\\\s+#$ISSUE\\\\b\"))]"
+gh pr list --search "$ISSUE in:body" --state open --json number,headRefName,body,url --jq "$JQ_FILTER" \
+  > /tmp/issue-$ISSUE-closers.json
+jq 'length' /tmp/issue-$ISSUE-closers.json
+```
+
+- **`0`** → nothing to resume onto; proceed to "Then reuse or create" below.
+- **`1`** → resume onto it instead of scaffolding a new one:
+  ```bash
+  FOUND_BRANCH=$(jq -r '.[0].headRefName' /tmp/issue-$ISSUE-closers.json)
+  git fetch origin "$FOUND_BRANCH"
+  if git show-ref --verify --quiet "refs/heads/$FOUND_BRANCH"; then
+    git worktree add "$WORKTREE" "$FOUND_BRANCH"
+  else
+    git worktree add "$WORKTREE" -b "$FOUND_BRANCH" "origin/$FOUND_BRANCH"
+  fi
+  BRANCH="$FOUND_BRANCH"   # this issue already has a home — override the derived slug
+  ```
+  Skip Step 5's scaffold commit entirely — the branch already carries one, and the PR already exists —
+  and continue at Step 6.
+- **`2`+** → the exact shape of the #195 incident: a pre-existing duplicate pair (or worse) already on
+  GitHub. Don't silently pick one and say nothing. Resume onto the PR with the most real commits
+  (`gh pr view <n> --json commits --jq '.commits | length'` per candidate — an untouched scaffold has
+  exactly one) and **name the duplicate in the Step 10 report** ("found N open PRs already closing
+  this issue; resumed onto #X, Y other(s) left open for a human to close"). This is not a
+  stop-and-ask case under the Autonomy contract — picking the branch with the real implementation is
+  a safe, reasonable default — but a standing duplicate PR is worth a human's attention, so it always
+  goes in the report, resolved automatically or not.
+
+A PR that once closed this issue but is now **closed** (abandoned, superseded) never blocks a fresh
+scaffold — the search above is already scoped to `--state open`.
+
 Then reuse or create, and record the two names every later step needs:
 
 ```bash
@@ -188,8 +240,12 @@ That residue is what the guards below are for.
 
 ## Step 5 — Open the draft PR
 
-The PR should be visible as a **draft before** the implementation loop. A PR needs the branch ahead of
-`main`, so land an empty scaffold commit, push, then open it.
+**Skip this step entirely if Step 4's issue-scoped fallback resumed onto an existing PR** — that PR
+already carries a scaffold commit (or real work), and opening another one is exactly the failure this
+guard exists to prevent. Go straight to Step 6.
+
+Otherwise: the PR should be visible as a **draft before** the implementation loop. A PR needs the
+branch ahead of `main`, so land an empty scaffold commit, push, then open it.
 
 **Follow the profile's *PR title convention*.** The common shape is a Conventional Commits prefix
 _and_ a `(#<issue>)` suffix — two independent constraints, both enforced, e.g.

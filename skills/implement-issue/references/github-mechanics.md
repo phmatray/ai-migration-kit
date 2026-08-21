@@ -253,6 +253,35 @@ GUARDS=<this skill's own scripts/ directory>       # skills/implement-issue/scri
 ```
 
 If they exist, work in that worktree (with `git -C`) and reuse the PR — don't open a second one.
+
+**If the branch-name match found nothing, don't assume there's no PR — a branch name is only a guess
+at what a prior run called itself.** Ask GitHub about the *issue* directly before creating anything
+(#214 — two sessions scaffolded #195 under two different branch names because the second one never
+ran the `SLUG` recipe above, it invented its own):
+
+```bash
+# Wide net first (a plain search can hit a PR that merely *mentions* the issue), then narrow to PRs
+# whose body actually closes it via GitHub's closing-keyword set. `\b…#$ISSUE\b` stops #214 from
+# matching a #2140/#1214 substring. Write to a file — the body text can carry characters an inline
+# pipe mishandles.
+JQ_FILTER="[.[] | select(.body | test(\"(?i)\\\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\\\s+#$ISSUE\\\\b\"))]"
+gh pr list --search "$ISSUE in:body" --state open --json number,headRefName,body,url --jq "$JQ_FILTER" \
+  > /tmp/issue-$ISSUE-closers.json
+jq 'length' /tmp/issue-$ISSUE-closers.json
+```
+
+- `0` → nothing found; proceed to create below.
+- `1` → resume onto `jq -r '.[0].headRefName' /tmp/issue-$ISSUE-closers.json` the same way as a
+  branch-name match: fetch it, `git worktree add` from it (existing local branch) or from
+  `origin/<branch>` with `-b` (remote-only), set `BRANCH` to it, and skip straight to Step 6 —
+  no second scaffold, no second `gh pr create`.
+- `2`+ → a pre-existing duplicate pair already on GitHub (the exact #195 shape). Resume onto the one
+  with the most commits (`gh pr view <n> --json commits --jq '.commits | length'` — an untouched
+  scaffold has exactly one) and name the others in the final report; don't silently pick one and stay
+  quiet about it.
+
+A PR that once closed this issue but is now closed doesn't count — `--state open` already excludes it.
+
 Otherwise create the worktree via `superpowers:using-git-worktrees`, then the draft PR (empty
 scaffold commit so the branch is ahead of `main`):
 
@@ -329,6 +358,12 @@ the normal outcome of a real sync, not an error.** Resolve them and *complete* t
   from the issue state (the canonical source) before entering the loop.
 - **Empty commit is intentional.** It exists only so a draft PR can open before any code lands; the
   first real task commit immediately makes it meaningful. Don't squash it away mid-run.
+- **A branch-name match is a guess, not a guarantee.** §5's fallback exists because a worker's own
+  judgment can pick a different branch name for the same issue on a different run (#214) — never skip
+  the issue-scoped `gh pr list --search "$ISSUE in:body"` check just because the branch-name check
+  came back empty. Scope the search's *filter* to a real closing keyword (`Closes`/`Fixes`/`Resolves
+  #$ISSUE`), not a bare mention — GitHub's text search alone returns PRs that merely reference the
+  number.
 - **Sync before ready — merge, not rebase.** The full procedure (and the why) is in
   [`../../_shared/sync-with-main.md`](../../_shared/sync-with-main.md), summarized at §7; the one thing
   to remember here is that a clean text merge can still be a broken compile, so re-build after resolving.
