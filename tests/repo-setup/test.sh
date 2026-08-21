@@ -261,40 +261,39 @@ has_line() { printf '%s\n' "$2" | grep -q "$1"; }
 
 # Shared reader for an issue form's `area` dropdown options, one per line, in file order (#198) —
 # used to compare a copied/generated form against the manifest without a bare grep, which would
-# also match the description prose above the list. A FILE, never `$(python3 - <<PY)`: bash 3.2's
-# command-substitution scanner does not honour heredoc quoting (#131).
+# also match the description prose above the list.
 #
 # Loads project-area-options.py's own find_area_field() rather than re-deriving the id+type match
 # here — two independent implementations of the same "is this the area field" decision is this
 # repo's own recurring failure shape (#141, #163), and this exact decision already had to be
 # reconciled once during #198 (the placeholder-substring check, repo-setup.sh's is_placeholder_name).
-# UNQUOTED heredoc terminator (`<<PY`, not `<<'PY'`) is deliberate here — the one interpolation this
-# body needs is $KIT_ROOT, baked in as a literal path when the file is written; the body has no `$`
-# or backtick of its own to protect. Unrelated to #131: that bug is a heredoc NESTED inside `$(…)`,
-# not whether a top-level heredoc's terminator is quoted.
-AREA_READER="$(kit_scratch)/read-area-options.py"
-cat > "$AREA_READER" <<PY
-"""Print the options of a form's \`area\` dropdown, one per line, in file order."""
-import importlib.util
+#
+# Routed through py_module (tests/_lib/py.sh) — the kit's ONE importlib loader (#51).
+# xunit-v3/test.sh section 8 fails the whole suite if a second copy of the loader appears anywhere
+# under tests/ or scripts/, which hand-rolling importlib's own module-from-path call here would be.
+#
+# A bash FUNCTION, never `$(python3 - <<PY)` at the call site: bash 3.2's command-substitution
+# scanner does not honour heredoc quoting when the heredoc sits directly inside `$(…)` (#131). The
+# heredoc below is parsed once, at function definition — a plain top-level construct — so calling
+# `$(read_area_options "$path")` never nests it inside the substitution itself.
+# xunit-v3/test.sh's own read_const() is the same shape.
+kit_source "$KIT_ROOT/tests/_lib/py.sh"
+read_area_options() {
+  py_module "$KIT_ROOT/skills/setup-repo/scripts/project-area-options.py" "$1" <<'PY'
 import sys
 
 import yaml
 
-spec = importlib.util.spec_from_file_location(
-    "kit_project_area_options", "$KIT_ROOT/skills/setup-repo/scripts/project-area-options.py"
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
 sys.stdout.reconfigure(encoding="utf-8", newline="\n")
 
-with open(sys.argv[1], encoding="utf-8") as handle:
+with open(sys.argv[2], encoding="utf-8") as handle:
     doc = yaml.safe_load(handle) or {}
 field = mod.find_area_field(doc)
 if field is not None:
     for option in field.get("attributes", {}).get("options") or []:
         print(option)
 PY
+}
 
 rc=0; out=$(bash "$SCRIPT" plan "$repo" --manifest "$FIXTURE" 2>&1) || rc=$?
 [ "$rc" -eq 1 ] || fail "plan on an unconfigured repo: expected exit 1 (drift), got $rc — output: $out"
@@ -527,7 +526,7 @@ echo "  ok: apply — an existing form is reported !SKIP and never overwritten"
 # A placeholder-only manifest — $FIXTURE, exercised above — leaves the shipped placeholder
 # untouched. cmp -s at line 481 already proves this byte-for-byte; this reads it through the same
 # lens the real-areas case below uses, so both halves of the contract are visible side by side.
-form_areas=$(python3 "$AREA_READER" "$repo4/.github/ISSUE_TEMPLATE/feature_request.yml") \
+form_areas=$(read_area_options "$repo4/.github/ISSUE_TEMPLATE/feature_request.yml") \
   || fail "the copied placeholder-only form does not parse as YAML"
 [ "$form_areas" = "area: <your-area>" ] \
   || fail "a placeholder-only manifest changed the copied form's Area dropdown — got: $form_areas"
@@ -551,7 +550,7 @@ rc=0; out=$(bash "$SCRIPT" apply "$repo4b" --manifest "$AREAS_FIXTURE" 2>&1) || 
 [ -f "$repo4b/.github/ISSUE_TEMPLATE/bug_report.yml" ] \
   || fail "apply did not write .github/ISSUE_TEMPLATE/bug_report.yml"
 
-form_areas=$(python3 "$AREA_READER" "$repo4b/.github/ISSUE_TEMPLATE/bug_report.yml") \
+form_areas=$(read_area_options "$repo4b/.github/ISSUE_TEMPLATE/bug_report.yml") \
   || fail "the generated bug_report.yml does not parse as YAML"
 expected_areas="area: alpha
 area: beta
@@ -614,7 +613,7 @@ rc=0; out=$(bash "$SCRIPT" apply "$repo4c" --manifest "$MIXED_FIXTURE" 2>&1) || 
   || fail "apply did not write .github/ISSUE_TEMPLATE/bug_report.yml"
 n=$(gh_calls_matching "experimental")
 [ "$n" -eq 0 ] || fail "apply sent the substring placeholder to gh $n time(s)"
-mixed_form_areas=$(python3 "$AREA_READER" "$repo4c/.github/ISSUE_TEMPLATE/bug_report.yml") \
+mixed_form_areas=$(read_area_options "$repo4c/.github/ISSUE_TEMPLATE/bug_report.yml") \
   || fail "the generated bug_report.yml does not parse as YAML"
 [ "$mixed_form_areas" = "area: alpha" ] \
   || fail "the substring placeholder leaked into the generated Area dropdown — got: $mixed_form_areas"
@@ -867,8 +866,8 @@ echo "  ok: repo manifest — pruneKeep still protects the release-please and Re
 # matching whatever the dropdown offered — so a dropdown that disagrees with the label set makes
 # the issue body and the issue's label contradict each other, with nothing anywhere going red.
 # Order too: the two are read side by side by whoever edits them next, and a silent re-ordering is
-# how the copies start drifting. $AREA_READER is the shared reader defined once, near `has_line` —
-# one home for the mechanism, not a second copy that can drift from it (#198).
+# how the copies start drifting. read_area_options() is the shared reader defined once, near
+# `has_line` — one home for the mechanism, not a second copy that can drift from it (#198).
 
 manifest_areas=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "L" && $2 ~ /^area: / { print $2 }')
 for form in feature_request bug_report; do
@@ -877,7 +876,7 @@ for form in feature_request bug_report; do
   [ -r "$form_path" ] || fail ".github/ISSUE_TEMPLATE/$form.yml missing — apply did not copy it"
   # The `area` dropdown's options only: the forms carry other fields, and a bare grep for quoted
   # "area: …" strings would also match the description prose above the list.
-  form_areas=$(python3 "$AREA_READER" "$form_path") \
+  form_areas=$(read_area_options "$form_path") \
     || fail "$form.yml does not parse as YAML"
   [ "$manifest_areas" = "$form_areas" ] \
     || fail "$form.yml's Area dropdown does not match the manifest's area: labels, in order"
@@ -917,7 +916,7 @@ echo "  ok: shipped default — templates/repo-setup.yml keeps its area placehol
 # inspects labels, not dropdowns, so that export would pass unnoticed.
 for shipped_form in templates/issue-forms/feature_request.yml templates/issue-forms/bug_report.yml; do
   [ -r "$KIT_ROOT/$shipped_form" ] || fail "$shipped_form missing — the shipped form a consumer inherits"
-  shipped_areas=$(python3 "$AREA_READER" "$KIT_ROOT/$shipped_form") \
+  shipped_areas=$(read_area_options "$KIT_ROOT/$shipped_form") \
     || fail "$shipped_form does not parse as YAML"
   case "$shipped_areas" in
     "area: <"*">") ;;
