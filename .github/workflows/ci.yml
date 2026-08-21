@@ -434,6 +434,9 @@ jobs:
       - name: Worktrees-ignored golden test (the gate above, driven to red)
         run: ./tests/worktrees-ignored/test.sh
 
+      - name: Main-worktree golden test (the derivation the profile probe and merge-pr both need)
+        run: ./tests/main-worktree/test.sh
+
       - name: Roseline golden test (shipped MCP config + the gate, driven to red)
         run: ./tests/roseline/test.sh
 

@@ -63,26 +63,21 @@ is made, and now also before one that already exists is used.
 ## The check
 
 Run it against the **main checkout** — the repository the worktree home lives in, and the one whose
-`git add -A` can stage it:
+`git add -A` can stage it. `<kit>/scripts/main-worktree.sh` is the one home for finding that
+directory (#125) — every caller resolves it through there rather than re-deriving it:
 
 ```bash
 # Ask from anywhere in the repository — the main checkout, or a linked worktree the session happens
-# to be sitting in. The FIRST `worktree list --porcelain` entry is always the main worktree, so this
-# resolves the same path either way, and it needs no worktree path of its own: it works before the
-# one you are about to create exists.
-WT_LIST=$(git -C <anywhere-in-the-repo> worktree list --porcelain)
-REPO_ROOT=$(printf '%s\n' "$WT_LIST" | sed -n '1s/^worktree //p')
+# to be sitting in. main-worktree.sh always resolves the MAIN checkout's root, whichever one you
+# asked from, and it needs no worktree path of its own: it works before the one you are about to
+# create exists.
+REPO_ROOT=$(<kit>/scripts/main-worktree.sh -C <anywhere-in-the-repo>)
 
-# A BARE repository has no main working tree — `worktree list` marks it `bare`. `git add -A` cannot
-# run there, so no worktree home is reachable, and `check-ignore` refuses ("must be run in a work
-# tree") — which the guard would otherwise report as a false "NOT ignored". Nothing to verify.
-printf '%s\n' "$WT_LIST" | sed -n '2p' | grep -qx bare && REPO_ROOT=''
-
+# A BARE repository has no main working tree — main-worktree.sh prints nothing for one. `git add -A`
+# cannot run there, so no worktree home is reachable, and `check-ignore` refuses ("must be run in a
+# work tree") — which the guard would otherwise report as a false "NOT ignored". Nothing to verify.
 [ -n "$REPO_ROOT" ] && <kit>/scripts/worktrees-ignored.sh -C "$REPO_ROOT"
 ```
-
-`sed -n '1s/^worktree //p'` and not `awk '{print $2}'`: a checkout under a path containing a space
-(`/Users/x/my repo`) is truncated at the space by the awk spelling — measured.
 
 ⚠️ **Do not derive it from the worktree you are about to use.** `git -C "$WORKTREE" rev-parse
 --show-toplevel` answers with the *linked worktree*, not the checkout the hazard is in — a linked
@@ -91,13 +86,17 @@ worktree is its own toplevel. That fails **open**, measured (`tests/worktrees-ig
 `1` at the main checkout — correctly, `git add -A` there really does stage the `160000` gitlink — and
 `0` when asked at the reused worktree, whose checked-out `.gitignore` still carries the rule. Same
 guard, same repo, opposite verdicts; only the main-checkout answer is about the directory that can be
-committed. It is also the reason this recipe takes no `$WORKTREE`: the argument that would tempt you
-is the wrong one.
+committed. It is also the reason `main-worktree.sh` takes no `$WORKTREE`: the argument that would
+tempt you is the wrong one. `tests/main-worktree/test.sh` pins the same layouts directly against the
+script (linked worktree, bare + linked worktrees, a path containing a space) — `sed -n
+'1s/^worktree //p'` inside it, and not `awk '{print $2}'`, is what keeps a spaced path intact.
 
 `<kit>` is the kit root — the directory holding `skills/` and `scripts/` — resolved when the skill
 loads, the same placeholder `legacy-upgrade` and `followups` use for `<kit>/scripts/…`. Do **not**
-write it as a shell variable: an unset `$KIT` expands to `/scripts/worktrees-ignored.sh`, i.e. exit
+write it as a shell variable: an unset `$KIT` expands to `/scripts/main-worktree.sh`, i.e. exit
 `127`, and a caller that treats every non-zero as "stop" then refuses to use any worktree at all.
+`main-worktree.sh` can legitimately be absent on the skills-only adoption path documented below —
+that is a missing *tool*, not a failed *verdict*.
 
 **The root matters.** `.claude/worktrees/` contains a slash, so git anchors it and resolves it relative
 to the directory it is asked about. Point the guard at a subdirectory and a correctly configured repo
@@ -124,12 +123,18 @@ condition unrelated to the hazard being guarded.
 ## If the kit's `scripts/` is not there
 
 `get-repo-profile` documents a skills-only adoption path ("drop the four skills into a new repo"), and
-the guard lives at the kit root, so it can legitimately be absent. That is a missing *tool*, not a
-failed *verdict* — don't refuse the worktree over it. Check both homes by hand instead, against the
-same `$REPO_ROOT` derived above — the main checkout, never the worktree being used:
+both the guard and `main-worktree.sh` live at the kit root, so either — or both — can legitimately be
+absent. That is a missing *tool*, not a failed *verdict* — don't refuse the worktree over it. Derive
+the main checkout's root by hand instead, with the same recipe `main-worktree.sh` wraps (never from
+`$WORKTREE` — see the warning above), then check both homes against it:
 
 ```bash
-git -C "$REPO_ROOT" check-ignore -q .claude/worktrees/ && git -C "$REPO_ROOT" check-ignore -q .worktrees/
+WT_LIST=$(git -C <anywhere-in-the-repo> worktree list --porcelain)
+REPO_ROOT=$(printf '%s\n' "$WT_LIST" | sed -n '1s/^worktree //p')
+printf '%s\n' "$WT_LIST" | sed -n '2p' | grep -qx bare && REPO_ROOT=''   # bare: nothing to check
+
+[ -n "$REPO_ROOT" ] && git -C "$REPO_ROOT" check-ignore -q .claude/worktrees/ \
+                    && git -C "$REPO_ROOT" check-ignore -q .worktrees/
 ```
 
 The trailing slashes and `-q` are both load-bearing: a directory-only pattern does not match a

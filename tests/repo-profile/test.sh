@@ -17,8 +17,8 @@ kit_guard kit_guard_samples_unchanged
 
 fail() { echo "FAIL: $1"; exit 1; }
 
-# Every scratch directory below comes from the shared helper, so all five are removed on EVERY exit
-# path (#128). They used to be freed by one `rm -rf` on the last line, which the `fail()` above
+# Every scratch directory below comes from the shared helper, so all of them are removed on EVERY
+# exit path (#128). They used to be freed by one `rm -rf` on the last line, which the `fail()` above
 # skips past — so any red run of this suite stranded up to five directories, and the assertion that
 # fired earliest stranded the most.
 
@@ -118,6 +118,62 @@ printf '.claude/worktrees/\n.worktrees/\n' >> "$wt2/.git/info/exclude"
 sec=$(wt_section "$(bash "$SCRIPT" detect "$wt2")")
 grep -qF 'ignored on this machine only' <<<"$sec" \
   || fail "detect: a machine-local rule was recorded as a property of the repo:
+$sec"
+
+# 5e. THE fail-open case (#125): asked from inside a LINKED worktree — the normal state during
+#     implement-issue/merge-pr — the probe must judge the MAIN checkout, never the worktree it
+#     happens to be invoked from. Reproduces exactly the shape
+#     tests/worktrees-ignored/test.sh case 22 pins for the guard itself: the ignore rule was
+#     committed, then dropped from the main working tree, while a linked worktree's own checked-out
+#     .gitignore (from the earlier commit) still carries it.
+wt3=$(kit_scratch)
+git -C "$wt3" init -q -b main
+git -C "$wt3" config user.email t@example.com
+git -C "$wt3" config user.name "Golden Test"
+printf '.claude/worktrees/\n.worktrees/\n' > "$wt3/.gitignore"
+git -C "$wt3" add -A
+git -C "$wt3" commit -qm base
+git -C "$wt3" worktree add -q .claude/worktrees/feat -b feat
+LINKED="$wt3/.claude/worktrees/feat"
+
+# Drop the rule from the MAIN working tree only — nothing about the linked worktree's own files
+# changes, so a probe reading THAT checkout's .gitignore still finds the (now stale) rule.
+: > "$wt3/.gitignore"
+
+sec=$(wt_section "$(bash "$SCRIPT" detect "$LINKED")")
+grep -qF 'ignore status verified' <<<"$sec" \
+  && fail "detect: judged the LINKED worktree instead of the main checkout — the main checkout's
+      own ignore rule was dropped, so 'ignore status verified' is a false pass (#125):
+$sec"
+
+# 5f. main-worktree.sh can fail for a reason that has NOTHING to do with bareness (a corrupted
+#     `.git/worktrees` admin area, a permissions error) — exit non-zero with empty stdout, same as
+#     the documented bare-repo signal. The probe must tell those apart by exit code, not by treating
+#     every empty `$wt_root` as "verified bare, nothing to check"; a real failure must surface as a
+#     TODO, never silently read as "no hazard here".
+STUB="$(kit_scratch)"
+MARKER="$(kit_scratch)/worktree-list-was-called"
+REAL_GIT=$(command -v git)
+cat > "$STUB/git" <<STUBEOF
+#!/bin/sh
+if [ "\$1" = "-C" ] && [ "\$3" = "worktree" ] && [ "\$4" = "list" ]; then
+  echo called >> "$MARKER"
+  echo "fake git: worktree list failed" >&2
+  exit 128
+fi
+exec "$REAL_GIT" "\$@"
+STUBEOF
+chmod +x "$STUB/git"
+
+sec=$(wt_section "$(PATH="$STUB:$PATH" bash "$SCRIPT" detect "$wt")")
+[ -s "$MARKER" ] \
+  || fail "detect: the stub git was never reached — this case reproduces nothing"
+grep -qF 'bare repository' <<<"$sec" \
+  && fail "detect: a non-bare 'git worktree list' failure was reported as a verified bare repo —
+      exit code was not checked, so a real failure reads as \"nothing to check\":
+$sec"
+grep -qF 'could not reach a verdict' <<<"$sec" \
+  || fail "detect: main-worktree.sh's failure was not surfaced as a TODO:
 $sec"
 
 # 6. THIS repository's own profile must be TRACKED (#157). Every case above fixtures a profile into

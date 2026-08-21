@@ -36,9 +36,13 @@ Corrections must land in a checkout of the PR's head branch. List worktrees and 
 ```bash
 HEAD_BRANCH=$(gh pr view "$PR" --json headRefName --jq .headRefName)
 
-# Print "<path> <branch>" per worktree, then grep the branch.
+# Print "<path> <branch>" per worktree, then grep the branch. `substr($0, N)` — not `$2` — for both
+# fields: splitting on whitespace truncates a checkout under a path containing a space
+# (`/Users/x/my repo` -> `/Users/x/my`), measured (#125). `scripts/main-worktree.sh` does not fit
+# here — it names only the FIRST (main) worktree, and this needs every record so it can grep the
+# one matching branch.
 git worktree list --porcelain \
-  | awk '/^worktree /{p=$2} /^branch /{sub("refs/heads/","",$2); print p, $2}' \
+  | awk '/^worktree /{p=substr($0,10)} /^branch /{b=substr($0,8); sub("refs/heads/","",b); print p, b}' \
   | grep -E " ${HEAD_BRANCH}$"
 ```
 

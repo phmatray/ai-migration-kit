@@ -72,7 +72,9 @@ them exactly as the repo uses them.
 - <the path, plus the ignore status **as `detect` measured it** — never "(git-ignored)" by habit.
   e.g. `.claude/worktrees/` (verified ignored) · or `.claude/worktrees/` (**NOT ignored** — a
   worktree here would be staged by a stray `git add -A`; implement-issue and merge-pr refuse to
-  create one until the rule exists)>
+  create one until the rule exists) · or, when `detect` ran under a bare repository and there was
+  no main working tree to measure, the probe's own words — "no main working tree here (bare
+  repository) — nothing for the ignore guard to check" (never a verdict it did not reach)>
 
 ## Environment gotchas
 - <e.g. "raw git fetch/push sandbox-blocked while gh works — disable sandbox for those">
