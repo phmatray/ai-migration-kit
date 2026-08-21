@@ -1729,4 +1729,108 @@ grep -q '<unreadable> @' "$OUT" \
   || fail unreadable-push "the branch field must render <unreadable> beside the sha field, not a state nothing measured"
 echo "  ok: unreadable-push — a vanished worktree is reported as unreadable, never as detached"
 
+# ---------------------------------------------------------------- 35. the "did not advance" ALERT
+#
+# guarded-commit.sh's rarest exit-3 path: git commit succeeds, HEAD is still on $EXPECTED
+# afterwards (so the mismatch block above never runs), but $EXPECTED itself did not move — something
+# rewound the branch out from under a commit that landed on it. #148 routed this block's sha read
+# through the shared helper DEFENSIVELY, and no golden case had ever reached it: every other case
+# either leaves the branch alone or moves HEAD off it entirely, which is the mismatch block's
+# territory, not this one's.
+#
+# The fixture is a `post-commit` hook — the commit it fires for has already landed by the time it
+# runs — that rewinds refs/heads/a back to its own pre-commit tip with `git update-ref`. HEAD stays
+# SYMBOLIC on `a` throughout (the hook never touches HEAD itself), so the mismatch check passes and
+# execution reaches the "did not advance" block on the branch that failed to move.
+
+R=$(new_repo stalled-branch-alert)
+git -C "$R" checkout -q a
+before_a=$(tip "$R" a)
+printf '#!/bin/sh\ngit update-ref refs/heads/a %s\n' "$before_a" > "$R/.git/hooks/post-commit"
+chmod +x "$R/.git/hooks/post-commit"
+echo "task work" >> "$R/seed.txt"
+
+run stalled-branch-alert "$COMMIT" -C "$R" a -- -am "feat: a commit whose branch is rewound under it"
+
+# The fixture, before the verdict: a hook that no-oped would leave `a` advanced normally, and
+# every assertion below would pass while testing nothing.
+[ "$(tip "$R" a)" = "$before_a" ] \
+  || fail stalled-branch-alert "fixture broken: branch a must be back at its pre-commit tip"
+[ "$(git -C "$R" symbolic-ref --quiet --short HEAD || true)" = a ] \
+  || fail stalled-branch-alert "fixture broken: HEAD must still be symbolic on a — this case is about the BRANCH not advancing, not about HEAD leaving it (that is the mismatch block, case 1)"
+
+[ "$RC" -eq 3 ] || fail stalled-branch-alert "expected exit 3 when the branch is rewound to its own prior tip under the commit, got $RC"
+grep -qi 'did not advance' "$OUT" || fail stalled-branch-alert "the ALERT must say the branch did not advance"
+grep -qE "did not advance \([0-9a-f]+\)" "$OUT" \
+  || fail stalled-branch-alert "the ALERT must render a REAL sha in parentheses, never a bare '()'"
+
+# The message names a sha — prove it is TRUE, not merely present (the discipline case 34 already
+# established): the commit really happened, and it is still a reachable object even though no ref
+# now points at it directly. `a@{1}` is the ref's value one reflog step before its current
+# (rewound) one — i.e. right after `git commit` landed it and before the hook's `update-ref` moved
+# it back.
+landed_sha=$(git -C "$R" rev-parse "a@{1}")
+[ "$landed_sha" != "$before_a" ] \
+  || fail stalled-branch-alert "fixture broken: the reflog shows no distinct commit having landed"
+git -C "$R" cat-file -e "$landed_sha^{commit}" \
+  || fail stalled-branch-alert "the commit the guard claims was made is not actually a reachable object"
+[ "$(git -C "$R" rev-parse "$landed_sha^")" = "$before_a" ] \
+  || fail stalled-branch-alert "the landed commit's parent is not the branch's pre-commit tip"
+echo "  ok: stalled-branch-alert — a branch rewound under the commit is reported (3), not silently accepted"
+
+# 35b. …and the SAME rewind, but the stalled sha itself cannot even be read afterwards. Two
+# independent things can go wrong reading the branch back — the answer can be a real sha (above),
+# or the read itself can fail — and the ALERT must render the second explicitly as `<unreadable>`,
+# never as a blank left by an uncaught substitution failure (the exact defect case 32 closed for
+# the SUCCESS receipt; this is its "did not advance" sibling).
+#
+# A `git` on PATH ahead of the real one, passing every call through except the ONE abbreviating
+# read this ALERT depends on (`rev-parse --verify --quiet --short a`) — same REAL_GIT passthrough
+# technique as case 12b/12c above, scoped to a single call by argument-adjacency rather than by
+# subcommand name.
+
+R=$(new_repo stalled-branch-unreadable)
+git -C "$R" checkout -q a
+before_a=$(tip "$R" a)
+printf '#!/bin/sh\ngit update-ref refs/heads/a %s\n' "$before_a" > "$R/.git/hooks/post-commit"
+chmod +x "$R/.git/hooks/post-commit"
+echo "task work" >> "$R/seed.txt"
+
+STUB=$(mktemp -d "$WORK/stalled-unreadable-bin.XXXX")
+MARKER="$WORK/stalled-unreadable-short-read-was-called"
+cat > "$STUB/git" <<EOF
+#!/bin/sh
+# Fails ONLY the --short read of the branch this case is about; every other call this guard
+# makes — the commit itself, the pre-flight and post-write HEAD reads, the hook's own
+# update-ref — passes through to the real git untouched.
+prev=""
+for arg in "\$@"; do
+  if [ "\$prev" = "--short" ] && [ "\$arg" = "a" ]; then
+    echo called >> "$MARKER"
+    exit 128
+  fi
+  prev="\$arg"
+done
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$STUB/git"
+
+run stalled-branch-unreadable env "PATH=$STUB:$PATH" bash "$COMMIT" -C "$R" a -- -am "feat: a commit whose branch is rewound, and whose stalled sha cannot be read"
+
+[ -s "$MARKER" ] \
+  || fail stalled-branch-unreadable "the stub git was never reached — this case is reproducing nothing"
+[ "$(wc -l < "$MARKER" | tr -d '[:space:]')" = "1" ] \
+  || fail stalled-branch-unreadable "the stub must intercept exactly the ONE --short read this case is about, not every git call"
+[ "$RC" -eq 3 ] || fail stalled-branch-unreadable "expected exit 3, got $RC"
+grep -qi 'did not advance' "$OUT" || fail stalled-branch-unreadable "the ALERT must say the branch did not advance"
+grep -q 'did not advance (<unreadable>)' "$OUT" \
+  || fail stalled-branch-unreadable "the ALERT must render <unreadable> explicitly when the stalled sha cannot be read, never a blank"
+
+# Scoped to the guard invocation only: with the stub off PATH, the fixture's own git usage reads
+# the branch normally — proving the earlier failure was the shim's doing, not a real git problem
+# that outlived it.
+git -C "$R" rev-parse --short a > /dev/null \
+  || fail stalled-branch-unreadable "fixture broken: after the run, git itself must still read the branch normally"
+echo "  ok: stalled-branch-unreadable — when even the stalled sha cannot be read, the ALERT says so explicitly (<unreadable>), never blank"
+
 echo "guarded-git golden test OK"
