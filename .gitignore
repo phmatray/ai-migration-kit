@@ -24,3 +24,15 @@ migration/
 # le chemin (jamais un grep de ce fichier), et tests/worktrees-ignored/test.sh l'exerce en échec.
 .claude/worktrees/
 .worktrees/
+
+# Le journal d'événements du moteur de décision (#208). `scripts/decide.sh` y ajoute une ligne JSON
+# par décision rendue, dans le dépôt où l'agent se trouve — donc ici quand on développe le kit.
+# Chemin ANCRÉ et ciblé (`/.claude/…`), et surtout PAS tout `.claude/`, pour la raison écrite plus
+# haut : `.claude/skills/repo-profile.md` doit rester versionné chez les dépôts consommateurs, et
+# ce fichier-ci est la référence qu'ils recopient.
+# Cette ligne n'est que la PREMIÈRE des deux moitiés de la garantie. La seconde est dans
+# `decide.sh` : avant CHAQUE ajout il interroge `git check-ignore` sur le chemin du journal, jamais
+# un grep de ce fichier — notre .gitignore n'a aucune portée dans le dépôt de quelqu'un d'autre,
+# et c'est justement là que les agents créeront ce fichier. Sans ignorance, rien n'est écrit et le
+# verdict est rendu quand même (décider échoue fermé, journaliser échoue ouvert).
+/.claude/decision-events.jsonl
