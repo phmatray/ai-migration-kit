@@ -481,3 +481,114 @@ if grep -q "no effort: labels found" "$O8.err"; then
   exit 1
 fi
 echo "ok: pipeline-partial-failure — a pipe stage that dies AFTER flushing partial output doesn't silently pass its truncated vocabulary through"
+
+# ------------------------------------------------------- 9. vocab-tmp-mktemp-failure (infra, not manifest)
+#
+# The manifest declares a genuinely valid effort: axis and parse-manifest.py reads it without
+# complaint — but the SECOND mktemp call (for $VOCAB_TMP, the file the extraction pipeline's stdout
+# is routed through) fails outright, so the pipeline body never even runs. Before this fix,
+# VOCAB_PIPE_FAILED stayed at its default 0 in this case and the diagnosis fell through to "no
+# effort: labels found", blaming the manifest for an infra failure. Shadow `mktemp` on PATH with a
+# stub that always fails; python3/awk/grep/sed/tr/jq are untouched, so the parser itself keeps
+# succeeding. (This also starves PARSER_ERR_FILE's own mktemp a few lines earlier — a real,
+# previously-untested path of its own — but that only changes PARSER_STDERR's sentinel text, not
+# PARSER_RC, so it does not interfere with this case's assertions.)
+W9="$WORK/vocab-tmp-mktemp-failure"
+mkdir -p "$W9/.github" "$W9/bin"
+cat > "$W9/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+cat > "$W9/bin/mktemp" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+chmod +x "$W9/bin/mktemp"
+
+F9="$WORK/vocab-tmp-mktemp-failure-issues.json"
+mkissues "$F9" \
+  "901|Small task, VOCAB_TMP mktemp fails|small|1" \
+  "902|Large task, VOCAB_TMP mktemp fails|large|1"
+O9="$WORK/vocab-tmp-mktemp-failure.out"
+
+# $W9/bin comes first so the stub mktemp shadows the real one; run_survey's helper can't be reused
+# unmodified since it doesn't let a case prepend its own bin dir ahead of $WORK/bin.
+( cd "$W9" && env PATH="$W9/bin:$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$F9" bash "$SURVEY" ) \
+  > "$O9" 2>"$O9.err" || { echo "FAIL: survey.sh exited $? on vocab-tmp-mktemp-failure"; cat "$O9.err"; exit 1; }
+
+# The vocabulary could not be confirmed, so both fall back to the hardcoded small/medium/large
+# ranking — same ranking outcome as every other fallback case. What must differ is the stderr
+# wording: it must not claim the manifest declared no effort: axis (it does, correctly).
+assert_bucket QUEUE 901 "$O9"
+assert_bucket HOLD  902 "$O9"
+
+if ! grep -qi "vocabulary-extraction pipeline.*failed" "$O9.err"; then
+  echo "FAIL: survey.sh stderr does not name the vocabulary pipeline as the failure point when VOCAB_TMP's mktemp fails"
+  echo "---"
+  cat "$O9.err"
+  exit 1
+fi
+if grep -q "no effort: labels found" "$O9.err"; then
+  echo "FAIL: survey.sh stderr claims no effort axis was declared, masking a mktemp failure unrelated to the manifest"
+  echo "---"
+  cat "$O9.err"
+  exit 1
+fi
+echo "ok: vocab-tmp-mktemp-failure — a failure to even create the pipeline's temp file is named distinctly, not folded into \"no effort axis\""
+
+# --------------------------------------------- 10. vocab-tmp-readback-failure (pipe ok, cat fails)
+#
+# The extraction pipeline itself runs cleanly (every stage would exit 0), but reading its output
+# back via `cat -- "$VOCAB_TMP"` fails — a permissions race or I/O hiccup on the temp file between
+# the write and the read. VOCAB_PIPE_FAILED would stay 0 from the per-stage loop alone (the pipe
+# genuinely succeeded), so this exercises the OTHER half of the fix: the `cat` failure itself must
+# also set VOCAB_PIPE_FAILED, or this collapses into "no effort: labels found" exactly like the
+# other two infra-failure cases above. Shadow `cat` on PATH with a stub that fails only for the
+# `cat -- <file>` invocation shape survey.sh actually uses, execing the real binary otherwise (the
+# gh stub and mkissues/assert_bucket in this suite don't call `cat --`, so nothing else breaks).
+W10="$WORK/vocab-tmp-readback-failure"
+mkdir -p "$W10/.github" "$W10/bin"
+cat > "$W10/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+REAL_CAT="$(command -v cat)"
+[ -n "$REAL_CAT" ] || { echo "FAIL: no system cat found to build the vocab-tmp-readback-failure stub"; exit 1; }
+cat > "$W10/bin/cat" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "--" ]; then
+  exit 1
+fi
+exec "$REAL_CAT" "\$@"
+STUB
+chmod +x "$W10/bin/cat"
+
+F10="$WORK/vocab-tmp-readback-failure-issues.json"
+mkissues "$F10" \
+  "1001|Small task, VOCAB_TMP readback fails|small|1" \
+  "1002|Large task, VOCAB_TMP readback fails|large|1"
+O10="$WORK/vocab-tmp-readback-failure.out"
+
+( cd "$W10" && env PATH="$W10/bin:$WORK/bin:$PATH" GH_ISSUES_FIXTURE="$F10" bash "$SURVEY" ) \
+  > "$O10" 2>"$O10.err" || { echo "FAIL: survey.sh exited $? on vocab-tmp-readback-failure"; cat "$O10.err"; exit 1; }
+
+assert_bucket QUEUE 1001 "$O10"
+assert_bucket HOLD  1002 "$O10"
+
+if ! grep -qi "vocabulary-extraction pipeline.*failed" "$O10.err"; then
+  echo "FAIL: survey.sh stderr does not name the vocabulary pipeline as the failure point when reading VOCAB_TMP back fails"
+  echo "---"
+  cat "$O10.err"
+  exit 1
+fi
+if grep -q "no effort: labels found" "$O10.err"; then
+  echo "FAIL: survey.sh stderr claims no effort axis was declared, masking a readback failure after a successful pipeline"
+  echo "---"
+  cat "$O10.err"
+  exit 1
+fi
+echo "ok: vocab-tmp-readback-failure — a successful pipeline whose output can't be read back is named distinctly, not folded into \"no effort axis\""
