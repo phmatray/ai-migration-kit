@@ -410,6 +410,9 @@ jobs:
       - name: Auto-dev takeover-cleanup golden test (MERGED verdict dispatches merge-pr for local cleanup)
         run: ./tests/auto-dev-takeover-cleanup/test.sh
 
+      - name: Auto-dev worktree-field golden test (normal MERGED report reads WORKTREE, not just STATUS)
+        run: ./tests/auto-dev-worktree-field/test.sh
+
       - name: Survey golden test (effort tiers by the manifest's own vocabulary, not S/M/L)
         run: ./tests/survey/test.sh
 
