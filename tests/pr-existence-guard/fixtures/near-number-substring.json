@@ -1,0 +1,14 @@
+[
+  {
+    "number": 50,
+    "headRefName": "fix/420-typo",
+    "body": "Fixes #420 by mistake, nothing to do with #42.",
+    "url": "https://github.com/phmatray/ai-migration-kit/pull/50"
+  },
+  {
+    "number": 51,
+    "headRefName": "fix/4-partial",
+    "body": "Closes #4, a truncated match that must not count as closing #42.",
+    "url": "https://github.com/phmatray/ai-migration-kit/pull/51"
+  }
+]

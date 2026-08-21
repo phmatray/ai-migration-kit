@@ -253,6 +253,77 @@ GUARDS=<this skill's own scripts/ directory>       # skills/implement-issue/scri
 ```
 
 If they exist, work in that worktree (with `git -C`) and reuse the PR — don't open a second one.
+
+**If the branch-name match found nothing, don't assume there's no PR — a branch name is only a guess
+at what a prior run called itself.** Ask GitHub about the *issue* directly before creating anything
+(#214 — two sessions scaffolded #195 under two different branch names because the second one never
+ran the `SLUG` recipe above, it invented its own):
+
+`$ISSUE` must already be a validated non-empty digit string by this point (Step 1's locator gates on
+`gh issue view "$ISSUE"` succeeding) — the pattern below concatenates it unescaped, and an empty
+value would degrade `…#\b` into "closes any issue", matching PRs unrelated to this one.
+
+Wide net first (a plain search can hit a PR that merely *mentions* the issue), then narrow to PRs
+whose body actually closes it via GitHub's closing-keyword set. `gh pr list --jq` cannot take
+`--arg`, so the fetch and the filter are two commands — the second one embeds the filter program
+directly, the same way `skills/merge-pr/references/merge-mechanics.md` embeds its own marked verdict
+program, so there is exactly one copy of it and `tests/pr-existence-guard/test.sh` extracts and runs
+the thing this paragraph tells you to paste, not a paraphrase of it:
+
+```bash
+case "$ISSUE" in
+  ''|*[!0-9]*) echo "REFUSED — \$ISSUE ('$ISSUE') is not a validated non-empty digit string"; exit 1 ;;
+esac
+
+# --limit above the default page size (30): an issue that has accumulated several stale/duplicate
+# PRs — the exact scenario this guard targets — could otherwise truncate the real closer off the
+# first page before the filter below ever sees it.
+gh pr list --search "$ISSUE in:body" --state open --limit 100 \
+  --json number,headRefName,body,url,isDraft > /tmp/issue-$ISSUE-mentions.json
+
+# A failed or rate-limited fetch leaves an empty file, and jq silently treats empty input as "no
+# rows" rather than an error — §2's exact "load-bearing, not decoration" lesson applies here too:
+# an unchecked empty fetch reads as "0 open PRs found" and lets a duplicate scaffold through on a
+# transient API failure, silently reproducing the bug this guard exists to close.
+[ -s /tmp/issue-$ISSUE-mentions.json ] || {
+  echo "REFUSED — the PR search returned nothing; retry rather than treat this as '0 found'"; exit 1; }
+
+jq --arg issue "$ISSUE" '
+  # >>> issue-scoped PR-existence guard
+  # $issue is the numeric issue id, bound above via --arg. `\b…#<n>\b` stops "214" from matching a
+  # #2140/#1214 substring. `:?\s*` accepts both "Closes #42" and "Closes: #42" — GitHub recognizes
+  # the colon form too — while still requiring the keyword to sit immediately before the number, not
+  # just somewhere in the same sentence.
+  [.[] | select(.body | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s*#" + $issue + "\\b"))]
+  # <<< issue-scoped PR-existence guard
+' /tmp/issue-$ISSUE-mentions.json > /tmp/issue-$ISSUE-closers.json
+
+jq 'length' /tmp/issue-$ISSUE-closers.json
+```
+
+⚠️ **Residual limitation, not fixable from this side:** `gh pr list --search` hits GitHub's Search
+API, which is *eventually consistent* — unlike the branch-name check's `gh pr list --head`, a live-ref
+lookup. A PR created seconds ago can still search as absent. This narrows the #195-shaped race, it
+does not close it to zero; the branch-name check (a live-ref lookup, checked first) is the fast path
+that still catches a same-slug race this cannot.
+
+- `0` → nothing found; proceed to create below.
+- `1` → resume onto `jq -r '.[0].headRefName' /tmp/issue-$ISSUE-closers.json` the same way as a
+  branch-name match: fetch it, `git worktree add` from it (existing local branch) or from
+  `origin/<branch>` with `-b` (remote-only), set `BRANCH` to it, and skip straight to Step 6 —
+  no second scaffold, no second `gh pr create`. If resuming onto an existing *local* branch, also
+  `git branch --set-upstream-to="origin/$BRANCH" "$BRANCH" 2>/dev/null || true` before Step 6's push —
+  a branch left over from a session that created it but crashed before its first push has no
+  upstream configured, and that push has no `-u` of its own to fall back on.
+- `2`+ → a pre-existing duplicate pair already on GitHub (the exact #195 shape). Resume onto the one
+  with the most commits (`gh pr view <n> --json commits --jq '.commits | length'` — an untouched
+  scaffold has exactly one); **on a tie** (e.g. both are still untouched scaffolds), resume onto the
+  **lowest PR number** — the one created first — so two independent runs of this same recipe converge
+  on the same choice instead of diverging further. Name the others in the final report; don't silently
+  pick one and stay quiet about it.
+
+A PR that once closed this issue but is now closed doesn't count — `--state open` already excludes it.
+
 Otherwise create the worktree via `superpowers:using-git-worktrees`, then the draft PR (empty
 scaffold commit so the branch is ahead of `main`):
 
@@ -329,6 +400,12 @@ the normal outcome of a real sync, not an error.** Resolve them and *complete* t
   from the issue state (the canonical source) before entering the loop.
 - **Empty commit is intentional.** It exists only so a draft PR can open before any code lands; the
   first real task commit immediately makes it meaningful. Don't squash it away mid-run.
+- **A branch-name match is a guess, not a guarantee.** §5's fallback exists because a worker's own
+  judgment can pick a different branch name for the same issue on a different run (#214) — never skip
+  the issue-scoped `gh pr list --search "$ISSUE in:body"` check just because the branch-name check
+  came back empty. Scope the search's *filter* to a real closing keyword (`Closes`/`Fixes`/`Resolves
+  #$ISSUE`), not a bare mention — GitHub's text search alone returns PRs that merely reference the
+  number.
 - **Sync before ready — merge, not rebase.** The full procedure (and the why) is in
   [`../../_shared/sync-with-main.md`](../../_shared/sync-with-main.md), summarized at §7; the one thing
   to remember here is that a clean text merge can still be a broken compile, so re-build after resolving.

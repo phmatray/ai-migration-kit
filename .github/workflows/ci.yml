@@ -403,6 +403,9 @@ jobs:
       - name: Merge-gate golden test (the latest run per job decides, over fixtures)
         run: ./tests/merge-gate/test.sh
 
+      - name: PR-existence guard golden test (an issue-scoped search finds a closer under any branch name)
+        run: ./tests/pr-existence-guard/test.sh
+
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 

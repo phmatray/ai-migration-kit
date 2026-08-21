@@ -62,7 +62,7 @@ Create a task per item and work them in order. Step 6 is the loop — one pass p
 1. **Preconditions** — `gh` works, you're in the target repo, resolve the issue number.
 2. **Read the plan** — fetch the `🛠️ Implementation plan` from the issue body (or a comment, on older issues); save it and note where it lives.
 3. **Pick the execution mode** — assess complexity → *Inline (Extra)* or *Subagent-per-task (Ultracode)*.
-4. **Create this issue's own worktree** — via `superpowers:using-git-worktrees`; branch off `main`. Never implement from the checkout you were launched in, even if it is already a worktree.
+4. **Create this issue's own worktree** — via `superpowers:using-git-worktrees`; branch off `main`. Never implement from the checkout you were launched in, even if it is already a worktree. If no branch-name match is found, fall back to an issue-scoped GitHub search before scaffolding a new one — a second open PR closing the same issue is the failure this step exists to prevent.
 5. **Open the draft PR** — empty scaffold commit, push, `gh pr create --draft` linking the issue; PR title carries a Conventional Commits prefix (`fix:`/`feat:`/…, CI-enforced) and ends with `(#<issue>)`.
 6. **Loop until every task is checked** — implement the next unchecked task → verify green → commit → tick that task on the issue plan *and* the PR description → push.
 7. **Code review** — run the `code-review` skill, apply + commit the fixes, push.
@@ -72,8 +72,9 @@ Create a task per item and work them in order. Step 6 is the loop — one pass p
 
 Resume-safe: re-running mid-flight is fine. A task is "done" when **all** its step checkboxes read
 `- [x]`; start at the first that isn't. Reuse **this issue's** worktree/branch/PR rather than making a
-second — matched on the issue's own branch name, never on "whatever checkout I woke up in"
-(see `references/github-mechanics.md`).
+second — matched first on the issue's own branch name, then, if that finds nothing, on whether GitHub
+already has an open PR closing this issue; never on "whatever checkout I woke up in" (see
+`references/github-mechanics.md`).
 
 ---
 
@@ -168,6 +169,31 @@ from a copy here, which is how the four copies of this table drifted apart in th
 scaffold commit · `2` ignored but over-broad, so **do** go ahead and mention the profile cost ·
 `3`/`127` no verdict was reached, which is not a pass.
 
+### If the branch-name check found nothing: check GitHub for the issue, not just the branch
+
+The branch-name check only catches a **matching name**, and a matching name is not guaranteed. It
+missed the incident this guard exists for (#214): two sessions scaffolded #195 under **different**
+branch names (`fix/195-ci-wiring-check-proves-a-suite-is-invoke` and
+`fix/195-ci-wiring-executable-mode`) because the second one never ran the `SLUG` recipe below at all —
+it composed its own branch name from its own reading of the issue instead. A worker's own judgment
+routinely substitutes a hand-picked, paraphrased branch name for the prescribed one-liner, so two
+independent runs against the same issue can diverge in branch name even though the recipe itself is
+deterministic. Branch-name matching cannot catch that; asking GitHub whether this **issue** already
+has an open PR can — so run this fallback whenever the branch-name check just found nothing, before
+creating any worktree.
+
+**Run `references/github-mechanics.md` §5's exact recipe, and read its 0/1/2+ decision table there**
+— not a copy here, which is how the worktree-ignore table drifted apart (#71), and this fallback's own
+first draft duplicated the same table once already, immediately going stale when the recipe grew a
+tie-break rule and an empty-fetch guard. §5's recipe queries `gh pr list` for open PRs whose body
+actually *closes* this issue (GitHub's own closing-keyword set, not a bare mention) and writes the
+result to `/tmp/issue-$ISSUE-closers.json`; `tests/pr-existence-guard/test.sh` proves that program's
+behavior against fixtures shaped exactly like #195. The short version: `0` → nothing to resume onto,
+proceed to "Then reuse or create" below; `1` → resume onto it and skip Step 5's scaffold entirely;
+`2`+ → the exact shape of the #195 incident, resume onto the most-implemented one (§5 has the
+tie-break) and **name the duplicate in the Step 10 report** — this is not a stop-and-ask case under
+the Autonomy contract, but a standing duplicate PR is worth a human's attention regardless.
+
 Then reuse or create, and record the two names every later step needs:
 
 ```bash
@@ -188,8 +214,12 @@ That residue is what the guards below are for.
 
 ## Step 5 — Open the draft PR
 
-The PR should be visible as a **draft before** the implementation loop. A PR needs the branch ahead of
-`main`, so land an empty scaffold commit, push, then open it.
+**Skip this step entirely if Step 4's issue-scoped fallback resumed onto an existing PR** — that PR
+already carries a scaffold commit (or real work), and opening another one is exactly the failure this
+guard exists to prevent. Go straight to Step 6.
+
+Otherwise: the PR should be visible as a **draft before** the implementation loop. A PR needs the
+branch ahead of `main`, so land an empty scaffold commit, push, then open it.
 
 **Follow the profile's *PR title convention*.** The common shape is a Conventional Commits prefix
 _and_ a `(#<issue>)` suffix — two independent constraints, both enforced, e.g.
@@ -411,6 +441,7 @@ Short and concrete:
 - One line per task shipped (and confirmation every checkbox is ticked).
 - Code-review outcome — what you fixed, what you dismissed and why.
 - Merge sync — clean, or which conflicts you resolved (and how).
+- **If Step 4's issue-scoped fallback found 2+ pre-existing open PRs already closing this issue**, name them and which one you resumed onto — this is the one line this checklist cannot skip, because a resumed run that says nothing here silently reproduces the "pick one and say nothing" outcome #214 exists to stop.
 - Anything assumed, deferred, or unverifiable (e.g. full suite skipped for a missing local prerequisite the profile flags). Keep detail in the PR/issue; the report points there.
 
 Then **close the loop**: the PR is ready but not landed — a human owns the merge decision. Point the
