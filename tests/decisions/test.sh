@@ -346,6 +346,39 @@ else
   printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
 fi
 
+# A genuine (non-comment) read of a field the shape does not build must be refused — the positive
+# case the two above only set up for.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(printf '%s' '"CLEAN"' | jq '{state: .}')
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}',
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}\n'
+    '       elif .legacy_field == "x" then {verdict:"stop", rule:"legacy"}',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R6 "R6 — a genuine read of a field the shape does not build is refused"
+
 # --- R7 the owner must INVOKE, not merely mention -----------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 # Delete the fenced call, leaving the skill otherwise intact. This is the exact move that would
