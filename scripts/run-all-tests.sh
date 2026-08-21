@@ -76,6 +76,10 @@ add_gate "./scripts/worktrees-ignored.sh"
 add_gate "python3 scripts/ci-wiring-check.py"
 add_gate "./scripts/parse-sweep.sh"
 add_gate "python3 scripts/pinned-literals-check.py"
+# The same family, one layer up: those three gate TEXT, this one gates CONTROL FLOW — every
+# registered decision is single-homed, invoked by its owner, and unrestated by prose (#208). Cheap
+# and structural like its neighbours; its own golden suite runs below with the others.
+add_gate "python3 scripts/decision-check.py"
 
 add_suite "tests/lib/test.sh"
 add_suite "tests/py-module/test.sh"
@@ -195,6 +199,7 @@ add_suite "tests/tick-plan/test.sh"
 add_suite "tests/guarded-git/test.sh"
 add_suite "tests/merge-gate/test.sh"
 add_suite "tests/merge-freshness/test.sh"
+add_suite "tests/decisions/test.sh"
 add_suite "tests/guarded-pr-merge/test.sh"
 add_suite "tests/remote-branch-teardown/test.sh"
 add_suite "tests/release-title-gate/test.sh"
@@ -203,6 +208,7 @@ add_suite "tests/main-worktree/test.sh"
 add_suite "tests/roseline/test.sh"
 add_suite "tests/auto-dev-never-wait/test.sh"
 add_suite "tests/auto-dev-takeover-cleanup/test.sh"
+add_suite "tests/auto-dev-worktree-field/test.sh"
 add_suite "tests/survey/test.sh"
 
 # 16: the contrast checker itself, pass AND fail paths.

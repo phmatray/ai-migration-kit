@@ -226,6 +226,8 @@ survives compaction and `loop` re-fires. Keep it small and current:
 <#n (area), ...>
 ## Completed
 - #<n> → PR #<pr> MERGED (<commit>)
+## Needs manual sweep
+- #<n> → PR #<pr> — WORKTREE: <text>
 ## Off-scope issues filed by workers
 - #<n> — <title> (label) from #<source>
 ## Skipped (ineligible: no-plan / manual-QA)
@@ -332,7 +334,22 @@ You're woken by a worker's report, an **idle notification**, or your heartbeat. 
 `scripts/reconcile.sh` (one call: open PRs with draft/ready + `mergeStateStatus`, plus the last 10
 merged) rather than re-typing the gh queries each tick. Then, per slot:
 
-- **Reported MERGED** (GitHub agrees) → **end the agent** (send a shutdown request) and **refill the slot**: pick the next queued issue whose area isn't currently held, dispatch a fresh worker (Step 3). Keeps the fleet at N.
+- **Reported MERGED** (GitHub agrees) → before refilling, read the worker's `WORKTREE` field from its
+  final report line. `merge-pr`'s own Step 7 is documented as tolerant of partial local cleanup (e.g.
+  `git worktree remove` needing `--force` on a dirty leftover, or a `git branch -D` racing something
+  else), so a worker can honestly report `STATUS: MERGED` alongside a `WORKTREE` value that isn't
+  fully cleaned up — and a **missing** `WORKTREE` field is treated the same way, as non-clean, never
+  as evidence of success. If it reads as fully cleaned up — worktree and branch gone, whether removed
+  by this run or already absent (`merge-pr` Step 7 treats "already gone" as success too) — proceed
+  exactly as before: **end the agent** (send a shutdown request) and **refill the slot** —
+  pick the next queued issue whose area isn't currently held, dispatch a fresh worker (Step 3). Keeps
+  the fleet at N. Otherwise, add a line to the state file's `## Needs manual sweep` section naming the
+  issue, PR, and the `WORKTREE` text verbatim — then **still end the agent and refill the slot
+  regardless**: the PR is merged, only local cleanup is outstanding, and nothing about that blocks the
+  fleet. Either way, the issue still moves to `## Completed` right away — unlike the takeover bullet
+  below, nothing here re-dispatches a session to close the gap, so there is no future report to defer
+  that entry for; `## Needs manual sweep` tracks the outstanding local housekeeping separately, it
+  does not gate `## Completed`.
 - **Idle, but PR is READY and unmerged** → it stalled at "ready." **First check whether CI was still pending when you dispatched it** — if so this is your dispatch-timing bug, not the worker's: run `scripts/wait-ci.sh <pr>`, then re-dispatch phase 2 with the finished check table inline (see *NEVER dispatch phase 2 while CI is pending* in Step 3). Re-dispatching into the same pending CI just kills another session. Otherwise, message it to run `merge-pr <PR>` now and not idle until merged. `mergeable=UNKNOWN` is usually a transient recompute after `main` moved — its `merge-pr` will sync and resolve; nudge a main-sync if it persists. If a worker idles at "ready" **twice** with CI already final, take over: run the kit's
 `skills/merge-pr/scripts/guarded-pr-merge.sh <PR> -- --squash --delete-branch` and decide the
 slot's fate from its exit code, never from a bare `gh pr merge`'s (this kit's normal layout — the
@@ -413,7 +430,10 @@ wake.)
 
 Stop dispatching when the eligible queue is empty (or the user says stop). Let the in-flight workers
 finish and land, end them, then summarize: issues merged (with PR numbers), follow-ups filed, anything
-blocked or skipped (with reasons), and what remains (e.g. held L/XL items).
+blocked or skipped (with reasons), what remains (e.g. held L/XL items), and any `## Needs manual
+sweep` entries still on the state file — that section has no automated reader anywhere else in this
+skill, so the final summary is the only place a human reliably sees a leftover worktree/branch before
+the (untracked) state file is discarded.
 
 **Cost accounting.** Run `scripts/usage_report.py <project-transcript-dir> --main <orchestrator-session-id>`
 to aggregate tokens + $-equivalent across the orchestrator and every worker, broken down by model.

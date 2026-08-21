@@ -153,6 +153,23 @@ jobs:
       - name: Every spelling of the pinned version is marked or recorded
         run: python3 scripts/pinned-literals-check.py
 
+      # The same argument as the two steps above, applied to control flow rather than to text. A
+      # decision this kit makes — "what correction does this merge state call for?" — must have ONE
+      # home, and the agent must INVOKE it rather than re-derive it from a table. #208 is what
+      # happens otherwise: merge-verdict.sh encoded the whole Step 4 precedence, was pinned by
+      # fixtures, was wired into CI, and nothing called it, while SKILL.md restated the same rule as
+      # prose the agent applied by hand. The two drifted, and the drift (`behind_by` renamed to
+      # `behind` in a jq object construction, so the guard read null forever) was caught by a human
+      # reviewer rather than by anything here.
+      #
+      # This refuses a program with a second home, an owner that stopped invoking its own decision,
+      # a shape that stopped building what the program reads, and prose that re-enumerates the
+      # states the program tests. It runs `scripts/decide.sh --program` to obtain each program —
+      # one home for extraction, so the guard cannot agree with a dispatcher it does not use.
+      # Structural and fast, so it sits with the other cheap gates; its golden test runs below.
+      - name: Every registered decision is single-homed, invoked, and unrestated by prose
+        run: python3 scripts/decision-check.py
+
       # Ten suites now get their EXIT trap from tests/_lib.sh (#72), so a bug in that handler would
       # silently weaken all of them at once — the `local rc=$?`-first invariant is the difference
       # between a failing suite reporting failure and reporting success. It sits AHEAD of every
@@ -389,6 +406,19 @@ jobs:
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 
+      # The decision engine's own suite, and it is mostly refusals on purpose: the gate above exists
+      # because a rule that cannot go red is worth nothing, so a gate whose refusal path is untested
+      # would be that same defect one level up. Every rule R1…R9 is driven to red by breaking a
+      # scratch kit in exactly one way. The load-bearing case is the last one — a NEW branch added to
+      # a program and restated as a table must still be refused WITHOUT the registry being touched,
+      # because R8 derives its token set from the program text rather than from a list somebody
+      # maintains. If that case ever goes green, the design's central claim is false.
+      # It also pins the dispatcher's verdicts over all fifteen fixtures: before this suite, five
+      # fixtures pinned three of the precedence's eight rules, and the default could be flipped from
+      # `wait` to `merge` with CI green.
+      - name: Decision engine golden test (every rule driven to red; the precedence pinned)
+        run: ./tests/decisions/test.sh
+
       - name: Guarded PR-merge golden test (state decides the takeover, never gh's exit code)
         run: ./tests/guarded-pr-merge/test.sh
 
@@ -412,6 +442,9 @@ jobs:
 
       - name: Auto-dev takeover-cleanup golden test (MERGED verdict dispatches merge-pr for local cleanup)
         run: ./tests/auto-dev-takeover-cleanup/test.sh
+
+      - name: Auto-dev worktree-field golden test (normal MERGED report reads WORKTREE, not just STATUS)
+        run: ./tests/auto-dev-worktree-field/test.sh
 
       - name: Survey golden test (effort tiers by the manifest's own vocabulary, not S/M/L)
         run: ./tests/survey/test.sh
