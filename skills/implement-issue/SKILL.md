@@ -238,11 +238,21 @@ _and_ a `(#<issue>)` suffix — two independent constraints, both enforced, e.g.
   it and the merged commit records only the PR number, losing the link to the issue.
 
 Pick the **type** from the change, not a guess: the issue's type label maps cleanly (`bug` → `fix`,
-`enhancement` → `feat`); otherwise read the plan (docs-only → `docs`, a pure refactor → `refactor`,
-tests-only → `test`, build/CI plumbing → `build`/`ci`). Add an optional **scope** matching the ones
-already in `git log` for the touched area (the profile's area names usually fit). Then write a
-concise imperative **subject** that summarizes the fix rather than echoing the issue's symptom
-wording — so the example issue becomes e.g.
+`enhancement` → `feat`) — use it. When it doesn't map cleanly, **check the plan's touched paths
+before reading its diff's shape**: only when *every* touched path is genuinely non-shipped (`docs/`,
+`.github/`, `README.md`, `ARCHITECTURE.md`, …) does the plan's *shape* decide the type (`docs:` for
+prose, `ci:`/`build:` for CI plumbing, `refactor:`/`test:` for a pure refactor or tests-only change —
+none of these trip the gate off a non-shipped path). A plan that touches anything inside a shipped
+directory (`skills/`, `scripts/`, `commands/`, `templates/`, `hooks/`, `requirements.json`) can't use
+any of those: `scripts/release-title-gate.sh` restricts a shipped-path PR to `feat`/`fix`/`perf`/
+`revert` and refuses `docs`/`refactor`/`test`/`build`/`ci` outright, no matter how prose-like or
+mechanical the diff reads — pick the closest fit among the four instead (usually `fix:` for a
+correction, `feat:` for new capability). This check runs the moment the PR is opened, so a bad guess
+here becomes a red `title-gate` check almost immediately, not a late-stage surprise. Add an optional
+**scope** matching the ones already in `git log` for the touched area (the profile's area names
+usually fit).
+Then write a concise imperative **subject** that summarizes the fix rather than echoing the issue's
+symptom wording — so the example issue becomes e.g.
 `fix(export): use invariant culture in CSV number formatting (#849)`.
 
 Every commit and push **in Steps 5–9** goes through the guards in `scripts/` — never a bare
