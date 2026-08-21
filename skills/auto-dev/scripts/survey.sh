@@ -52,7 +52,14 @@ fi
 VOCAB_JSON=""
 PARSER_RC=0
 PARSER_STDERR=""
+# Distinct from PARSER_RC ("the parser's actual exit status"): PARSER_ATTEMPTED only records
+# whether the invocation block below ever ran at all. A missing/unreadable $PARSER makes
+# `[ -r "$PARSER" ]` false, so the whole block — PARSER_RC included — is skipped, and PARSER_RC
+# stays at its 0 default. Without this flag that reads as "the parser ran fine and declared
+# nothing", the exact wrong diagnosis for "the parser file itself is gone" (#239).
+PARSER_ATTEMPTED=0
 if [ -n "$MANIFEST" ] && [ -r "$PARSER" ]; then
+  PARSER_ATTEMPTED=1
   # The parser runs on its own here — not piped straight into awk/grep/sed/tr/jq like the rest of
   # this block — so its exit status can be told apart from the downstream tools' (`grep -i
   # '^effort:'` legitimately exits 1 when the manifest declares no effort: labels, and under
@@ -105,6 +112,8 @@ fi
 if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ]; then
   if [ "$PARSER_RC" -ne 0 ]; then
     echo "survey.sh: parse-manifest.py failed (exit $PARSER_RC) reading $MANIFEST — falling back to small/medium/large; the manifest's effort: axis could not be confirmed. Parser said: $PARSER_STDERR" >&2
+  elif [ "$PARSER_ATTEMPTED" -eq 0 ] && [ -n "$MANIFEST" ]; then
+    echo "survey.sh: parser $PARSER is missing or unreadable — cannot confirm $MANIFEST's effort: axis — falling back to small/medium/large" >&2
   elif [ -n "$MANIFEST" ]; then
     echo "survey.sh: no effort: labels found in $MANIFEST — falling back to small/medium/large" >&2
   else
