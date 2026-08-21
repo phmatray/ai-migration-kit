@@ -324,6 +324,12 @@ def check(repo, tests_root, workflow_dir):
         }
 
     verdicts = {}
+    # Whether ANY step in ANY workflow names a suite — independent of whether that step can fail
+    # the build or which trigger the workflow uses. Set alongside `verdicts` so the `not_executable`
+    # print branches below can ask the same question the loop already answered, instead of
+    # re-inferring it from `suite in unwired` (which conflates "no step invokes it" with the other
+    # two UNWIRED reasons and produces a self-contradictory refusal, #238).
+    invoked_by_any_step = set()
     for suite in suites:
         reasons = []
         for path, doc in workflows:
@@ -336,6 +342,7 @@ def check(repo, tests_root, workflow_dir):
                         continue
                     if not invocation_lines(step["run"], suite):
                         continue
+                    invoked_by_any_step.add(suite)
                     if is_disabled(step):
                         reasons.append(f"{path.name}: step exists but cannot fail the build")
                         continue
@@ -375,22 +382,31 @@ def check(repo, tests_root, workflow_dir):
             for suite, mode in not_executable.items():
                 print(f"  {suite}")
                 if mode is None:
-                    if suite in unwired:
-                        # This suite is ALSO reported above under "not enforced by CI" — no step
-                        # invokes it at all, so claiming "CI invokes it" here would contradict that
-                        # verdict in the same run.
+                    if suite not in invoked_by_any_step:
+                        # No step names this suite at all — not even one whose reason is disabled
+                        # or wrong-trigger. This suite is ALSO reported above under "not enforced by
+                        # CI", so claiming "CI invokes it" here would contradict that verdict in the
+                        # same run.
                         print(
                             "      not staged in the index at all, and no step invokes it either — "
                             "a real clone would not contain it even if one did"
                         )
                     else:
+                        # A step DOES name it — it may still be unwired above (disabled, wrong
+                        # trigger), but that is a different claim than "no step invokes it".
                         print(
                             f"      not staged in the index at all — CI invokes it as ./{suite}, but "
                             "a real clone would not contain it"
                         )
                     print(f"      fix: git add {suite}")
                     continue
-                print(f"      index mode {mode}, expected {REQUIRED_MODE} — CI invokes it as ./{suite}")
+                if suite in invoked_by_any_step:
+                    print(f"      index mode {mode}, expected {REQUIRED_MODE} — CI invokes it as ./{suite}")
+                else:
+                    print(
+                        f"      index mode {mode}, expected {REQUIRED_MODE} — but no step invokes it "
+                        "either"
+                    )
                 if mode == "120000":
                     # `git update-index --chmod=+x` refuses outright on a symlink entry ("cannot
                     # chmod +x") — chmod changes the mode of an existing 100644/100755 blob, it does
