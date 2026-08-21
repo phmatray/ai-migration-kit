@@ -201,6 +201,7 @@ add_suite "tests/release-title-gate/test.sh"
 add_suite "tests/worktrees-ignored/test.sh"
 add_suite "tests/roseline/test.sh"
 add_suite "tests/auto-dev-never-wait/test.sh"
+add_suite "tests/auto-dev-takeover-cleanup/test.sh"
 add_suite "tests/survey/test.sh"
 
 # 16: the contrast checker itself, pass AND fail paths.
