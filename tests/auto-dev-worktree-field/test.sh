@@ -57,4 +57,15 @@ grep -qF 'still end the agent and refill the slot' "$SKILL_MD" \
 grep -qF 'reads as fully cleaned up' "$SKILL_MD" \
   || fail "SKILL.md does not distinguish a fully-cleaned WORKTREE result from a non-clean one"
 
+# 6. '## Needs manual sweep' is not write-only: Step 6's final summary surfaces any entries still on
+#    the state file, since nothing else in the skill ever reads that section back.
+grep -qF 'any `## Needs manual' "$SKILL_MD" \
+  || fail "SKILL.md's Step 6 (Stop & report) does not surface outstanding '## Needs manual sweep' entries"
+
+# 7. A non-clean WORKTREE result does not block the issue from moving to '## Completed' — the sweep
+#    note tracks local housekeeping separately, avoiding the ambiguity of the sibling takeover bullet
+#    (which DOES defer '## Completed' because it re-dispatches a session to close the gap).
+grep -qF 'still moves to `## Completed` right away' "$SKILL_MD" \
+  || fail "SKILL.md does not clarify that a non-clean WORKTREE result still moves the issue to '## Completed'"
+
 echo "PASS: auto-dev-worktree-field"
