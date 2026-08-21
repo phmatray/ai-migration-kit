@@ -66,13 +66,23 @@ object inside the shape counts as emitted, so R6 misses some real mismatches but
 A decision whose `shape` is null is not checked by R6 at all, and is printed BY ID as uncovered on
 the success line — a guard that cannot answer must say so rather than serve silence as a pass.
 
-R4 and R5 read the program through `strip_comments`, which is line-oriented and `#`-only: it does
-not know any comment syntax but `#`-to-end-of-line, so a future `program.kind` in another language
-would need it made kind-aware first. TOKEN_RE (R8's token derivation, just below) is deliberately
-left reading the RAW, unstripped program text rather than the stripped one — a comment that happens
-to quote a `== "…"` comparison only ever WIDENS R8's token set, and R8's failure direction is to
-refuse more often on a wider set, never less; R4 and R5 run the other way, where a phantom literal
-is a false refusal, so only they are worth the strip.
+R4, R5 and R8's TOKEN_RE derivation all read the program through `strip_comments` (see its own
+docstring for what it does and its known, currently-unobserved limits): a comment that documents what
+the program emits or tests is prose about the program, not a branch of it, and none of the three may
+count it as one. This was NOT true of TOKEN_RE at first — an earlier draft left it reading the raw
+text on the theory that a wider, comment-inflated token set only ever WIDENS R8's refusals, never
+narrows them. That is true of R8's un-annotated-table path (`hit = found_tokens(cells,
+tokens_by_id[did])`, more tokens can only mean more matches), but false of its ANNOTATED-table path
+(`extra = run_candidates(cells, all_tokens) - tokens_by_id[ann]`): there the decision's OWN token set
+is SUBTRACTED, so a comment-derived phantom token in a decision's own program can silently swallow a
+real gap — an annotated table naming a state the program never actually tests, passing because a
+comment happened to mention it. R2 (jq compiles) and R3 (no single quote) stay on the raw text
+deliberately: both validate the program's literal, pasted-verbatim text, comments included, not a
+derived vocabulary — stripping would validate a program CI never actually runs.
+
+R6's READ_RE is the one remaining consumer left on the raw text — not a considered exception like
+R2/R3, but a tracked gap (#261): it has the identical comment-as-phantom-token exposure R4/R5/R8 just
+closed, on the read side rather than the emit side.
 
 Usage:
   decision-check.py [--repo <path>] [--registry <path>]
@@ -144,28 +154,35 @@ def strip_comments(text):
     """Strip a `#`-to-end-of-line comment from each line, without touching `#` inside a
     double-quoted string.
 
-    Feeds R4 and R5 (VERDICT_LIT_RE / RULE_LIT_RE): those rules judge what a program EMITS, and a
-    comment documenting a verdict form (`# emits verdict:"stop" when …`) is prose about the
-    program, not a branch of it — counting it invents a phantom cause R5 then refuses for.
+    Feeds R4, R5 (VERDICT_LIT_RE / RULE_LIT_RE) and R8's TOKEN_RE derivation: those rules judge what
+    a program EMITS or TESTS, and a comment documenting that (`# emits verdict:"stop" when …`) is
+    prose about the program, not a branch of it — counting it invents a phantom cause R5 refuses
+    for, or a phantom token that can hide a real R8 gap (a comment-derived token is SUBTRACTED on
+    R8's annotated-table path, so a wider raw token set there is not the safe direction it is on R8's
+    un-annotated path).
 
-    Every registered program is `#`-commented (jq and bash agree on that), so a line-oriented scan
-    is enough for the shapes this repo actually has; a future `program.kind` using another comment
-    syntax would need this made kind-aware. Single quotes are not tracked: R3 already refuses a
-    single quote outright in a `block` program, so a `#` cannot hide inside one there, and an `exec`
-    program's own single-quoted shell wrapping never contains a bare `#` in this kit's programs.
+    Every registered program is `#`-commented (jq and bash agree on that), so a line-oriented,
+    double-quote-tracking scan handles every program this repo has today. Known gaps, none observed
+    in a registered program — extend the scanner if one arrives, rather than special-casing a caller:
+    single quotes are not tracked at all (R3 already refuses a single quote outright in a `block`
+    program, so a `#` cannot hide inside one there; an `exec` program's own single-quoted shell
+    wrapping has never needed a bare `#` in this kit); a double-quoted string spanning more than one
+    physical line desyncs the per-line quote state, since it resets at every line break; and a bare
+    `#` from bash's `${#arr[@]}` / `$#` length idiom, or a backslash-escaped quote occurring outside
+    any already-open string, is not special-cased — the first is read as a comment start, the second
+    can toggle the quote state unexpectedly. (An earlier draft tracked backslash-escapes while
+    *inside* a string, but that half-measure mishandled exactly the outside-a-string case above
+    without being exercised by any registered program either way, so it was removed rather than kept
+    as untested complexity — see `tests/decisions/test.sh`'s own doctrine: every rule here is proved
+    by breaking a working kit, never by reading the guard and believing it.)
+
+    R6's READ_RE is a separate, tracked gap (#261) — reads raw `prog`, not this stripped view.
     """
     out = []
     for line in text.split("\n"):
         in_string = False
-        escaped = False
         cut = len(line)
         for i, ch in enumerate(line):
-            if escaped:
-                escaped = False
-                continue
-            if ch == "\\" and in_string:
-                escaped = True
-                continue
             if ch == '"':
                 in_string = not in_string
             elif ch == "#" and not in_string:
@@ -524,9 +541,9 @@ def check(repo, registry_path):
     exec_paths = []
     for did, row in seen.items():
         programs[did] = program_text(repo, did)
-        tokens_by_id[did] = set(TOKEN_RE.findall(programs[did]))
         prog = programs[did]
         prog_emitted = strip_comments(prog)
+        tokens_by_id[did] = set(TOKEN_RE.findall(prog_emitted))
         kind = (row.get("program") or {}).get("kind")
 
         # ------------------------------------------------------------------------ R1 ONE HOME

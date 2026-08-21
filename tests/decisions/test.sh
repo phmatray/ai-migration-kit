@@ -364,6 +364,35 @@ cat >> "$k/skills/demo/SKILL.md" <<'OVERREACH'
 OVERREACH
 refuses "$k" R8 "R8 — an annotated table naming a state the program never tests is refused"
 
+# --- R8's annotated-table path must not let a comment-mentioned token silence a real gap ---------
+# tokens_by_id[ann] is SUBTRACTED on this path, so a comment-derived phantom token (widening that
+# set) could otherwise make a real, uncovered table row read as covered — the opposite of R8's
+# stated failure direction. A comment naming the same state OVERREACH annotates must not change the
+# verdict: the program still never tests MERGEABLE in real code, so R8 must still refuse.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    "set -euo pipefail\n",
+    'set -euo pipefail\n# a future release may also handle .state == "MERGEABLE" here\n',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+cat >> "$k/skills/demo/SKILL.md" <<'PHANTOM_TOKEN'
+
+<!-- decided-by: demo.rule -->
+
+| State | Then |
+|---|---|
+| `CLEAN` | go |
+| `MERGEABLE` | go |
+PHANTOM_TOKEN
+refuses "$k" R8 \
+  "R8 — a comment mentioning a state's == form does not silence a real annotated-table gap"
+
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 cat >> "$k/skills/demo/SKILL.md" <<'UNKNOWNID'
 
