@@ -354,6 +354,8 @@ jobs:
       #     src   le répertoire qui porte package.json
       #     dist  le bundle committé, SOUS src
       #
+      #     Détail et exemple : docs/bundle-gate.md + templates/bundle-gate.json.example
+      #
       # Deux chemins, et pas un seul, parce que la sortie n'est pas déductible de l'entrée (`dist`,
       # `build`, `wwwroot/dist`…). Mais deux réglages INDÉPENDANTS seraient pires qu'un : s'ils
       # désignaient des arbres différents, npm reconstruirait l'un pendant que la garde examine
