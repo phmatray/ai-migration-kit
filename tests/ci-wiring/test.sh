@@ -25,6 +25,10 @@
 #  20. a suite that is BOTH untracked AND unwired          -> both reasons named, neither contradicts
 #      the other (the "not executable" reason must not claim CI invokes a suite the "not enforced"
 #      reason just said nothing invokes)
+#  21. untracked AND wired-but-continue-on-error          -> REFUSE, but never claims "no step
+#      invokes it" — a step does, it just can't fail the build (#238)
+#  22. untracked AND wired-but-pull_request-only          -> same contradiction, reached via the
+#      workflow-level reason instead of the step-level one (#238)
 #
 # The refusal cases are the point. A gate is worth exactly what its refusal path is worth, and an
 # inline `run:` block cannot have one — which is why scripts/release-title-gate.sh was extracted
@@ -459,6 +463,43 @@ if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'no step invokes it' \
    && ! printf '%s' "$out" | grep -q 'CI invokes it as ./tests/orphan2/test.sh'; then
   ok "a suite that is both untracked and unwired names both reasons without contradicting itself"
 else bad "expected both reasons named, without the 'CI invokes it' claim; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 21. untracked AND continue-on-error
+# #238. The `mode is None` print branch inferred "no step invokes it either" from `suite in unwired`
+# alone — but `unwired` covers THREE distinct reasons (no step invokes it / a step invokes it but
+# can't fail the build / a step invokes it but the workflow never runs on main), not just the first.
+# `tests/beta/test.sh` here IS invoked, by a continue-on-error step (mirrors section 4's fixture),
+# and is ALSO untracked (mirrors section 19's `git rm --cached`). The "not executable" message must
+# not claim no step invokes it — one does, it just can't fail the build.
+R="$WORK/softghost"; scaffold "$R" alpha beta
+sed -i.bak 's|^        run: ./tests/beta/test.sh|        continue-on-error: true\n        run: ./tests/beta/test.sh|' \
+  "$R/.github/workflows/ci.yml"
+assert_parsed "$R/.github/workflows/ci.yml" \
+  "d['jobs']['kit']['steps'][1].get('continue-on-error') is True" "continue-on-error (untracked variant)"
+git -C "$R" rm --cached -q -- tests/beta/test.sh
+[ -z "$(git -C "$R" ls-files -- tests/beta/test.sh)" ] \
+  || bad "fixture bug: tests/beta/test.sh was staged — the whole point is that it is not"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'cannot fail the build' \
+   && ! printf '%s' "$out" | grep -q 'no step invokes it either'; then
+  ok "an untracked suite invoked by a continue-on-error step does not claim no step invokes it"
+else bad "expected refusal without the false 'no step invokes it either' claim; got rc=$rc: $out"; fi
+
+# --------------------------------------------------------------- 22. untracked AND pull_request-only
+# Same contradiction, reached via the workflow-level reason (#133) instead of the step-level one.
+# `tests/ghost2/test.sh` is invoked by an otherwise-enforcing step on a pull_request-only workflow
+# (mirrors section 8's fixture), and is ALSO untracked.
+R="$WORK/prghost"; TRIGGERS=$'on:\n  pull_request:'; scaffold "$R" alpha ghost2
+assert_parsed "$R/.github/workflows/ci.yml" \
+  "list(d.get('on', d.get(True))) == ['pull_request']" "pull_request-only trigger (untracked variant)"
+git -C "$R" rm --cached -q -- tests/ghost2/test.sh
+[ -z "$(git -C "$R" ls-files -- tests/ghost2/test.sh)" ] \
+  || bad "fixture bug: tests/ghost2/test.sh was staged — the whole point is that it is not"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'never on a push to main' \
+   && ! printf '%s' "$out" | grep -q 'no step invokes it either'; then
+  ok "an untracked suite invoked only on a pull_request-only workflow does not claim no step invokes it"
+else bad "expected refusal without the false 'no step invokes it either' claim; got rc=$rc: $out"; fi
 
 echo
 if [ "$fails" -eq 0 ]; then
