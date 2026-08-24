@@ -32,7 +32,11 @@ WORK=$(kit_scratch)
 # check-frontmatter.py resolves its root as parents[2] of its own path, so a scratch
 # tree holding skills/, tests/skills/ and requirements.json is a complete world.
 mkdir -p "$WORK/root"
-cp -R skills tests requirements.json "$WORK/root/"
+# commands/ joins the scratch world for #266: commands/auto-dev-worker.md is a declared consumer of
+# the untrusted-input boundary (it is what a dispatched worker actually reads), so a root without it
+# answers NO SUCH CONSUMER for every boundary case below. It is never mutated — only skills/ is
+# restored between cases — so one copy at setup is enough.
+cp -R skills tests commands requirements.json "$WORK/root/"
 ROOT="$WORK/root"
 PRISTINE="$WORK/pristine"
 mkdir -p "$PRISTINE"
@@ -159,6 +163,145 @@ if [ "$fails" -ne 0 ]; then
   exit 1
 fi
 echo "check-frontmatter golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
+# check-untrusted-boundary.py (#266) — the same ABSENCE-rule problem, in both directions.
+#
+# The real tree satisfies the guard by construction: five consumers, all linked, none unlisted.
+# So its pass path proves nothing on its own — narrow a pattern, mistype the marker, or drop the
+# rule-4 glob and it keeps printing "boundary OK" while enforcing less and less. These cases are
+# the missing witness, one per refusal the checker claims to make.
+#
+# The reverse rule (UNLISTED LINKER) is the one that matters most here and the one no fixture-free
+# run can ever exercise: it fires only when a file points at the boundary WITHOUT being declared,
+# which by definition never happens in a tree that is passing. Without case B3 it could stop
+# matching entirely and every CI run would still be green.
+#
+# Each of the six error markers gets its own case, and the two that mean "the inventory could not
+# be read" additionally assert that UNLISTED LINKER is ABSENT. That second half is not padding: the
+# first version of this checker answered a deleted boundary file with five "absent from ## Consumers
+# in <the file that does not exist>" lines — a refusal contradicting itself — and a suite that only
+# greps for the expected marker certifies that output as correct (#266 review).
+echo "== the untrusted-input boundary must stay linked, in both directions (#266) =="
+
+# run_boundary_case <label> <expect: pass|fail> <expected marker> <forbidden marker|""> <mutator>
+# Same shape as run_case: restore skills/ from $PRISTINE, mutate, run the checker over $ROOT.
+# tests/ is NOT restored between cases — only skills/ is mutated, exactly as above.
+run_boundary_case() {
+  local label="$1" expect="$2" marker="$3" forbidden="$4" mutator="$5"
+  rm -rf "$ROOT/skills"
+  cp -R "$PRISTINE/skills" "$ROOT/"
+  python3 -c "$mutator" "$ROOT"
+  local out rc
+  set +e
+  out=$(python3 "$ROOT/tests/skills/check-untrusted-boundary.py" 2>&1)
+  rc=$?
+  set -e
+  if [ "$expect" = fail ]; then
+    if [ "$rc" -eq 0 ]; then
+      echo "FAIL: [$label] expected a rejection, got exit 0"
+      echo "      $out"
+      fails=$((fails + 1))
+    elif ! grep -q "$marker" <<<"$out"; then
+      echo "FAIL: [$label] rejected, but not with '$marker'"
+      echo "      $out"
+      fails=$((fails + 1))
+    elif [ -n "$forbidden" ] && grep -q "$forbidden" <<<"$out"; then
+      echo "FAIL: [$label] rejected with '$marker', but also emitted '$forbidden'"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] rejected"
+    fi
+  else
+    if [ "$rc" -ne 0 ]; then
+      echo "FAIL: [$label] expected acceptance, got exit $rc"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] accepted"
+    fi
+  fi
+}
+
+run_boundary_case "B1 consumer stops linking it      " fail "MISSING LINK:" "" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "skills/merge-pr/SKILL.md"
+t = p.read_text(encoding="utf-8")
+# Repoint every one of merge-pr’s links at a different shared reference — the realistic regression
+# is a rewrite that keeps a link and loses this one, not a file that stops linking anything.
+t = t.replace("](../_shared/untrusted-input-boundary.md)", "](../_shared/preconditions.md)")
+p.write_text(t, encoding="utf-8")
+'
+
+run_boundary_case "B2 listed consumer disappears     " fail "NO SUCH CONSUMER:" "" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
+t = p.read_text(encoding="utf-8")
+t = t.replace("- `skills/create-issue/SKILL.md`", "- `skills/create-issue/SKILL-renamed.md`")
+p.write_text(t, encoding="utf-8")
+'
+
+run_boundary_case "B3 a file links it unlisted       " fail "UNLISTED LINKER:" "" '
+import pathlib, sys
+# A THROWAWAY file, deliberately not a real skill: any real one is a plausible next consumer, and
+# a fixture that hard-codes "this file must never be declared" turns red the day someone correctly
+# declares it — a red build caused by closing the very reach gap the boundary exists for.
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/zz-unlisted-fixture.md"
+p.write_text("Read it under [the boundary](./untrusted-input-boundary.md).\n", encoding="utf-8")
+'
+
+run_boundary_case "B4 a listed link is wrong-depth   " fail "BROKEN LINK:" "" '
+import pathlib, sys
+# The regression a substring test cannot see: every character of a correct link is present, and it
+# resolves to skills/legacy-upgrade/_shared/… — a path that does not exist. The reminder reads
+# fine and is unreachable, which is the guard emptied of meaning while looking green.
+p = pathlib.Path(sys.argv[1]) / "skills/legacy-upgrade/references/phase-1-assess.md"
+t = p.read_text(encoding="utf-8")
+t = t.replace("](../../_shared/untrusted-input-boundary.md)", "](../_shared/untrusted-input-boundary.md)")
+p.write_text(t, encoding="utf-8")
+'
+
+run_boundary_case "B5 the Consumers section is gone  " fail "NO CONSUMERS SECTION:" "UNLISTED LINKER:" '
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
+t = p.read_text(encoding="utf-8")
+# Split on the HEADING LINE, not the string: the doc cross-references `## Consumers` inline in its
+# own intro, and a plain split truncates the file there instead — mutating something other than
+# what the case name claims, which is how a fixture quietly stops testing its branch.
+p.write_text(re.split(r"(?m)^## Consumers\s*$", t, maxsplit=1)[0], encoding="utf-8")
+'
+
+run_boundary_case "B6 the boundary file is deleted   " fail "NO BOUNDARY FILE:" "UNLISTED LINKER:" '
+import pathlib, sys
+(pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md").unlink()
+'
+
+run_boundary_case "B7 Consumers declared but empty   " fail "EMPTY CONSUMERS SECTION:" "" '
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
+t = p.read_text(encoding="utf-8")
+head = re.split(r"(?m)^## Consumers\s*$", t, maxsplit=1)[0]
+p.write_text(head + "## Consumers\n\nNothing is declared here yet.\n", encoding="utf-8")
+'
+
+run_boundary_case "B8 a prose bullet is not a path   " pass "" "" '
+import pathlib, sys
+# The section is written for a human. A reflowed sentence must not become
+# "NO SUCH CONSUMER: … lists (Anything)" — the checker verifies the claim, it does not dictate
+# the punctuation the claim is written in.
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
+t = p.read_text(encoding="utf-8")
+p.write_text(t + "\n- Anything else that grows an ingest point belongs on this list.\n", encoding="utf-8")
+'
+
+run_boundary_case "B9 untouched baseline             " pass "" "" 'import sys'
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "check-untrusted-boundary golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
 # The main-worktree derivation has one home now (#125): scripts/main-worktree.sh. Two broken

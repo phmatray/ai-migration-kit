@@ -182,6 +182,11 @@ EOF
 # 13: skill frontmatter conforms to the guide (requirements.json cross-check included).
 add_gate "python3 tests/skills/check-frontmatter.py"
 
+# 13b: the untrusted-input boundary is still linked from every ingest point, and nothing links it
+# without being declared (#266). Same home as the frontmatter checker — both are absence rules over
+# skills/ whose red paths ride in tests/skills/test.sh below.
+add_gate "python3 tests/skills/check-untrusted-boundary.py"
+
 add_suite "tests/skills/test.sh"
 
 # 14: the inventory script runs and emits valid JSON.
