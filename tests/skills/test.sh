@@ -161,6 +161,104 @@ fi
 echo "check-frontmatter golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# check-untrusted-boundary.py (#266) — the same ABSENCE-rule problem, in both directions.
+#
+# The real tree satisfies the guard by construction: five consumers, all linked, none unlisted.
+# So its pass path proves nothing on its own — narrow a pattern, mistype the marker, or drop the
+# rule-4 glob and it keeps printing "boundary OK" while enforcing less and less. These cases are
+# the missing witness, one per refusal the checker claims to make.
+#
+# Rule 4 (UNLISTED LINKER) is the one that matters most here and the one no fixture-free run can
+# ever exercise: it fires only when a file links the boundary WITHOUT being declared, which by
+# definition never happens in a tree that is passing. Without case B3 it could stop matching
+# entirely and every CI run would still be green.
+echo "== the untrusted-input boundary must stay linked, in both directions (#266) =="
+
+# run_boundary_case <label> <expect: pass|fail> <expected marker> <python mutator>
+# Same shape as run_case: restore skills/ from $PRISTINE, mutate, run the checker over $ROOT.
+# tests/ is NOT restored between cases — only skills/ is mutated, exactly as above.
+run_boundary_case() {
+  local label="$1" expect="$2" marker="$3" mutator="$4"
+  rm -rf "$ROOT/skills"
+  cp -R "$PRISTINE/skills" "$ROOT/"
+  python3 -c "$mutator" "$ROOT"
+  local out rc
+  set +e
+  out=$(python3 "$ROOT/tests/skills/check-untrusted-boundary.py" 2>&1)
+  rc=$?
+  set -e
+  if [ "$expect" = fail ]; then
+    if [ "$rc" -eq 0 ]; then
+      echo "FAIL: [$label] expected a rejection, got exit 0"
+      echo "      $out"
+      fails=$((fails + 1))
+    elif ! grep -q "$marker" <<<"$out"; then
+      echo "FAIL: [$label] rejected, but not with '$marker'"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] rejected"
+    fi
+  else
+    if [ "$rc" -ne 0 ]; then
+      echo "FAIL: [$label] expected acceptance, got exit $rc"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] accepted"
+    fi
+  fi
+}
+
+run_boundary_case "B1 consumer stops linking it      " fail "MISSING LINK:" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "skills/merge-pr/SKILL.md"
+t = p.read_text(encoding="utf-8")
+# Repoint BOTH of merge-pr’s links at a different shared reference — the realistic regression is
+# a rewrite that keeps a link and loses this one, not a file that stops linking anything.
+t = t.replace("](../_shared/untrusted-input-boundary.md)", "](../_shared/preconditions.md)")
+p.write_text(t, encoding="utf-8")
+'
+
+run_boundary_case "B2 listed consumer disappears     " fail "NO SUCH CONSUMER:" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
+t = p.read_text(encoding="utf-8")
+t = t.replace("- `skills/create-issue/SKILL.md`", "- `skills/create-issue/SKILL-renamed.md`")
+p.write_text(t, encoding="utf-8")
+'
+
+run_boundary_case "B3 a file links it unlisted       " fail "UNLISTED LINKER:" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "skills/triage-backlog/SKILL.md"
+t = p.read_text(encoding="utf-8")
+# A new ingest point wires itself in and nobody updates the doc — green under a one-directional
+# check, which is the whole reason rule 4 exists.
+t += "\nRead the queue under [`../_shared/untrusted-input-boundary.md`](../_shared/untrusted-input-boundary.md).\n"
+p.write_text(t, encoding="utf-8")
+'
+
+run_boundary_case "B4 the Consumers section is gone  " fail "NO CONSUMERS SECTION:" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
+t = p.read_text(encoding="utf-8")
+p.write_text(t.split("## Consumers")[0], encoding="utf-8")
+'
+
+run_boundary_case "B5 the boundary file is deleted   " fail "NO CONSUMERS SECTION:" '
+import pathlib, sys
+(pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md").unlink()
+'
+
+run_boundary_case "B6 untouched baseline             " pass "" 'import sys'
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "check-untrusted-boundary golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # The main-worktree derivation has one home now (#125): scripts/main-worktree.sh. Two broken
 # spellings kept getting re-introduced before that — a caller resolving `-C` from
 # `git rev-parse --show-toplevel` right next to a worktrees-ignored.sh call (fails OPEN from a
