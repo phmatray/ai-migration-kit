@@ -492,6 +492,12 @@ sweep` entries still on the state file — that section has no automated reader 
 skill, so the final summary is the only place a human reliably sees a leftover worktree/branch before
 the (untracked) state file is discarded.
 
+**Boundary findings, collected from the workers.** Every `DETAIL:` field that reported a passage
+failing [`../_shared/untrusted-input-boundary.md`](../_shared/untrusted-input-boundary.md) goes in
+this summary, by issue number. A worker's report line is the only part of its session anyone reads,
+and this summary is the only place those lines are aggregated — so a finding that stops here is a
+finding nobody ever sees.
+
 **Cost accounting.** Run `scripts/usage_report.py <project-transcript-dir> --main <orchestrator-session-id>`
 to aggregate tokens + $-equivalent across the orchestrator and every worker, broken down by model.
 Report **tokens/merge** and **$/merge**. (Auto-detects the transcript dir from `$PWD`; dollar figures
