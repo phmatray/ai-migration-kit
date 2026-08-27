@@ -1050,29 +1050,26 @@ stale_ids=$( { grep -oE 'Microsoft\.Testing\.[A-Za-z0-9.]+' <<<"$help_text" || t
   echo "FAIL: --help names package id(s) other than $coverage_package: $stale_ids"; exit 1; }
 echo "  [7d] --help names the coverage package and version the transform writes, and no other id"
 
-#     [7e] EVERY prose claim about the pinned package's version agrees with the transform.
+#     [7e] The reference's measured table still has the SHAPE this suite can check, and still
+#     names the pinned package.
 #
-#     Renovate now bumps XUNIT_V3_VERSION in the module (#36), and the same version is restated as a
-#     MEASUREMENT in several places — a table in the reference agents read to run real migrations,
-#     and a comment block twelve lines above the constant Renovate itself rewrites. Nothing compared
-#     them, so the first bump silently invalidates all of them (#69), in documents whose entire
-#     subject is that a version mismatch is invisible until run time.
-#
-#     Swept rather than spot-checked. The first draft asserted one table row; the copies it left
-#     unguarded were nearer the constant than the one it guarded, and a reader following its
-#     "update the row" message would have fixed exactly the copy that was already covered.
-#
-#     This ASSERTS agreement rather than templating the number in. These are measurements, not
-#     restatements of a constant: substituting whatever Renovate last bumped to would manufacture a
-#     measurement nobody took, which is worse than a stale one because it looks current.
+#     #158 split what this section used to do into two halves and gave each ONE owner:
+#       - VERSION AGREEMENT — every "<pinned package> <version>" claim across this module and the
+#         migration reference agreeing with XUNIT_V3_VERSION — is now scripts/pinned-literals-
+#         check.py's job alone (marked lines held to the constant, unmarked ones refused). Duplicating
+#         that sweep here meant two mechanisms that could disagree about the SAME invariant; #158's
+#         issue named that overlap directly. Removed, not weakened: pinned-literals-check.py runs in
+#         CI on every suite, same as this file.
+#       - TABLE SHAPE — the reference's measured table must still be a table this suite's other
+#         readers (and a migrating agent) can parse, and it must still be ABOUT the package this
+#         kit pins. Neither is a version-agreement question: a reshaped table could still agree with
+#         the constant on every cell and still be unreadable, which pinned-literals-check.py's
+#         line-oriented scan would never notice. That half stays, here.
 xunit_package=$(read_const XUNIT_V3_PACKAGE)
-xunit_pin=$(read_const XUNIT_V3_VERSION)
-python3 - "$xunit_package" "$xunit_pin" "$TRANSFORM" \
-         "$KIT/skills/legacy-upgrade/references/xunit-v3-migration.md" <<'PY'
+python3 - "$xunit_package" "$KIT/skills/legacy-upgrade/references/xunit-v3-migration.md" <<'PY'
 import os, re, sys
 
-pkg, version = sys.argv[1], sys.argv[2]
-paths = sys.argv[3:]
+pkg, path = sys.argv[1], sys.argv[2]
 
 
 def die(msg):
@@ -1082,42 +1079,28 @@ def die(msg):
     sys.exit(f"FAIL: {msg}")
 
 
-for path in paths:
-    if not os.path.isfile(path):
-        die(f"{path} does not exist — this guard would check nothing. It was moved or renamed; "
-            f"re-point it rather than dropping it.")
-    text = open(path, encoding="utf-8").read()
+if not os.path.isfile(path):
+    die(f"{path} does not exist — this guard would check nothing. It was moved or renamed; "
+        f"re-point it rather than dropping it.")
+text = open(path, encoding="utf-8").read()
 
-    # Every "<pinned package> <version>" claim, in prose or in a table cell. Anchored on the id
-    # with a negative lookahead so `xunit.v3.mtp-v2` — a DIFFERENT package, on the opposite
-    # Microsoft.Testing.Platform line, whose own measured version is independent of this pin — is
-    # never mistaken for it. Backticks and asterisks between the two are markdown, not separation.
-    claims = re.findall(
-        r"(?<![\w.])" + re.escape(pkg) + r"(?![\w.])[ \t`*]*(\d+\.\d+\.\d+)", text)
-    for found in set(claims):
-        if found != version:
-            die(f"{path} states {pkg} {found}, but the transform writes {version}.\n"
-                f"       Do NOT simply edit the number: these are MEASUREMENTS (resolved through "
-                f"api.nuget.org/v3-flatcontainer), and they carry the Microsoft.Testing.Platform "
-                f"version and CodeCoverage major that a migration actually depends on. Re-measure "
-                f"how {pkg} {version} resolves, then update every claim this names.")
-    if os.path.basename(path).endswith(".md"):
-        # The reference's measured table is the load-bearing one, so its SHAPE is pinned too: were
-        # it reshaped, the sweep above would quietly find nothing to compare and pass.
-        rows = re.findall(r"^\|\s*\*\*`([^`]+)`\*\*\s+([^\s|]+)\s*\|", text, re.M)
-        names = [n for n, _ in rows]
-        if not rows:
-            die(f"{path}: the measured version table no longer has the shape this check "
-                f"understands (`| **`<package>`** <version> | …`) — re-point this assertion.")
-        if len(names) != len(set(names)):
-            # dict() would silently keep the last, letting a historical table decide the verdict.
-            die(f"{path}: the same package appears in more than one measured row {names}; this "
-                f"check cannot tell which one is current.")
-        if pkg not in names:
-            die(f"{path}: the measured table covers {sorted(names)}, but the transform pins "
-                f"{pkg} — the reference no longer describes the line the kit migrates onto.")
+# The reference's measured table is the load-bearing one, so its SHAPE is pinned: were it
+# reshaped, scripts/pinned-literals-check.py's line-oriented scan would quietly find nothing to
+# hold to the constant and pass, which is exactly the blind spot this half exists to close.
+rows = re.findall(r"^\|\s*\*\*`([^`]+)`\*\*\s+([^\s|]+)\s*\|", text, re.M)
+names = [n for n, _ in rows]
+if not rows:
+    die(f"{path}: the measured version table no longer has the shape this check "
+        f"understands (`| **`<package>`** <version> | …`) — re-point this assertion.")
+if len(names) != len(set(names)):
+    # dict() would silently keep the last, letting a historical table decide the verdict.
+    die(f"{path}: the same package appears in more than one measured row {names}; this "
+        f"check cannot tell which one is current.")
+if pkg not in names:
+    die(f"{path}: the measured table covers {sorted(names)}, but the transform pins "
+        f"{pkg} — the reference no longer describes the line the kit migrates onto.")
 
-print(f"  [7e] every measured claim about {pkg} agrees with the transform: {version}")
+print(f"  [7e] the migration reference's measured table still names {pkg} and parses as a table")
 PY
 
 # ---------------------------------------------------------------------------
