@@ -63,14 +63,44 @@ from collections import namedtuple
 
 # --------------------------------------------------------------------------------------- the pins
 #
-# One entry per pinned version. A second pin — COVERAGE_EXT_VERSION is the obvious next one — is a
-# row here, not a redesign; #90 deliberately scoped this pass to xunit.v3, the leg Renovate bumps
-# most visibly.
+# One entry per pinned literal. Two KINDS (#158):
 #
-#   source        the module that DEFINES the constant. Its own definition line is skipped: it is
-#                 what every other spelling is compared against, not a copy of it.
-#   marker        the token that means "this line states the pinned version".
-Pin = namedtuple("Pin", "name source package_const version_const marker")
+#   DERIVED (the default) — a constant somewhere in the repo IS the authority. A marked line must
+#                            state what that constant currently holds; that is what "pinned" meant
+#                            before #158, and every existing pin stays exactly this shape.
+#   AGREED                 — there is no authority. Some literals have no constant to derive from
+#                            (a frozen fixture's test-stack versions, restated nowhere but in prose
+#                            and scratch fixtures) — an AGREED pin instead collects every MARKED
+#                            occurrence and refuses unless they all agree with EACH OTHER. Fewer
+#                            than two is refused too: an agreement of one is vacuous, indistinguishable
+#                            from a lone, uncorroborated typo.
+#
+#   name            identifies the pin; keys HISTORICAL entries and refusal messages.
+#   marker          the token that means "this line states the pin". Required for both kinds.
+#   kind            "DERIVED" (default) or "AGREED".
+#   source          DERIVED only: the module that DEFINES the constant. Its own definition line is
+#                   skipped: it is what every other spelling is compared against, not a copy of it.
+#   package_const / version_const
+#                   DERIVED only: the `NAME = "value"` constants `source` defines.
+#   package         AGREED only: the literal package id claim_patterns() anchors on — there is no
+#                   module to read it from, since there is no authority.
+#   witness         AGREED only, optional: a FROZEN file to read directly for one more occurrence,
+#                   without requiring (or being able to add) a marker there. Code review on #158
+#                   found the gap this closes: without it, an AGREED pin's marked restatements can
+#                   agree with EACH OTHER while both have drifted from the frozen fact they are
+#                   supposedly restating, and the check would still exit 0 — verified by editing
+#                   samples/LegacyShop's real csproj and re-running unchanged. `samples/` stays
+#                   read-only (never marked, never written); reading it to WIDEN what "agreement"
+#                   is checked against is not the generation Approach C rejected.
+Pin = namedtuple(
+    "Pin", "name marker kind source package_const version_const package witness"
+)
+Pin.__new__.__defaults__ = ("DERIVED", None, None, None, None, None)  # kind, source,
+                                                    # package_const, version_const, package, witness
+
+# The frozen-fixture trio's shared witness — one file, read directly for one more AGREED occurrence
+# per pin (never marked, never written; see the `witness` field doc above).
+FROZEN_WITNESS = "samples/LegacyShop/tests/LegacyShop.Tests/LegacyShop.Tests.csproj"
 
 PINS = (
     Pin(
@@ -79,6 +109,40 @@ PINS = (
         package_const="XUNIT_V3_PACKAGE",
         version_const="XUNIT_V3_VERSION",
         marker="pinned:xunit-v3",
+    ),
+    # #158: the obvious next DERIVED row this file's own header comment named — same module, same
+    # shape, its own marker so a line can carry both without either check reading the other's claim.
+    Pin(
+        name="coverage-ext",
+        source="tests/xunit-v3/apply-transform.py",
+        package_const="COVERAGE_PACKAGE",
+        version_const="COVERAGE_EXT_VERSION",
+        marker="pinned:coverage-ext",
+    ),
+    # #158: the frozen `samples/LegacyShop` fixture's test stack has no constant to derive from —
+    # `samples/` is frozen precisely so nothing derives from it (rejected Approach C in the issue).
+    # These three AGREED pins hold the fixture's restatements to EACH OTHER: renovate.json's
+    # description of the frozen fixture, and the scratch v2 csproj tests/xunit-v3/test.sh builds to
+    # mirror it, must keep stating the same three versions independently — AND to `witness`, the
+    # frozen fixture's own real csproj, read directly (never marked, never written) so drift in the
+    # fixture itself is caught too, not just disagreement between its two hand-written mirrors.
+    Pin(
+        name="frozen-xunit", marker="agreed:frozen-xunit-core", kind="AGREED", package="xunit",
+        witness=FROZEN_WITNESS,
+    ),
+    Pin(
+        name="frozen-xunit-runner",
+        marker="agreed:frozen-xunit-runner",
+        kind="AGREED",
+        package="xunit.runner.visualstudio",
+        witness=FROZEN_WITNESS,
+    ),
+    Pin(
+        name="frozen-test-sdk",
+        marker="agreed:frozen-test-sdk",
+        kind="AGREED",
+        package="Microsoft.NET.Test.Sdk",
+        witness=FROZEN_WITNESS,
     ),
 )
 
@@ -154,6 +218,61 @@ HISTORICAL = (
         reason="the reference's copy of the stable-releases enumeration — same record as the "
                "module's, for the reader running a real migration.",
     ),
+    Recorded(
+        pin="coverage-ext",
+        path="templates/ci-dotnet.yml",
+        anchor="SDK 10.0.302, xunit.v3",
+        reason="a measurement banner spelling the package by its short alias 'CodeCoverage' rather "
+               "than the full id claim_patterns() anchors on — widening that shared pattern for one "
+               "package's alias is out of scope. The canonical, checked claim lives at "
+               "tests/xunit-v3/apply-transform.py's own header comment, next to the constant.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/test.sh",
+        anchor="SDK 10.0.302, xunit.v3",
+        reason="section 4f's measurement banner, same short alias as templates/ci-dotnet.yml's — "
+               "see that entry's reason.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/apply-transform.py",
+        anchor="and build metadata",
+        reason="an ILLUSTRATION of what VERSION_RE deliberately accepts (a floating `17.14.*` and "
+               "build metadata) — the point is the SHAPE those parse as, not which version was used "
+               "as the example.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/apply-transform.py",
+        anchor="Major as an INT",
+        reason="an ILLUSTRATION of leading-zero parsing in _major_of() — the point is that '017.x' "
+               "and '17.x' read as the same major, not which version was used as the example.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/test.sh",
+        anchor="implicit default package, no package= kwarg",
+        reason="a test literal exercising validate_pairing()'s DEFAULT package argument. It is not "
+               "a measurement claim: any version on the pin's own MTP line would exercise the same "
+               "branch, and the family table two lines below already owns the pairing values — "
+               "duplicating them here as a tracked claim would mean keeping two tables in sync.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/test.sh",
+        anchor='"Microsoft.Testing.Extensions.CodeCoverage", "',
+        reason="the family-pairing table's CodeCoverage row (section 7b) — a test literal for the "
+               "v1-line/v2-line pairing check, not a measurement claim; same reason as the "
+               "'implicit default package' entry above.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/test.sh",
+        anchor='package="microsoft.testing.extensions.codecoverage")',
+        reason="a test literal proving a lower-case spelling of the package id still hits "
+               "EXTENSION_MAJOR's override — the case-insensitivity is the point, not the version.",
+    ),
 )
 
 # ------------------------------------------------------------------------------------- exclusions
@@ -218,6 +337,44 @@ def claim_patterns(package):
         # A csproj PackageReference, where an attribute sits between the id and the version.
         re.compile(r'Include="' + pkg + r'"[^>]*?Version="(\d+\.\d+\.\d+)"'),
     )
+
+
+def line_claims(line, next_line, patterns):
+    """The claims physical line `line` states — including one that WRAPS onto `next_line`.
+
+    Why this exists (#158). `claim_patterns()` matches within a single physical line, but a claim
+    can be typeset across two: the package id ending one line with no trailing separator, the
+    version opening the next — `tests/xunit-v3/test.sh:237` had exactly this shape and had to be
+    hand-rewrapped to become checkable at all. Joining `line` and `next_line` with a single space
+    (standing in for the line break) lets the same patterns see it without changing what they match.
+
+    Returns `(claims, consumed)`. `claims` is every captured version, from `line` alone and from a
+    genuine wrap. `consumed` is how many of `next_line`'s LEADING characters a wrap match ate, so the
+    caller can exclude that span when it scans `next_line` on its own in the next loop iteration —
+    without that, the very same wrapped claim would be reported twice: once here, correctly
+    attributed to `line`, and once more at `next_line`, attributed to the wrong physical line.
+
+    A match in the joined text counts as THIS line's claim only when it STARTS inside `line`'s own
+    text (the package id begins here) AND reaches past it into `next_line` (`m.end() > len(line)`).
+    Without the second half of that test, a match that merely starts on `line` and ends there too
+    (an ordinary same-line claim the plain scan of `line` already finds) would be treated as
+    "consuming" a next_line that its match never touched. Without the first half, a claim that
+    starts and lies entirely within `next_line` — a real, independent claim, not a wrap — would be
+    misattributed to `line`; it is left alone here and picked up when `next_line` is scanned as its
+    own line on the next iteration. That distinction is what section 12 of the golden test proves:
+    a marker on line N must not silently launder an unrelated claim that merely happens to sit on
+    line N+1.
+    """
+    claims = set(m for pattern in patterns for m in pattern.findall(line))
+    consumed = 0
+    if next_line is not None:
+        joined = line + " " + next_line
+        for pattern in patterns:
+            for m in pattern.finditer(joined):
+                if m.start() < len(line) < m.end():
+                    claims.add(m.group(1))
+                    consumed = max(consumed, m.end() - (len(line) + 1))
+    return claims, consumed
 
 
 def repo_files(repo):
@@ -315,6 +472,136 @@ def check_exclusions(repo, files, pin, version, problems):
 
 
 def check_pin(repo, files, pin, problems):
+    """Dispatch to the scan `pin.kind` needs — DERIVED (a constant is the authority) or AGREED (no
+    authority; every marked occurrence must agree with every other). Kept as one entry point so
+    main()'s loop stays kind-agnostic; the two scans differ enough in what they need (a source
+    module vs. none at all) that folding them into one function would read as one function doing
+    two things, which is the failure #158's Task 2 spec names AGREED to avoid repeating.
+    """
+    if pin.kind == "AGREED":
+        return check_pin_agreed(repo, files, pin, problems)
+    return check_pin_derived(repo, files, pin, problems)
+
+
+def no_claim_message(rel, number, marker, package, shown):
+    """The refusal for a marked line that states no `<package> <version>` claim at all.
+
+    One home for both check_pin_agreed and check_pin_derived's marked branch — code review on #158
+    found the two had drifted into copy-pasted, word-for-word-identical text with no shared source,
+    the exact failure mode `tests/_lib.sh` and the module loader already exist to close for other
+    duplicated mechanisms in this kit.
+    """
+    return (
+        "%s:%d carries the `%s` marker but states no `%s <version>` claim, so the\n"
+        "      marker verifies nothing. Put it on the line that carries the claim,\n"
+        "      or drop it:\n"
+        "        %s" % (rel, number, marker, package, shown.strip())
+    )
+
+
+def check_pin_agreed(repo, files, pin, problems):
+    """AGREED: no constant is the authority. Collect every MARKED occurrence's claim(s) and refuse
+    unless they all agree with EACH OTHER — naming every differing value when they don't, and
+    refusing a lone occurrence as vacuous (nothing corroborates a single restatement; a typo there
+    would be indistinguishable from a correct value).
+
+    Unlike DERIVED, there is no literal-scan half: with no authority there is no "the version" to
+    hunt unmarked spellings of, so an AGREED pin sees only what is explicitly marked — PLUS
+    `pin.witness`, when set: one frozen file read directly for one more occurrence, since a frozen
+    file can never carry a marker of its own (nothing may write to it) and would otherwise never be
+    compared at all. That is still a real, narrower guarantee than DERIVED's for every OTHER file —
+    worth stating plainly rather than leaving implicit, since a reader used to DERIVED's "any
+    spelling is judged" behaviour would otherwise assume the same holds here.
+    """
+    patterns = claim_patterns(pin.package)
+    occurrences = []  # [(rel, number, claim)], in scan order
+
+    if pin.witness:
+        # Read directly, unconditionally on marking — a frozen file cannot carry a marker (never
+        # written to), so requiring one would make `witness` do nothing. Missing gracefully: the
+        # golden test's scratch fixtures have no samples/LegacyShop at all, and `witness` is a
+        # strengthening on top of the marked-occurrence mechanism, not itself the source of truth —
+        # DERIVED's `source` is required (die()s if absent) because IT is the authority; a witness
+        # merely widens what an already-complete AGREED comparison is checked against.
+        witness_lines = read_lines(repo / pin.witness)
+        if witness_lines is not None:
+            for number, line in enumerate(witness_lines, 1):
+                claims = set(m for pattern in patterns for m in pattern.findall(line))
+                for claim in sorted(claims):
+                    occurrences.append((pin.witness, number, claim))
+
+    for rel in files:
+        if is_excluded(rel):
+            continue
+        lines = read_lines(repo / rel)
+        if lines is None:
+            continue
+        # A claim can still wrap across two physical lines here (#158 Task 1's line_claims), but
+        # unlike check_pin_derived's literal-scan half there is no unmarked-line re-scan to protect
+        # from double-counting: AGREED only ever looks at a line THAT CARRIES THE MARKER, so no
+        # bookkeeping is needed to exclude a span "already claimed" by a neighbour — each marked
+        # line's own line_claims() call is independent of every other.
+        for number, line in enumerate(lines, 1):
+            if pin.marker not in line:
+                continue
+            next_line = lines[number] if number < len(lines) else None
+            claims, _consumed = line_claims(line, next_line, patterns)
+            if not claims:
+                problems.append(no_claim_message(rel, number, pin.marker, pin.package, line))
+                continue
+            if len(claims) > 1:
+                # One marked line stating TWO different values is self-contradictory — refuse it
+                # directly, on its own, rather than letting it become two "occurrences" at the same
+                # file:line: the disagreement check below compares DISTINCT (file, line) restatements
+                # to each other, and folding a single line's internal contradiction into that count
+                # would print a disagreement naming the same file:line twice, as if a second
+                # independent restatement existed when none does.
+                problems.append(
+                    "%s:%d carries the `%s` marker and states %d different values for %s — %s.\n"
+                    "      Which one is meant? A single restatement must state exactly one value;\n"
+                    "      split them onto separate marked lines if more than one genuinely applies:\n"
+                    "        %s"
+                    % (rel, number, pin.marker, len(claims), pin.package,
+                       ", ".join(sorted(claims)), line.strip())
+                )
+                continue
+            occurrences.append((rel, number, next(iter(claims))))
+
+    if len(occurrences) < 2:
+        if occurrences:
+            rel, number, claim = occurrences[0]
+            problems.append(
+                "the AGREED pin `%s` (package %s) has exactly ONE marked occurrence — %s:%d states\n"
+                "      %s %s. An agreement of one is vacuous: nothing corroborates it, so a lone\n"
+                "      typo would be indistinguishable from a correct value. Mark a second\n"
+                "      restatement, or drop the pin."
+                % (pin.name, pin.package, rel, number, pin.package, claim)
+            )
+        else:
+            problems.append(
+                "not one line carries the `%s` marker, so the AGREED pin `%s` verified NOTHING.\n"
+                "      Reporting 'all accounted for' over an empty set is the failure mode the\n"
+                "      kit's other guards were written for; refusing instead."
+                % (pin.marker, pin.name)
+            )
+        return pin.package, None, len(occurrences), 0
+
+    values = sorted(set(claim for _, _, claim in occurrences))
+    if len(values) > 1:
+        named = "\n".join(
+            "        %s:%d states %s" % (rel, number, claim) for rel, number, claim in occurrences
+        )
+        problems.append(
+            "the AGREED pin `%s` (package %s) has occurrences that disagree — there is no\n"
+            "      constant here to say which is right, so EVERY value seen is suspect until they\n"
+            "      agree:\n%s" % (pin.name, pin.package, named)
+        )
+        return pin.package, None, len(occurrences), 0
+
+    return pin.package, values[0], len(occurrences), 0
+
+
+def check_pin_derived(repo, files, pin, problems):
     """Classify every line in the repo that carries the marker or spells the pin's version."""
     source_path = repo / pin.source
     source = read_lines(source_path)
@@ -347,22 +634,30 @@ def check_pin(repo, files, pin, problems):
         lines = read_lines(repo / rel)
         if lines is None:
             continue
+        # Chars at the START of the CURRENT line already attributed to a wrap match ending on the
+        # PREVIOUS line — set at the bottom of the loop body, consumed (and reset to 0) at the top
+        # of the next iteration. Without excluding this span, a claim that wraps across two lines
+        # would be reported twice: once at the line it starts on (correct), and again here, at the
+        # line its tail happens to sit on (wrong — see line_claims()'s docstring).
+        consumed_from_prev = 0
         for number, line in enumerate(lines, 1):
+            this_consumed, consumed_from_prev = consumed_from_prev, 0
+            next_line = lines[number] if number < len(lines) else None
+
             if rel == pin.source and definition.match(line):
                 continue
 
             if pin.marker in line:
                 marked += 1
-                claims = set()
-                for pattern in patterns:
-                    claims.update(pattern.findall(line))
+                claims, consumed_from_prev = line_claims(line, next_line, patterns)
+                # The line printed below: `line` alone unless a claim only exists because it
+                # wrapped onto `next_line` — printing `line` alone then could show the package id
+                # and nothing else, with the very version being complained about absent from the
+                # printed snippet entirely (verified in code review: a marked line whose claim
+                # wraps and is stale needs this the same way the literal-scan branch already does).
+                shown = line if consumed_from_prev == 0 else line + " " + next_line
                 if not claims:
-                    problems.append(
-                        "%s:%d carries the `%s` marker but states no `%s <version>` claim, so the\n"
-                        "      marker verifies nothing. Put it on the line that carries the claim,\n"
-                        "      or drop it:\n"
-                        "        %s" % (rel, number, pin.marker, package, line.strip())
-                    )
+                    problems.append(no_claim_message(rel, number, pin.marker, package, shown))
                     continue
                 stale = sorted(c for c in claims if c != version)
                 if stale:
@@ -375,12 +670,34 @@ def check_pin(repo, files, pin, problems):
                         "      update every claim this names:\n"
                         "        %s"
                         % (rel, number, pin.marker, package, ", ".join(stale), pin.source, version,
-                           package, version, line.strip())
+                           package, version, shown.strip())
                     )
                 continue
 
-            if version not in line:
+            # The literal scan: unlike the marked branch above, this does not require the package
+            # id at all — any spelling of the bare version is a claim that needs classifying. A
+            # wrap is therefore detected differently here: `line` on its own (minus a span already
+            # claimed by the PREVIOUS line's wrap) may simply not contain the version literal at
+            # all, because the version itself lives entirely on `next_line`. `line_claims()` still
+            # answers that: if a wrap match's captured version equals the pin's `version` and it is
+            # not also found by the direct substring test below, the only way it could be in
+            # `claims` is via the wrap (a same-line match would already have made `direct_hit` true,
+            # since the version text is necessarily present in `line` for the pattern to have
+            # matched it there).
+            direct_hit = version in line[this_consumed:]
+            wrap_hit = False
+            if not direct_hit:
+                claims, consumed = line_claims(line, next_line, patterns)
+                wrap_hit = consumed > 0 and version in claims
+                if wrap_hit:
+                    consumed_from_prev = consumed
+            if not direct_hit and not wrap_hit:
                 continue
+
+            # The line printed in a refusal: `line` alone for a direct hit, but `line` joined with
+            # `next_line` for a wrap — printing `line` alone there would show the package id and
+            # nothing else, since the version this refusal is ABOUT lives on the next physical line.
+            shown = line if direct_hit else line + " " + next_line
 
             entry = next((h for h in entries if h.path == rel and h.anchor in line), None)
             if entry is not None:
@@ -396,7 +713,7 @@ def check_pin(repo, files, pin, problems):
                 "      line, or an INPUT a test feeds itself), add it to HISTORICAL in\n"
                 "      scripts/pinned-literals-check.py with the reason. See\n"
                 "      tests/pinned-literals/README.md."
-                % (rel, number, pin.name, line.strip(), package, pin.marker,
+                % (rel, number, pin.name, shown.strip(), package, pin.marker,
                    pin.version_const, pin.source)
             )
 
@@ -447,7 +764,12 @@ def main():
     summary = []
     for pin in PINS:
         package, version, marked, recorded = check_pin(repo, files, pin, problems)
-        check_exclusions(repo, files, pin, version, problems)
+        # `version` is None only when check_pin_agreed already refused (vacuous or disagreeing) —
+        # there is then no single value left to check excluded paths against, and the refusal
+        # already above says so. check_exclusions() would otherwise have nothing meaningful to
+        # compare and nothing to add.
+        if version is not None:
+            check_exclusions(repo, files, pin, version, problems)
         summary.append("%s %s — %d marked spelling(s), %d recorded as historical"
                        % (package, version, marked, recorded))
 

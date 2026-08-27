@@ -1,9 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "samples/LegacyShop is a FROZEN fixture — net6.0, xunit 2.4.2, xunit.runner.visualstudio 2.4.5, Microsoft.NET.Test.Sdk 17.3.2 — the 'before' half of every demo and golden test. Bumping it destroys what the phase-5 transform is measured against. See issue #15.",
+    "samples/LegacyShop is a FROZEN fixture — net6.0, xunit 2.4.2 (agreed:frozen-xunit-core), xunit.runner.visualstudio 2.4.5 (agreed:frozen-xunit-runner), Microsoft.NET.Test.Sdk 17.3.2 (agreed:frozen-test-sdk) — the 'before' half of every demo and golden test. Bumping it destroys what the phase-5 transform is measured against. See issue #15.",
     "It is BLOCKED, not HIDDEN: the rule below disables updates for that path but leaves the dependencies extracted, so they keep their Dependency Dashboard row and stay eligible for vulnerabilityAlerts. An ignorePaths entry would suppress extraction instead, and vulnerabilityAlerts cannot override that — freezing a fixture is a decision about upgrades, not a decision to stop looking. See issue #33.",
-    "The same invariant is encoded in three other places with no shared identifier; change one and check the rest: samples/LegacyShop/README.md, tests/xunit-v3/test.sh (asserts these exact versions), and repo-audit/net10_blacklist.json portfolio-side.",
+    "The same invariant is restated in tests/xunit-v3/test.sh's scratch v2 fixture (asserts these exact versions). #158 gave the three literals above a shared identifier: three AGREED pins in scripts/pinned-literals-check.py's PINS table (see tests/pinned-literals/README.md for the naming), one per package, each refusing if this line and that fixture ever disagree. samples/LegacyShop/README.md restates the stack only loosely ('2.4.x', not an exact version) and is not a pin occurrence; a portfolio-side repo-audit/net10_blacklist.json, if one exists, is outside this repo's scan root and these pins do not reach it.",
     "This deviates from the portfolio's canonical two-line renovate.json on purpose. Do not 'tidy' it back."
   ],
   "extends": [
