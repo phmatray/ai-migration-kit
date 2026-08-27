@@ -151,9 +151,11 @@ jobs:
           #     lien → un vrai rapport           matche       REFUSÉ     matche
           #     lien cassé                       matche       refusé     refusé
           #
-          # `-L` restaure la ligne du milieu. Les trois lignes sont épinglées par
-          # tests/ci-template/test.sh [10] — dont celle du milieu, qui est la régression qu'une
-          # « simplification » ultérieure vers un `-type f` nu introduirait.
+          # `-L` restaure la ligne du milieu. `tests/ci-template/test.sh` [10b] LIT ce tableau (le
+          # découpe sous l'en-tête « entrée sous coverage/ » ci-dessus) plutôt que de le retyper —
+          # ne renommez ni les libellés de ligne ni les mots « matche »/« refusé »/« REFUSÉ » sans
+          # mettre à jour l'extracteur du même coup (#141). La ligne du milieu est celle qui
+          # rougirait sous une « simplification » ultérieure vers un `-type f` nu.
           #
           # ⚠ Ceci ne change PAS la sémantique de présence : #31 a tranché que cette garde teste la
           # PRÉSENCE et non le COMPTE (voir les ~30 lignes ci-dessus). On ne change ici que ce qui

@@ -1249,6 +1249,58 @@ run_cov_guard() {
 # this template runs today; the other two are the two documented ways it gets armed.
 COV_SHELLS=("-e" "-eo pipefail" "-euo pipefail")
 
+# `assert_cov_guard <expect: refuse|accept> <label>` — one assertion for every per-shell
+# refuse/accept row, so a fix to the diagnosis check (or to the shell matrix) lands for every
+# caller at once instead of some of them (#141). Runs the guard under every shell in
+# `COV_SHELLS` against whatever fixture the caller already built under `$cov/coverage`, and
+# asserts both the exit status AND that the `Aucun rapport de couverture produit` diagnosis is
+# present exactly when the guard refuses — never on a status check alone, since a guard that
+# dies on find's own error under errexit also exits non-zero, but WITHOUT ever reaching the
+# message a real refusal prints.
+assert_cov_guard() {
+  local expect="$1" label="$2"
+  local opts tag log rc
+
+  for opts in "${COV_SHELLS[@]}"; do
+    tag=$(printf '%s' "$opts" | tr -d ' -')
+    log="$scratch/cov-$(printf '%s' "$label" | tr -cs 'a-zA-Z0-9' '-')-$tag.log"
+    # shellcheck disable=SC2086
+    if run_cov_guard "$log" $opts; then rc=0; else rc=1; fi
+
+    if [ "$expect" = refuse ]; then
+      [ "$rc" -ne 0 ] || {
+        echo "FAIL: under \`bash $opts\` the guard ACCEPTED $label — a silent collection failure"
+        echo "      would ship as a green run. Guard output:"
+        sed 's/^/        /' "$log"; exit 1; }
+      grep -q 'Aucun rapport de couverture produit' "$log" || {
+        echo "FAIL: under \`bash $opts\` the guard refused $label WITHOUT its diagnosis — it died"
+        echo "      on find's own error under errexit instead. Keep the \`2>/dev/null || true\`"
+        echo "      tolerance so the emptiness test, not find's exit status, decides. Output:"
+        sed 's/^/        /' "$log"; exit 1; }
+    elif [ "$expect" = accept ]; then
+      [ "$rc" -eq 0 ] || {
+        echo "FAIL: under \`bash $opts\` the guard REFUSED $label — a working repo told its"
+        echo "      coverage was never produced. \`find\` does not follow symlinks by default, so"
+        echo "      the guard's \`-L\` is load-bearing and not decoration. Guard output:"
+        sed 's/^/        /' "$log"; exit 1; }
+      grep -q 'Aucun rapport de couverture produit' "$log" && {
+        echo "FAIL: under \`bash $opts\` the guard exited 0 over $label but still PRINTED its"
+        echo "      missing-coverage diagnosis — a green step carrying a false message."
+        sed 's/^/        /' "$log"; exit 1; }
+    else
+      echo "FAIL: assert_cov_guard called with expect='$expect' — must be 'refuse' or 'accept'"
+      exit 1
+    fi
+  done
+  # Explicit, and load-bearing: without it the function's return status is whatever its LAST
+  # internal command left behind — and on the (correct, intended) path where the closing
+  # `grep -q … && { FAIL…; }` finds NO match, that `&&` list itself evaluates non-zero. Under
+  # `set -e` a bare `assert_cov_guard …` call at the callsite then dies right there, silently —
+  # no FAIL was ever printed, because nothing actually failed; the good outcome's own exit
+  # status leaked out as if the function itself had.
+  return 0
+}
+
 for opts in "${COV_SHELLS[@]}"; do
   tag=$(printf '%s' "$opts" | tr -d ' -')
   # --- coverage present: the guard must PASS ---
@@ -1285,23 +1337,12 @@ done
 for shape in empty missing; do
   rm -rf "$cov/coverage"
   [ "$shape" = empty ] && mkdir -p "$cov/coverage"
-  for opts in "${COV_SHELLS[@]}"; do
-    tag=$(printf '%s' "$opts" | tr -d ' -')
-    log="$scratch/cov-$shape-$tag.log"
-    # shellcheck disable=SC2086
-    if run_cov_guard "$log" $opts; then
-      echo "FAIL: under \`bash $opts\` the guard ACCEPTED a $shape coverage/ — a silent collection"
-      echo "      failure would ship as a green run. Output:"
-      sed 's/^/        /' "$log"
-      exit 1
-    fi
-    grep -q 'Aucun rapport de couverture produit' "$log" || {
-      echo "FAIL: under \`bash $opts\` the guard refused a $shape coverage/ WITHOUT its diagnosis —"
-      echo "      it died on find's own error under errexit instead. Keep the \`2>/dev/null || true\`"
-      echo "      tolerance so the emptiness test, not find's exit status, decides. Output:"
-      sed 's/^/        /' "$log"; exit 1; }
-  done
+  assert_cov_guard refuse "a $shape coverage/"
 done
+
+echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
+     "— $cov_files reports ($cov_bytes bytes, naive pipeline confirmed inverting) accepted;"\
+     "empty and missing coverage/ still refused, with their diagnosis"
 
 # WHAT QUALIFIES AS ONE MATCH (#126). The two shapes above vary how MANY entries `coverage/` holds;
 # these vary what KIND of entry it holds, which the guard used not to ask about at all. `find`
@@ -1316,12 +1357,10 @@ done
 # not follow symlinks by default, so `-type f` alone would start refusing a LEGITIMATE report
 # reached through a symlink — trading a fail-open for a fail-closed, which is strictly worse
 # because the new failure is loud, misleading, and hits working setups. Measured (#126) against
-# the shipped expression and both candidates:
-#
-#     entry under coverage/            no -type      -type f     -L … -type f
-#     directory  bogus.cobertura.xml   matches       rejected    rejected
-#     symlink → a real report          matches       REJECTED    matches
-#     dangling symlink                 matches       rejected    rejected
+# the shipped expression and both candidates — the three-row table is templates/ci-dotnet.yml's
+# own (its "entrée sous coverage/" rationale, read below rather than retyped in English here: #141
+# found the two copies asserting against each other, one in French and one in English, with
+# nothing to keep them in sync when either changed).
 #
 # so the symlinked-report row is the one that distinguishes the two candidates, and the regression
 # a later "simplification" to a bare `-type f` would introduce. Presence semantics are untouched:
@@ -1334,63 +1373,96 @@ done
 mkdir -p "$cov/real"
 : > "$cov/real/genuine.cobertura.xml"
 
-for entry in directory dangling-symlink symlinked-report; do
+# The fixture set this suite actually exercises — declared here, ahead of the extraction below,
+# so the row-count assertion can check against ITS length rather than a hardcoded number: a table
+# row added without a matching fixture (or removed while a fixture still expects it) must redden,
+# not silently pass because the count assertion was a separate literal that happened to agree.
+ENTRY_KINDS=(directory dangling-symlink symlinked-report)
+
+# The template's own table, sliced out rather than retyped (#141), following case 4h's precedent
+# in tests/xunit-v3/test.sh:629-631 (`mtp_line=$(grep -E … ci-dotnet.yml)`, `eval`'d under a
+# `[ -n … ]` guard): find the "entrée sous coverage/" header and take every comment line that
+# follows it up to the first BLANK comment line (the table's own trailing `#`) — open-ended, not
+# capped at today's row count, so a row added to the table without a matching entry in
+# `ENTRY_KINDS` changes the extracted count and reddens below, rather than being silently dropped
+# by a cap that only ever reads "the first N".
+cov_table_rows=$(awk '
+  found {
+    line = $0
+    sub(/^[[:space:]]*#[[:space:]]*/, "", line)
+    if (line == "") { exit }
+    print line
+    next
+  }
+  /entrée sous coverage\// { found=1 }
+' templates/ci-dotnet.yml)
+[ -n "$cov_table_rows" ] && [ "$(printf '%s\n' "$cov_table_rows" | grep -c .)" -eq "${#ENTRY_KINDS[@]}" ] || {
+  echo "FAIL: templates/ci-dotnet.yml's coverage-guard table (after its 'entrée sous coverage/'"
+  echo "      header) has $(printf '%s\n' "$cov_table_rows" | grep -c .) row(s), but this suite has"
+  echo "      fixtures for ${#ENTRY_KINDS[@]} entry kind(s) (${ENTRY_KINDS[*]}). Rows found:"
+  printf '%s\n' "$cov_table_rows"
+  echo "      A table row without a matching fixture (or a fixture without a matching row) must"
+  echo "      fail loudly here rather than let 'expect' silently fall back to nothing."; exit 1; }
+
+# <row-label substring> — the row's LAST column (the "-L … -type f" one: what the shipped guard
+# actually runs), normalized from the table's French 'matche'/'refusé'/'REFUSÉ' to accept/refuse.
+# A row that does not contain the substring, or whose last column is neither spelling, is a loud
+# FAIL naming the table and the expected shape — never a default.
+#
+# ⚠ Every caller reads this through `expect=$(cov_table_expect …)`, a command substitution — so
+# anything this function writes to STDOUT is captured into `expect`, never seen in the log. A FAIL
+# echoed there (as every other FAIL in this suite is) would still exit the script under `set -e`
+# (an assignment's command substitution failing DOES trigger errexit, unlike a bare command), but
+# SILENTLY: the diagnostic would be swallowed into a variable nothing ever reads. So every FAIL
+# line here goes to STDERR (`>&2`), and only the final `accept`/`refuse` verdict goes to stdout.
+cov_table_expect() {
+  local label="$1" line col
+  line=$(printf '%s\n' "$cov_table_rows" | grep -F "$label")
+  [ -n "$line" ] || {
+    echo "FAIL: no row in templates/ci-dotnet.yml's coverage-guard table contains '$label' —" >&2
+    echo "      re-point this extraction if the table's row wording changed. Rows found:" >&2
+    printf '%s\n' "$cov_table_rows" >&2; exit 1; }
+  col=$(printf '%s\n' "$line" | awk '{print $NF}')
+  case "$col" in
+    matche) echo accept ;;
+    refusé|REFUSÉ) echo refuse ;;
+    *)
+      echo "FAIL: the '$label' row's last column ('$col') in templates/ci-dotnet.yml's" >&2
+      echo "      coverage-guard table is neither 'matche' nor 'refusé'/'REFUSÉ' — re-point this" >&2
+      echo "      extraction if the table's spelling changed." >&2; exit 1 ;;
+  esac
+}
+
+ENTRY_KINDS=(directory dangling-symlink symlinked-report)
+for entry in "${ENTRY_KINDS[@]}"; do
   rm -rf "$cov/coverage" && mkdir -p "$cov/coverage"
   case "$entry" in
     directory)
       mkdir -p "$cov/coverage/bogus.cobertura.xml"
-      target="$cov/coverage/bogus.cobertura.xml"; expect=refuse
+      target="$cov/coverage/bogus.cobertura.xml"; expect=$(cov_table_expect "dossier")
       [ -d "$target" ] && [ ! -f "$target" ] || {
         echo "FAIL: fixture broken — $target is not a directory, so the case below would assert"
         echo "      nothing about the entry type it is named for."; exit 1; } ;;
     dangling-symlink)
       ln -s ../nowhere/absent.cobertura.xml "$cov/coverage/dangling.cobertura.xml"
-      target="$cov/coverage/dangling.cobertura.xml"; expect=refuse
+      target="$cov/coverage/dangling.cobertura.xml"; expect=$(cov_table_expect "cassé")
       [ -L "$target" ] && [ ! -e "$target" ] || {
         echo "FAIL: fixture broken — $target must be a symlink whose target does NOT exist;"
         echo "      a resolvable one would be testing the row below instead."; exit 1; } ;;
     symlinked-report)
       ln -s ../real/genuine.cobertura.xml "$cov/coverage/linked.cobertura.xml"
-      target="$cov/coverage/linked.cobertura.xml"; expect=accept
+      target="$cov/coverage/linked.cobertura.xml"; expect=$(cov_table_expect "vrai rapport")
       [ -L "$target" ] && [ -f "$target" ] || {
         echo "FAIL: fixture broken — $target must be a symlink that RESOLVES to a regular file;"
         echo "      that is the row separating \`-L -type f\` from a bare \`-type f\`."; exit 1; } ;;
   esac
 
-  for opts in "${COV_SHELLS[@]}"; do
-    tag=$(printf '%s' "$opts" | tr -d ' -')
-    log="$scratch/cov-$entry-$tag.log"
-    # shellcheck disable=SC2086
-    if run_cov_guard "$log" $opts; then rc=0; else rc=1; fi
-
-    if [ "$expect" = refuse ]; then
-      [ "$rc" -ne 0 ] || {
-        echo "FAIL: under \`bash $opts\` the guard ACCEPTED a coverage/ holding only a $entry named"
-        echo "      *.cobertura.xml. \`find\` matches by NAME, so a name alone passed it and the run"
-        echo "      ships an artifact with no parsable report in it. Require a regular file, and"
-        echo "      FOLLOW symlinks so the legitimate symlinked report keeps working:"
-        echo "          found=\$(find -L coverage -name '*.cobertura.xml' -type f -print -quit 2>/dev/null || true)"
-        echo "      Guard output:"
-        sed 's/^/        /' "$log"; exit 1; }
-      grep -q 'Aucun rapport de couverture produit' "$log" || {
-        echo "FAIL: under \`bash $opts\` the guard refused a coverage/ holding only a $entry WITHOUT"
-        echo "      its diagnosis — it died on find's own error under errexit instead. Keep the"
-        echo "      \`2>/dev/null || true\` tolerance so the emptiness test decides. Output:"
-        sed 's/^/        /' "$log"; exit 1; }
-    else
-      [ "$rc" -eq 0 ] || {
-        echo "FAIL: under \`bash $opts\` the guard REFUSED a coverage/ whose only entry is a symlink"
-        echo "      to a real report — a working repo told its coverage was never produced. This is"
-        echo "      what a bare \`-type f\` does: \`find\` does not follow symlinks by default, so the"
-        echo "      \`-L\` is load-bearing and not decoration. Guard output:"
-        sed 's/^/        /' "$log"; exit 1; }
-      grep -q 'Aucun rapport de couverture produit' "$log" && {
-        echo "FAIL: under \`bash $opts\` the guard exited 0 over a symlinked report but still PRINTED"
-        echo "      its missing-coverage diagnosis — a green step carrying a false message."
-        sed 's/^/        /' "$log"; exit 1; }
-    fi
-  done
+  assert_cov_guard "$expect" "a coverage/ holding only a $entry named *.cobertura.xml"
 done
+
+echo "  [10b] and it asks what KIND of entry it found: ${#ENTRY_KINDS[@]} entry kinds under"\
+     "coverage/ (${ENTRY_KINDS[*]}) — a directory or dangling symlink named *.cobertura.xml is"\
+     "refused, a symlink to a real report is accepted — the row that keeps the -L on the -type f"
 
 # The fix leans on `-print -quit`, so the shipped step must SAY SO when the host's find lacks it.
 # tests/_lib.sh:kit_require_find_quit exists for exactly this reason on the kit's own side — on a
@@ -1436,12 +1508,6 @@ for pred in '-L' '-type' '-print -quit'; do
       echo "      probe:      $cov_probe"; exit 1 ;;
   esac
 done
-echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
-     "— $cov_files reports ($cov_bytes bytes, naive pipeline confirmed inverting) accepted;"\
-     "empty and missing coverage/ still refused, with their diagnosis"
-echo "  [10b] and it asks what KIND of entry it found: a directory and a dangling symlink named"\
-     "*.cobertura.xml are refused, a symlink to a real report is accepted — the row that keeps"\
-     "the -L on the -type f"
 echo "  [10c] and its capability probe tests every predicate that expression depends on"\
      "(-L, -type, -print -quit), so an unsupported one cannot masquerade as absent coverage"
 
