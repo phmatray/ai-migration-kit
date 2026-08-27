@@ -66,6 +66,24 @@ object inside the shape counts as emitted, so R6 misses some real mismatches but
 A decision whose `shape` is null is not checked by R6 at all, and is printed BY ID as uncovered on
 the success line — a guard that cannot answer must say so rather than serve silence as a pass.
 
+R4, R5 and R8's TOKEN_RE derivation all read the program through `strip_comments` (see its own
+docstring for what it does and its known, currently-unobserved limits): a comment that documents what
+the program emits or tests is prose about the program, not a branch of it, and none of the three may
+count it as one. This was NOT true of TOKEN_RE at first — an earlier draft left it reading the raw
+text on the theory that a wider, comment-inflated token set only ever WIDENS R8's refusals, never
+narrows them. That is true of R8's un-annotated-table path (`hit = found_tokens(cells,
+tokens_by_id[did])`, more tokens can only mean more matches), but false of its ANNOTATED-table path
+(`extra = run_candidates(cells, all_tokens) - tokens_by_id[ann]`): there the decision's OWN token set
+is SUBTRACTED, so a comment-derived phantom token in a decision's own program can silently swallow a
+real gap — an annotated table naming a state the program never actually tests, passing because a
+comment happened to mention it. R2 (jq compiles) and R3 (no single quote) stay on the raw text
+deliberately: both validate the program's literal, pasted-verbatim text, comments included, not a
+derived vocabulary — stripping would validate a program CI never actually runs.
+
+R6's READ_RE reads the same stripped view (#261): it has the identical comment-as-phantom-token
+exposure R4/R5/R8 close, on the read side rather than the emit side, and is not a considered
+exception like R2/R3.
+
 Usage:
   decision-check.py [--repo <path>] [--registry <path>]
 
@@ -130,6 +148,48 @@ ANNOTATION_RE = re.compile(r"^<!--\s*decided-by:\s*([^\s]+)\s*-->$")
 # line" and nothing looser: an annotation five paragraphs up would not be read as belonging to the
 # table by anyone editing it, so it must not be read that way here either.
 ANNOTATION_LOOKBACK = 3
+
+
+def strip_comments(text):
+    """Strip a `#`-to-end-of-line comment from each line, without touching `#` inside a
+    double-quoted string.
+
+    Feeds R4, R5 (VERDICT_LIT_RE / RULE_LIT_RE) and R8's TOKEN_RE derivation: those rules judge what
+    a program EMITS or TESTS, and a comment documenting that (`# emits verdict:"stop" when …`) is
+    prose about the program, not a branch of it — counting it invents a phantom cause R5 refuses
+    for, or a phantom token that can hide a real R8 gap (a comment-derived token is SUBTRACTED on
+    R8's annotated-table path, so a wider raw token set there is not the safe direction it is on R8's
+    un-annotated path).
+
+    Every registered program is `#`-commented (jq and bash agree on that), so a line-oriented,
+    double-quote-tracking scan handles every program this repo has today. Known gaps, none observed
+    in a registered program — extend the scanner if one arrives, rather than special-casing a caller:
+    single quotes are not tracked at all (R3 already refuses a single quote outright in a `block`
+    program, so a `#` cannot hide inside one there; an `exec` program's own single-quoted shell
+    wrapping has never needed a bare `#` in this kit); a double-quoted string spanning more than one
+    physical line desyncs the per-line quote state, since it resets at every line break; and a bare
+    `#` from bash's `${#arr[@]}` / `$#` length idiom, or a backslash-escaped quote occurring outside
+    any already-open string, is not special-cased — the first is read as a comment start, the second
+    can toggle the quote state unexpectedly. (An earlier draft tracked backslash-escapes while
+    *inside* a string, but that half-measure mishandled exactly the outside-a-string case above
+    without being exercised by any registered program either way, so it was removed rather than kept
+    as untested complexity — see `tests/decisions/test.sh`'s own doctrine: every rule here is proved
+    by breaking a working kit, never by reading the guard and believing it.)
+
+    R6's READ_RE also reads this stripped view (#261), not raw `prog`.
+    """
+    out = []
+    for line in text.split("\n"):
+        in_string = False
+        cut = len(line)
+        for i, ch in enumerate(line):
+            if ch == '"':
+                in_string = not in_string
+            elif ch == "#" and not in_string:
+                cut = i
+                break
+        out.append(line[:cut])
+    return "\n".join(out)
 
 
 class Unanswerable(Exception):
@@ -481,8 +541,9 @@ def check(repo, registry_path):
     exec_paths = []
     for did, row in seen.items():
         programs[did] = program_text(repo, did)
-        tokens_by_id[did] = set(TOKEN_RE.findall(programs[did]))
         prog = programs[did]
+        prog_emitted = strip_comments(prog)
+        tokens_by_id[did] = set(TOKEN_RE.findall(prog_emitted))
         kind = (row.get("program") or {}).get("kind")
 
         # ------------------------------------------------------------------------ R1 ONE HOME
@@ -525,7 +586,7 @@ def check(repo, registry_path):
 
         # ------------------------------------------------------------ R4 VOCABULARY IS EXACT
         declared = set((row.get("verdict") or {}).get("vocabulary") or [])
-        emitted = set(VERDICT_LIT_RE.findall(prog))
+        emitted = set(VERDICT_LIT_RE.findall(prog_emitted))
         for word in sorted(emitted - declared):
             refuse("R4", _program_where(repo, row),
                    f"'{did}' can answer {word!r}, which is not in its declared vocabulary",
@@ -538,8 +599,8 @@ def check(repo, registry_path):
                    "Remove it, or restore the branch.")
 
         # ------------------------------------------------------------ R5 CAUSES ARE DISTINCT
-        verdict_lits = VERDICT_LIT_RE.findall(prog)
-        rule_lits = RULE_LIT_RE.findall(prog)
+        verdict_lits = VERDICT_LIT_RE.findall(prog_emitted)
+        rule_lits = RULE_LIT_RE.findall(prog_emitted)
         if len(verdict_lits) != len(rule_lits):
             refuse("R5", _program_where(repo, row),
                    f"'{did}' has {len(verdict_lits)} verdict literal(s) but {len(rule_lits)} "
@@ -568,7 +629,7 @@ def check(repo, registry_path):
             refuse("R6", shape["home"], f"'{did}'s shape block: {err}")
             continue
         emits = emitted_keys(block)
-        reads = set(READ_RE.findall(prog))
+        reads = set(READ_RE.findall(prog_emitted))
         missing = sorted(reads - emits)
         if missing:
             refuse("R6", shape["home"],
