@@ -1249,6 +1249,58 @@ run_cov_guard() {
 # this template runs today; the other two are the two documented ways it gets armed.
 COV_SHELLS=("-e" "-eo pipefail" "-euo pipefail")
 
+# `assert_cov_guard <expect: refuse|accept> <label>` — one assertion for every per-shell
+# refuse/accept row, so a fix to the diagnosis check (or to the shell matrix) lands for every
+# caller at once instead of some of them (#141). Runs the guard under every shell in
+# `COV_SHELLS` against whatever fixture the caller already built under `$cov/coverage`, and
+# asserts both the exit status AND that the `Aucun rapport de couverture produit` diagnosis is
+# present exactly when the guard refuses — never on a status check alone, since a guard that
+# dies on find's own error under errexit also exits non-zero, but WITHOUT ever reaching the
+# message a real refusal prints.
+assert_cov_guard() {
+  local expect="$1" label="$2"
+  local opts tag log rc
+
+  for opts in "${COV_SHELLS[@]}"; do
+    tag=$(printf '%s' "$opts" | tr -d ' -')
+    log="$scratch/cov-$(printf '%s' "$label" | tr -cs 'a-zA-Z0-9' '-')-$tag.log"
+    # shellcheck disable=SC2086
+    if run_cov_guard "$log" $opts; then rc=0; else rc=1; fi
+
+    if [ "$expect" = refuse ]; then
+      [ "$rc" -ne 0 ] || {
+        echo "FAIL: under \`bash $opts\` the guard ACCEPTED $label — a silent collection failure"
+        echo "      would ship as a green run. Guard output:"
+        sed 's/^/        /' "$log"; exit 1; }
+      grep -q 'Aucun rapport de couverture produit' "$log" || {
+        echo "FAIL: under \`bash $opts\` the guard refused $label WITHOUT its diagnosis — it died"
+        echo "      on find's own error under errexit instead. Keep the \`2>/dev/null || true\`"
+        echo "      tolerance so the emptiness test, not find's exit status, decides. Output:"
+        sed 's/^/        /' "$log"; exit 1; }
+    elif [ "$expect" = accept ]; then
+      [ "$rc" -eq 0 ] || {
+        echo "FAIL: under \`bash $opts\` the guard REFUSED $label — a working repo told its"
+        echo "      coverage was never produced. \`find\` does not follow symlinks by default, so"
+        echo "      the guard's \`-L\` is load-bearing and not decoration. Guard output:"
+        sed 's/^/        /' "$log"; exit 1; }
+      grep -q 'Aucun rapport de couverture produit' "$log" && {
+        echo "FAIL: under \`bash $opts\` the guard exited 0 over $label but still PRINTED its"
+        echo "      missing-coverage diagnosis — a green step carrying a false message."
+        sed 's/^/        /' "$log"; exit 1; }
+    else
+      echo "FAIL: assert_cov_guard called with expect='$expect' — must be 'refuse' or 'accept'"
+      exit 1
+    fi
+  done
+  # Explicit, and load-bearing: without it the function's return status is whatever its LAST
+  # internal command left behind — and on the (correct, intended) path where the closing
+  # `grep -q … && { FAIL…; }` finds NO match, that `&&` list itself evaluates non-zero. Under
+  # `set -e` a bare `assert_cov_guard …` call at the callsite then dies right there, silently —
+  # no FAIL was ever printed, because nothing actually failed; the good outcome's own exit
+  # status leaked out as if the function itself had.
+  return 0
+}
+
 for opts in "${COV_SHELLS[@]}"; do
   tag=$(printf '%s' "$opts" | tr -d ' -')
   # --- coverage present: the guard must PASS ---
@@ -1285,22 +1337,7 @@ done
 for shape in empty missing; do
   rm -rf "$cov/coverage"
   [ "$shape" = empty ] && mkdir -p "$cov/coverage"
-  for opts in "${COV_SHELLS[@]}"; do
-    tag=$(printf '%s' "$opts" | tr -d ' -')
-    log="$scratch/cov-$shape-$tag.log"
-    # shellcheck disable=SC2086
-    if run_cov_guard "$log" $opts; then
-      echo "FAIL: under \`bash $opts\` the guard ACCEPTED a $shape coverage/ — a silent collection"
-      echo "      failure would ship as a green run. Output:"
-      sed 's/^/        /' "$log"
-      exit 1
-    fi
-    grep -q 'Aucun rapport de couverture produit' "$log" || {
-      echo "FAIL: under \`bash $opts\` the guard refused a $shape coverage/ WITHOUT its diagnosis —"
-      echo "      it died on find's own error under errexit instead. Keep the \`2>/dev/null || true\`"
-      echo "      tolerance so the emptiness test, not find's exit status, decides. Output:"
-      sed 's/^/        /' "$log"; exit 1; }
-  done
+  assert_cov_guard refuse "a $shape coverage/"
 done
 
 echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
@@ -1362,39 +1399,7 @@ for entry in "${ENTRY_KINDS[@]}"; do
         echo "      that is the row separating \`-L -type f\` from a bare \`-type f\`."; exit 1; } ;;
   esac
 
-  for opts in "${COV_SHELLS[@]}"; do
-    tag=$(printf '%s' "$opts" | tr -d ' -')
-    log="$scratch/cov-$entry-$tag.log"
-    # shellcheck disable=SC2086
-    if run_cov_guard "$log" $opts; then rc=0; else rc=1; fi
-
-    if [ "$expect" = refuse ]; then
-      [ "$rc" -ne 0 ] || {
-        echo "FAIL: under \`bash $opts\` the guard ACCEPTED a coverage/ holding only a $entry named"
-        echo "      *.cobertura.xml. \`find\` matches by NAME, so a name alone passed it and the run"
-        echo "      ships an artifact with no parsable report in it. Require a regular file, and"
-        echo "      FOLLOW symlinks so the legitimate symlinked report keeps working:"
-        echo "          found=\$(find -L coverage -name '*.cobertura.xml' -type f -print -quit 2>/dev/null || true)"
-        echo "      Guard output:"
-        sed 's/^/        /' "$log"; exit 1; }
-      grep -q 'Aucun rapport de couverture produit' "$log" || {
-        echo "FAIL: under \`bash $opts\` the guard refused a coverage/ holding only a $entry WITHOUT"
-        echo "      its diagnosis — it died on find's own error under errexit instead. Keep the"
-        echo "      \`2>/dev/null || true\` tolerance so the emptiness test decides. Output:"
-        sed 's/^/        /' "$log"; exit 1; }
-    else
-      [ "$rc" -eq 0 ] || {
-        echo "FAIL: under \`bash $opts\` the guard REFUSED a coverage/ whose only entry is a symlink"
-        echo "      to a real report — a working repo told its coverage was never produced. This is"
-        echo "      what a bare \`-type f\` does: \`find\` does not follow symlinks by default, so the"
-        echo "      \`-L\` is load-bearing and not decoration. Guard output:"
-        sed 's/^/        /' "$log"; exit 1; }
-      grep -q 'Aucun rapport de couverture produit' "$log" && {
-        echo "FAIL: under \`bash $opts\` the guard exited 0 over a symlinked report but still PRINTED"
-        echo "      its missing-coverage diagnosis — a green step carrying a false message."
-        sed 's/^/        /' "$log"; exit 1; }
-    fi
-  done
+  assert_cov_guard "$expect" "a coverage/ holding only a $entry named *.cobertura.xml"
 done
 
 echo "  [10b] and it asks what KIND of entry it found: ${#ENTRY_KINDS[@]} entry kinds under"\
