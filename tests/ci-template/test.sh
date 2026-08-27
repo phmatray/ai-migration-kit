@@ -1303,6 +1303,10 @@ for shape in empty missing; do
   done
 done
 
+echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
+     "— $cov_files reports ($cov_bytes bytes, naive pipeline confirmed inverting) accepted;"\
+     "empty and missing coverage/ still refused, with their diagnosis"
+
 # WHAT QUALIFIES AS ONE MATCH (#126). The two shapes above vary how MANY entries `coverage/` holds;
 # these vary what KIND of entry it holds, which the guard used not to ask about at all. `find`
 # matches by NAME and has no opinion about type, so ANY entry called `*.cobertura.xml` satisfied a
@@ -1334,7 +1338,8 @@ done
 mkdir -p "$cov/real"
 : > "$cov/real/genuine.cobertura.xml"
 
-for entry in directory dangling-symlink symlinked-report; do
+ENTRY_KINDS=(directory dangling-symlink symlinked-report)
+for entry in "${ENTRY_KINDS[@]}"; do
   rm -rf "$cov/coverage" && mkdir -p "$cov/coverage"
   case "$entry" in
     directory)
@@ -1392,6 +1397,10 @@ for entry in directory dangling-symlink symlinked-report; do
   done
 done
 
+echo "  [10b] and it asks what KIND of entry it found: ${#ENTRY_KINDS[@]} entry kinds under"\
+     "coverage/ (${ENTRY_KINDS[*]}) — a directory or dangling symlink named *.cobertura.xml is"\
+     "refused, a symlink to a real report is accepted — the row that keeps the -L on the -type f"
+
 # The fix leans on `-print -quit`, so the shipped step must SAY SO when the host's find lacks it.
 # tests/_lib.sh:kit_require_find_quit exists for exactly this reason on the kit's own side — on a
 # find without `-quit` (busybox, minimal containers) the probe answers "nothing found" with the
@@ -1436,12 +1445,6 @@ for pred in '-L' '-type' '-print -quit'; do
       echo "      probe:      $cov_probe"; exit 1 ;;
   esac
 done
-echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefail and -euo pipefail"\
-     "— $cov_files reports ($cov_bytes bytes, naive pipeline confirmed inverting) accepted;"\
-     "empty and missing coverage/ still refused, with their diagnosis"
-echo "  [10b] and it asks what KIND of entry it found: a directory and a dangling symlink named"\
-     "*.cobertura.xml are refused, a symlink to a real report is accepted — the row that keeps"\
-     "the -L on the -type f"
 echo "  [10c] and its capability probe tests every predicate that expression depends on"\
      "(-L, -type, -print -quit), so an unsupported one cannot masquerade as absent coverage"
 
