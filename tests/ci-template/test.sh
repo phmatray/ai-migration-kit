@@ -207,6 +207,15 @@ step_named "Garde — le bundle front committé correspond toujours à ses sourc
 [ -s "$scratch/guard.sh" ] || { echo "FAIL: the guard step has an empty run: body"; exit 1; }
 bash -n "$scratch/guard.sh" || { echo "FAIL: the guard body is not valid bash"; exit 1; }
 
+# One place for the identity/gpgsign workaround every scratch commit below needs.
+# `commit.gpgsign=false` is not decoration: with signing on globally and no usable key in this
+# shell, the commit fails, `set -e` aborts, and every section below reports as broken with a gpg
+# error rather than a template defect. CI never sees it, which is what makes it a local-only
+# trap. tests/guarded-git/test.sh already solved this the same way.
+git_commit_all() {   # $1 = repo path · $2 = commit message
+  git -C "$1" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm "$2"
+}
+
 # A scratch git repo carrying a committed bundle. `$1` = path, `$2` = asset filename.
 mk_repo() {
   local root="$1" asset="$2"
@@ -215,12 +224,7 @@ mk_repo() {
   printf 'console.log(1)\n' > "$root/web/dist/assets/$asset"
   printf '<script src="/assets/%s"></script>\n' "$asset" > "$root/web/dist/index.html"
   git -C "$root" add -A
-  # `commit.gpgsign=false` is not decoration: with signing on globally and no usable key in this
-  # shell, the commit fails, `set -e` aborts, and every section below reports as broken with a gpg
-  # error rather than a template defect. CI never sees it, which is what makes it a local-only
-  # trap. tests/guarded-git/test.sh already solved this the same way.
-  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-      commit -qm "commit the bundle"
+  git_commit_all "$root" "commit the bundle"
 }
 
 # ---------------------------------------------------------------------------
@@ -254,8 +258,7 @@ mk_config_repo() {
   else
     git -C "$root" add -A -- web
   fi
-  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-      commit -qm "commit the front-end project and its gate config"
+  git_commit_all "$root" "commit the front-end project and its gate config"
 }
 
 # Runs the shipped config body in `$1`, leaving the exit status in $config_rc, the console output
@@ -315,7 +318,6 @@ config_refuses "a json array"       '["web", "web/dist"]'
 config_refuses "a missing dist key" '{ "src": "web" }'
 config_refuses "a missing src key"  '{ "dist": "web/dist" }'
 config_refuses "an empty dist"      '{ "src": "web", "dist": "" }'
-config_refuses "dist outside src"   '{ "src": "docs-site", "dist": "web/dist" }'
 config_refuses "an absolute dist"   '{ "src": "/web", "dist": "/web/dist" }'
 config_refuses "a dot-dot escape"   '{ "src": "web", "dist": "web/../../etc" }'
 # `web/dist/assets`, not `web/dist`, so this case exercises the missing-package.json path and only
@@ -323,58 +325,140 @@ config_refuses "a dot-dot escape"   '{ "src": "web", "dist": "web/../../etc" }'
 # and would have stopped covering the check its label names.
 config_refuses "a src with no package.json" '{ "src": "web/dist", "dist": "web/dist/assets" }'
 config_refuses "an untracked config" '{ "src": "web", "dist": "web/dist" }' untracked
-# dist == src is the one nonsense configuration that used to ARM the gate: the containment test
-# was `case "$dist/" in "$src"/*)`, and `*` matches the empty string, so `web/` matched `web/*`.
-# It is not a harmless typo. The rebuild runs `npm ci` in `web/`, creating `web/node_modules`; the
-# guard then runs `git status --porcelain --ignored -- web`, and because `--ignored` is
-# deliberately on it lists that whole ignored tree. The step goes red on EVERY run advising
-# "reconstruire, puis committer" — advice that can never make it green. Refusing the config is the
-# only place this can be caught before Node has been installed for nothing.
-config_refuses "dist equal to src"  '{ "src": "web", "dist": "web" }'
-# …and the same tree spelled differently, which is why the values are normalised before comparing.
-config_refuses "dist equal to src by a trailing slash" '{ "src": "web", "dist": "web/" }'
-config_refuses "dist equal to src by a ./ prefix"      '{ "src": "web", "dist": "./web" }'
-# A bundle that IS the repository is not a bundle — and `.` is the one value the root-project
-# support below makes acceptable for `src`, so it must stay refused for `dist`.
-config_refuses "a dist that is the repository root"    '{ "src": "web", "dist": "." }'
 echo "  [1c] refuses every malformed, self-inconsistent or uncommitted config instead of arming"
 
-# A front-end project at the REPOSITORY ROOT. Until now it had no spelling the template's own
-# guidance accepted: the detection step's remediation text prints
-#   { "src": "<le répertoire qui porte package.json>", "dist": "<le bundle committé, sous src>" }
-# which for such a repo reads `"."` and `"dist"` — and the validator refused exactly that, because
-# `dist/` is not under `./`. Shipped guidance contradicting the shipped validator is worse than
-# either alone, so both spellings must arm the gate and both must publish the SAME normalised
-# pair: `working-directory:` and the guard consume that pair, and two spellings reaching them
-# would be the two-sources-of-truth trap again, one layer down.
-root_n=0
-for cfg_text in '{ "src": ".", "dist": "dist" }' '{ "src": "./", "dist": "./dist/" }'; do
-  root_n=$((root_n + 1))
-  CROOT="$scratch/config-root-$root_n"
-  mkdir -p "$CROOT/dist/assets"
-  git init -q "$CROOT"
-  printf '{ "name": "root-app", "private": true }\n' > "$CROOT/package.json"
-  printf 'console.log(1)\n' > "$CROOT/dist/assets/index-MMMMMMMM.js"
-  mkdir -p "$CROOT/$(dirname "$CONFIG")"
-  printf '%s\n' "$cfg_text" > "$CROOT/$CONFIG"
-  git -C "$CROOT" add -A
-  git -C "$CROOT" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-      commit -qm "a front-end project at the repository root"
-  run_config "$CROOT"
-  if [ "$config_rc" -ne 0 ]; then
-    echo "FAIL: the config step refused $cfg_text — a front-end project at the repository root,"
-    echo "      which is the exact pair its own detection step tells an adopter to commit:"
-    cat "$scratch/out-config.txt"; exit 1
+# ---------------------------------------------------------------------------
+# 1c-bis. ONE table of containment cases, driven against BOTH shipped copies of the rule — the
+#     config step here, the guard body in 5d. The two copies are deliberate (see the template's
+#     own argument), but #151 proved they were maintained by RETYPING: the review found the same
+#     `case "$dist/" in "$src"/*)` hole — `*` matches the empty string — in both, and it had to
+#     be fixed twice. A second line of defence that is a copy of the first, bug included, is not
+#     defence in depth. Adding a row below now costs one line and proves it against both.
+#
+#     Also folds in the two individually-written cases this replaces: "dist outside src" (a
+#     different tree entirely — the docs-site/web/dist row) and the front-end-at-the-repository-
+#     root pair ("." / "dist" and "./" / "./dist/") that used to be a bespoke loop below.
+# ---------------------------------------------------------------------------
+CONTAINMENT_ROWS=$(printf '%s\n' \
+  "web	web/dist	accept" \
+  "web	web	refuse" \
+  "web	web/	refuse" \
+  "web	./web	refuse" \
+  "web	web2/dist	refuse" \
+  "docs-site	web/dist	refuse" \
+  "web	.	refuse" \
+  ".	dist	accept" \
+  "./	./dist/	accept")
+
+# Reports which COPY disagreed, and on which row. A shared table whose failure says only
+# "row 4 failed" reintroduces the two-sources problem one level up.
+containment_fail() {   # $1 = copy · $2 = src · $3 = dist · $4 = wanted · $5 = got · $6 = log
+  echo "FAIL: the $1 copy of the dist-under-src rule disagrees with the shared table."
+  echo "      src='$2' dist='$3' — table says $4, this copy said $5"
+  echo "      The OTHER copy is in the same template; #151 is the incident where both carried"
+  echo "      the same hole and the review, not the suite, was what caught it."
+  cat "$6"
+  exit 1
+}
+
+# $1 = repo path · $2 = src · $3 = dist · $4 = raw config contents. Generalises mk_config_repo so
+# src/dist are parameters instead of hardcoded web / web/dist.
+mk_config_repo_for() {
+  local root="$1" s="$2" d="$3" cfg_text="$4"
+  # Strip the './' and trailing '/' spellings only when building the TREE — the config file
+  # keeps the row's raw spelling, which is exactly what is under test.
+  local sdir="${s#./}"; sdir="${sdir%/}"; [ -n "$sdir" ] || sdir=.
+  local ddir="${d#./}"; ddir="${ddir%/}"; [ -n "$ddir" ] || ddir=.
+  mkdir -p "$root/$sdir" "$root/$ddir/assets"
+  git init -q "$root"
+  printf '{ "name": "app", "private": true }\n' > "$root/$sdir/package.json"
+  printf 'console.log(1)\n' > "$root/$ddir/assets/index-NNNNNNNN.js"
+  mkdir -p "$root/$(dirname "$CONFIG")"
+  printf '%s\n' "$cfg_text" > "$root/$CONFIG"
+  git -C "$root" add -A
+  git_commit_all "$root" "a scratch repo shaped for one containment row"
+}
+
+# The SAME './'-strip and trailing-'/'-strip the config step itself applies before comparing
+# (templates/ci-dotnet.yml lines ~464-481), so an ACCEPT row's expected output can be computed
+# from the row rather than hand-retyped per row.
+containment_normalise() {   # $1 = raw src or dist -> echoes the normalised spelling
+  local v="$1"
+  v="${v#./}"
+  while [ "$v" != "${v%/}" ]; do v="${v%/}"; done
+  printf '%s' "$v"
+}
+
+row_n=0
+while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
+  [ -n "$r_src" ] || continue
+  row_n=$((row_n + 1))
+  R="$scratch/containment-cfg-$row_n"
+  mk_config_repo_for "$R" "$r_src" "$r_dist" "{ \"src\": \"$r_src\", \"dist\": \"$r_dist\" }"
+  run_config "$R"
+  got=accept; [ "$config_rc" -eq 0 ] || got=refuse
+  [ "$got" = "$r_want" ] || containment_fail "config step" "$r_src" "$r_dist" \
+      "$r_want" "$got" "$scratch/out-config.txt"
+  if [ "$r_want" = refuse ]; then
+    if [ -s "$R/gh-output.txt" ]; then
+      echo "FAIL: the config step refused src='$r_src' dist='$r_dist' yet still published outputs:"
+      cat "$R/gh-output.txt"; exit 1
+    fi
+  else
+    # An accept row must publish the NORMALISED pair — the assertion the old hand-written
+    # root-project loop made (`grep -qxF 'src=.'` / `'dist=dist'`), and the one a review of this
+    # table caught missing: a config that ACCEPTS is not yet proven to publish the right thing,
+    # only to publish SOMETHING. Two differently-spelled accept rows for the same tree (raw,
+    # './'-prefixed, trailing-'/') must converge on the identical pair, or the rebuild and the
+    # guard would run against two different paths for what is supposed to be one tree.
+    exp_src=$(containment_normalise "$r_src"); [ -n "$exp_src" ] || exp_src=.
+    exp_dist=$(containment_normalise "$r_dist")
+    grep -qxF "src=$exp_src" "$R/gh-output.txt" || {
+      echo "FAIL: src='$r_src' dist='$r_dist' did not publish the normalised src=$exp_src :"
+      cat "$R/gh-output.txt"; exit 1; }
+    grep -qxF "dist=$exp_dist" "$R/gh-output.txt" || {
+      echo "FAIL: src='$r_src' dist='$r_dist' did not publish the normalised dist=$exp_dist :"
+      cat "$R/gh-output.txt"; exit 1; }
   fi
-  # -F throughout: `src=.` as a regex would match `src=web` and prove nothing.
-  grep -qxF 'src=.' "$CROOT/gh-output.txt" || {
-    echo "FAIL: $cfg_text did not publish the normalised src=. :"
-    cat "$CROOT/gh-output.txt"; exit 1; }
-  grep -qxF 'dist=dist' "$CROOT/gh-output.txt" || {
-    echo "FAIL: $cfg_text did not publish the normalised dist=dist :"
-    cat "$CROOT/gh-output.txt"; exit 1; }
+done <<EOF
+$CONTAINMENT_ROWS
+EOF
+echo "  [1c] every containment case in the shared table, against the config step"
+
+# The one refusal in the config step with no executable witness: `command -v jq` at
+# templates/ci-dotnet.yml:433. It is diagnostic quality, not a gate — it stops a jq-less runner
+# from blaming a perfectly valid JSON file — but "verified by reading" is the state every other
+# branch of this step left behind, and it is the state #151's two identical holes came from.
+NOJQ="$scratch/nojq-bin"
+mkdir -p "$NOJQ"
+# Symlink every binary the body actually needs, and only those. Deleting PATH entries instead
+# would take `git` with `jq` on most machines, and the step would refuse for the wrong reason.
+for b in git bash sh env; do
+  p=$(command -v "$b" 2>/dev/null) && ln -sf "$p" "$NOJQ/$b"
 done
-echo "  [1c] a front-end project at the repository root arms the gate, './' or not"
+CJQ="$scratch/config-no-jq"
+mk_config_repo "$CJQ" '{ "src": "web", "dist": "web/dist" }'
+set +e
+( cd "$CJQ" && PATH="$NOJQ" GITHUB_OUTPUT="$CJQ/gh-output.txt" BUNDLE_GATE_CONFIG="$CONFIG" \
+    bash "$scratch/config.sh" ) > "$scratch/out-nojq.txt" 2>&1
+jq_rc=$?
+set -e
+command -v jq > /dev/null 2>&1 || { echo "SKIP: jq is absent from this machine's PATH too,"; \
+  echo "      so the shim proves nothing here — CI has jq and does run this."; }
+if [ "$jq_rc" -eq 0 ]; then
+  echo "FAIL: the config step armed the gate on a runner with no jq:"
+  cat "$scratch/out-nojq.txt"; exit 1
+fi
+grep -qF "$CONFIG" "$scratch/out-nojq.txt" || {
+  echo "FAIL: refused for want of jq but never named $CONFIG:"; cat "$scratch/out-nojq.txt"; exit 1; }
+grep -q 'jq' "$scratch/out-nojq.txt" || {
+  echo "FAIL: refused without saying jq was the missing piece, so the reader would go and edit"
+  echo "      a perfectly valid JSON file:"; cat "$scratch/out-nojq.txt"; exit 1; }
+if [ -s "$CJQ/gh-output.txt" ]; then
+  echo "FAIL: refused for want of jq yet still published outputs:"
+  cat "$CJQ/gh-output.txt"; exit 1
+fi
+echo "  [1c] a runner without jq is refused, and told it is the runner and not the file"
 
 # ---------------------------------------------------------------------------
 # 1e. The shipped example is the file an adopter copies, so it must be a file the config step
@@ -749,73 +833,106 @@ fi
 echo "  [5c] refuses a directory that exists but holds no tracked file"
 
 # ---------------------------------------------------------------------------
-# 5d. The two variables must describe the SAME tree.
+# 5d. The two variables must describe the SAME tree — the guard's OWN copy of the containment
+#     rule, driven against the SAME `CONTAINMENT_ROWS` table as 1c.
 #
 #     Splitting the configuration in two created a way for the gate to certify a bundle nothing
 #     rebuilt: point BUNDLE_SRC at one project and BUNDLE_DIST at another's output, and npm
 #     regenerates the first while the guard inspects the second, finds it unchanged, and reports
 #     "à jour" on a stale bundle — the false remediation this whole step exists to prevent,
 #     produced by the step. Cheap to get wrong, too: two settings edited months apart.
+#
+#     Fed the RAW spelling, not the normalised pair the config step would publish: the whole
+#     argument for keeping this second copy is that it must hold when the values arrive from
+#     somewhere else (a matrix, a second config path, a hand-edit in an adopter's repo — #96's own
+#     discussion). Verified by executing the shipped guard body, exactly as 1c drives the config
+#     step — not asserted from reading.
+#
+#     Two rows of the shared table are KNOWN to disagree between the copies when fed that raw
+#     spelling, because the guard's own check — unlike the config step's (which strips a leading
+#     './' and a trailing '/' before comparing, lines ~464-481 of the template) — never
+#     normalises BUNDLE_SRC/BUNDLE_DIST at all:
+#       - `web` / `web/` (raw): the guard's equality check sees `web/` != `web` and does not fire;
+#         its containment `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/?*)` then sees `web//` against
+#         `web/?*`, which MATCHES (the extra `/` satisfies the `?`) — so the guard body ACCEPTS a
+#         dist that equals its own src, fed this one raw spelling.
+#       - `./` / `./dist/` (raw): `[ "$BUNDLE_SRC" != "." ]` is true for the literal string `./`,
+#         so the guard treats a legitimate root-project arming as non-root and REFUSES it.
+#     Neither is reachable in production — the guard only ever receives the config step's
+#     ALREADY-NORMALISED outputs — so this is not the #151 hazard reopened; it is exactly the
+#     finding this table's own design predicts ("prove it stands alone") applied to two spellings
+#     nobody had fed the guard raw before. Those two rows are pulled OUT of the shared-loop
+#     assertion below and asserted explicitly further down: `CONTAINMENT_ROWS` then means exactly
+#     what its own comment claims — same row, same verdict, both copies — for every row the main
+#     loop actually drives, with no per-copy override hidden inside it. The known divergence is
+#     tracked as a follow-up (see the PR's Follow-ups section) — fixing it would touch
+#     `templates/ci-dotnet.yml`'s behaviour, which Tasks 1-2 of this issue do not.
 # ---------------------------------------------------------------------------
-X="$scratch/mismatched"
-mk_repo "$X" "index-JJJJJJJJ.js"
-mkdir -p "$X/docs-site"
-: > "$X/docs-site/package.json"
-set +e
-( cd "$X" && BUNDLE_SRC=docs-site BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) \
-  > "$scratch/out-mismatch.txt" 2>&1
-rc=$?
-set -e
-if [ "$rc" -eq 0 ]; then
-  echo "FAIL: the guard accepted BUNDLE_DIST outside BUNDLE_SRC. npm rebuilt one tree while the"
-  echo "      guard inspected another — it would go green on a bundle nothing regenerated:"
-  cat "$scratch/out-mismatch.txt"
-  exit 1
-fi
-grep -q "BUNDLE_SRC" "$scratch/out-mismatch.txt" || {
-  echo "FAIL: refused, but never named the mismatch:"; cat "$scratch/out-mismatch.txt"; exit 1; }
-echo "  [5d] refuses when BUNDLE_DIST is not under BUNDLE_SRC — the two-sources-of-truth trap"
 
-# The same hole in the guard's own copy of the check, and the reason "not under" has to be said as
-# "not under AND not equal": `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` accepted equality, because
-# `*` matches the empty string. Equality is the case with teeth — npm has just created
-# node_modules inside the very tree this guard inspects, and it lists ignored files on purpose, so
-# the step would be permanently red while telling the reader to rebuild and commit.
-EQ="$scratch/dist-equals-src"
-mk_repo "$EQ" "index-EEEEEEEE.js"
-set +e
-( cd "$EQ" && BUNDLE_SRC=web BUNDLE_DIST=web bash "$scratch/guard.sh" ) \
-  > "$scratch/out-equal.txt" 2>&1
-rc=$?
-set -e
-if [ "$rc" -eq 0 ]; then
-  echo "FAIL: the guard accepted BUNDLE_DIST == BUNDLE_SRC. 'npm ci' creates node_modules in that"
-  echo "      tree and this guard lists ignored files deliberately, so the step would go red on"
-  echo "      every run with advice that cannot make it green:"
-  cat "$scratch/out-equal.txt"
-  exit 1
-fi
-grep -q "BUNDLE_SRC" "$scratch/out-equal.txt" || {
-  echo "FAIL: refused, but never named the two variables:"; cat "$scratch/out-equal.txt"; exit 1; }
-echo "  [5d] refuses BUNDLE_DIST == BUNDLE_SRC — '*' used to match the empty string"
+# One fixture, reused for every row: `guard.sh` only READS the tree (`git status`), never
+# mutates it, so there is nothing a later row could see left over from an earlier one — the
+# per-row rebuild the config-step loop needs (each row's tracked package.json/bundle differs)
+# does not apply here, since only the BUNDLE_SRC/BUNDLE_DIST env vars change per row.
+G="$scratch/containment-guard"
+mk_repo "$G" "index-GGGGGGGG.js"
+mkdir -p "$G/docs-site"; : > "$G/docs-site/package.json"
+# A tracked root-level "dist" too, for the src='.'/'./ ' rows — mk_repo alone only ships web/dist.
+mkdir -p "$G/dist/assets"
+printf 'console.log(1)\n' > "$G/dist/assets/index-GGGGGGGG.js"
+printf '<script src="/assets/index-GGGGGGGG.js"></script>\n' > "$G/dist/index.html"
+git -C "$G" add -A
+git_commit_all "$G" "a root-level dist alongside web/dist, for every containment row"
 
-# And the positive control that keeps the fix from being "refuse a bit more": a front-end project
-# at the repository ROOT (src '.') is a legitimate arming, so the guard must fall through to the
-# real drift measurement rather than reject its own configuration step's output.
-RT="$scratch/root-src-guard"
-mk_repo "$RT" "index-RRRRRRRR.js"
-set +e
-( cd "$RT" && BUNDLE_SRC=. BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) \
-  > "$scratch/out-rootsrc.txt" 2>&1
-rc=$?
-set -e
-if [ "$rc" -ne 0 ]; then
-  echo "FAIL: the guard rejected BUNDLE_SRC='.', a front-end project at the repository root — the"
-  echo "      very shape the config step now accepts, so the two would disagree:"
-  cat "$scratch/out-rootsrc.txt"
-  exit 1
-fi
-echo "  [5d] BUNDLE_SRC='.' — a root-level front-end — still reaches the drift measurement"
+# The 2 rows KNOWN to disagree (see the comment above) are excluded here, not silently
+# reinterpreted: same table, same loop shape as 1c, same $r_want compared directly.
+GUARD_ROWS=$(printf '%s\n' "$CONTAINMENT_ROWS" | grep -v -e '^web	web/	refuse$' -e '^\./	\./dist/	accept$')
+while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
+  [ -n "$r_src" ] || continue
+  set +e
+  ( cd "$G" && BUNDLE_SRC="$r_src" BUNDLE_DIST="$r_dist" bash "$scratch/guard.sh" ) \
+    > "$scratch/out-guard-row.txt" 2>&1
+  rc=$?
+  set -e
+  got=accept; [ "$rc" -eq 0 ] || got=refuse
+  [ "$got" = "$r_want" ] || containment_fail "guard body" "$r_src" "$r_dist" \
+      "$r_want" "$got" "$scratch/out-guard-row.txt"
+  # A refusal must be ACTIONABLE, not merely non-zero: the reader needs to know which variable
+  # to fix. The old hand-written mismatch/equality cases asserted exactly this
+  # (`grep -q "BUNDLE_SRC" …`); the shared table dropped it on the way in.
+  if [ "$r_want" = refuse ]; then
+    grep -q "BUNDLE_SRC" "$scratch/out-guard-row.txt" || {
+      echo "FAIL: src='$r_src' dist='$r_dist' — the guard refused but never named BUNDLE_SRC:"
+      cat "$scratch/out-guard-row.txt"; exit 1; }
+  fi
+done <<EOF
+$GUARD_ROWS
+EOF
+echo "  [5d] every non-divergent containment case in the shared table, against the guard body"
+
+# The 2 excluded rows, asserted EXPLICITLY against the guard's actual (currently divergent)
+# behaviour — not silently dropped, not folded into a generic override function. See the block
+# comment above this section for why each one differs from the config step's copy.
+guard_row_diverges() {   # $1 = src · $2 = dist · $3 = the verdict THIS copy actually gives
+  set +e
+  ( cd "$G" && BUNDLE_SRC="$1" BUNDLE_DIST="$2" bash "$scratch/guard.sh" ) \
+    > "$scratch/out-guard-divergent.txt" 2>&1
+  rc=$?
+  set -e
+  got=accept; [ "$rc" -eq 0 ] || got=refuse
+  [ "$got" = "$3" ] || {
+    echo "FAIL: src='$1' dist='$2' — the guard's KNOWN-divergent verdict changed (was '$3', now"
+    echo "      '$got'). If this is a deliberate fix, remove this row from the exclusion above"
+    echo "      and let the shared loop cover it like every other row:"
+    cat "$scratch/out-guard-divergent.txt"; exit 1; }
+  if [ "$3" = refuse ]; then
+    grep -q "BUNDLE_SRC" "$scratch/out-guard-divergent.txt" || {
+      echo "FAIL: src='$1' dist='$2' — the guard refused but never named BUNDLE_SRC:"
+      cat "$scratch/out-guard-divergent.txt"; exit 1; }
+  fi
+}
+guard_row_diverges "web" "web/" accept
+guard_row_diverges "./" "./dist/" refuse
+echo "  [5d] the 2 known-divergent rows give the guard's documented (not yet fixed) verdict"
 
 # ---------------------------------------------------------------------------
 # 5. As shipped the four steps are PRESENT but INERT — and inert by the one mechanism GitHub
