@@ -58,3 +58,21 @@ payoff is visible). It auto-detects the transcript dir from `$PWD` if not given.
 and **$/merge** across runs so a regression shows up immediately. Dollar figures are API list-price
 equivalents — on a subscription they map to rate-limit budget, not cash; the authoritative cash figure
 is the built-in `/cost`.
+
+## Lever 4 — route work to the tier that priced it best
+
+### Tier-cost subsection
+
+Measured from a 19-merge run on bsca-dev/partners-api (2026-08-24), 38 worker sessions, via `scripts/usage_report.py`:
+
+| Tier | Sessions | Tokens | $ list-equiv | $/Mtok |
+|---|---|---|---|---|
+| opus (top) | 4 | 78,844,117 | $187.23 | $2.376 |
+| sonnet (mid) | 31 | 568,624,991 | $238.46 | $0.419 |
+| haiku (small) | 2 | 9,012,921 | $1.51 | $0.168 |
+
+**Derived cost ratios:** 5.7× (top:mid), 2.5× (mid:small), 14.2× (top:small).
+
+Dollar figures are API list-price equivalents — on a subscription they map to rate-limit budget, not cash.
+
+**Historical note:** An earlier record stated "≈2.7×" as the mid:small ratio but did not document the measurements it came from (the printed 2.395/2.145 figures do not derive that ratio). The ratio should be re-derived from a documented run rather than propagated without source.
