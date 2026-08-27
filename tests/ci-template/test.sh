@@ -1357,12 +1357,10 @@ echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefai
 # not follow symlinks by default, so `-type f` alone would start refusing a LEGITIMATE report
 # reached through a symlink — trading a fail-open for a fail-closed, which is strictly worse
 # because the new failure is loud, misleading, and hits working setups. Measured (#126) against
-# the shipped expression and both candidates:
-#
-#     entry under coverage/            no -type      -type f     -L … -type f
-#     directory  bogus.cobertura.xml   matches       rejected    rejected
-#     symlink → a real report          matches       REJECTED    matches
-#     dangling symlink                 matches       rejected    rejected
+# the shipped expression and both candidates — the three-row table is templates/ci-dotnet.yml's
+# own (its "entrée sous coverage/" rationale, read below rather than retyped in English here: #141
+# found the two copies asserting against each other, one in French and one in English, with
+# nothing to keep them in sync when either changed).
 #
 # so the symlinked-report row is the one that distinguishes the two candidates, and the regression
 # a later "simplification" to a bare `-type f` would introduce. Presence semantics are untouched:
@@ -1375,25 +1373,71 @@ echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefai
 mkdir -p "$cov/real"
 : > "$cov/real/genuine.cobertura.xml"
 
+# The template's own table, sliced out rather than retyped (#141), following case 4h's precedent
+# in tests/xunit-v3/test.sh:629-631 (`mtp_line=$(grep -E … ci-dotnet.yml)`, `eval`'d under a
+# `[ -n … ]` guard): find the "entrée sous coverage/" header and take the three rows that follow
+# it. A missing or short extraction is a loud FAIL naming the file, never a skip that would let
+# `expect` silently fall back to nothing.
+cov_table_rows=$(awk '
+  found && n < 3 { print; n++ }
+  /entrée sous coverage\// { found=1 }
+' templates/ci-dotnet.yml | sed -E 's/^[[:space:]]*#[[:space:]]*//')
+[ -n "$cov_table_rows" ] && [ "$(printf '%s\n' "$cov_table_rows" | grep -c .)" -eq 3 ] || {
+  echo "FAIL: could not extract exactly 3 coverage-guard table rows from templates/ci-dotnet.yml"
+  echo "      after its 'entrée sous coverage/' header (found:"
+  printf '%s\n' "$cov_table_rows"
+  echo "      ). The entry-kind expectations below are derived from this table, so an"
+  echo "      unparseable or reshaped table must fail loudly here rather than let 'expect' fall"
+  echo "      back to nothing."; exit 1; }
+
+# <row-label substring> — the row's LAST column (the "-L … -type f" one: what the shipped guard
+# actually runs), normalized from the table's French 'matche'/'refusé'/'REFUSÉ' to accept/refuse.
+# A row that does not contain the substring, or whose last column is neither spelling, is a loud
+# FAIL naming the table and the expected shape — never a default.
+#
+# ⚠ Every caller reads this through `expect=$(cov_table_expect …)`, a command substitution — so
+# anything this function writes to STDOUT is captured into `expect`, never seen in the log. A FAIL
+# echoed there (as every other FAIL in this suite is) would still exit the script under `set -e`
+# (an assignment's command substitution failing DOES trigger errexit, unlike a bare command), but
+# SILENTLY: the diagnostic would be swallowed into a variable nothing ever reads. So every FAIL
+# line here goes to STDERR (`>&2`), and only the final `accept`/`refuse` verdict goes to stdout.
+cov_table_expect() {
+  local label="$1" line col
+  line=$(printf '%s\n' "$cov_table_rows" | grep -F "$label")
+  [ -n "$line" ] || {
+    echo "FAIL: no row in templates/ci-dotnet.yml's coverage-guard table contains '$label' —" >&2
+    echo "      re-point this extraction if the table's row wording changed. Rows found:" >&2
+    printf '%s\n' "$cov_table_rows" >&2; exit 1; }
+  col=$(printf '%s\n' "$line" | awk '{print $NF}')
+  case "$col" in
+    matche) echo accept ;;
+    refusé|REFUSÉ) echo refuse ;;
+    *)
+      echo "FAIL: the '$label' row's last column ('$col') in templates/ci-dotnet.yml's" >&2
+      echo "      coverage-guard table is neither 'matche' nor 'refusé'/'REFUSÉ' — re-point this" >&2
+      echo "      extraction if the table's spelling changed." >&2; exit 1 ;;
+  esac
+}
+
 ENTRY_KINDS=(directory dangling-symlink symlinked-report)
 for entry in "${ENTRY_KINDS[@]}"; do
   rm -rf "$cov/coverage" && mkdir -p "$cov/coverage"
   case "$entry" in
     directory)
       mkdir -p "$cov/coverage/bogus.cobertura.xml"
-      target="$cov/coverage/bogus.cobertura.xml"; expect=refuse
+      target="$cov/coverage/bogus.cobertura.xml"; expect=$(cov_table_expect "dossier")
       [ -d "$target" ] && [ ! -f "$target" ] || {
         echo "FAIL: fixture broken — $target is not a directory, so the case below would assert"
         echo "      nothing about the entry type it is named for."; exit 1; } ;;
     dangling-symlink)
       ln -s ../nowhere/absent.cobertura.xml "$cov/coverage/dangling.cobertura.xml"
-      target="$cov/coverage/dangling.cobertura.xml"; expect=refuse
+      target="$cov/coverage/dangling.cobertura.xml"; expect=$(cov_table_expect "cassé")
       [ -L "$target" ] && [ ! -e "$target" ] || {
         echo "FAIL: fixture broken — $target must be a symlink whose target does NOT exist;"
         echo "      a resolvable one would be testing the row below instead."; exit 1; } ;;
     symlinked-report)
       ln -s ../real/genuine.cobertura.xml "$cov/coverage/linked.cobertura.xml"
-      target="$cov/coverage/linked.cobertura.xml"; expect=accept
+      target="$cov/coverage/linked.cobertura.xml"; expect=$(cov_table_expect "vrai rapport")
       [ -L "$target" ] && [ -f "$target" ] || {
         echo "FAIL: fixture broken — $target must be a symlink that RESOLVES to a regular file;"
         echo "      that is the row separating \`-L -type f\` from a bare \`-type f\`."; exit 1; } ;;
