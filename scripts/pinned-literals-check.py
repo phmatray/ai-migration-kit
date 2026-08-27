@@ -63,14 +63,32 @@ from collections import namedtuple
 
 # --------------------------------------------------------------------------------------- the pins
 #
-# One entry per pinned version. A second pin — COVERAGE_EXT_VERSION is the obvious next one — is a
-# row here, not a redesign; #90 deliberately scoped this pass to xunit.v3, the leg Renovate bumps
-# most visibly.
+# One entry per pinned literal. Two KINDS (#158):
 #
-#   source        the module that DEFINES the constant. Its own definition line is skipped: it is
-#                 what every other spelling is compared against, not a copy of it.
-#   marker        the token that means "this line states the pinned version".
-Pin = namedtuple("Pin", "name source package_const version_const marker")
+#   DERIVED (the default) — a constant somewhere in the repo IS the authority. A marked line must
+#                            state what that constant currently holds; that is what "pinned" meant
+#                            before #158, and every existing pin stays exactly this shape.
+#   AGREED                 — there is no authority. Some literals have no constant to derive from
+#                            (a frozen fixture's test-stack versions, restated nowhere but in prose
+#                            and scratch fixtures) — an AGREED pin instead collects every MARKED
+#                            occurrence and refuses unless they all agree with EACH OTHER. Fewer
+#                            than two is refused too: an agreement of one is vacuous, indistinguishable
+#                            from a lone, uncorroborated typo.
+#
+#   name            identifies the pin; keys HISTORICAL entries and refusal messages.
+#   marker          the token that means "this line states the pin". Required for both kinds.
+#   kind            "DERIVED" (default) or "AGREED".
+#   source          DERIVED only: the module that DEFINES the constant. Its own definition line is
+#                   skipped: it is what every other spelling is compared against, not a copy of it.
+#   package_const / version_const
+#                   DERIVED only: the `NAME = "value"` constants `source` defines.
+#   package         AGREED only: the literal package id claim_patterns() anchors on — there is no
+#                   module to read it from, since there is no authority.
+Pin = namedtuple(
+    "Pin", "name marker kind source package_const version_const package"
+)
+Pin.__new__.__defaults__ = ("DERIVED", None, None, None, None)  # kind, source, package_const,
+                                                                  # version_const, package
 
 PINS = (
     Pin(
@@ -353,6 +371,94 @@ def check_exclusions(repo, files, pin, version, problems):
 
 
 def check_pin(repo, files, pin, problems):
+    """Dispatch to the scan `pin.kind` needs — DERIVED (a constant is the authority) or AGREED (no
+    authority; every marked occurrence must agree with every other). Kept as one entry point so
+    main()'s loop stays kind-agnostic; the two scans differ enough in what they need (a source
+    module vs. none at all) that folding them into one function would read as one function doing
+    two things, which is the failure #158's Task 2 spec names AGREED to avoid repeating.
+    """
+    if pin.kind == "AGREED":
+        return check_pin_agreed(repo, files, pin, problems)
+    return check_pin_derived(repo, files, pin, problems)
+
+
+def check_pin_agreed(repo, files, pin, problems):
+    """AGREED: no constant is the authority. Collect every MARKED occurrence's claim(s) and refuse
+    unless they all agree with EACH OTHER — naming every differing value when they don't, and
+    refusing a lone occurrence as vacuous (nothing corroborates a single restatement; a typo there
+    would be indistinguishable from a correct value).
+
+    Unlike DERIVED, there is no literal-scan half: with no authority there is no "the version" to
+    hunt unmarked spellings of, so an AGREED pin sees only what is explicitly marked. That is a
+    real, narrower guarantee than DERIVED's — worth stating plainly rather than leaving implicit,
+    since a reader used to DERIVED's "any spelling is judged" behaviour would otherwise assume the
+    same holds here.
+    """
+    patterns = claim_patterns(pin.package)
+    occurrences = []  # [(rel, number, claim)], in scan order
+
+    for rel in files:
+        if is_excluded(rel):
+            continue
+        lines = read_lines(repo / rel)
+        if lines is None:
+            continue
+        # A claim can still wrap across two physical lines here (#158 Task 1's line_claims), but
+        # unlike check_pin_derived's literal-scan half there is no unmarked-line re-scan to protect
+        # from double-counting: AGREED only ever looks at a line THAT CARRIES THE MARKER, so no
+        # bookkeeping is needed to exclude a span "already claimed" by a neighbour — each marked
+        # line's own line_claims() call is independent of every other.
+        for number, line in enumerate(lines, 1):
+            if pin.marker not in line:
+                continue
+            next_line = lines[number] if number < len(lines) else None
+            claims, _consumed = line_claims(line, next_line, patterns)
+            if not claims:
+                problems.append(
+                    "%s:%d carries the `%s` marker but states no `%s <version>` claim, so the\n"
+                    "      marker verifies nothing. Put it on the line that carries the claim,\n"
+                    "      or drop it:\n"
+                    "        %s" % (rel, number, pin.marker, pin.package, line.strip())
+                )
+                continue
+            for claim in sorted(claims):
+                occurrences.append((rel, number, claim))
+
+    if len(occurrences) < 2:
+        if occurrences:
+            rel, number, claim = occurrences[0]
+            problems.append(
+                "the AGREED pin `%s` (package %s) has exactly ONE marked occurrence — %s:%d states\n"
+                "      %s %s. An agreement of one is vacuous: nothing corroborates it, so a lone\n"
+                "      typo would be indistinguishable from a correct value. Mark a second\n"
+                "      restatement, or drop the pin."
+                % (pin.name, pin.package, rel, number, pin.package, claim)
+            )
+        else:
+            problems.append(
+                "not one line carries the `%s` marker, so the AGREED pin `%s` verified NOTHING.\n"
+                "      Reporting 'all accounted for' over an empty set is the failure mode the\n"
+                "      kit's other guards were written for; refusing instead."
+                % (pin.marker, pin.name)
+            )
+        return pin.package, None, len(occurrences), 0
+
+    values = sorted(set(claim for _, _, claim in occurrences))
+    if len(values) > 1:
+        named = "\n".join(
+            "        %s:%d states %s" % (rel, number, claim) for rel, number, claim in occurrences
+        )
+        problems.append(
+            "the AGREED pin `%s` (package %s) has occurrences that disagree — there is no\n"
+            "      constant here to say which is right, so EVERY value seen is suspect until they\n"
+            "      agree:\n%s" % (pin.name, pin.package, named)
+        )
+        return pin.package, None, len(occurrences), 0
+
+    return pin.package, values[0], len(occurrences), 0
+
+
+def check_pin_derived(repo, files, pin, problems):
     """Classify every line in the repo that carries the marker or spells the pin's version."""
     source_path = repo / pin.source
     source = read_lines(source_path)
@@ -514,7 +620,12 @@ def main():
     summary = []
     for pin in PINS:
         package, version, marked, recorded = check_pin(repo, files, pin, problems)
-        check_exclusions(repo, files, pin, version, problems)
+        # `version` is None only when check_pin_agreed already refused (vacuous or disagreeing) —
+        # there is then no single value left to check excluded paths against, and the refusal
+        # already above says so. check_exclusions() would otherwise have nothing meaningful to
+        # compare and nothing to add.
+        if version is not None:
+            check_exclusions(repo, files, pin, version, problems)
         summary.append("%s %s — %d marked spelling(s), %d recorded as historical"
                        % (package, version, marked, recorded))
 

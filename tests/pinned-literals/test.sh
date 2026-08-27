@@ -17,7 +17,10 @@
 #  10. the REAL repository                               -> accept
 #  11. a claim wrapped across two physical lines          -> REFUSE, naming the FIRST line, not the 2nd
 #  12. a marker on line N does not launder line N+1's own -> both lines refused, independently
-#  13. the check driven to red — five mutations, each of which must silence exactly one case above
+#  14. an AGREED pin, two marked occurrences that agree   -> accept
+#  15. an AGREED pin, two marked occurrences that disagree -> REFUSE, naming every value seen
+#  16. an AGREED pin, exactly one marked occurrence        -> REFUSE (an agreement of one is vacuous)
+#  17. the check driven to red — mutations, each of which must silence exactly one case above
 #
 # The refusal cases are the point. #69's `[7e]` sweep covered two files and said, in the issue it
 # spawned, that the rest needed a policy rather than a wider regex — and the hazard in getting that
@@ -340,11 +343,77 @@ else
   bad "expected independent refusals for docs/nolaunder.md:1 AND :2; got rc=$rc: $out"
 fi
 
-# -------------------------------------------------------------- 13. the check, driven to red
+MUT="$WORK/mutants"; mkdir -p "$MUT"
+
+# ---------------------------------------------------------- AGREED: the engine, exercised
+# The shipped PINS table carries no AGREED pin yet — #158's Task 3 is what adds the real ones (the
+# frozen-fixture trio). This engine still needs proving before anything depends on it, so these
+# sections drive a MUTATED copy of the check carrying one throwaway AGREED pin (package "widget",
+# marker "agreed:test-pin"), the same "copy the script, change one thing, run scratch fixtures
+# through the copy" technique section 17's mutants use below — just adding a pin instead of
+# poisoning a line. `$AGREED` is built once and reused by sections 14–16.
+python3 - "$CHECK" "$MUT/agreed-engine.py" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding="utf-8").read()
+anchor = "PINS = (\n"
+insert = ('    Pin(\n'
+          '        name="agreed-test",\n'
+          '        marker="agreed:test-pin",\n'
+          '        kind="AGREED",\n'
+          '        package="widget",\n'
+          '    ),\n')
+if anchor not in text:
+    sys.exit("PINS = ( not found — scripts/pinned-literals-check.py's shape changed")
+open(dst, "w", encoding="utf-8").write(text.replace(anchor, anchor + insert, 1))
+PY
+AGREED="$MUT/agreed-engine.py"
+[ -s "$AGREED" ] || { echo "FAIL: could not build the AGREED-engine mutant"; exit 1; }
+
+# ------------------------------------------------- 14. an AGREED pin, two occurrences that agree
+R="$WORK/agreed-agree"; scaffold "$R"
+mkdir -p "$R/docs"
+printf 'The vendor pins widget 1.2.3 in its own doc.  # agreed:test-pin\n' > "$R/docs/widget-a.md"
+printf 'Vendor doc: widget 1.2.3, restated here too.  # agreed:test-pin\n' > "$R/docs/widget-b.md"
+out=$(run_with "$AGREED" "$R"); rc=$?
+if [ $rc -eq 0 ]; then
+  ok "an AGREED pin with two agreeing occurrences is accepted"
+else
+  bad "two agreeing AGREED occurrences must be accepted; got rc=$rc: $out"
+fi
+
+# ---------------------------------------------- 15. an AGREED pin, two occurrences that disagree
+R="$WORK/agreed-disagree"; scaffold "$R"
+mkdir -p "$R/docs"
+printf 'The vendor pins widget 1.2.3 in its own doc.  # agreed:test-pin\n' > "$R/docs/widget-a.md"
+printf 'Vendor doc: widget 9.9.0, restated here too.  # agreed:test-pin\n' > "$R/docs/widget-b.md"
+out=$(run_with "$AGREED" "$R"); rc=$?
+if [ $rc -ne 0 ] \
+   && printf '%s' "$out" | grep -q 'occurrences that disagree' \
+   && printf '%s' "$out" | grep -q 'docs/widget-a.md:1 states 1.2.3' \
+   && printf '%s' "$out" | grep -q 'docs/widget-b.md:1 states 9.9.0'; then
+  ok "an AGREED pin with disagreeing occurrences is refused, naming every value seen"
+else
+  bad "expected a disagreement refusal naming both files and both values; got rc=$rc: $out"
+fi
+
+# --------------------------------------------------- 16. an AGREED pin, exactly one occurrence
+R="$WORK/agreed-single"; scaffold "$R"
+mkdir -p "$R/docs"
+printf 'The vendor pins widget 1.2.3 in its own doc.  # agreed:test-pin\n' > "$R/docs/widget-a.md"
+out=$(run_with "$AGREED" "$R"); rc=$?
+if [ $rc -ne 0 ] \
+   && printf '%s' "$out" | grep -q 'exactly ONE marked occurrence' \
+   && printf '%s' "$out" | grep -q 'docs/widget-a.md:1 states'; then
+  ok "an AGREED pin with exactly one occurrence is refused as vacuous"
+else
+  bad "expected a vacuous-single-occurrence refusal; got rc=$rc: $out"
+fi
+
+# -------------------------------------------------------------- 17. the check, driven to red
 # Each mutation neuters exactly one branch of the guard, and the case that branch serves must lose
 # its evidence. Without this the sections above prove the check refuses SOMETHING — not that any
 # particular assertion is load-bearing. The mutants are copies; the shipped script is never edited.
-MUT="$WORK/mutants"; mkdir -p "$MUT"
 
 # The mutant path comes back in a GLOBAL, never through `m=$(mutate …)`. Command substitution runs
 # the function in a SUBSHELL: a `bad` call inside it would increment $fails in a copy that dies
@@ -364,6 +433,23 @@ mutate() {  # <name> <sed-expr>; sets $MUTANT, returns non-zero if the mutation 
   fi
   return 0
 }
+
+# M6 — stop detecting AGREED disagreement at all. Section 15's refusal must go unnamed. Mutates the
+# AGREED-engine copy (built above), not the shipped $CHECK — this is the disagreement check that
+# does not exist until the AGREED pin is present, so there is nothing for a plain mutate() of $CHECK
+# to poison.
+AGREED_BLIND="$MUT/agreed-engine-blind.py"
+cp "$AGREED" "$AGREED_BLIND" && rewrite "$AGREED_BLIND" 's/^    if len(values) > 1:$/    if False:/'
+if cmp -s "$AGREED" "$AGREED_BLIND"; then
+  bad "mutation 'blind-to-disagreement' changed nothing — its sed no longer matches the check"
+else
+  out=$(run_with "$AGREED_BLIND" "$WORK/agreed-disagree")
+  if printf '%s' "$out" | grep -q 'occurrences that disagree'; then
+    bad "section 15 is not load-bearing: the blinded check still refused the disagreement"
+  else
+    ok "mutation 'blind-to-disagreement' silences section 15 — that assertion is load-bearing"
+  fi
+fi
 
 # M1 — stop classifying unmarked lines at all. Section 1's copy must go unnamed.
 if mutate blind-to-copies 's/^            if not direct_hit and not wrap_hit:$/            if True:/'; then
