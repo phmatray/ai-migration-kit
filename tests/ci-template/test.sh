@@ -769,73 +769,72 @@ fi
 echo "  [5c] refuses a directory that exists but holds no tracked file"
 
 # ---------------------------------------------------------------------------
-# 5d. The two variables must describe the SAME tree.
+# 5d. The two variables must describe the SAME tree — the guard's OWN copy of the containment
+#     rule, driven against the SAME `CONTAINMENT_ROWS` table as 1c.
 #
 #     Splitting the configuration in two created a way for the gate to certify a bundle nothing
 #     rebuilt: point BUNDLE_SRC at one project and BUNDLE_DIST at another's output, and npm
 #     regenerates the first while the guard inspects the second, finds it unchanged, and reports
 #     "à jour" on a stale bundle — the false remediation this whole step exists to prevent,
 #     produced by the step. Cheap to get wrong, too: two settings edited months apart.
+#
+#     Fed the RAW spelling, not the normalised pair the config step would publish: the whole
+#     argument for keeping this second copy is that it must hold when the values arrive from
+#     somewhere else (a matrix, a second config path, a hand-edit in an adopter's repo — #96's own
+#     discussion). Verified by executing the shipped guard body, exactly as 1c drives the config
+#     step — not asserted from reading.
+#
+#     Two rows of the shared table are KNOWN to disagree between the copies when fed that raw
+#     spelling, because the guard's own check — unlike the config step's (which strips a leading
+#     './' and a trailing '/' before comparing, lines ~464-481 of the template) — never
+#     normalises BUNDLE_SRC/BUNDLE_DIST at all:
+#       - `web` / `web/` (raw): the guard's equality check sees `web/` != `web` and does not fire;
+#         its containment `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/?*)` then sees `web//` against
+#         `web/?*`, which MATCHES (the extra `/` satisfies the `?`) — so the guard body ACCEPTS a
+#         dist that equals its own src, fed this one raw spelling.
+#       - `./` / `./dist/` (raw): `[ "$BUNDLE_SRC" != "." ]` is true for the literal string `./`,
+#         so the guard treats a legitimate root-project arming as non-root and REFUSES it.
+#     Neither is reachable in production — the guard only ever receives the config step's
+#     ALREADY-NORMALISED outputs — so this is not the #151 hazard reopened; it is exactly the
+#     finding this table's own design predicts ("prove it stands alone") applied to two spellings
+#     nobody had fed the guard raw before. `guard_expected` below asserts what the shipped guard
+#     body actually does for those two rows rather than silently dropping them, and the reason
+#     is tracked as a follow-up (see the PR's Follow-ups section) — fixing it would touch
+#     `templates/ci-dotnet.yml`'s behaviour, which Tasks 1-2 of this issue do not.
 # ---------------------------------------------------------------------------
-X="$scratch/mismatched"
-mk_repo "$X" "index-JJJJJJJJ.js"
-mkdir -p "$X/docs-site"
-: > "$X/docs-site/package.json"
-set +e
-( cd "$X" && BUNDLE_SRC=docs-site BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) \
-  > "$scratch/out-mismatch.txt" 2>&1
-rc=$?
-set -e
-if [ "$rc" -eq 0 ]; then
-  echo "FAIL: the guard accepted BUNDLE_DIST outside BUNDLE_SRC. npm rebuilt one tree while the"
-  echo "      guard inspected another — it would go green on a bundle nothing regenerated:"
-  cat "$scratch/out-mismatch.txt"
-  exit 1
-fi
-grep -q "BUNDLE_SRC" "$scratch/out-mismatch.txt" || {
-  echo "FAIL: refused, but never named the mismatch:"; cat "$scratch/out-mismatch.txt"; exit 1; }
-echo "  [5d] refuses when BUNDLE_DIST is not under BUNDLE_SRC — the two-sources-of-truth trap"
+guard_expected() {   # $1 = src · $2 = dist · $3 = table verdict -> the verdict THIS copy actually gives
+  case "$1|$2" in
+    "web|web/")   echo accept ;;   # raw trailing '/' — guard's equality+containment checks both miss it
+    "./|./dist/") echo refuse ;;   # raw './' src — guard's literal `!= "."` check does not normalise it
+    *) echo "$3" ;;
+  esac
+}
 
-# The same hole in the guard's own copy of the check, and the reason "not under" has to be said as
-# "not under AND not equal": `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` accepted equality, because
-# `*` matches the empty string. Equality is the case with teeth — npm has just created
-# node_modules inside the very tree this guard inspects, and it lists ignored files on purpose, so
-# the step would be permanently red while telling the reader to rebuild and commit.
-EQ="$scratch/dist-equals-src"
-mk_repo "$EQ" "index-EEEEEEEE.js"
-set +e
-( cd "$EQ" && BUNDLE_SRC=web BUNDLE_DIST=web bash "$scratch/guard.sh" ) \
-  > "$scratch/out-equal.txt" 2>&1
-rc=$?
-set -e
-if [ "$rc" -eq 0 ]; then
-  echo "FAIL: the guard accepted BUNDLE_DIST == BUNDLE_SRC. 'npm ci' creates node_modules in that"
-  echo "      tree and this guard lists ignored files deliberately, so the step would go red on"
-  echo "      every run with advice that cannot make it green:"
-  cat "$scratch/out-equal.txt"
-  exit 1
-fi
-grep -q "BUNDLE_SRC" "$scratch/out-equal.txt" || {
-  echo "FAIL: refused, but never named the two variables:"; cat "$scratch/out-equal.txt"; exit 1; }
-echo "  [5d] refuses BUNDLE_DIST == BUNDLE_SRC — '*' used to match the empty string"
-
-# And the positive control that keeps the fix from being "refuse a bit more": a front-end project
-# at the repository ROOT (src '.') is a legitimate arming, so the guard must fall through to the
-# real drift measurement rather than reject its own configuration step's output.
-RT="$scratch/root-src-guard"
-mk_repo "$RT" "index-RRRRRRRR.js"
-set +e
-( cd "$RT" && BUNDLE_SRC=. BUNDLE_DIST=web/dist bash "$scratch/guard.sh" ) \
-  > "$scratch/out-rootsrc.txt" 2>&1
-rc=$?
-set -e
-if [ "$rc" -ne 0 ]; then
-  echo "FAIL: the guard rejected BUNDLE_SRC='.', a front-end project at the repository root — the"
-  echo "      very shape the config step now accepts, so the two would disagree:"
-  cat "$scratch/out-rootsrc.txt"
-  exit 1
-fi
-echo "  [5d] BUNDLE_SRC='.' — a root-level front-end — still reaches the drift measurement"
+while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
+  [ -n "$r_src" ] || continue
+  G="$scratch/containment-guard-$(printf '%s|%s' "$r_src" "$r_dist" | tr -c 'a-z0-9' '-')"
+  mk_repo "$G" "index-GGGGGGGG.js"
+  mkdir -p "$G/docs-site"; : > "$G/docs-site/package.json"
+  # A tracked root-level "dist" too, for the src='.'/'./ ' rows — mk_repo alone only ships web/dist.
+  mkdir -p "$G/dist/assets"
+  printf 'console.log(1)\n' > "$G/dist/assets/index-GGGGGGGG.js"
+  printf '<script src="/assets/index-GGGGGGGG.js"></script>\n' > "$G/dist/index.html"
+  git -C "$G" add -A
+  git -C "$G" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+      commit -qm "a root-level dist alongside web/dist"
+  want=$(guard_expected "$r_src" "$r_dist" "$r_want")
+  set +e
+  ( cd "$G" && BUNDLE_SRC="$r_src" BUNDLE_DIST="$r_dist" bash "$scratch/guard.sh" ) \
+    > "$scratch/out-guard-row.txt" 2>&1
+  rc=$?
+  set -e
+  got=accept; [ "$rc" -eq 0 ] || got=refuse
+  [ "$got" = "$want" ] || containment_fail "guard body" "$r_src" "$r_dist" \
+      "$want" "$got" "$scratch/out-guard-row.txt"
+done <<EOF
+$CONTAINMENT_ROWS
+EOF
+echo "  [5d] every containment case in the shared table, against the guard body"
 
 # ---------------------------------------------------------------------------
 # 5. As shipped the four steps are PRESENT but INERT — and inert by the one mechanism GitHub
