@@ -75,12 +75,26 @@ if [ "$PLAN_SRC" = comment ]; then
   # the filter independently per page and concatenates the results, so `last` only sees whichever
   # page happens to print after the others.
   PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate --slurp \
-    | jq -r '[.[][] | select(.body | contains("🛠️ Implementation plan"))] | last | .id')
+    | jq -r '
+      # >>> plan-locate marker-comment guard
+      # `.body // ""` guards a comment with no body: `gh` reports that as JSON `null`, and
+      # `contains()` throws on `null` rather than treating it as non-matching (#278, same fix #259
+      # applied to the PR-existence guard's `test()` call) — coercing to `""` makes it evaluate to
+      # "no match" like any other non-marker body.
+      [.[][] | select((.body // "") | contains("🛠️ Implementation plan"))] | last | .id
+      # <<< plan-locate marker-comment guard
+      ')
 
   # Fallback if no marker (older/hand-written plan): latest comment that has checkbox lines.
   if [ -z "$PLAN_COMMENT_ID" ]; then
     PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate --slurp \
-      | jq -r '[.[][] | select(.body | (contains("- [ ]") or contains("- [x]")))] | last | .id')
+      | jq -r '
+        # >>> plan-locate checkbox-fallback guard
+        # Same null-body guard as the marker-comment scan above, applied to the checkbox-line
+        # fallback (#278).
+        [.[][] | select((.body // "") | (contains("- [ ]") or contains("- [x]")))] | last | .id
+        # <<< plan-locate checkbox-fallback guard
+        ')
   fi
 
   # Nothing in the body AND nothing in comments? Stop — there is no plan to execute (Autonomy contract).
