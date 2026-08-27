@@ -293,8 +293,10 @@ jq --arg issue "$ISSUE" '
   # $issue is the numeric issue id, bound above via --arg. `\b…#<n>\b` stops "214" from matching a
   # #2140/#1214 substring. `:?\s*` accepts both "Closes #42" and "Closes: #42" — GitHub recognizes
   # the colon form too — while still requiring the keyword to sit immediately before the number, not
-  # just somewhere in the same sentence.
-  [.[] | select(.body | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s*#" + $issue + "\\b"))]
+  # just somewhere in the same sentence. `.body // ""` guards a PR with no description: `gh` reports
+  # that as JSON `null`, and `test()` throws on `null` rather than treating it as non-matching (#259)
+  # — coercing to `""` makes it evaluate to "no match" like any other non-closing body.
+  [.[] | select((.body // "") | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s*#" + $issue + "\\b"))]
   # <<< issue-scoped PR-existence guard
 ' /tmp/issue-$ISSUE-mentions.json > /tmp/issue-$ISSUE-closers.json
 

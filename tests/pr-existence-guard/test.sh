@@ -132,6 +132,11 @@ verdict mixed-keywords-case-insensitive.json 42 '60 61 62' \
 verdict colon-and-tight-spacing.json 42 '70 71' \
   'the colon form and tight spacing between keyword and number still match'
 
+# A `null` body (a PR with no description) must not crash the whole filter, and it must not
+# swallow a genuine neighbor's match either (#259).
+verdict null-body.json 42 '81' \
+  'a null-body PR does not crash the guard and a real neighbor still matches'
+
 # ---------------------------------------------------------------------------------------- verdict
 if [ "$FAILED" -ne 0 ]; then
   echo
