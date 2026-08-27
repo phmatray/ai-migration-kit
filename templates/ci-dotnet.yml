@@ -552,6 +552,18 @@ jobs:
             echo "La reconstruction n'a donc pas eu lieu là où vit le bundle."
             exit 1
           fi
+          # Normaliser AVANT de comparer — le même './'-strip et trailing-'/'-strip que l'étape de
+          # configuration applique déjà (lignes ~475-477) avant de publier ses sorties. Un invariant
+          # délégué à l'appelant est un invariant perdu au premier changement d'appelant (#96) : si
+          # ces valeurs arrivaient un jour d'ailleurs qu'une sortie déjà normalisée (une matrice, un
+          # second chemin de config, une modification manuelle chez un adoptant), cette copie doit
+          # rendre le même verdict que celle-ci pour toute orthographe équivalente, pas seulement la
+          # paire normalisée que l'étape de configuration publie aujourd'hui (#285).
+          BUNDLE_SRC=${BUNDLE_SRC#./}
+          while [ "$BUNDLE_SRC" != "${BUNDLE_SRC%/}" ]; do BUNDLE_SRC=${BUNDLE_SRC%/}; done
+          [ -n "$BUNDLE_SRC" ] || BUNDLE_SRC=.
+          BUNDLE_DIST=${BUNDLE_DIST#./}
+          while [ "$BUNDLE_DIST" != "${BUNDLE_DIST%/}" ]; do BUNDLE_DIST=${BUNDLE_DIST%/}; done
           # L'égalité d'abord, et nommée. `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` l'acceptait
           # (`*` matche la chaîne vide, donc `web/` matche `web/*`) : `npm ci` vient de créer
           # node_modules DANS l'arbre que cette garde inspecte, et comme elle liste volontairement
