@@ -396,6 +396,41 @@ $CONTAINMENT_ROWS
 EOF
 echo "  [1c] every containment case in the shared table, against the config step"
 
+# The one refusal in the config step with no executable witness: `command -v jq` at
+# templates/ci-dotnet.yml:433. It is diagnostic quality, not a gate — it stops a jq-less runner
+# from blaming a perfectly valid JSON file — but "verified by reading" is the state every other
+# branch of this step left behind, and it is the state #151's two identical holes came from.
+NOJQ="$scratch/nojq-bin"
+mkdir -p "$NOJQ"
+# Symlink every binary the body actually needs, and only those. Deleting PATH entries instead
+# would take `git` with `jq` on most machines, and the step would refuse for the wrong reason.
+for b in git bash sh env; do
+  p=$(command -v "$b" 2>/dev/null) && ln -sf "$p" "$NOJQ/$b"
+done
+CJQ="$scratch/config-no-jq"
+mk_config_repo "$CJQ" '{ "src": "web", "dist": "web/dist" }'
+set +e
+( cd "$CJQ" && PATH="$NOJQ" GITHUB_OUTPUT="$CJQ/gh-output.txt" BUNDLE_GATE_CONFIG="$CONFIG" \
+    bash "$scratch/config.sh" ) > "$scratch/out-nojq.txt" 2>&1
+jq_rc=$?
+set -e
+command -v jq > /dev/null 2>&1 || { echo "SKIP: jq is absent from this machine's PATH too,"; \
+  echo "      so the shim proves nothing here — CI has jq and does run this."; }
+if [ "$jq_rc" -eq 0 ]; then
+  echo "FAIL: the config step armed the gate on a runner with no jq:"
+  cat "$scratch/out-nojq.txt"; exit 1
+fi
+grep -qF "$CONFIG" "$scratch/out-nojq.txt" || {
+  echo "FAIL: refused for want of jq but never named $CONFIG:"; cat "$scratch/out-nojq.txt"; exit 1; }
+grep -q 'jq' "$scratch/out-nojq.txt" || {
+  echo "FAIL: refused without saying jq was the missing piece, so the reader would go and edit"
+  echo "      a perfectly valid JSON file:"; cat "$scratch/out-nojq.txt"; exit 1; }
+if [ -s "$CJQ/gh-output.txt" ]; then
+  echo "FAIL: refused for want of jq yet still published outputs:"
+  cat "$CJQ/gh-output.txt"; exit 1
+fi
+echo "  [1c] a runner without jq is refused, and told it is the runner and not the file"
+
 # ---------------------------------------------------------------------------
 # 1e. The shipped example is the file an adopter copies, so it must be a file the config step
 #     would accept. A doc page going stale is visible to whoever reads it; a malformed example
