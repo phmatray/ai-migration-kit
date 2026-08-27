@@ -83,7 +83,12 @@ if [ "$PLAN_SRC" = comment ]; then
       # is not known-reachable through this endpoint. `contains()` still throws on `null` if one ever
       # arrives, exactly the way `test()` did before #259, so this coerces to `""` for the same
       # "no match" outcome as any other non-marker body, at effectively no cost (#278).
-      [.[][] | select((.body // "") | contains("🛠️ Implementation plan"))] | last | .id
+      # `last | .id` alone renders a genuine zero-match as the literal jq value `null`, and `jq -r`
+      # prints that as the four-character string "null" — not empty output. The surrounding bash
+      # gates on `[ -z "$PLAN_COMMENT_ID" ]`, which is false for a non-empty string, so without
+      # `// empty` the fallback scan and the "no plan" stop below never fire on an ordinary
+      # zero-match comment set (#286).
+      [.[][] | select((.body // "") | contains("🛠️ Implementation plan"))] | last | .id // empty
       # <<< plan-locate marker-comment guard
       ')
 
@@ -94,7 +99,8 @@ if [ "$PLAN_SRC" = comment ]; then
         # >>> plan-locate checkbox-fallback guard
         # Same defensive null-body guard as the marker-comment scan above, applied to the
         # checkbox-line fallback (#278).
-        [.[][] | select((.body // "") | (contains("- [ ]") or contains("- [x]")))] | last | .id
+        # Same `// empty` fix as the marker-comment guard above, for the same reason (#286).
+        [.[][] | select((.body // "") | (contains("- [ ]") or contains("- [x]")))] | last | .id // empty
         # <<< plan-locate checkbox-fallback guard
         ')
   fi
