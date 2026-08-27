@@ -27,6 +27,7 @@
 - [The audit product — `/migrate-audit`](#the-audit-product--migrate-audit)
 - [The pipeline](#the-pipeline)
 - [The issue/PR lifecycle skills](#the-issuepr-lifecycle-skills)
+- [Desktop launcher](#desktop-launcher)
 - [Safety rails](#safety-rails)
 - [Repository layout](#repository-layout)
 - [Proof it works](#proof-it-works)
@@ -206,6 +207,24 @@ keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Thei
 (authenticated `gh`, the superpowers skill set, a code-review skill) are declared in
 [`requirements.json`](requirements.json). Call graph and full dependency matrix:
 [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Desktop launcher
+
+[**AI Kit**](https://github.com/Atypical-Consulting/omarchy-aikit) runs these
+skills from the [Omarchy](https://omarchy.org/) desktop instead of the command
+line: pick a repository, pick a skill, and the session starts in a tmux terminal.
+Issues and PRs are chosen from a list rather than typed as numbers, a bar widget
+shows the sessions in flight and the PRs a background `auto-dev` fleet has
+landed, and a cross-repo work queue answers "what should I work on?" — failing
+CI, requested reviews, your open PRs, assigned and planned issues, across every
+repository at once.
+
+Menus read a local SQLite mirror of GitHub kept fresh by a systemd timer, so no
+menu waits on the network.
+
+```bash
+omarchy plugin add https://github.com/Atypical-Consulting/omarchy-aikit.git --enable
+```
 
 ## Safety rails
 
