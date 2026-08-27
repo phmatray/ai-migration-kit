@@ -848,25 +848,13 @@ echo "  [5c] refuses a directory that exists but holds no tracked file"
 #     discussion). Verified by executing the shipped guard body, exactly as 1c drives the config
 #     step — not asserted from reading.
 #
-#     Two rows of the shared table are KNOWN to disagree between the copies when fed that raw
-#     spelling, because the guard's own check — unlike the config step's (which strips a leading
-#     './' and a trailing '/' before comparing, lines ~464-481 of the template) — never
-#     normalises BUNDLE_SRC/BUNDLE_DIST at all:
-#       - `web` / `web/` (raw): the guard's equality check sees `web/` != `web` and does not fire;
-#         its containment `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/?*)` then sees `web//` against
-#         `web/?*`, which MATCHES (the extra `/` satisfies the `?`) — so the guard body ACCEPTS a
-#         dist that equals its own src, fed this one raw spelling.
-#       - `./` / `./dist/` (raw): `[ "$BUNDLE_SRC" != "." ]` is true for the literal string `./`,
-#         so the guard treats a legitimate root-project arming as non-root and REFUSES it.
-#     Neither is reachable in production — the guard only ever receives the config step's
-#     ALREADY-NORMALISED outputs — so this is not the #151 hazard reopened; it is exactly the
-#     finding this table's own design predicts ("prove it stands alone") applied to two spellings
-#     nobody had fed the guard raw before. Those two rows are pulled OUT of the shared-loop
-#     assertion below and asserted explicitly further down: `CONTAINMENT_ROWS` then means exactly
-#     what its own comment claims — same row, same verdict, both copies — for every row the main
-#     loop actually drives, with no per-copy override hidden inside it. The known divergence is
-#     tracked as a follow-up (see the PR's Follow-ups section) — fixing it would touch
-#     `templates/ci-dotnet.yml`'s behaviour, which Tasks 1-2 of this issue do not.
+#     #285 fixed two rows that used to disagree between the copies when fed that raw spelling,
+#     because the guard's own check — unlike the config step's (which strips a leading './' and a
+#     trailing '/' before comparing, lines ~464-481 of the template) — never normalised
+#     BUNDLE_SRC/BUNDLE_DIST at all. The guard body now carries the same two-line normalisation, so
+#     every row of the shared table drives straight off `$r_want` with no per-copy exclusion or
+#     override — `CONTAINMENT_ROWS` means exactly what its own comment claims: same row, same
+#     verdict, both copies.
 # ---------------------------------------------------------------------------
 
 # One fixture, reused for every row: `guard.sh` only READS the tree (`git status`), never
@@ -883,9 +871,9 @@ printf '<script src="/assets/index-GGGGGGGG.js"></script>\n' > "$G/dist/index.ht
 git -C "$G" add -A
 git_commit_all "$G" "a root-level dist alongside web/dist, for every containment row"
 
-# The 2 rows KNOWN to disagree (see the comment above) are excluded here, not silently
-# reinterpreted: same table, same loop shape as 1c, same $r_want compared directly.
-GUARD_ROWS=$(printf '%s\n' "$CONTAINMENT_ROWS" | grep -v -e '^web	web/	refuse$' -e '^\./	\./dist/	accept$')
+# Same table, same loop shape as 1c, same $r_want compared directly — no per-copy exclusion or
+# override. #285 normalised the guard body to match the config step, so every row now gives the
+# same verdict from both copies with nothing pulled out here.
 while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
   [ -n "$r_src" ] || continue
   set +e
@@ -905,34 +893,9 @@ while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
       cat "$scratch/out-guard-row.txt"; exit 1; }
   fi
 done <<EOF
-$GUARD_ROWS
+$CONTAINMENT_ROWS
 EOF
-echo "  [5d] every non-divergent containment case in the shared table, against the guard body"
-
-# The 2 excluded rows, asserted EXPLICITLY against the guard's actual (currently divergent)
-# behaviour — not silently dropped, not folded into a generic override function. See the block
-# comment above this section for why each one differs from the config step's copy.
-guard_row_diverges() {   # $1 = src · $2 = dist · $3 = the verdict THIS copy actually gives
-  set +e
-  ( cd "$G" && BUNDLE_SRC="$1" BUNDLE_DIST="$2" bash "$scratch/guard.sh" ) \
-    > "$scratch/out-guard-divergent.txt" 2>&1
-  rc=$?
-  set -e
-  got=accept; [ "$rc" -eq 0 ] || got=refuse
-  [ "$got" = "$3" ] || {
-    echo "FAIL: src='$1' dist='$2' — the guard's KNOWN-divergent verdict changed (was '$3', now"
-    echo "      '$got'). If this is a deliberate fix, remove this row from the exclusion above"
-    echo "      and let the shared loop cover it like every other row:"
-    cat "$scratch/out-guard-divergent.txt"; exit 1; }
-  if [ "$3" = refuse ]; then
-    grep -q "BUNDLE_SRC" "$scratch/out-guard-divergent.txt" || {
-      echo "FAIL: src='$1' dist='$2' — the guard refused but never named BUNDLE_SRC:"
-      cat "$scratch/out-guard-divergent.txt"; exit 1; }
-  fi
-}
-guard_row_diverges "web" "web/" accept
-guard_row_diverges "./" "./dist/" refuse
-echo "  [5d] the 2 known-divergent rows give the guard's documented (not yet fixed) verdict"
+echo "  [5d] every containment case in the shared table, against the guard body"
 
 # ---------------------------------------------------------------------------
 # 5. As shipped the four steps are PRESENT but INERT — and inert by the one mechanism GitHub
