@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
-# Golden test for the plan-locate comment scan's two null-body guards (#278).
+# Golden test for the plan-locate comment scan's two guards (#278, #286).
 #
 # §2's `PLAN_SRC = comment` branch (skills/implement-issue/references/github-mechanics.md) fetches
 # every comment on an issue via `gh api .../comments --paginate --slurp`, then filters for the plan
 # marker comment or, failing that, the latest comment with checkbox lines. Both filters ran
 # `select(.body | contains(...))` directly on `.body`, which throws if `.body` is ever `null` —
-# exactly the way `test()` did in the pre-#259 PR-existence guard.
+# exactly the way `test()` did in the pre-#259 PR-existence guard (#278 fixed that with `.body // ""`).
 #
-# Unlike #259's confirmed case, this one is DEFENSIVE rather than a proven live crash: GitHub's REST
-# OpenAPI schema types `issue-comment.body` as a plain non-nullable `string` (checked directly against
-# `components.schemas.issue-comment.properties.body` in
+# Unlike #259's confirmed case, the null-body crash is DEFENSIVE rather than a proven live crash:
+# GitHub's REST OpenAPI schema types `issue-comment.body` as a plain non-nullable `string` (checked
+# directly against `components.schemas.issue-comment.properties.body` in
 # https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json),
 # unlike `issue.body` (and PR bodies, which reuse the issue schema) which IS declared
 # `nullable: true` — the field #259 actually fixed. So a `null` comment body is not known-reachable
 # through this endpoint today. The guard is still worth having (cheap, and it matches the sibling
 # call site's shape), but this suite pins defensive behavior against a hypothetical input, not a
 # reproduction of an observed failure.
+#
+# #286: separately from the null-body defense, `... | last | .id` renders a genuine "nothing
+# matched" as the literal jq value `null`, and `jq -r` prints that as the FOUR-CHARACTER STRING
+# "null" — not empty output. The surrounding bash gates on `[ -z "$PLAN_COMMENT_ID" ]`, which is
+# false for the string "null", so the fallback scan and the "no plan" stop never fire. This is not
+# specific to a null *body*: it reproduces on any zero-match comment set, `null` body or not. The
+# fix appends `// empty` so a genuine non-match prints nothing, and `$(...)` captures the empty
+# string `-z` already expects.
 #
 # The programs under test are NOT copied here. They are EXTRACTED from the two marked blocks inside
 # skills/implement-issue/references/github-mechanics.md §2 and run verbatim via `jq -f`, so the thing
@@ -81,8 +89,10 @@ done
 # ---------------------------------------------------------------------------------- 2. the verdicts
 #
 # verdict <prog> <fixture> <want-id> <what it pins>
-# want-id: the numeric comment id the guard should return; "null" means no match (jq's own
-# rendering of `last` over zero matches — no comment id is ever literally the string "null").
+# want-id: the numeric comment id the guard should return; "" (empty string) means no match — the
+# shipped `// empty` guard turns jq's own zero-match `null` into no output at all, which is what
+# `$(...)` must capture for `[ -z "$PLAN_COMMENT_ID" ]` downstream to see (#286). No comment id is
+# ever literally the string "null" or the empty string.
 verdict() {
   local prog="$1" fixture="$2" want="$3" what="$4"
   local path="$FIXTURES/$fixture" got
@@ -112,11 +122,20 @@ verdict "$CHECKBOX_PROG" null-body-with-marker.json 101 \
   'the checkbox-fallback guard also survives the same null-body neighbor (the marker comment carries checkbox lines too)'
 
 # An array with ONLY a null-body comment — no marker, no checkboxes — must fall through cleanly to
-# "no match" on both guards, not crash either one.
-verdict "$MARKER_PROG" null-body-only.json null \
-  'a null-body-only comment set does not crash the marker-comment guard and yields no match'
-verdict "$CHECKBOX_PROG" null-body-only.json null \
-  'a null-body-only comment set does not crash the checkbox-fallback guard and yields no match'
+# "no match" on both guards, not crash either one, and "no match" must be genuinely empty output
+# (#286) — not the string "null", which `[ -z … ]` would treat as non-empty.
+verdict "$MARKER_PROG" null-body-only.json "" \
+  'a null-body-only comment set does not crash the marker-comment guard and yields a genuinely empty match'
+verdict "$CHECKBOX_PROG" null-body-only.json "" \
+  'a null-body-only comment set does not crash the checkbox-fallback guard and yields a genuinely empty match'
+
+# An ordinary comment set that matches NEITHER filter — no null body anywhere, just no marker and no
+# checkbox lines — is the everyday "fall through to the checkbox scan" / "stop, no plan" case this
+# code exists to handle. It must also yield genuinely empty output, not the string "null" (#286).
+verdict "$MARKER_PROG" zero-match.json "" \
+  'an ordinary non-matching comment set yields a genuinely empty match from the marker-comment guard'
+verdict "$CHECKBOX_PROG" zero-match.json "" \
+  'an ordinary non-matching comment set yields a genuinely empty match from the checkbox-fallback guard'
 
 # ---------------------------------------------------------------------------------------- verdict
 if [ "$FAILED" -ne 0 ]; then
@@ -125,4 +144,5 @@ if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
 echo
-echo "plan-locate-comment-guard: OK — both shipped guard programs survive a null comment body."
+echo "plan-locate-comment-guard: OK — both shipped guard programs survive a null comment body and"
+echo "report a genuinely empty match, not the string \"null\", on any zero-match comment set."
