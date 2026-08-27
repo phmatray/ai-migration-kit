@@ -60,6 +60,15 @@ fi
 
 # The fixtures' pin. Deliberately NOT the repo's real version: see the header.
 FAKE=9.9.9
+# #158: a second fake, for decorative text that mentions the coverage-ext pin's PACKAGE without
+# governing it (this suite tests xunit-v3 only) — spelling the real coverage-ext VERSION here would
+# make this EXCLUDED directory a copy of that pin the moment it exists in PINS.
+FAKE_COVERAGE=8.8.8
+# #158: a third fake, for the frozen-fixture-trio AGREED pins' baseline occurrences. Distinct from
+# both $FAKE and $FAKE_COVERAGE: the xunit-v3 pin's literal scan flags ANY unmarked line spelling
+# ITS version, regardless of what package name sits near it — reusing $FAKE here would make every
+# AGREED-trio line an unmarked xunit-v3 copy too.
+FAKE_FROZEN=7.7.7
 
 # Run a checker over a scratch repo; echo its output, return its status. The checker is a
 # parameter so section 11 can drive a MUTATED copy through the very same cases.
@@ -83,7 +92,7 @@ rewrite() {
 scaffold() {
   local root="$1"
   rm -rf "$root"
-  mkdir -p "$root/tests/xunit-v3" "$root/skills/legacy-upgrade/references"
+  mkdir -p "$root/tests/xunit-v3" "$root/skills/legacy-upgrade/references" "$root/templates"
 
   cat > "$root/tests/xunit-v3/apply-transform.py" <<PY
 # The module that DEFINES the pin. Its own definition line is the source, not a copy.
@@ -96,6 +105,15 @@ scaffold() {
 XUNIT_V3_PACKAGE = "xunit.v3"
 XUNIT_V3_VERSION = "$FAKE"
 
+# #158: a second, unrelated DERIVED pin in the same module — coverage-widget $FAKE_COVERAGE  # pinned:coverage-ext
+COVERAGE_PACKAGE = "coverage-widget"
+COVERAGE_EXT_VERSION = "$FAKE_COVERAGE"
+
+# Floating ($FAKE_COVERAGE.*) and build metadata ($FAKE_COVERAGE+build) are accepted deliberately —
+# an ILLUSTRATION mirroring the real module's VERSION_RE comment, not a claim about the constant.
+# Major as an INT: '0$FAKE_COVERAGE' and '$FAKE_COVERAGE' are the same line — mirrors the real
+# module's leading-zero-parsing docstring, same reason.
+
 
 def validate_pairing(xunit_package, version):
     # an older positional call would refuse a correct pair naming "$FAKE" as the serving package
@@ -103,9 +121,14 @@ def validate_pairing(xunit_package, version):
     return xunit_package, version
 PY
 
+  cat > "$root/templates/ci-dotnet.yml" <<YML
+# A measurement banner using the short alias — mirrors templates/ci-dotnet.yml's real one.
+#   (SDK 10.0.302, xunit.v3 $FAKE, CodeCoverage $FAKE_COVERAGE) :   # pinned:xunit-v3
+YML
+
   cat > "$root/tests/xunit-v3/test.sh" <<SH
 #!/usr/bin/env bash
-#     Measured (SDK 10.0.302, xunit.v3 $FAKE, CodeCoverage 17.14.2):  # pinned:xunit-v3
+#     Measured (SDK 10.0.302, xunit.v3 $FAKE, CodeCoverage $FAKE_COVERAGE):  # pinned:xunit-v3
 #
 # Keyed on the package ID (measured: xunit.v3 $FAKE -> MTP 1.9.1,  # pinned:xunit-v3
 # xunit.v3.mtp-v2 $FAKE -> MTP 2.0.2), so a version-keyed map would invert every pair below.
@@ -116,6 +139,18 @@ cat > "\$scratch/helper.csproj" <<XML
   </ItemGroup>
 </Project>
 XML
+
+# #158: one restatement of the fixture's own frozen-style trio (AGREED, no source of truth) — the
+# other restatement lives in xunit-v3-migration.md below.
+# xunit $FAKE_FROZEN, xunit.runner.visualstudio $FAKE_FROZEN, Microsoft.NET.Test.Sdk $FAKE_FROZEN.  # agreed:frozen-xunit-core agreed:frozen-xunit-runner agreed:frozen-test-sdk
+
+# Test-literal lines mirroring the real section 7's pairing calls — an ILLUSTRATION exercising
+# validate_pairing(), not a measurement claim (same reason as apply-transform.py's two above). The
+# anchors below match on the PACKAGE's real full id text (not this fixture's fake VERSION), the
+# same way scripts/pinned-literals-check.py's own shipped HISTORICAL table does.
+# mod.validate_pairing("xunit.v3", "$FAKE_COVERAGE")  # implicit default package, no package= kwarg
+#     ("Microsoft.Testing.Extensions.CodeCoverage", "$FAKE_COVERAGE", "9.0.0"),
+# mod.validate_pairing("xunit.v3", "$FAKE_COVERAGE", package="microsoft.testing.extensions.codecoverage")
 SH
 
   cat > "$root/skills/legacy-upgrade/references/xunit-v3-migration.md" <<MD
@@ -128,6 +163,9 @@ SH
 
 Both are the same **major**, and \`xunit.v3.mtp-v2\` $FAKE are **stable**, not prerelease — so a
 rule keyed on the major refuses the correct pair.
+
+#158's other restatement of the frozen-style trio:
+xunit $FAKE_FROZEN, xunit.runner.visualstudio $FAKE_FROZEN, Microsoft.NET.Test.Sdk $FAKE_FROZEN. <!-- agreed:frozen-xunit-core agreed:frozen-xunit-runner agreed:frozen-test-sdk -->
 MD
 }
 
@@ -258,13 +296,23 @@ fi
 # The vacuity guard. A repo where the scan finds nothing to judge must REFUSE: "all accounted for"
 # over an empty set is the #45 failure — a check nobody notices has stopped looking.
 R="$WORK/vacuous"; mkdir -p "$R/tests/xunit-v3"
-{ printf 'XUNIT_V3_PACKAGE = "xunit.v3"\n'; printf 'XUNIT_V3_VERSION = "%s"\n' "$FAKE"; } \
+# COVERAGE_PACKAGE/COVERAGE_EXT_VERSION must be defined too (#158's second DERIVED pin shares this
+# same source module) — omitting them would make check_pin_derived die(2) on that pin before ever
+# reaching this section's target, xunit-v3's OWN marked==0 vacuity refusal. Both pins go vacuous
+# here, and the AGREED pins go vacuous too (they need no source) — this section only asserts that
+# AT LEAST ONE 'verified NOTHING' message names the case it drove: nothing carries any marker.
+{ printf 'XUNIT_V3_PACKAGE = "xunit.v3"\n'; printf 'XUNIT_V3_VERSION = "%s"\n' "$FAKE";
+  printf 'COVERAGE_PACKAGE = "coverage-widget"\n'; printf 'COVERAGE_EXT_VERSION = "%s"\n' "$FAKE_COVERAGE"; } \
   > "$R/tests/xunit-v3/apply-transform.py"
 out=$(run_check "$R"); rc=$?
-if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'verified NOTHING'; then
+# Scoped to the xunit-v3 marker specifically: with #158's later pins in PINS too, coverage-ext and
+# the three AGREED pins ALSO go vacuous over this same bare fixture, each printing its own "verified
+# NOTHING" — a bare 'verified NOTHING' grep would pass even with xunit-v3's OWN guard blinded, which
+# is exactly what M3 below exists to catch.
+if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q '`pinned:xunit-v3` marker.*verified NOTHING'; then
   ok "a repo where nothing carries the marker refuses instead of passing vacuously"
 else
-  bad "expected a vacuity refusal; got rc=$rc: $out"
+  bad "expected a vacuity refusal naming the pinned:xunit-v3 marker; got rc=$rc: $out"
 fi
 
 # --------------------------------------------------------- 9. a directory with no files at all
@@ -477,9 +525,12 @@ fi
 # two-line module, so every HISTORICAL entry is stale there too and the mutant still exits 1 for
 # that unrelated reason. Reading the exit status would let the vacuity guard rot behind a refusal
 # it never issued — the same "green for the wrong reason" the parse sweep's CI step warns about.
+# Scoped to the pinned:xunit-v3 marker (see section 8's own comment): #158's later pins over the
+# same fixture print their OWN unrelated "verified NOTHING" lines, which this mutation does not
+# touch — a bare grep would stay green even with xunit-v3's guard blinded.
 if mutate no-vacuity-guard 's/^    if marked == 0:$/    if False:/'; then
   out=$(run_with "$MUTANT" "$WORK/vacuous")
-  if printf '%s' "$out" | grep -q 'verified NOTHING'; then
+  if printf '%s' "$out" | grep -q '`pinned:xunit-v3` marker.*verified NOTHING'; then
     bad "section 8 is not load-bearing: the blinded check still reported the vacuity refusal"
   else
     ok "mutation 'no-vacuity-guard' silences section 8 — that assertion is load-bearing"

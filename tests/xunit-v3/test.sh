@@ -384,9 +384,14 @@ cat > "$scratch/multi/tests/LegacyShop.Catalog.Tests/LegacyShop.Catalog.Tests.cs
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.3.2" />
-    <PackageReference Include="xunit" Version="2.4.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.5" />
+    <!-- Mirrors samples/LegacyShop's own frozen v2 stack, restated as an INPUT to this multi-project
+         transform test — the three PackageReference lines below are held to renovate.json's
+         description of that frozen fixture by the agreed:frozen-* pins in
+         scripts/pinned-literals-check.py (#158), not derived from it (samples/ is frozen; nothing
+         may derive FROM it, only restate it and agree). -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.3.2" /> <!-- agreed:frozen-test-sdk -->
+    <PackageReference Include="xunit" Version="2.4.2" /> <!-- agreed:frozen-xunit-core -->
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.5" /> <!-- agreed:frozen-xunit-runner -->
   </ItemGroup>
 
   <ItemGroup>
@@ -897,7 +902,7 @@ mod.validate_pairing(mod.XUNIT_V3_PACKAGE, mod.COVERAGE_EXT_VERSION)
 # The DEFAULT package is the coverage extension — the one the transform writes — so the call with no
 # `package=` must behave exactly as the explicit one does. (The version pairs themselves are owned by
 # the family table below; duplicating them here would mean keeping two tables in sync by hand.)
-mod.validate_pairing("xunit.v3", "17.14.2")
+mod.validate_pairing("xunit.v3", "17.14.2")  # implicit default package, no package= kwarg
 try:
     mod.validate_pairing("xunit.v3", "18.9.0")
 except ValueError:

@@ -114,6 +114,8 @@ def expected_major(package: str, line: int) -> int:
 # too far from COVERAGE_PACKAGE to capture the id alongside it, so that one is templated). A bump
 # proposed here still has to satisfy validate_pairing, and the golden test runs the transform for
 # real — so a bump that crosses the MTP line fails the suite rather than reaching a migration.
+#
+# Measured (api.nuget.org/v3-flatcontainer): Microsoft.Testing.Extensions.CodeCoverage 17.14.2  # pinned:coverage-ext
 COVERAGE_EXT_VERSION = "17.14.2"
 
 

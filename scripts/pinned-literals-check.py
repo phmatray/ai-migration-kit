@@ -98,6 +98,33 @@ PINS = (
         version_const="XUNIT_V3_VERSION",
         marker="pinned:xunit-v3",
     ),
+    # #158: the obvious next DERIVED row this file's own header comment named — same module, same
+    # shape, its own marker so a line can carry both without either check reading the other's claim.
+    Pin(
+        name="coverage-ext",
+        source="tests/xunit-v3/apply-transform.py",
+        package_const="COVERAGE_PACKAGE",
+        version_const="COVERAGE_EXT_VERSION",
+        marker="pinned:coverage-ext",
+    ),
+    # #158: the frozen `samples/LegacyShop` fixture's test stack has no constant to derive from —
+    # `samples/` is frozen precisely so nothing derives from it (rejected Approach C in the issue).
+    # These three AGREED pins instead hold the fixture's restatements to EACH OTHER: renovate.json's
+    # description of the frozen fixture, and the scratch v2 csproj tests/xunit-v3/test.sh builds to
+    # mirror it, must keep stating the same three versions independently.
+    Pin(name="frozen-xunit", marker="agreed:frozen-xunit-core", kind="AGREED", package="xunit"),
+    Pin(
+        name="frozen-xunit-runner",
+        marker="agreed:frozen-xunit-runner",
+        kind="AGREED",
+        package="xunit.runner.visualstudio",
+    ),
+    Pin(
+        name="frozen-test-sdk",
+        marker="agreed:frozen-test-sdk",
+        kind="AGREED",
+        package="Microsoft.NET.Test.Sdk",
+    ),
 )
 
 # ------------------------------------------------------------------------- the historical record
@@ -171,6 +198,61 @@ HISTORICAL = (
         anchor="are **stable**, not prerelease",
         reason="the reference's copy of the stable-releases enumeration — same record as the "
                "module's, for the reader running a real migration.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="templates/ci-dotnet.yml",
+        anchor="SDK 10.0.302, xunit.v3",
+        reason="a measurement banner spelling the package by its short alias 'CodeCoverage' rather "
+               "than the full id claim_patterns() anchors on — widening that shared pattern for one "
+               "package's alias is out of scope. The canonical, checked claim lives at "
+               "tests/xunit-v3/apply-transform.py's own header comment, next to the constant.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/test.sh",
+        anchor="SDK 10.0.302, xunit.v3",
+        reason="section 4f's measurement banner, same short alias as templates/ci-dotnet.yml's — "
+               "see that entry's reason.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/apply-transform.py",
+        anchor="and build metadata",
+        reason="an ILLUSTRATION of what VERSION_RE deliberately accepts (a floating `17.14.*` and "
+               "build metadata) — the point is the SHAPE those parse as, not which version was used "
+               "as the example.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/apply-transform.py",
+        anchor="Major as an INT",
+        reason="an ILLUSTRATION of leading-zero parsing in _major_of() — the point is that '017.x' "
+               "and '17.x' read as the same major, not which version was used as the example.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/test.sh",
+        anchor="implicit default package, no package= kwarg",
+        reason="a test literal exercising validate_pairing()'s DEFAULT package argument. It is not "
+               "a measurement claim: any version on the pin's own MTP line would exercise the same "
+               "branch, and the family table two lines below already owns the pairing values — "
+               "duplicating them here as a tracked claim would mean keeping two tables in sync.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/test.sh",
+        anchor='"Microsoft.Testing.Extensions.CodeCoverage", "',
+        reason="the family-pairing table's CodeCoverage row (section 7b) — a test literal for the "
+               "v1-line/v2-line pairing check, not a measurement claim; same reason as the "
+               "'implicit default package' entry above.",
+    ),
+    Recorded(
+        pin="coverage-ext",
+        path="tests/xunit-v3/test.sh",
+        anchor='package="microsoft.testing.extensions.codecoverage")',
+        reason="a test literal proving a lower-case spelling of the package id still hits "
+               "EXTENSION_MAJOR's override — the case-insensitivity is the point, not the version.",
     ),
 )
 
