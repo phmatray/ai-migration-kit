@@ -15,7 +15,9 @@
 #   9. a directory with no files at all                  -> exit 2, no verdict, never a pass
 #  9b. the constant defined more than once               -> exit 2, no verdict, never a guess
 #  10. the REAL repository                               -> accept
-#  11. the check driven to red — three mutations, each of which must silence exactly one case above
+#  11. a claim wrapped across two physical lines          -> REFUSE, naming the FIRST line, not the 2nd
+#  12. a marker on line N does not launder line N+1's own -> both lines refused, independently
+#  13. the check driven to red — five mutations, each of which must silence exactly one case above
 #
 # The refusal cases are the point. #69's `[7e]` sweep covered two files and said, in the issue it
 # spawned, that the rest needed a policy rather than a wider regex — and the hazard in getting that
@@ -296,7 +298,49 @@ else
   bad "the real repository must pass the check (rc=$rc): $out"
 fi
 
-# -------------------------------------------------------------- 11. the check, driven to red
+# ------------------------------------------- 11. a claim wrapped across two physical lines
+# The bug #158 exists for: a claim typeset across two physical lines — the package id ending one,
+# the version opening the next — with nothing looking at the seam. This actually happened:
+# `tests/xunit-v3/test.sh:237` had to be hand-rewrapped onto one line to become checkable (see the
+# header of tests/pinned-literals/README.md). The check must see the wrap, AND attribute it to the
+# line the package id starts on — never to the line the version happens to land on, which is what a
+# naive "does this physical line spell the version" scan would do instead.
+R="$WORK/wrapped"; scaffold "$R"
+mkdir -p "$R/docs"
+printf 'Our CI pins xunit.v3\n%s, measured last spring.\n' "$FAKE" > "$R/docs/wrapped.md"
+out=$(run_check "$R"); rc=$?
+if [ $rc -ne 0 ] \
+   && printf '%s' "$out" | grep -q 'docs/wrapped.md:1' \
+   && ! printf '%s' "$out" | grep -q 'docs/wrapped.md:2' \
+   && printf '%s' "$out" | grep -q 'neither marked nor recorded'; then
+  ok "a claim wrapped across two lines is refused, naming the FIRST line, never the second"
+else
+  bad "expected a refusal naming docs/wrapped.md:1 only (not :2); got rc=$rc: $out"
+fi
+
+# ------------------------------------- 12. a marker on line N does not launder line N+1's claim
+# The flip side of section 11's join: it must not let a marker on line N silently cover a claim
+# that merely happens to sit on line N+1. The marker still binds to the physical line it is ON —
+# line N is refused for stating no claim (section 6's case, unchanged), and line N+1's own,
+# unrelated claim is refused independently, never silently verified just because a marker sits one
+# line above it. Unlike section 11 this is NOT a wrap: line N+1 states a complete claim entirely by
+# itself, with its own package id and version.
+R="$WORK/nolaunder"; scaffold "$R"
+mkdir -p "$R/docs"
+printf 'A pinned line with no package id at all.  # pinned:xunit-v3\nUnrelated: xunit.v3 %s mentioned separately.\n' \
+  "$FAKE" > "$R/docs/nolaunder.md"
+out=$(run_check "$R"); rc=$?
+if [ $rc -ne 0 ] \
+   && printf '%s' "$out" | grep -q 'docs/nolaunder.md:1' \
+   && printf '%s' "$out" | grep -q 'states no `xunit.v3 <version>` claim' \
+   && printf '%s' "$out" | grep -q 'docs/nolaunder.md:2' \
+   && printf '%s' "$out" | grep -q 'neither marked nor recorded'; then
+  ok "a marker on line N does not launder an unrelated claim on line N+1 — both refused independently"
+else
+  bad "expected independent refusals for docs/nolaunder.md:1 AND :2; got rc=$rc: $out"
+fi
+
+# -------------------------------------------------------------- 13. the check, driven to red
 # Each mutation neuters exactly one branch of the guard, and the case that branch serves must lose
 # its evidence. Without this the sections above prove the check refuses SOMETHING — not that any
 # particular assertion is load-bearing. The mutants are copies; the shipped script is never edited.
@@ -322,7 +366,7 @@ mutate() {  # <name> <sed-expr>; sets $MUTANT, returns non-zero if the mutation 
 }
 
 # M1 — stop classifying unmarked lines at all. Section 1's copy must go unnamed.
-if mutate blind-to-copies 's/^            if version not in line:$/            if True:/'; then
+if mutate blind-to-copies 's/^            if not direct_hit and not wrap_hit:$/            if True:/'; then
   out=$(run_with "$MUTANT" "$WORK/newcopy")
   if printf '%s' "$out" | grep -q 'docs/notes.md:1'; then
     bad "section 1 is not load-bearing: the blinded check still named docs/notes.md:1"
@@ -353,6 +397,33 @@ if mutate no-vacuity-guard 's/^    if marked == 0:$/    if False:/'; then
     bad "section 8 is not load-bearing: the blinded check still reported the vacuity refusal"
   else
     ok "mutation 'no-vacuity-guard' silences section 8 — that assertion is load-bearing"
+  fi
+fi
+
+# M4 — stop joining physical lines at all. Section 11's wrapped claim must go unnamed at line 1
+# (it may still surface, misattributed to line 2, exactly like the pre-#158 behaviour — the point
+# is that line 1 loses its evidence, not that the repo goes silent altogether).
+if mutate blind-to-wraps 's/^    if next_line is not None:$/    if False:/'; then
+  out=$(run_with "$MUTANT" "$WORK/wrapped")
+  if printf '%s' "$out" | grep -q 'docs/wrapped.md:1'; then
+    bad "section 11 is not load-bearing: the un-joined check still named docs/wrapped.md:1"
+  else
+    ok "mutation 'blind-to-wraps' silences section 11 — that assertion is load-bearing"
+  fi
+fi
+
+# M5 — drop the "starts within THIS line" guard on a wrap match. Section 12's marker must now
+# launder the unrelated claim one line below it: with no boundary check, ANY match anywhere in the
+# joined text is attributed to line N, so the marker's line stops stating "no claim" (it silently
+# adopts line N+1's claim instead) and line N+1's own occurrence gets marked "consumed" and never
+# scanned in its own right either. Both assertions inside section 12 depend on the same guard, so
+# losing either is enough to prove it load-bearing.
+if mutate no-wrap-boundary 's/^                if m.start() < len(line) < m.end():$/                if True:/'; then
+  out=$(run_with "$MUTANT" "$WORK/nolaunder")
+  if printf '%s' "$out" | grep -q 'docs/nolaunder.md:1' && printf '%s' "$out" | grep -q 'docs/nolaunder.md:2'; then
+    bad "section 12 is not load-bearing: the boundary-less check still refused both lines"
+  else
+    ok "mutation 'no-wrap-boundary' silences section 12 — that assertion is load-bearing"
   fi
 fi
 

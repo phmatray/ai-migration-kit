@@ -220,6 +220,44 @@ def claim_patterns(package):
     )
 
 
+def line_claims(line, next_line, patterns):
+    """The claims physical line `line` states — including one that WRAPS onto `next_line`.
+
+    Why this exists (#158). `claim_patterns()` matches within a single physical line, but a claim
+    can be typeset across two: the package id ending one line with no trailing separator, the
+    version opening the next — `tests/xunit-v3/test.sh:237` had exactly this shape and had to be
+    hand-rewrapped to become checkable at all. Joining `line` and `next_line` with a single space
+    (standing in for the line break) lets the same patterns see it without changing what they match.
+
+    Returns `(claims, consumed)`. `claims` is every captured version, from `line` alone and from a
+    genuine wrap. `consumed` is how many of `next_line`'s LEADING characters a wrap match ate, so the
+    caller can exclude that span when it scans `next_line` on its own in the next loop iteration —
+    without that, the very same wrapped claim would be reported twice: once here, correctly
+    attributed to `line`, and once more at `next_line`, attributed to the wrong physical line.
+
+    A match in the joined text counts as THIS line's claim only when it STARTS inside `line`'s own
+    text (the package id begins here) AND reaches past it into `next_line` (`m.end() > len(line)`).
+    Without the second half of that test, a match that merely starts on `line` and ends there too
+    (an ordinary same-line claim the plain scan of `line` already finds) would be treated as
+    "consuming" a next_line that its match never touched. Without the first half, a claim that
+    starts and lies entirely within `next_line` — a real, independent claim, not a wrap — would be
+    misattributed to `line`; it is left alone here and picked up when `next_line` is scanned as its
+    own line on the next iteration. That distinction is what section 12 of the golden test proves:
+    a marker on line N must not silently launder an unrelated claim that merely happens to sit on
+    line N+1.
+    """
+    claims = set(m for pattern in patterns for m in pattern.findall(line))
+    consumed = 0
+    if next_line is not None:
+        joined = line + " " + next_line
+        for pattern in patterns:
+            for m in pattern.finditer(joined):
+                if m.start() < len(line) < m.end():
+                    claims.add(m.group(1))
+                    consumed = max(consumed, m.end() - (len(line) + 1))
+    return claims, consumed
+
+
 def repo_files(repo):
     """Every text file to scan, git-first.
 
@@ -347,15 +385,22 @@ def check_pin(repo, files, pin, problems):
         lines = read_lines(repo / rel)
         if lines is None:
             continue
+        # Chars at the START of the CURRENT line already attributed to a wrap match ending on the
+        # PREVIOUS line — set at the bottom of the loop body, consumed (and reset to 0) at the top
+        # of the next iteration. Without excluding this span, a claim that wraps across two lines
+        # would be reported twice: once at the line it starts on (correct), and again here, at the
+        # line its tail happens to sit on (wrong — see line_claims()'s docstring).
+        consumed_from_prev = 0
         for number, line in enumerate(lines, 1):
+            this_consumed, consumed_from_prev = consumed_from_prev, 0
+            next_line = lines[number] if number < len(lines) else None
+
             if rel == pin.source and definition.match(line):
                 continue
 
             if pin.marker in line:
                 marked += 1
-                claims = set()
-                for pattern in patterns:
-                    claims.update(pattern.findall(line))
+                claims, consumed_from_prev = line_claims(line, next_line, patterns)
                 if not claims:
                     problems.append(
                         "%s:%d carries the `%s` marker but states no `%s <version>` claim, so the\n"
@@ -379,8 +424,30 @@ def check_pin(repo, files, pin, problems):
                     )
                 continue
 
-            if version not in line:
+            # The literal scan: unlike the marked branch above, this does not require the package
+            # id at all — any spelling of the bare version is a claim that needs classifying. A
+            # wrap is therefore detected differently here: `line` on its own (minus a span already
+            # claimed by the PREVIOUS line's wrap) may simply not contain the version literal at
+            # all, because the version itself lives entirely on `next_line`. `line_claims()` still
+            # answers that: if a wrap match's captured version equals the pin's `version` and it is
+            # not also found by the direct substring test below, the only way it could be in
+            # `claims` is via the wrap (a same-line match would already have made `direct_hit` true,
+            # since the version text is necessarily present in `line` for the pattern to have
+            # matched it there).
+            direct_hit = version in line[this_consumed:]
+            wrap_hit = False
+            if not direct_hit:
+                claims, consumed = line_claims(line, next_line, patterns)
+                wrap_hit = consumed > 0 and version in claims
+                if wrap_hit:
+                    consumed_from_prev = consumed
+            if not direct_hit and not wrap_hit:
                 continue
+
+            # The line printed in a refusal: `line` alone for a direct hit, but `line` joined with
+            # `next_line` for a wrap — printing `line` alone there would show the package id and
+            # nothing else, since the version this refusal is ABOUT lives on the next physical line.
+            shown = line if direct_hit else line + " " + next_line
 
             entry = next((h for h in entries if h.path == rel and h.anchor in line), None)
             if entry is not None:
@@ -396,7 +463,7 @@ def check_pin(repo, files, pin, problems):
                 "      line, or an INPUT a test feeds itself), add it to HISTORICAL in\n"
                 "      scripts/pinned-literals-check.py with the reason. See\n"
                 "      tests/pinned-literals/README.md."
-                % (rel, number, pin.name, line.strip(), package, pin.marker,
+                % (rel, number, pin.name, shown.strip(), package, pin.marker,
                    pin.version_const, pin.source)
             )
 
