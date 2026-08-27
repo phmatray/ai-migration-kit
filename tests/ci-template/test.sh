@@ -1373,22 +1373,36 @@ echo "  [10] the coverage guard reports what it found under bash -e, -eo pipefai
 mkdir -p "$cov/real"
 : > "$cov/real/genuine.cobertura.xml"
 
+# The fixture set this suite actually exercises — declared here, ahead of the extraction below,
+# so the row-count assertion can check against ITS length rather than a hardcoded number: a table
+# row added without a matching fixture (or removed while a fixture still expects it) must redden,
+# not silently pass because the count assertion was a separate literal that happened to agree.
+ENTRY_KINDS=(directory dangling-symlink symlinked-report)
+
 # The template's own table, sliced out rather than retyped (#141), following case 4h's precedent
 # in tests/xunit-v3/test.sh:629-631 (`mtp_line=$(grep -E … ci-dotnet.yml)`, `eval`'d under a
-# `[ -n … ]` guard): find the "entrée sous coverage/" header and take the three rows that follow
-# it. A missing or short extraction is a loud FAIL naming the file, never a skip that would let
-# `expect` silently fall back to nothing.
+# `[ -n … ]` guard): find the "entrée sous coverage/" header and take every comment line that
+# follows it up to the first BLANK comment line (the table's own trailing `#`) — open-ended, not
+# capped at today's row count, so a row added to the table without a matching entry in
+# `ENTRY_KINDS` changes the extracted count and reddens below, rather than being silently dropped
+# by a cap that only ever reads "the first N".
 cov_table_rows=$(awk '
-  found && n < 3 { print; n++ }
+  found {
+    line = $0
+    sub(/^[[:space:]]*#[[:space:]]*/, "", line)
+    if (line == "") { exit }
+    print line
+    next
+  }
   /entrée sous coverage\// { found=1 }
-' templates/ci-dotnet.yml | sed -E 's/^[[:space:]]*#[[:space:]]*//')
-[ -n "$cov_table_rows" ] && [ "$(printf '%s\n' "$cov_table_rows" | grep -c .)" -eq 3 ] || {
-  echo "FAIL: could not extract exactly 3 coverage-guard table rows from templates/ci-dotnet.yml"
-  echo "      after its 'entrée sous coverage/' header (found:"
+' templates/ci-dotnet.yml)
+[ -n "$cov_table_rows" ] && [ "$(printf '%s\n' "$cov_table_rows" | grep -c .)" -eq "${#ENTRY_KINDS[@]}" ] || {
+  echo "FAIL: templates/ci-dotnet.yml's coverage-guard table (after its 'entrée sous coverage/'"
+  echo "      header) has $(printf '%s\n' "$cov_table_rows" | grep -c .) row(s), but this suite has"
+  echo "      fixtures for ${#ENTRY_KINDS[@]} entry kind(s) (${ENTRY_KINDS[*]}). Rows found:"
   printf '%s\n' "$cov_table_rows"
-  echo "      ). The entry-kind expectations below are derived from this table, so an"
-  echo "      unparseable or reshaped table must fail loudly here rather than let 'expect' fall"
-  echo "      back to nothing."; exit 1; }
+  echo "      A table row without a matching fixture (or a fixture without a matching row) must"
+  echo "      fail loudly here rather than let 'expect' silently fall back to nothing."; exit 1; }
 
 # <row-label substring> — the row's LAST column (the "-L … -type f" one: what the shipped guard
 # actually runs), normalized from the table's French 'matche'/'refusé'/'REFUSÉ' to accept/refuse.
