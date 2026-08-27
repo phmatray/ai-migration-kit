@@ -338,11 +338,13 @@ report rather than dispatching phase 2 blind.
 **Phase 2 defaults to the cheapest capable tier** — small/cheap by default, decoupled from phase 1's
 tier. The supervisor hands phase 2 the CI verdict (pass/fail), merge state (clean/blocked), and the
 local gate command to run, so it does no design work and carries no design risk — it is a rote merge +
-teardown. Measured on real runs: the same PR at mid tier costs ~$1.8 vs ~$0.51 on small, and issue
-#241 ran implement+merge end-to-end on small with zero code-review findings. *Exception:* if phase 2
-reports BLOCKED for a reason requiring judgement (a real merge conflict, a red gate, missing approval),
-the existing Step 4 tier-escalation rule applies — re-dispatch once on the top model before dropping
-the issue.
+teardown. Measured on the same 19-merge run (bsca-dev/partners-api, 2026-08-24): the same PR at mid
+tier costs ~$1.8 vs ~$0.51 on small, and issue #241 ran implement+merge end-to-end on small with zero
+code-review findings. *Exception:* if phase 2 reports BLOCKED for a reason that looks
+model-strength-shaped (e.g. a red gate suggesting the model is too weak, or design work needed that the
+small tier can't handle — as opposed to a genuine hard blocker: un-mergeable conflict, missing
+approval, no plan), the existing Step 4 tier-escalation rule applies — re-dispatch once on the top
+model before dropping the issue.
 
 ⚠️ **Don't append repo rules after `/auto-dev-worker <N>` in a `claude -p` prompt** — slash-command arg
 parsing takes `$1` only and silently drops the rest. Either put them in the command file or inline the
