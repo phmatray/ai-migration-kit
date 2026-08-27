@@ -80,9 +80,9 @@ comment happened to mention it. R2 (jq compiles) and R3 (no single quote) stay o
 deliberately: both validate the program's literal, pasted-verbatim text, comments included, not a
 derived vocabulary — stripping would validate a program CI never actually runs.
 
-R6's READ_RE is the one remaining consumer left on the raw text — not a considered exception like
-R2/R3, but a tracked gap (#261): it has the identical comment-as-phantom-token exposure R4/R5/R8 just
-closed, on the read side rather than the emit side.
+R6's READ_RE reads the same stripped view (#261): it has the identical comment-as-phantom-token
+exposure R4/R5/R8 close, on the read side rather than the emit side, and is not a considered
+exception like R2/R3.
 
 Usage:
   decision-check.py [--repo <path>] [--registry <path>]
@@ -176,7 +176,7 @@ def strip_comments(text):
     as untested complexity — see `tests/decisions/test.sh`'s own doctrine: every rule here is proved
     by breaking a working kit, never by reading the guard and believing it.)
 
-    R6's READ_RE is a separate, tracked gap (#261) — reads raw `prog`, not this stripped view.
+    R6's READ_RE also reads this stripped view (#261), not raw `prog`.
     """
     out = []
     for line in text.split("\n"):
@@ -629,7 +629,7 @@ def check(repo, registry_path):
             refuse("R6", shape["home"], f"'{did}'s shape block: {err}")
             continue
         emits = emitted_keys(block)
-        reads = set(READ_RE.findall(prog))
+        reads = set(READ_RE.findall(prog_emitted))
         missing = sorted(reads - emits)
         if missing:
             refuse("R6", shape["home"],
