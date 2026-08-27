@@ -35,14 +35,17 @@ original `xunit.v3` classification, still accurate for that pin, then see below 
 - **A third KIND, AGREED**, for a literal with **no constant to derive from** — `samples/LegacyShop`
   is a frozen fixture, and nothing may derive FROM it. Three AGREED pins
   (`frozen-xunit-core` / `frozen-xunit-runner` / `frozen-test-sdk`, package `xunit` /
-  `xunit.runner.visualstudio` / `Microsoft.NET.Test.Sdk`) instead hold that fixture's two in-repo
+  `xunit.runner.visualstudio` / `Microsoft.NET.Test.Sdk`) hold that fixture's two in-repo
   restatements — `renovate.json`'s description of the frozen fixture, and the scratch v2 csproj
   `tests/xunit-v3/test.sh` builds to mirror it — to **each other**: every marked occurrence must
   state the same value, or the check refuses naming every value seen; fewer than two marked
   occurrences refuses too (an agreement of one is vacuous). AGREED has no literal-scan half — with
   no authority there is no "the version" to hunt unmarked spellings of, so it sees only what is
-  explicitly marked. See `scripts/pinned-literals-check.py`'s own `Pin`/`check_pin_agreed` docstrings
-  for the mechanism.
+  explicitly marked, **plus one `witness`**: `samples/LegacyShop`'s own real csproj, read directly
+  for a third occurrence since a frozen file can never carry a marker of its own. Without it the two
+  restatements could agree with each other while both had drifted from the fixture they restate, and
+  the check would still accept — code review on #158 caught that gap; the witness closes it. See
+  `scripts/pinned-literals-check.py`'s own `Pin`/`check_pin_agreed` docstrings for the mechanism.
 
 > **Never rewrite a historical entry to agree with the constant.** The `mtp-v2` enumerations exist
 > precisely to show that the *major does not determine the MTP line* — which is what `MTP_LINE`
