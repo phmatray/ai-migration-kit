@@ -207,6 +207,15 @@ step_named "Garde — le bundle front committé correspond toujours à ses sourc
 [ -s "$scratch/guard.sh" ] || { echo "FAIL: the guard step has an empty run: body"; exit 1; }
 bash -n "$scratch/guard.sh" || { echo "FAIL: the guard body is not valid bash"; exit 1; }
 
+# One place for the identity/gpgsign workaround every scratch commit below needs.
+# `commit.gpgsign=false` is not decoration: with signing on globally and no usable key in this
+# shell, the commit fails, `set -e` aborts, and every section below reports as broken with a gpg
+# error rather than a template defect. CI never sees it, which is what makes it a local-only
+# trap. tests/guarded-git/test.sh already solved this the same way.
+git_commit_all() {   # $1 = repo path · $2 = commit message
+  git -C "$1" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm "$2"
+}
+
 # A scratch git repo carrying a committed bundle. `$1` = path, `$2` = asset filename.
 mk_repo() {
   local root="$1" asset="$2"
@@ -215,12 +224,7 @@ mk_repo() {
   printf 'console.log(1)\n' > "$root/web/dist/assets/$asset"
   printf '<script src="/assets/%s"></script>\n' "$asset" > "$root/web/dist/index.html"
   git -C "$root" add -A
-  # `commit.gpgsign=false` is not decoration: with signing on globally and no usable key in this
-  # shell, the commit fails, `set -e` aborts, and every section below reports as broken with a gpg
-  # error rather than a template defect. CI never sees it, which is what makes it a local-only
-  # trap. tests/guarded-git/test.sh already solved this the same way.
-  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-      commit -qm "commit the bundle"
+  git_commit_all "$root" "commit the bundle"
 }
 
 # ---------------------------------------------------------------------------
@@ -254,8 +258,7 @@ mk_config_repo() {
   else
     git -C "$root" add -A -- web
   fi
-  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-      commit -qm "commit the front-end project and its gate config"
+  git_commit_all "$root" "commit the front-end project and its gate config"
 }
 
 # Runs the shipped config body in `$1`, leaving the exit status in $config_rc, the console output
@@ -373,8 +376,17 @@ mk_config_repo_for() {
   mkdir -p "$root/$(dirname "$CONFIG")"
   printf '%s\n' "$cfg_text" > "$root/$CONFIG"
   git -C "$root" add -A
-  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-      commit -qm "a scratch repo shaped for one containment row"
+  git_commit_all "$root" "a scratch repo shaped for one containment row"
+}
+
+# The SAME './'-strip and trailing-'/'-strip the config step itself applies before comparing
+# (templates/ci-dotnet.yml lines ~464-481), so an ACCEPT row's expected output can be computed
+# from the row rather than hand-retyped per row.
+containment_normalise() {   # $1 = raw src or dist -> echoes the normalised spelling
+  local v="$1"
+  v="${v#./}"
+  while [ "$v" != "${v%/}" ]; do v="${v%/}"; done
+  printf '%s' "$v"
 }
 
 row_n=0
@@ -387,9 +399,26 @@ while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
   got=accept; [ "$config_rc" -eq 0 ] || got=refuse
   [ "$got" = "$r_want" ] || containment_fail "config step" "$r_src" "$r_dist" \
       "$r_want" "$got" "$scratch/out-config.txt"
-  if [ "$r_want" = refuse ] && [ -s "$R/gh-output.txt" ]; then
-    echo "FAIL: the config step refused src='$r_src' dist='$r_dist' yet still published outputs:"
-    cat "$R/gh-output.txt"; exit 1
+  if [ "$r_want" = refuse ]; then
+    if [ -s "$R/gh-output.txt" ]; then
+      echo "FAIL: the config step refused src='$r_src' dist='$r_dist' yet still published outputs:"
+      cat "$R/gh-output.txt"; exit 1
+    fi
+  else
+    # An accept row must publish the NORMALISED pair — the assertion the old hand-written
+    # root-project loop made (`grep -qxF 'src=.'` / `'dist=dist'`), and the one a review of this
+    # table caught missing: a config that ACCEPTS is not yet proven to publish the right thing,
+    # only to publish SOMETHING. Two differently-spelled accept rows for the same tree (raw,
+    # './'-prefixed, trailing-'/') must converge on the identical pair, or the rebuild and the
+    # guard would run against two different paths for what is supposed to be one tree.
+    exp_src=$(containment_normalise "$r_src"); [ -n "$exp_src" ] || exp_src=.
+    exp_dist=$(containment_normalise "$r_dist")
+    grep -qxF "src=$exp_src" "$R/gh-output.txt" || {
+      echo "FAIL: src='$r_src' dist='$r_dist' did not publish the normalised src=$exp_src :"
+      cat "$R/gh-output.txt"; exit 1; }
+    grep -qxF "dist=$exp_dist" "$R/gh-output.txt" || {
+      echo "FAIL: src='$r_src' dist='$r_dist' did not publish the normalised dist=$exp_dist :"
+      cat "$R/gh-output.txt"; exit 1; }
   fi
 done <<EOF
 $CONTAINMENT_ROWS
@@ -832,44 +861,78 @@ echo "  [5c] refuses a directory that exists but holds no tracked file"
 #     Neither is reachable in production — the guard only ever receives the config step's
 #     ALREADY-NORMALISED outputs — so this is not the #151 hazard reopened; it is exactly the
 #     finding this table's own design predicts ("prove it stands alone") applied to two spellings
-#     nobody had fed the guard raw before. `guard_expected` below asserts what the shipped guard
-#     body actually does for those two rows rather than silently dropping them, and the reason
-#     is tracked as a follow-up (see the PR's Follow-ups section) — fixing it would touch
+#     nobody had fed the guard raw before. Those two rows are pulled OUT of the shared-loop
+#     assertion below and asserted explicitly further down: `CONTAINMENT_ROWS` then means exactly
+#     what its own comment claims — same row, same verdict, both copies — for every row the main
+#     loop actually drives, with no per-copy override hidden inside it. The known divergence is
+#     tracked as a follow-up (see the PR's Follow-ups section) — fixing it would touch
 #     `templates/ci-dotnet.yml`'s behaviour, which Tasks 1-2 of this issue do not.
 # ---------------------------------------------------------------------------
-guard_expected() {   # $1 = src · $2 = dist · $3 = table verdict -> the verdict THIS copy actually gives
-  case "$1|$2" in
-    "web|web/")   echo accept ;;   # raw trailing '/' — guard's equality+containment checks both miss it
-    "./|./dist/") echo refuse ;;   # raw './' src — guard's literal `!= "."` check does not normalise it
-    *) echo "$3" ;;
-  esac
-}
 
+# One fixture, reused for every row: `guard.sh` only READS the tree (`git status`), never
+# mutates it, so there is nothing a later row could see left over from an earlier one — the
+# per-row rebuild the config-step loop needs (each row's tracked package.json/bundle differs)
+# does not apply here, since only the BUNDLE_SRC/BUNDLE_DIST env vars change per row.
+G="$scratch/containment-guard"
+mk_repo "$G" "index-GGGGGGGG.js"
+mkdir -p "$G/docs-site"; : > "$G/docs-site/package.json"
+# A tracked root-level "dist" too, for the src='.'/'./ ' rows — mk_repo alone only ships web/dist.
+mkdir -p "$G/dist/assets"
+printf 'console.log(1)\n' > "$G/dist/assets/index-GGGGGGGG.js"
+printf '<script src="/assets/index-GGGGGGGG.js"></script>\n' > "$G/dist/index.html"
+git -C "$G" add -A
+git_commit_all "$G" "a root-level dist alongside web/dist, for every containment row"
+
+# The 2 rows KNOWN to disagree (see the comment above) are excluded here, not silently
+# reinterpreted: same table, same loop shape as 1c, same $r_want compared directly.
+GUARD_ROWS=$(printf '%s\n' "$CONTAINMENT_ROWS" | grep -v -e '^web	web/	refuse$' -e '^\./	\./dist/	accept$')
 while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
   [ -n "$r_src" ] || continue
-  G="$scratch/containment-guard-$(printf '%s|%s' "$r_src" "$r_dist" | tr -c 'a-z0-9' '-')"
-  mk_repo "$G" "index-GGGGGGGG.js"
-  mkdir -p "$G/docs-site"; : > "$G/docs-site/package.json"
-  # A tracked root-level "dist" too, for the src='.'/'./ ' rows — mk_repo alone only ships web/dist.
-  mkdir -p "$G/dist/assets"
-  printf 'console.log(1)\n' > "$G/dist/assets/index-GGGGGGGG.js"
-  printf '<script src="/assets/index-GGGGGGGG.js"></script>\n' > "$G/dist/index.html"
-  git -C "$G" add -A
-  git -C "$G" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-      commit -qm "a root-level dist alongside web/dist"
-  want=$(guard_expected "$r_src" "$r_dist" "$r_want")
   set +e
   ( cd "$G" && BUNDLE_SRC="$r_src" BUNDLE_DIST="$r_dist" bash "$scratch/guard.sh" ) \
     > "$scratch/out-guard-row.txt" 2>&1
   rc=$?
   set -e
   got=accept; [ "$rc" -eq 0 ] || got=refuse
-  [ "$got" = "$want" ] || containment_fail "guard body" "$r_src" "$r_dist" \
-      "$want" "$got" "$scratch/out-guard-row.txt"
+  [ "$got" = "$r_want" ] || containment_fail "guard body" "$r_src" "$r_dist" \
+      "$r_want" "$got" "$scratch/out-guard-row.txt"
+  # A refusal must be ACTIONABLE, not merely non-zero: the reader needs to know which variable
+  # to fix. The old hand-written mismatch/equality cases asserted exactly this
+  # (`grep -q "BUNDLE_SRC" …`); the shared table dropped it on the way in.
+  if [ "$r_want" = refuse ]; then
+    grep -q "BUNDLE_SRC" "$scratch/out-guard-row.txt" || {
+      echo "FAIL: src='$r_src' dist='$r_dist' — the guard refused but never named BUNDLE_SRC:"
+      cat "$scratch/out-guard-row.txt"; exit 1; }
+  fi
 done <<EOF
-$CONTAINMENT_ROWS
+$GUARD_ROWS
 EOF
-echo "  [5d] every containment case in the shared table, against the guard body"
+echo "  [5d] every non-divergent containment case in the shared table, against the guard body"
+
+# The 2 excluded rows, asserted EXPLICITLY against the guard's actual (currently divergent)
+# behaviour — not silently dropped, not folded into a generic override function. See the block
+# comment above this section for why each one differs from the config step's copy.
+guard_row_diverges() {   # $1 = src · $2 = dist · $3 = the verdict THIS copy actually gives
+  set +e
+  ( cd "$G" && BUNDLE_SRC="$1" BUNDLE_DIST="$2" bash "$scratch/guard.sh" ) \
+    > "$scratch/out-guard-divergent.txt" 2>&1
+  rc=$?
+  set -e
+  got=accept; [ "$rc" -eq 0 ] || got=refuse
+  [ "$got" = "$3" ] || {
+    echo "FAIL: src='$1' dist='$2' — the guard's KNOWN-divergent verdict changed (was '$3', now"
+    echo "      '$got'). If this is a deliberate fix, remove this row from the exclusion above"
+    echo "      and let the shared loop cover it like every other row:"
+    cat "$scratch/out-guard-divergent.txt"; exit 1; }
+  if [ "$3" = refuse ]; then
+    grep -q "BUNDLE_SRC" "$scratch/out-guard-divergent.txt" || {
+      echo "FAIL: src='$1' dist='$2' — the guard refused but never named BUNDLE_SRC:"
+      cat "$scratch/out-guard-divergent.txt"; exit 1; }
+  fi
+}
+guard_row_diverges "web" "web/" accept
+guard_row_diverges "./" "./dist/" refuse
+echo "  [5d] the 2 known-divergent rows give the guard's documented (not yet fixed) verdict"
 
 # ---------------------------------------------------------------------------
 # 5. As shipped the four steps are PRESENT but INERT — and inert by the one mechanism GitHub
