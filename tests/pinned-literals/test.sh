@@ -20,7 +20,11 @@
 #  14. an AGREED pin, two marked occurrences that agree   -> accept
 #  15. an AGREED pin, two marked occurrences that disagree -> REFUSE, naming every value seen
 #  16. an AGREED pin, exactly one marked occurrence        -> REFUSE (an agreement of one is vacuous)
-#  17. the check driven to red — mutations, each of which must silence exactly one case above
+# 16b. one marked line stating two different values        -> REFUSE on its own, not folded into a
+#                                                              disagreement across two occurrences
+#  17. an AGREED pin's witness (frozen file, never marked) -> agrees: accept; disagrees: REFUSE,
+#                                                              naming it; absent: skipped gracefully
+#  18. the check driven to red — mutations, each of which must silence exactly one case above
 #
 # The refusal cases are the point. #69's `[7e]` sweep covered two files and said, in the issue it
 # spawned, that the rest needed a policy rather than a wider regex — and the hazard in getting that
@@ -391,6 +395,25 @@ else
   bad "expected independent refusals for docs/nolaunder.md:1 AND :2; got rc=$rc: $out"
 fi
 
+# ---------------------------------------- 12b. a MARKED line whose own claim wraps is accepted
+# Code review on #158: sections 11–12 proved the wrap join for the UNMARKED literal-scan half, but
+# nothing proved it for a marker's OWN claim — and every marker in THIS repo trails at the very end
+# of the complete claim (`… CodeCoverage <version>):  # pinned:xunit-v3`), a shape section 11 already
+# covers via the literal-scan half (the marker sits on the SAME physical line as the wrap's tail, not
+# between the id and the version). The shape this section drives — the marker PRECEDING a claim that
+# then wraps onto the next line — is the one line_claims() in the marked branch was written to
+# handle, and it needed its own acceptance case: nothing here asserts it is REACHABLE, only that a
+# refusal-shaped adversarial case does not slip past it (that is what 12's own case proves).
+R="$WORK/markedwrap"; scaffold "$R"
+mkdir -p "$R/docs"
+printf '# pinned:xunit-v3 -- measured for xunit.v3\n%s exactly.\n' "$FAKE" > "$R/docs/markedwrap.md"
+out=$(run_check "$R"); rc=$?
+if [ $rc -eq 0 ]; then
+  ok "a marker preceding its own wrapped claim is accepted (marker-then-wrap, not id-then-marker)"
+else
+  bad "a marker whose claim wraps forward onto the next line must be accepted; got rc=$rc: $out"
+fi
+
 MUT="$WORK/mutants"; mkdir -p "$MUT"
 
 # ---------------------------------------------------------- AGREED: the engine, exercised
@@ -458,7 +481,93 @@ else
   bad "expected a vacuous-single-occurrence refusal; got rc=$rc: $out"
 fi
 
-# -------------------------------------------------------------- 17. the check, driven to red
+# ------------------------------------- 16b. one MARKED line stating two different values
+# Code review on #158: without this, a single self-contradictory line silently became TWO
+# "occurrences" at the identical file:line, and the disagreement message named that one line twice
+# as if a second, independent restatement existed. It must instead be refused on its own, naming
+# both values it states — and must NOT also appear in a later disagreement message, since after this
+# refusal there is exactly one (still legitimate) occurrence left.
+R="$WORK/agreed-multiline"; scaffold "$R"
+mkdir -p "$R/docs"
+printf 'widget 1.2.3 vs widget 9.9.9 -- one line, two claims.  # agreed:test-pin\n' > "$R/docs/one.md"
+printf 'The vendor pins widget 1.2.3 in its own doc.  # agreed:test-pin\n' > "$R/docs/two.md"
+out=$(run_with "$AGREED" "$R"); rc=$?
+if [ $rc -ne 0 ] \
+   && printf '%s' "$out" | grep -q 'docs/one.md:1 carries the `agreed:test-pin` marker and states 2 different values' \
+   && printf '%s' "$out" | grep -q '1.2.3, 9.9.9' \
+   && ! printf '%s' "$out" | grep -q 'occurrences that disagree'; then
+  ok "one marked line stating two different values is refused on its own, not folded into a disagreement across two occurrences"
+else
+  bad "expected a single-line two-values refusal, and no separate disagreement message; got rc=$rc: $out"
+fi
+
+# --------------------------------------------------------- 17. an AGREED pin's witness
+# Code review on #158: without a witness, an AGREED pin's marked restatements could agree with EACH
+# OTHER while both had drifted from the frozen fact they restate, and the check would still accept —
+# verified against the real repo by editing samples/LegacyShop's csproj directly. `$AGREED_W` adds a
+# witness pointing at a scratch frozen file that is never marked (nothing may write to it) and is
+# read unconditionally for one more occurrence.
+python3 - "$CHECK" "$MUT/agreed-engine-witness.py" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding="utf-8").read()
+anchor = "PINS = (\n"
+insert = ('    Pin(\n'
+          '        name="agreed-witness-test",\n'
+          '        marker="agreed:witness-test-pin",\n'
+          '        kind="AGREED",\n'
+          '        package="widget",\n'
+          '        witness="frozen/widget.txt",\n'
+          '    ),\n')
+if anchor not in text:
+    sys.exit("PINS = ( not found — scripts/pinned-literals-check.py's shape changed")
+open(dst, "w", encoding="utf-8").write(text.replace(anchor, anchor + insert, 1))
+PY
+AGREED_W="$MUT/agreed-engine-witness.py"
+[ -s "$AGREED_W" ] || { echo "FAIL: could not build the AGREED-witness mutant"; exit 1; }
+
+# 17a. the witness agrees with the one marked occurrence -> accept (2 total: witness + 1 marked).
+R="$WORK/agreed-witness-agree"; scaffold "$R"
+mkdir -p "$R/docs" "$R/frozen"
+printf 'The vendor pins widget 1.2.3 in its own doc.  # agreed:witness-test-pin\n' > "$R/docs/widget.md"
+printf 'widget 1.2.3\n' > "$R/frozen/widget.txt"
+out=$(run_with "$AGREED_W" "$R"); rc=$?
+if [ $rc -eq 0 ]; then
+  ok "an AGREED pin's witness agreeing with its one marked occurrence is accepted"
+else
+  bad "witness + one agreeing marked occurrence must be accepted; got rc=$rc: $out"
+fi
+
+# 17b. the witness DISAGREES with the marked occurrence -> refuse, naming the witness path.
+R="$WORK/agreed-witness-disagree"; scaffold "$R"
+mkdir -p "$R/docs" "$R/frozen"
+printf 'The vendor pins widget 1.2.3 in its own doc.  # agreed:witness-test-pin\n' > "$R/docs/widget.md"
+printf 'widget 9.9.9\n' > "$R/frozen/widget.txt"
+out=$(run_with "$AGREED_W" "$R"); rc=$?
+if [ $rc -ne 0 ] \
+   && printf '%s' "$out" | grep -q 'occurrences that disagree' \
+   && printf '%s' "$out" | grep -q 'frozen/widget.txt:1 states 9.9.9'; then
+  ok "an AGREED pin's witness disagreeing with a marked occurrence is refused, naming the witness"
+else
+  bad "expected a disagreement refusal naming the witness path; got rc=$rc: $out"
+fi
+
+# 17c. the witness is ABSENT (no frozen/widget.txt at all) -> gracefully skipped, never a plumbing
+# error. This is the shape every OTHER scratch fixture in this suite is in (none of them carry
+# samples/LegacyShop), so sections 0–16 already prove it by never failing on a missing witness —
+# this case makes that guarantee explicit and names it.
+R="$WORK/agreed-witness-absent"; scaffold "$R"
+mkdir -p "$R/docs"
+printf 'The vendor pins widget 1.2.3 in its own doc.  # agreed:witness-test-pin\n' > "$R/docs/widget-a.md"
+printf 'Vendor doc: widget 1.2.3, restated here too.  # agreed:witness-test-pin\n' > "$R/docs/widget-b.md"
+out=$(run_with "$AGREED_W" "$R"); rc=$?
+if [ $rc -eq 0 ]; then
+  ok "an AGREED pin's absent witness is skipped gracefully, never a plumbing error"
+else
+  bad "a missing witness file must not be an error when two marked occurrences already agree; got rc=$rc: $out"
+fi
+
+# -------------------------------------------------------------- 18. the check, driven to red
 # Each mutation neuters exactly one branch of the guard, and the case that branch serves must lose
 # its evidence. Without this the sections above prove the check refuses SOMETHING — not that any
 # particular assertion is load-bearing. The mutants are copies; the shipped script is never edited.

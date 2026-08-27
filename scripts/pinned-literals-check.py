@@ -84,11 +84,23 @@ from collections import namedtuple
 #                   DERIVED only: the `NAME = "value"` constants `source` defines.
 #   package         AGREED only: the literal package id claim_patterns() anchors on — there is no
 #                   module to read it from, since there is no authority.
+#   witness         AGREED only, optional: a FROZEN file to read directly for one more occurrence,
+#                   without requiring (or being able to add) a marker there. Code review on #158
+#                   found the gap this closes: without it, an AGREED pin's marked restatements can
+#                   agree with EACH OTHER while both have drifted from the frozen fact they are
+#                   supposedly restating, and the check would still exit 0 — verified by editing
+#                   samples/LegacyShop's real csproj and re-running unchanged. `samples/` stays
+#                   read-only (never marked, never written); reading it to WIDEN what "agreement"
+#                   is checked against is not the generation Approach C rejected.
 Pin = namedtuple(
-    "Pin", "name marker kind source package_const version_const package"
+    "Pin", "name marker kind source package_const version_const package witness"
 )
-Pin.__new__.__defaults__ = ("DERIVED", None, None, None, None)  # kind, source, package_const,
-                                                                  # version_const, package
+Pin.__new__.__defaults__ = ("DERIVED", None, None, None, None, None)  # kind, source,
+                                                    # package_const, version_const, package, witness
+
+# The frozen-fixture trio's shared witness — one file, read directly for one more AGREED occurrence
+# per pin (never marked, never written; see the `witness` field doc above).
+FROZEN_WITNESS = "samples/LegacyShop/tests/LegacyShop.Tests/LegacyShop.Tests.csproj"
 
 PINS = (
     Pin(
@@ -109,21 +121,28 @@ PINS = (
     ),
     # #158: the frozen `samples/LegacyShop` fixture's test stack has no constant to derive from —
     # `samples/` is frozen precisely so nothing derives from it (rejected Approach C in the issue).
-    # These three AGREED pins instead hold the fixture's restatements to EACH OTHER: renovate.json's
+    # These three AGREED pins hold the fixture's restatements to EACH OTHER: renovate.json's
     # description of the frozen fixture, and the scratch v2 csproj tests/xunit-v3/test.sh builds to
-    # mirror it, must keep stating the same three versions independently.
-    Pin(name="frozen-xunit", marker="agreed:frozen-xunit-core", kind="AGREED", package="xunit"),
+    # mirror it, must keep stating the same three versions independently — AND to `witness`, the
+    # frozen fixture's own real csproj, read directly (never marked, never written) so drift in the
+    # fixture itself is caught too, not just disagreement between its two hand-written mirrors.
+    Pin(
+        name="frozen-xunit", marker="agreed:frozen-xunit-core", kind="AGREED", package="xunit",
+        witness=FROZEN_WITNESS,
+    ),
     Pin(
         name="frozen-xunit-runner",
         marker="agreed:frozen-xunit-runner",
         kind="AGREED",
         package="xunit.runner.visualstudio",
+        witness=FROZEN_WITNESS,
     ),
     Pin(
         name="frozen-test-sdk",
         marker="agreed:frozen-test-sdk",
         kind="AGREED",
         package="Microsoft.NET.Test.Sdk",
+        witness=FROZEN_WITNESS,
     ),
 )
 
@@ -464,6 +483,22 @@ def check_pin(repo, files, pin, problems):
     return check_pin_derived(repo, files, pin, problems)
 
 
+def no_claim_message(rel, number, marker, package, shown):
+    """The refusal for a marked line that states no `<package> <version>` claim at all.
+
+    One home for both check_pin_agreed and check_pin_derived's marked branch — code review on #158
+    found the two had drifted into copy-pasted, word-for-word-identical text with no shared source,
+    the exact failure mode `tests/_lib.sh` and the module loader already exist to close for other
+    duplicated mechanisms in this kit.
+    """
+    return (
+        "%s:%d carries the `%s` marker but states no `%s <version>` claim, so the\n"
+        "      marker verifies nothing. Put it on the line that carries the claim,\n"
+        "      or drop it:\n"
+        "        %s" % (rel, number, marker, package, shown.strip())
+    )
+
+
 def check_pin_agreed(repo, files, pin, problems):
     """AGREED: no constant is the authority. Collect every MARKED occurrence's claim(s) and refuse
     unless they all agree with EACH OTHER — naming every differing value when they don't, and
@@ -471,13 +506,29 @@ def check_pin_agreed(repo, files, pin, problems):
     would be indistinguishable from a correct value).
 
     Unlike DERIVED, there is no literal-scan half: with no authority there is no "the version" to
-    hunt unmarked spellings of, so an AGREED pin sees only what is explicitly marked. That is a
-    real, narrower guarantee than DERIVED's — worth stating plainly rather than leaving implicit,
-    since a reader used to DERIVED's "any spelling is judged" behaviour would otherwise assume the
-    same holds here.
+    hunt unmarked spellings of, so an AGREED pin sees only what is explicitly marked — PLUS
+    `pin.witness`, when set: one frozen file read directly for one more occurrence, since a frozen
+    file can never carry a marker of its own (nothing may write to it) and would otherwise never be
+    compared at all. That is still a real, narrower guarantee than DERIVED's for every OTHER file —
+    worth stating plainly rather than leaving implicit, since a reader used to DERIVED's "any
+    spelling is judged" behaviour would otherwise assume the same holds here.
     """
     patterns = claim_patterns(pin.package)
     occurrences = []  # [(rel, number, claim)], in scan order
+
+    if pin.witness:
+        # Read directly, unconditionally on marking — a frozen file cannot carry a marker (never
+        # written to), so requiring one would make `witness` do nothing. Missing gracefully: the
+        # golden test's scratch fixtures have no samples/LegacyShop at all, and `witness` is a
+        # strengthening on top of the marked-occurrence mechanism, not itself the source of truth —
+        # DERIVED's `source` is required (die()s if absent) because IT is the authority; a witness
+        # merely widens what an already-complete AGREED comparison is checked against.
+        witness_lines = read_lines(repo / pin.witness)
+        if witness_lines is not None:
+            for number, line in enumerate(witness_lines, 1):
+                claims = set(m for pattern in patterns for m in pattern.findall(line))
+                for claim in sorted(claims):
+                    occurrences.append((pin.witness, number, claim))
 
     for rel in files:
         if is_excluded(rel):
@@ -496,15 +547,25 @@ def check_pin_agreed(repo, files, pin, problems):
             next_line = lines[number] if number < len(lines) else None
             claims, _consumed = line_claims(line, next_line, patterns)
             if not claims:
+                problems.append(no_claim_message(rel, number, pin.marker, pin.package, line))
+                continue
+            if len(claims) > 1:
+                # One marked line stating TWO different values is self-contradictory — refuse it
+                # directly, on its own, rather than letting it become two "occurrences" at the same
+                # file:line: the disagreement check below compares DISTINCT (file, line) restatements
+                # to each other, and folding a single line's internal contradiction into that count
+                # would print a disagreement naming the same file:line twice, as if a second
+                # independent restatement existed when none does.
                 problems.append(
-                    "%s:%d carries the `%s` marker but states no `%s <version>` claim, so the\n"
-                    "      marker verifies nothing. Put it on the line that carries the claim,\n"
-                    "      or drop it:\n"
-                    "        %s" % (rel, number, pin.marker, pin.package, line.strip())
+                    "%s:%d carries the `%s` marker and states %d different values for %s — %s.\n"
+                    "      Which one is meant? A single restatement must state exactly one value;\n"
+                    "      split them onto separate marked lines if more than one genuinely applies:\n"
+                    "        %s"
+                    % (rel, number, pin.marker, len(claims), pin.package,
+                       ", ".join(sorted(claims)), line.strip())
                 )
                 continue
-            for claim in sorted(claims):
-                occurrences.append((rel, number, claim))
+            occurrences.append((rel, number, next(iter(claims))))
 
     if len(occurrences) < 2:
         if occurrences:
@@ -589,13 +650,14 @@ def check_pin_derived(repo, files, pin, problems):
             if pin.marker in line:
                 marked += 1
                 claims, consumed_from_prev = line_claims(line, next_line, patterns)
+                # The line printed below: `line` alone unless a claim only exists because it
+                # wrapped onto `next_line` — printing `line` alone then could show the package id
+                # and nothing else, with the very version being complained about absent from the
+                # printed snippet entirely (verified in code review: a marked line whose claim
+                # wraps and is stale needs this the same way the literal-scan branch already does).
+                shown = line if consumed_from_prev == 0 else line + " " + next_line
                 if not claims:
-                    problems.append(
-                        "%s:%d carries the `%s` marker but states no `%s <version>` claim, so the\n"
-                        "      marker verifies nothing. Put it on the line that carries the claim,\n"
-                        "      or drop it:\n"
-                        "        %s" % (rel, number, pin.marker, package, line.strip())
-                    )
+                    problems.append(no_claim_message(rel, number, pin.marker, package, shown))
                     continue
                 stale = sorted(c for c in claims if c != version)
                 if stale:
@@ -608,7 +670,7 @@ def check_pin_derived(repo, files, pin, problems):
                         "      update every claim this names:\n"
                         "        %s"
                         % (rel, number, pin.marker, package, ", ".join(stale), pin.source, version,
-                           package, version, line.strip())
+                           package, version, shown.strip())
                     )
                 continue
 
