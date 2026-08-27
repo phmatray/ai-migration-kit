@@ -415,6 +415,9 @@ jobs:
       - name: PR-existence guard golden test (an issue-scoped search finds a closer under any branch name)
         run: ./tests/pr-existence-guard/test.sh
 
+      - name: Plan-locate comment guard golden test (a null comment body must not crash the plan-locate scan)
+        run: ./tests/plan-locate-comment-guard/test.sh
+
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 

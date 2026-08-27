@@ -106,16 +106,18 @@ a worker runs the suite. Largest single Bash result fell 25.2K → 10.5K chars i
 tool-result volume per turn barely moved (722 → 710 chars) — because the A/B issue was a docs task that
 rarely runs tests. Expect the real payoff on test-heavy issues.
 
-**4. Tier the model to the task** — real but **weaker than folklore**: measured $0.395/Mtok blended on
-the mid model vs $0.145/Mtok on the small one ≈ **2.7×**, not the ~15× that raw cache-read list price
-suggests. Worth doing for trivial issues; do not treat it as the main lever. Route by issue labels
+**4. Tier the model to the task** — real but **tier-dependent**, per [token-economics.md](references/token-economics.md):
+**weak between mid and small** ($0.419/Mtok vs $0.168/Mtok ≈ 2.5×);
+**strong between top and mid** ($2.376/Mtok vs $0.419/Mtok ≈ 5.7×).
+Worth prioritizing for cross-cutting work; less impactful for routine bugs. Route by issue labels
 (adapt names to the runtime's small/mid/top trio, e.g. Haiku/Sonnet/Opus):
 
 | Issue shape (by label) | Tier |
 |---|---|
 | docs/templates/manifest, format & snapshot regen, `priority:low`+`effort:S` one-line guards | **small** (e.g. Haiku) |
-| most bugs: emitter/validator/parser guards, studio TS, CLI, LSP — single-area `effort:S/M` | **mid** (e.g. Sonnet) |
-| cross-cutting (many areas/emitters), ambiguous/design, **or any issue a lower tier failed to green** | **top** (e.g. Opus) |
+| most bugs: emitter/validator/parser guards, studio TS, CLI, LSP — `effort:S/M`; large issues by default | **mid** (e.g. Sonnet) |
+| a lower tier failed to green this issue | **top** (e.g. Opus), reactive escalation (once) |
+| cross-cutting (many areas/emitters), ambiguous/design — work a maintainer knows is hard | **top** (e.g. Opus), predictive last resort |
 
 The orchestrator (you) stays on the top model, but keep its *per-turn context* small (lever 2).
 
@@ -332,6 +334,17 @@ is lost: have phase 1 write the digits to a file you name in its prompt; fall ba
 `PR: *#?[0-9]+` from its stdout; fall back again to `gh pr list --state open --json number,headRefName`
 matching the issue number in the branch name. If all three miss, there is nothing to merge — stop and
 report rather than dispatching phase 2 blind.
+
+**Phase 2 defaults to the cheapest capable tier** — small/cheap by default, decoupled from phase 1's
+tier. The supervisor hands phase 2 the CI verdict (pass/fail), merge state (clean/blocked), and the
+local gate command to run, so it does no design work and carries no design risk — it is a rote merge +
+teardown. Measured on the same 19-merge run (bsca-dev/partners-api, 2026-08-24): the same PR at mid
+tier costs ~$1.8 vs ~$0.51 on small, and issue #241 ran implement+merge end-to-end on small with zero
+code-review findings. *Exception:* if phase 2 reports BLOCKED for a reason that looks
+model-strength-shaped (e.g. a red gate suggesting the model is too weak, or design work needed that the
+small tier can't handle — as opposed to a genuine hard blocker: un-mergeable conflict, missing
+approval, no plan), the existing Step 4 tier-escalation rule applies — re-dispatch once on the top
+model before dropping the issue.
 
 ⚠️ **Don't append repo rules after `/auto-dev-worker <N>` in a `claude -p` prompt** — slash-command arg
 parsing takes `$1` only and silently drops the rest. Either put them in the command file or inline the

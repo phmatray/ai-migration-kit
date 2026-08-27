@@ -62,6 +62,23 @@
 #       lets guarded-commit.sh abbreviate `$EXPECTED` — a branch, not HEAD — through this same
 #       one home instead of opening a fifth spelling.
 #
+#   head_sha_full_of <repo> [<rev>]
+#       Echo the FULL sha of <rev> (default HEAD), or nothing at all when it cannot be read.
+#       head_sha_of's counterpart for the WITNESS use rather than the DISPLAY use: a caller
+#       that is going to COMPARE a sha (assert_branch's own pre-flight $head_sha, and
+#       guarded-push.sh's post-push re-assert) needs the full value, not an abbreviation, and
+#       both of those had grown their own copy of the read before this function existed (#161)
+#       — the exact "no home, so every caller respells it" shape #129 found in the abbreviating
+#       read, one read-kind later.
+#
+#       Same failure-tolerance as head_sha_of, for the same reason (a witness read that died on
+#       an unreadable HEAD would abort the guard with `set -e`'s exit 1 at the moment it was
+#       needed to explain what went wrong), and the same trap in the tail of this file: `--verify
+#       --quiet`, never a bare `rev-parse HEAD 2>/dev/null || true`, which prints the literal
+#       string "HEAD" on an unborn branch and exits 128 (#92) — `|| true` would hand the caller
+#       "HEAD" as though it were a sha. NEVER inline this into a printf/echo argument either;
+#       that is the same defect head_sha_of's contract already names, in the same shape.
+#
 #   repo_readable <repo>
 #       Succeeds while <repo> can still be read as a git repository. Not a validator — the
 #       pre-flight in assert_branch below is that — but the second half of a MEASUREMENT the
@@ -152,6 +169,12 @@ head_branch_of() { git -C "$1" symbolic-ref --quiet --short HEAD 2>/dev/null || 
 # than dying, and why no caller may inline it into a printf argument.
 head_sha_of() { git -C "$1" rev-parse --verify --quiet --short "${2:-HEAD}" 2>/dev/null || true; }
 
+# The FULL-sha counterpart, for witness comparisons rather than display — see the contract
+# above (#161). `--verify --quiet`, not `--short`: this is the read a caller diffs against a
+# value captured earlier, and abbreviating either side independently risks comparing prefixes
+# of two different objects instead of the objects themselves.
+head_sha_full_of() { git -C "$1" rev-parse --verify --quiet "${2:-HEAD}" 2>/dev/null || true; }
+
 # The disambiguator for head_branch_of's empty answer — see the contract above. Kept here, once,
 # rather than as a third copy of the same `if` in each guard: the whole of #129 is what respelling
 # a small read at every call site costs.
@@ -179,7 +202,9 @@ head_state_unreadable() { [ -z "${1:-}" ] && [ "${2:-}" = '<unreadable>' ]; }
 # tests for `assert_branch` and `refuse`, the last and the first function here, so a helper
 # truncated anywhere in between still fails the check instead of surviving to a `command not
 # found` (exit 127) at the first call. Adding a function BELOW this one would quietly break that
-# — put new helpers above it.
+# — put new helpers above it. Enforced by tests/guarded-git/test.sh case 33e (#161): it extracts
+# this file's top-level function names in order and fails if the first is not `refuse` or the
+# last is not `assert_branch`, and it fails separately if any guard's bootstrap stops naming both.
 assert_branch() {
   local tool="$1" detached_message="$2" mismatch_message="$3"
   local head_branch
@@ -207,12 +232,9 @@ assert_branch() {
   # empty $head_sha as "there is no tip yet" — guarded-commit.sh because that is the normal state
   # before a first commit, guarded-push.sh by refusing, because it has nothing to verify.
   #
-  # `--verify --quiet` and NOT a bare `rev-parse HEAD 2>/dev/null || true`. That is the same trap
-  # this file already documents one function up, in its second costume: on an unborn branch
-  # `git rev-parse HEAD` prints the literal string "HEAD" ON STDOUT and exits 128, so `|| true`
-  # swallows the status and hands the caller "HEAD" as though it were a sha. Measured, not assumed
-  # — and guarded-commit.sh carried exactly that line before this refactor. `--verify --quiet`
-  # prints nothing and fails, which is the answer we want. An emptiness test is only a test if the
-  # empty case is actually capable of being empty.
-  head_sha=$(git -C "$REPO" rev-parse --verify --quiet HEAD 2>/dev/null || true)
+  # Through head_sha_full_of — see its contract above for why `--verify --quiet` and not a bare
+  # `rev-parse HEAD 2>/dev/null || true` (#92) — which is also this witness read's one home (#161):
+  # guarded-push.sh's post-push re-assert needs the identical value and reads it through the same
+  # function rather than respelling it.
+  head_sha=$(head_sha_full_of "$REPO")
 }
