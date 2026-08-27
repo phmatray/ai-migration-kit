@@ -315,7 +315,6 @@ config_refuses "a json array"       '["web", "web/dist"]'
 config_refuses "a missing dist key" '{ "src": "web" }'
 config_refuses "a missing src key"  '{ "dist": "web/dist" }'
 config_refuses "an empty dist"      '{ "src": "web", "dist": "" }'
-config_refuses "dist outside src"   '{ "src": "docs-site", "dist": "web/dist" }'
 config_refuses "an absolute dist"   '{ "src": "/web", "dist": "/web/dist" }'
 config_refuses "a dot-dot escape"   '{ "src": "web", "dist": "web/../../etc" }'
 # `web/dist/assets`, not `web/dist`, so this case exercises the missing-package.json path and only
@@ -323,58 +322,79 @@ config_refuses "a dot-dot escape"   '{ "src": "web", "dist": "web/../../etc" }'
 # and would have stopped covering the check its label names.
 config_refuses "a src with no package.json" '{ "src": "web/dist", "dist": "web/dist/assets" }'
 config_refuses "an untracked config" '{ "src": "web", "dist": "web/dist" }' untracked
-# dist == src is the one nonsense configuration that used to ARM the gate: the containment test
-# was `case "$dist/" in "$src"/*)`, and `*` matches the empty string, so `web/` matched `web/*`.
-# It is not a harmless typo. The rebuild runs `npm ci` in `web/`, creating `web/node_modules`; the
-# guard then runs `git status --porcelain --ignored -- web`, and because `--ignored` is
-# deliberately on it lists that whole ignored tree. The step goes red on EVERY run advising
-# "reconstruire, puis committer" — advice that can never make it green. Refusing the config is the
-# only place this can be caught before Node has been installed for nothing.
-config_refuses "dist equal to src"  '{ "src": "web", "dist": "web" }'
-# …and the same tree spelled differently, which is why the values are normalised before comparing.
-config_refuses "dist equal to src by a trailing slash" '{ "src": "web", "dist": "web/" }'
-config_refuses "dist equal to src by a ./ prefix"      '{ "src": "web", "dist": "./web" }'
-# A bundle that IS the repository is not a bundle — and `.` is the one value the root-project
-# support below makes acceptable for `src`, so it must stay refused for `dist`.
-config_refuses "a dist that is the repository root"    '{ "src": "web", "dist": "." }'
 echo "  [1c] refuses every malformed, self-inconsistent or uncommitted config instead of arming"
 
-# A front-end project at the REPOSITORY ROOT. Until now it had no spelling the template's own
-# guidance accepted: the detection step's remediation text prints
-#   { "src": "<le répertoire qui porte package.json>", "dist": "<le bundle committé, sous src>" }
-# which for such a repo reads `"."` and `"dist"` — and the validator refused exactly that, because
-# `dist/` is not under `./`. Shipped guidance contradicting the shipped validator is worse than
-# either alone, so both spellings must arm the gate and both must publish the SAME normalised
-# pair: `working-directory:` and the guard consume that pair, and two spellings reaching them
-# would be the two-sources-of-truth trap again, one layer down.
-root_n=0
-for cfg_text in '{ "src": ".", "dist": "dist" }' '{ "src": "./", "dist": "./dist/" }'; do
-  root_n=$((root_n + 1))
-  CROOT="$scratch/config-root-$root_n"
-  mkdir -p "$CROOT/dist/assets"
-  git init -q "$CROOT"
-  printf '{ "name": "root-app", "private": true }\n' > "$CROOT/package.json"
-  printf 'console.log(1)\n' > "$CROOT/dist/assets/index-MMMMMMMM.js"
-  mkdir -p "$CROOT/$(dirname "$CONFIG")"
-  printf '%s\n' "$cfg_text" > "$CROOT/$CONFIG"
-  git -C "$CROOT" add -A
-  git -C "$CROOT" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-      commit -qm "a front-end project at the repository root"
-  run_config "$CROOT"
-  if [ "$config_rc" -ne 0 ]; then
-    echo "FAIL: the config step refused $cfg_text — a front-end project at the repository root,"
-    echo "      which is the exact pair its own detection step tells an adopter to commit:"
-    cat "$scratch/out-config.txt"; exit 1
+# ---------------------------------------------------------------------------
+# 1c-bis. ONE table of containment cases, driven against BOTH shipped copies of the rule — the
+#     config step here, the guard body in 5d. The two copies are deliberate (see the template's
+#     own argument), but #151 proved they were maintained by RETYPING: the review found the same
+#     `case "$dist/" in "$src"/*)` hole — `*` matches the empty string — in both, and it had to
+#     be fixed twice. A second line of defence that is a copy of the first, bug included, is not
+#     defence in depth. Adding a row below now costs one line and proves it against both.
+#
+#     Also folds in the two individually-written cases this replaces: "dist outside src" (a
+#     different tree entirely — the docs-site/web/dist row) and the front-end-at-the-repository-
+#     root pair ("." / "dist" and "./" / "./dist/") that used to be a bespoke loop below.
+# ---------------------------------------------------------------------------
+CONTAINMENT_ROWS=$(printf '%s\n' \
+  "web	web/dist	accept" \
+  "web	web	refuse" \
+  "web	web/	refuse" \
+  "web	./web	refuse" \
+  "web	web2/dist	refuse" \
+  "docs-site	web/dist	refuse" \
+  "web	.	refuse" \
+  ".	dist	accept" \
+  "./	./dist/	accept")
+
+# Reports which COPY disagreed, and on which row. A shared table whose failure says only
+# "row 4 failed" reintroduces the two-sources problem one level up.
+containment_fail() {   # $1 = copy · $2 = src · $3 = dist · $4 = wanted · $5 = got · $6 = log
+  echo "FAIL: the $1 copy of the dist-under-src rule disagrees with the shared table."
+  echo "      src='$2' dist='$3' — table says $4, this copy said $5"
+  echo "      The OTHER copy is in the same template; #151 is the incident where both carried"
+  echo "      the same hole and the review, not the suite, was what caught it."
+  cat "$6"
+  exit 1
+}
+
+# $1 = repo path · $2 = src · $3 = dist · $4 = raw config contents. Generalises mk_config_repo so
+# src/dist are parameters instead of hardcoded web / web/dist.
+mk_config_repo_for() {
+  local root="$1" s="$2" d="$3" cfg_text="$4"
+  # Strip the './' and trailing '/' spellings only when building the TREE — the config file
+  # keeps the row's raw spelling, which is exactly what is under test.
+  local sdir="${s#./}"; sdir="${sdir%/}"; [ -n "$sdir" ] || sdir=.
+  local ddir="${d#./}"; ddir="${ddir%/}"; [ -n "$ddir" ] || ddir=.
+  mkdir -p "$root/$sdir" "$root/$ddir/assets"
+  git init -q "$root"
+  printf '{ "name": "app", "private": true }\n' > "$root/$sdir/package.json"
+  printf 'console.log(1)\n' > "$root/$ddir/assets/index-NNNNNNNN.js"
+  mkdir -p "$root/$(dirname "$CONFIG")"
+  printf '%s\n' "$cfg_text" > "$root/$CONFIG"
+  git -C "$root" add -A
+  git -C "$root" -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+      commit -qm "a scratch repo shaped for one containment row"
+}
+
+row_n=0
+while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
+  [ -n "$r_src" ] || continue
+  row_n=$((row_n + 1))
+  R="$scratch/containment-cfg-$row_n"
+  mk_config_repo_for "$R" "$r_src" "$r_dist" "{ \"src\": \"$r_src\", \"dist\": \"$r_dist\" }"
+  run_config "$R"
+  got=accept; [ "$config_rc" -eq 0 ] || got=refuse
+  [ "$got" = "$r_want" ] || containment_fail "config step" "$r_src" "$r_dist" \
+      "$r_want" "$got" "$scratch/out-config.txt"
+  if [ "$r_want" = refuse ] && [ -s "$R/gh-output.txt" ]; then
+    echo "FAIL: the config step refused src='$r_src' dist='$r_dist' yet still published outputs:"
+    cat "$R/gh-output.txt"; exit 1
   fi
-  # -F throughout: `src=.` as a regex would match `src=web` and prove nothing.
-  grep -qxF 'src=.' "$CROOT/gh-output.txt" || {
-    echo "FAIL: $cfg_text did not publish the normalised src=. :"
-    cat "$CROOT/gh-output.txt"; exit 1; }
-  grep -qxF 'dist=dist' "$CROOT/gh-output.txt" || {
-    echo "FAIL: $cfg_text did not publish the normalised dist=dist :"
-    cat "$CROOT/gh-output.txt"; exit 1; }
-done
-echo "  [1c] a front-end project at the repository root arms the gate, './' or not"
+done <<EOF
+$CONTAINMENT_ROWS
+EOF
+echo "  [1c] every containment case in the shared table, against the config step"
 
 # ---------------------------------------------------------------------------
 # 1e. The shipped example is the file an adopter copies, so it must be a file the config step
