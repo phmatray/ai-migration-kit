@@ -4,11 +4,18 @@
 # §2's `PLAN_SRC = comment` branch (skills/implement-issue/references/github-mechanics.md) fetches
 # every comment on an issue via `gh api .../comments --paginate --slurp`, then filters for the plan
 # marker comment or, failing that, the latest comment with checkbox lines. Both filters ran
-# `select(.body | contains(...))` directly on `.body`, and `gh`'s JSON reports an empty/no-body
-# comment as `null` rather than `""` — `contains()` throws on `null` instead of treating it as
-# non-matching, exactly the way `test()` did in the pre-#259 PR-existence guard. A paginated,
-# `--slurp`'d fetch over an issue's whole comment history is more likely than not to eventually
-# include one.
+# `select(.body | contains(...))` directly on `.body`, which throws if `.body` is ever `null` —
+# exactly the way `test()` did in the pre-#259 PR-existence guard.
+#
+# Unlike #259's confirmed case, this one is DEFENSIVE rather than a proven live crash: GitHub's REST
+# OpenAPI schema types `issue-comment.body` as a plain non-nullable `string` (checked directly against
+# `components.schemas.issue-comment.properties.body` in
+# https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json),
+# unlike `issue.body` (and PR bodies, which reuse the issue schema) which IS declared
+# `nullable: true` — the field #259 actually fixed. So a `null` comment body is not known-reachable
+# through this endpoint today. The guard is still worth having (cheap, and it matches the sibling
+# call site's shape), but this suite pins defensive behavior against a hypothetical input, not a
+# reproduction of an observed failure.
 #
 # The programs under test are NOT copied here. They are EXTRACTED from the two marked blocks inside
 # skills/implement-issue/references/github-mechanics.md §2 and run verbatim via `jq -f`, so the thing

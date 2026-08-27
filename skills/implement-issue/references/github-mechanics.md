@@ -77,10 +77,12 @@ if [ "$PLAN_SRC" = comment ]; then
   PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate --slurp \
     | jq -r '
       # >>> plan-locate marker-comment guard
-      # `.body // ""` guards a comment with no body: `gh` reports that as JSON `null`, and
-      # `contains()` throws on `null` rather than treating it as non-matching (#278, same fix #259
-      # applied to the PR-existence guard's `test()` call) — coercing to `""` makes it evaluate to
-      # "no match" like any other non-marker body.
+      # `.body // ""` is a defensive guard, not a confirmed crash fix: GitHub's REST schema types
+      # `issue-comment.body` as a plain non-nullable string (unlike the PR/issue `body` the sibling
+      # `test()` guard at §5 fixed for #259, which IS documented nullable) — so a `null` comment body
+      # is not known-reachable through this endpoint. `contains()` still throws on `null` if one ever
+      # arrives, exactly the way `test()` did before #259, so this coerces to `""` for the same
+      # "no match" outcome as any other non-marker body, at effectively no cost (#278).
       [.[][] | select((.body // "") | contains("🛠️ Implementation plan"))] | last | .id
       # <<< plan-locate marker-comment guard
       ')
@@ -90,8 +92,8 @@ if [ "$PLAN_SRC" = comment ]; then
     PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate --slurp \
       | jq -r '
         # >>> plan-locate checkbox-fallback guard
-        # Same null-body guard as the marker-comment scan above, applied to the checkbox-line
-        # fallback (#278).
+        # Same defensive null-body guard as the marker-comment scan above, applied to the
+        # checkbox-line fallback (#278).
         [.[][] | select((.body // "") | (contains("- [ ]") or contains("- [x]")))] | last | .id
         # <<< plan-locate checkbox-fallback guard
         ')
