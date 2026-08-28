@@ -19,8 +19,8 @@
 # `scripts/decision-check.py` (R7, R8) is what keeps it gone.
 #
 # Usage: merge-verdict.sh [<state.json>]
-#   Reads a JSON object with behind_by, mergeStateStatus, isDraft, reviewDecision, failed and
-#   pending from the given file, or from stdin when no file is given. Prints ONE line of JSON on
+#   Reads a JSON object with behind_by, mergeStateStatus, isDraft, reviewDecision, failed,
+#   pending and unresolved_threads from the given file, or from stdin when no file is given. Prints ONE line of JSON on
 #   stdout and exits 0: the verdict word, and the name of the precedence rule that produced it.
 #   Verdict words: merge | sync | fix-check | wait | ready | review
 #
@@ -32,7 +32,8 @@ set -euo pipefail
 
 usage() {
   echo "usage: merge-verdict.sh [<state.json>]" >&2
-  echo "  reads {behind_by, mergeStateStatus, isDraft, reviewDecision, failed, pending} from the" >&2
+  echo "  reads {behind_by, mergeStateStatus, isDraft, reviewDecision, failed, pending," >&2
+  echo "  unresolved_threads} from the" >&2
   echo "  file, or from stdin when no file is given, and prints one JSON line naming the action" >&2
   echo "  (merge|sync|fix-check|wait|ready|review) and the precedence rule that chose it" >&2
 }
@@ -50,7 +51,7 @@ command -v jq > /dev/null 2>&1 || {
   exit 2
 }
 
-# Precedence, top to bottom — the FIRST matching rule decides. Thirteen rules, not eight, so that
+# Precedence, top to bottom — the FIRST matching rule decides. Fourteen rules, not eight, so that
 # every state Step 4's deleted table enumerated has a branch here that ACTS on it, rather than
 # falling into a catch-all the prose then had to explain around.
 #
@@ -63,11 +64,12 @@ command -v jq > /dev/null 2>&1 || {
 #    6  the merge state says BEHIND             sync       behind-state
 #    7  the merge state says DIRTY              sync       dirty
 #    8  BLOCKED, review says changes requested  review     blocked-changes-requested
-#    9  BLOCKED, anything else                  review     blocked-approval
-#   10  the merge state says UNSTABLE           wait       unstable-quiet
-#   11  the merge state says CLEAN              merge      clean
-#   12  the merge state says UNKNOWN            wait       unknown
-#   13  anything else                           wait       unrecognised
+#    9  a review thread is unresolved           review     unresolved-threads
+#   10  BLOCKED, anything else                  review     blocked-approval
+#   11  the merge state says UNSTABLE           wait       unstable-quiet
+#   12  the merge state says CLEAN              merge      clean
+#   13  the merge state says UNKNOWN            wait       unknown
+#   14  anything else                           wait       unrecognised
 #
 # The orderings, recorded here because extraction forces them to be decided ONCE instead of being
 # re-derived by whoever reads the prose next:
@@ -86,10 +88,28 @@ command -v jq > /dev/null 2>&1 || {
 #     causes, one action, no vocabulary inflation — and the event log can still tell "waiting on an
 #     approval" from "someone asked for changes", which is the whole reason the split is worth
 #     having.
+#   * UNRESOLVED THREADS (9) SIT BELOW CI/DRAFT/SYNC, AND BETWEEN THE TWO BLOCKED RULES. Rule 9
+#     exists because the `review` verdict used to be reachable ONLY through a BLOCKED merge state,
+#     and a bot posting a COMMENTED review — which is what GitHub's code-quality bot posts — sets
+#     neither reviewDecision nor BLOCKED. Its findings fell through to `clean` and merged unread
+#     (#294; measured on horizon-hub #956 and #957 — four and one unresolved thread, merged 54 and
+#     34 minutes after the bot first commented, so not a timing race). It sits BELOW 1-7 because
+#     answering review comments against a red or stale diff is work the next push invalidates.
+#     It yields to 8 because an explicit human CHANGES_REQUESTED is the more specific cause and
+#     deserves to keep its name in the log — same word, same correction, so nothing is lost by
+#     letting it win. It OUTRANKS 10 because `blocked-approval` is the one rule SKILL.md answers
+#     with "surface it and stop": leaving an un-actionable approval wait above open threads would
+#     hide them exactly the way `clean` did.
+#   * RULE 9 IS CLEARED BY RESOLVING A THREAD, NOT ONLY BY CHANGING CODE. A gate only a code change
+#     can clear deadlocks an autonomous fleet on the first bot finding the agent judges wrong or
+#     cannot satisfy — a worse bug than the one this rule fixes. Both routes SKILL.md already
+#     sanctions clear it: fix the ask, push, resolve; or reply on the thread with the reasoning and
+#     then resolve it. Resolving SILENTLY is the one move forbidden. This verdict says "go read
+#     them", never "obey them".
 #   * `mergeable` IS NOT READ. SKILL.md Step 4 fetched it and nothing ever consumed it; a field
 #     that is fetched and unread is the shape of the `behind`-versus-`behind_by` bug this exists
 #     to make impossible.
-#   * RULE 10 SHIPS WITH AN ANSWER I AM NOT CERTAIN OF. UNSTABLE with both check sets empty is a
+#   * RULE 11 SHIPS WITH AN ANSWER I AM NOT CERTAIN OF. UNSTABLE with both check sets empty is a
 #     state the old table gave an action for and this program cannot act on. It answers wait, and
 #     the event log will say how often that happens. If it is common, wait is a hang — and the
 #     ratchet finding that is the mechanism working, not the mechanism failing.
@@ -103,6 +123,8 @@ verdict=$(printf '%s' "$json" | jq -c '
   elif .mergeStateStatus == "DIRTY"        then {verdict:"sync",      rule:"dirty"}
   elif .mergeStateStatus == "BLOCKED" and .reviewDecision == "CHANGES_REQUESTED"
                                            then {verdict:"review",    rule:"blocked-changes-requested"}
+  elif ((.unresolved_threads // []) | length) > 0
+                                           then {verdict:"review",    rule:"unresolved-threads"}
   elif .mergeStateStatus == "BLOCKED"      then {verdict:"review",    rule:"blocked-approval"}
   elif .mergeStateStatus == "UNSTABLE"     then {verdict:"wait",      rule:"unstable-quiet"}
   elif .mergeStateStatus == "CLEAN"        then {verdict:"merge",     rule:"clean"}
