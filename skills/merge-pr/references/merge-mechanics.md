@@ -285,11 +285,11 @@ it was green against no longer exists.
 
 Step 4 does not read `mergeStateStatus` and work out what to do about it. It builds one state object
 and hands it to the registered decision **`merge.step4`** (#208), whose program is
-`skills/merge-pr/scripts/merge-verdict.sh` and whose precedence — thirteen named rules, in order —
+`skills/merge-pr/scripts/merge-verdict.sh` and whose precedence — fourteen named rules, in order —
 is written in that file's header, once.
 
 The **shape** below is the other half of that contract, and the reason it carries markers: the
-program reads five fields by name, and this block is what has to build them. They drifted apart once
+program reads six fields by name, and this block is what has to build them. They drifted apart once
 already — a `--jq` object construction renamed `behind_by` to `behind` while the script still read
 `behind_by`, so the freshness guard read `null` forever and a human reviewer, not CI, caught it
 (#171 / #147). `scripts/decision-check.py` R6 now compares the two mechanically: every field the
@@ -298,11 +298,28 @@ only one side is a red build rather than a guard that silently stops guarding.
 
 ```bash
 # >>> decision merge.step4 shape >>>
+# The thread read is its OWN statement with its OWN failure branch, deliberately not a fourth line
+# inside the group below: a query that fails there contributes nothing, `unresolved_threads`
+# defaults to empty, and empty reads as "no threads" — which merges. That is #294 wearing the
+# fix's clothes. On a GitHub Enterprise host add `--hostname <host>`; without it this query fails
+# with "Could not resolve to a Repository", and the `||` branch is what stops that reading as a
+# clean bill of health.
+threads=$(gh api graphql -f query='
+  query($owner:String!,$repo:String!,$pr:Int!){ repository(owner:$owner,name:$repo){
+    pullRequest(number:$pr){ reviewThreads(first:100){
+      nodes{ isResolved comments(first:1){ nodes{ path } } } } } } }' \
+    -F owner='{owner}' -F repo='{repo}' -F pr="$PR" \
+    --jq '[ .data.repository.pullRequest.reviewThreads.nodes[]
+            | select(.isResolved == false)
+            | .comments.nodes[0].path // "(pr-level)" ]') \
+  || { echo "merge-pr: the reviewThreads query failed — an unanswered query is not 'no threads'" >&2
+       exit 1; }
 state=$( { gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" \
              --jq '{behind_by, ahead_by}'
            gh pr view "$PR" --json mergeStateStatus,isDraft,reviewDecision \
              --jq '{mergeStateStatus, isDraft, reviewDecision}'
            printf '%s' "$ci" | jq '{failed: [.failed[].name], pending: [.pending[].name]}'
+           printf '%s' "$threads" | jq '{unresolved_threads: .}'
          } | jq -s add )
 # <<< decision merge.step4 shape <<<
 verdict=$(printf '%s' "$state" | "$DECIDE" merge.step4)
@@ -314,6 +331,17 @@ composition instead of two unrelated reads of the same PR: the CI gate's *reduce
 
 `$BASE...$BRANCH` — three dots — gives `behind_by` relative to the base; reversing it silently
 inverts the answer.
+
+`unresolved_threads` carries the threads' **paths**, not a count — the same way `failed` and
+`pending` carry job names rather than a tally, so the Step 8 report can say *which* threads were
+cleared. Only the length decides; the strings are for the human. A thread with no inline path (a
+PR-level conversation) still counts, under `(pr-level)`.
+
+⚠️ **A failed thread query must abort the state build, never yield an empty list.** This is
+`decide.sh`'s own doctrine — *no verdict is not a pass* — applied one layer earlier: a failed query
+and a PR with nothing open spell the same `[]`, and one of them merges unreviewed. That equivalence
+is what made #294 survivable for two PRs, so the read above is a separate statement with an explicit
+`|| … exit 1` rather than a line inside the group.
 
 ⚠️ **The compare read and the pr-view read are sequential and not atomic.** A sibling PR merging
 between them yields `behind_by: 0` beside a merge state of `BEHIND`, which is precisely why the
