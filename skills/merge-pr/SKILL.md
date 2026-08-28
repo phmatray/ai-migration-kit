@@ -266,7 +266,7 @@ The heart of the skill. Re-read the merge state, run the decision, apply the cor
 push, re-wait — until it answers `merge`.
 
 **You do not derive the correction from `mergeStateStatus` by hand.** Which correction a state calls
-for is the registered decision `merge.step4`, and its fourteen-rule precedence lives in exactly one
+for is the registered decision `merge.step4`, and its fifteen-rule precedence lives in exactly one
 place: `skills/merge-pr/scripts/merge-verdict.sh`. Re-deriving it here is what this step used to do,
 and the two drifted (#208) — so the enumeration is gone from this file on purpose. Your job is to
 build the state, run the decision, and act on the word it returns.
@@ -278,13 +278,19 @@ that deferring the worktree does not defer the guard past the thing it guards �
 [`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md). Reading the check in
 Step 2 and then obtaining the worktree here is how it ends up never running at all.
 
-Build the state and run the decision. The state block — three reads folded into one object — is
+Build the state and run the decision. The state block — four reads folded into one object — is
 [`references/merge-mechanics.md` §4](references/merge-mechanics.md), which is its single home
-because the program reads those five fields **by name** and a rename on one side only is the exact
-bug this replaced. Run that block, then:
+because the program reads those seven fields **by name** and a rename on one side only is the exact
+bug this replaced. **Run it as one command**: it ends in an assertion that the assembled state
+really carries `unresolved_threads`, and that assertion is worth nothing if `$threads` was built in
+a different shell. Then:
 
 ```bash
-verdict=$(printf '%s' "$state" | "$DECIDE" merge.step4)
+# ONE invocation, both values. Running it twice would decide twice and append two events for one
+# question, and the event log's whole purpose is counting how often a gate fires on ONE cause.
+decision=$(printf '%s' "$state" | "$DECIDE" merge.step4 --json)
+verdict=$(printf '%s' "$decision" | jq -r .verdict)
+rule=$(printf '%s' "$decision" | jq -r .rule)     # which branch fired — the cause, not the action
 ```
 
 `$ci` in that block is Step 3's `$ci`. `decide.sh` exits non-zero rather than printing a word it
@@ -310,15 +316,18 @@ Then act on the word. The **program** owns *which* correction; this table owns *
 | `ready` | The PR is still a draft: `gh pr ready "$PR"` (per Step 1's assumption), then re-derive. |
 | `review` | **Address the review** (below) — or surface a blocker you cannot clear yourself. |
 
-⚠️ **`review` is three situations wearing one word, and the rule name is what tells them apart** —
-so read it, with `"$DECIDE" merge.step4 --json` or off the event log, rather than re-deriving it
-from `reviewDecision`:
+⚠️ **`review` is four situations wearing one word, and `$rule` above is what tells them apart** —
+read it, don't re-derive it from `reviewDecision`:
 
-- **`blocked-changes-requested`** — someone asked for changes. The correction is below.
+- **`blocked-changes-requested`** — someone asked for changes on a base branch that enforces
+  review. The correction is below.
+- **`changes-requested`** — someone asked for changes on a base branch that enforces nothing, so
+  GitHub reports the PR as perfectly mergeable. Same correction; the two rule names exist because
+  "a reviewer objected" and "GitHub will refuse the merge" are different facts.
 - **`unresolved-threads`** — the PR carries open review threads, whatever the merge state and the
-  review decision say. This is the one that used to be invisible: a bot posting a `COMMENTED`
-  review leaves `reviewDecision` empty and the merge state clean, so before #294 every path into
-  `review` was unreachable and the findings fell through to `merge`. The correction is below.
+  review decision say. A bot posting a `COMMENTED` review sets no review decision at all, so its
+  threads are the *only* thing that can speak for it — before #294 they spoke to nothing and the
+  findings fell through to `merge`. The correction is below.
 - **`blocked-approval`** — a branch-protection gate you cannot satisfy on your own, typically
   *required approvals*, with no open threads to work on meanwhile. **Surface it and stop**, don't
   loop.
@@ -390,7 +399,8 @@ checkout (not the transient sandbox push failure of Step 2/§8, which is just a 
 `mergeStateStatus` is `DIRTY` or `BEHIND`, that combination is a genuine blocker: stop and report it
 rather than running this fallback.
 
-**Address unresolved review (for `blocked-changes-requested` / `unresolved-threads`).** Read the
+**Address unresolved review (for `blocked-changes-requested` / `changes-requested` /
+`unresolved-threads`).** Read the
 comments and unresolved threads, implement the real asks in the worktree, commit + push, then reply
 to and resolve the threads. GraphQL for listing/resolving threads in
 `references/merge-mechanics.md` §6.

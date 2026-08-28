@@ -125,6 +125,13 @@ verdict_rule threads-clean.json review/unresolved-threads \
 verdict_rule threads-all-resolved.json merge/clean \
   'the same PR with every thread resolved still merges — the rule fires on open threads, not on having been reviewed'
 
+# The symmetric half of #294, found in review: rule 8 conjoined BLOCKED with CHANGES_REQUESTED, so
+# a summary-only "Request changes" review on a base branch WITHOUT required-review protection — the
+# configuration of this very repo — left the state clean, opened no thread, and merged. Both halves
+# of "the review path needs BLOCKED" have to go, or the fix is half a fix.
+verdict_rule changes-requested-clean.json review/changes-requested \
+  'an unblocked CHANGES_REQUESTED with no inline threads must still REVIEW (the old precedence answered "merge")'
+
 # NON-PREEMPTION, one fixture per claim. There is no point sending an agent to answer review
 # comments while CI is red or the branch is stale: the next push invalidates the diff they were
 # written against, and the reviewer gets asked twice.

@@ -160,7 +160,7 @@ refuses() {
 echo "== A. the dispatcher answers — every fixture, verdict by verdict"
 
 # The recorded verdicts. Each line is <fixture> <expected-verdict-or-RC2>, and together they pin
-# all fourteen precedence rules plus the two refusal paths. Kept as a here-doc rather than an
+# all fifteen precedence rules plus the two refusal paths. Kept as a here-doc rather than an
 # associative array: this must parse under macOS bash 3.2, which has none (scripts/parse-sweep.sh).
 while read -r fixture expected; do
   [ -n "$fixture" ] || continue
@@ -190,6 +190,7 @@ draft-flag.json ready
 draft-state.json ready
 blocked-approval.json review
 blocked-changes-requested.json review
+changes-requested.json review
 unresolved-threads.json review
 empty RC2
 not-an-object.json RC2
