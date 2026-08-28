@@ -408,13 +408,25 @@ rather than running this fallback.
 
 ---
 
-## 6. Unresolved review threads (`CHANGES_REQUESTED` / open conversations)
+## 6. Unresolved review threads (`blocked-changes-requested` / `unresolved-threads`)
 
-The overall decision:
+Where SKILL.md Step 4 sends you when `merge.step4` answers `review` with either of those two rules.
+§4's shape block already counted the open threads; this section is how you read and clear them.
+
+The overall decision — useful context, **not** the gate:
 
 ```bash
 gh pr view "$PR" --json reviewDecision --jq .reviewDecision   # APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null
 ```
+
+⚠️ **`reviewDecision` is empty for a `COMMENTED` review, and that is the common case.** A review bot
+— GitHub's code-quality bot among them — posts `COMMENTED`, which sets no review decision and leaves
+the merge state clean. Until #294 that meant its findings reached no gate at all: two PRs merged with
+four and one unresolved thread on them. Read the threads, not the decision.
+
+⚠️ **`gh pr view --json reviews` shows those bot reviews with an EMPTY `body`.** The substance is
+only in the inline `reviewThreads` below. "Empty review body" must never be read as "no feedback" —
+that reading is what made the merges look defensible afterwards.
 
 Inline review comments (REST — quick read of what reviewers said and where):
 
@@ -437,6 +449,11 @@ gh api graphql -f query='
   --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false) | {id, path:.comments.nodes[0].path, body:.comments.nodes[0].body}'
 ```
 
+⚠️ **On a GitHub Enterprise host `gh api graphql` needs an explicit `--hostname <host>`.** Without it
+the query fails with *"Could not resolve to a Repository"* — which reads exactly like "this PR has no
+threads" to anyone who does not check the exit code. Check it: an unanswered query is not an empty
+answer. §4's shape block aborts the whole state build on this path for the same reason.
+
 Fix the legitimate asks in the worktree, commit + push (project identity). Then either reply to the
 thread explaining the fix, or resolve it once addressed (`THREAD_ID` from the query above):
 
@@ -446,10 +463,21 @@ gh api graphql -f query='
   -F id="$THREAD_ID"
 ```
 
-For a comment you disagree with, **reply on the thread** with your reasoning rather than silently
-ignoring it (`superpowers:receiving-code-review` discipline). The goal is to flip `reviewDecision` off
-`CHANGES_REQUESTED` honestly. A required-approvals block you can't self-clear is a genuine
-blocker — surface it.
+**A thread has two honest exits, and the `unresolved-threads` rule accepts both.** This matters more
+than it looks: the rule blocks the merge, so a gate clearable only by changing code would hang an
+autonomous run forever on the first finding the agent judges wrong or cannot satisfy.
+
+1. **Fix the ask**, push, then resolve the thread.
+2. **Reply on the thread with your reasoning, then resolve it** (`superpowers:receiving-code-review`
+   discipline). Disagreeing is a legitimate outcome of review.
+
+What is forbidden is resolving *silently*: it clears the gate and deletes the reason. Reply first,
+resolve second, always in that order — the reply is the artifact a human reads later to decide
+whether the agent was right.
+
+The goal is that no thread is left both open and unanswered — not that `reviewDecision` flips, which
+for a `COMMENTED` review it never will. A required-approvals block you can't self-clear, or a thread
+you can neither satisfy nor honestly answer, is a genuine blocker — surface it.
 
 ---
 
