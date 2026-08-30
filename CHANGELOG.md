@@ -8,6 +8,30 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.16.0](https://github.com/phmatray/ai-migration-kit/compare/v1.15.0...v1.16.0) (2026-08-30)
+
+
+### Features
+
+* **guards:** give guarded-push its own exit code for 'could not verify' ([#172](https://github.com/phmatray/ai-migration-kit/issues/172)) ([#305](https://github.com/phmatray/ai-migration-kit/issues/305)) ([00d7b97](https://github.com/phmatray/ai-migration-kit/commit/00d7b97558078c646a6e231dabb78468112b9dbb))
+* **pinned-literals:** cover every restated pin, not just xunit.v3 ([#158](https://github.com/phmatray/ai-migration-kit/issues/158)) ([#283](https://github.com/phmatray/ai-migration-kit/issues/283)) ([49cce9d](https://github.com/phmatray/ai-migration-kit/commit/49cce9d4bf685bdb73fb04a69f01879381b35c31))
+* **scripts:** R10 proves every executable is registered or recorded ([#252](https://github.com/phmatray/ai-migration-kit/issues/252)) ([#303](https://github.com/phmatray/ai-migration-kit/issues/303)) ([e4f6553](https://github.com/phmatray/ai-migration-kit/commit/e4f6553810694e703f10c0f8a4d2679996c68436))
+
+
+### Bug Fixes
+
+* **auto-dev:** usage_report.py counts sub-agent transcripts too ([#281](https://github.com/phmatray/ai-migration-kit/issues/281)) ([#308](https://github.com/phmatray/ai-migration-kit/issues/308)) ([09f38c8](https://github.com/phmatray/ai-migration-kit/commit/09f38c8929261b3e9f8f53d72324e008dfce3396))
+* **auto-dev:** wait-ci.sh waits on every gating check, not one hardcoded name ([#188](https://github.com/phmatray/ai-migration-kit/issues/188)) ([#265](https://github.com/phmatray/ai-migration-kit/issues/265)) ([cf39c48](https://github.com/phmatray/ai-migration-kit/commit/cf39c489b07108032fe85b5417a2f3f130c31c21))
+* **decisions:** R6's emit side reads what a shape builds, not what its comments say ([#274](https://github.com/phmatray/ai-migration-kit/issues/274)) ([#298](https://github.com/phmatray/ai-migration-kit/issues/298)) ([99d6124](https://github.com/phmatray/ai-migration-kit/commit/99d61243a45a2fa2fd1e3b4df5dc39d4ccd9fd9f))
+* **deps:** update non-major dependencies ([#296](https://github.com/phmatray/ai-migration-kit/issues/296)) ([e1b7c8b](https://github.com/phmatray/ai-migration-kit/commit/e1b7c8baba2ad80e01b4105edd9840bf1cc8d008))
+* **implement-issue:** make Step 4's worktree preparation one guarded call ([#280](https://github.com/phmatray/ai-migration-kit/issues/280)) ([#300](https://github.com/phmatray/ai-migration-kit/issues/300)) ([b6db07c](https://github.com/phmatray/ai-migration-kit/commit/b6db07c7ec9c92d1ecce5fd737b26a536f3a4267))
+* **implement-issue:** the plan-locate comment scan reports a genuinely empty match, not the string "null" ([#286](https://github.com/phmatray/ai-migration-kit/issues/286)) ([#288](https://github.com/phmatray/ai-migration-kit/issues/288)) ([fec294c](https://github.com/phmatray/ai-migration-kit/commit/fec294c4bd2af6b8118c540f93908bed49c00a6c))
+* **merge-pr:** route unresolved review threads to the review verdict ([#294](https://github.com/phmatray/ai-migration-kit/issues/294)) ([#295](https://github.com/phmatray/ai-migration-kit/issues/295)) ([b039739](https://github.com/phmatray/ai-migration-kit/commit/b0397391be815a8bac1e120bc19e13a609ae2aa6))
+* **templates:** name BUNDLE_SRC in the guard's dist-collapses-to-root refusal ([#293](https://github.com/phmatray/ai-migration-kit/issues/293)) ([#299](https://github.com/phmatray/ai-migration-kit/issues/299)) ([672ab65](https://github.com/phmatray/ai-migration-kit/commit/672ab65152858fecb23d076c20257f65c1b48048))
+* **templates:** normalise BUNDLE_SRC/BUNDLE_DIST in the guard body ([#285](https://github.com/phmatray/ai-migration-kit/issues/285)) ([#290](https://github.com/phmatray/ai-migration-kit/issues/290)) ([35255b5](https://github.com/phmatray/ai-migration-kit/commit/35255b58dfa61323c2cafc1bf042e5c287c5aeed))
+* **templates:** reject a BUNDLE_DIST that escapes BUNDLE_SRC via .. in the guard step ([#301](https://github.com/phmatray/ai-migration-kit/issues/301)) ([#304](https://github.com/phmatray/ai-migration-kit/issues/304)) ([655f51a](https://github.com/phmatray/ai-migration-kit/commit/655f51af95f2d7671eb8bd9b0035c6d628bfaabb))
+* **tests:** declare ENTRY_KINDS once, not twice, in the coverage-guard suite ([#287](https://github.com/phmatray/ai-migration-kit/issues/287)) ([#297](https://github.com/phmatray/ai-migration-kit/issues/297)) ([f6f8312](https://github.com/phmatray/ai-migration-kit/commit/f6f8312844441e3720b4ab471de217f8370f14da))
+
 ## [1.15.0](https://github.com/phmatray/ai-migration-kit/compare/v1.14.0...v1.15.0) (2026-08-27)
 
 
