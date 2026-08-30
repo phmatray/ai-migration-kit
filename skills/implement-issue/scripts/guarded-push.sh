@@ -34,45 +34,52 @@
 #   0  pushed, and <remote>/<expected-branch> is verified equal to HEAD
 #   2  REFUSED before pushing — HEAD is another branch, or detached, or not a repo, or this script
 #      could not load the branch assertion it shares with guarded-commit.sh. Nothing sent.
-#   4  the push reported success but this guard could NOT prove the work is where that implied.
-#      THREE conditions return it and they are NOT the same answer. Only (c) is the remote
-#      contradicting the push; (a) and (b) are this guard reporting that it could not certify,
-#      for two different reasons and with two different next actions. So read the message, not
-#      only the code:
+#   4  the push reported success, and the remote was READ and DISAGREES with it — the one claim
+#      this code makes (#172: it no longer also means "the check itself could not run"; that is
+#      6, below). Two situations produce it, and both are the remote positively contradicting the
+#      push rather than this guard merely failing to certify it:
 #
 #        a. HEAD moved out from under the push. `git push` sends the CURRENT branch, so what
 #           reached <remote> may not be your work. Caught before the remote is read at all — so
 #           this one is about your local checkout, and it says nothing about what the remote now
 #           holds. Go and look before pushing again.
 #           ALERT: `HEAD moved while it ran`.
-#        b. <remote> could not be listed — VERIFICATION DID NOT RUN. Nothing about the remote was
-#           read, so nothing here disproves the push — and nothing here confirms it either. The
-#           push exited 0, which is exactly the claim this guard exists not to take on trust: the
-#           `--dry-run` and `remote.<name>.push`-refspec cases under (c) exit 0 having delivered
-#           nothing. So "the work is probably there" is a guess, not a finding. What IS established
-#           is that the failure is in the check (a `--remote` naming a remote the push never wrote
-#           to, a network drop, an expired credential), not necessarily in the delivery.
-#           Fix the check, then run this guard again — it has no verify-only mode, so re-verifying
-#           means re-running it whole, and that is safe: re-pushing work the remote already holds
-#           changes nothing, and re-pushing work it does not hold is the outcome you wanted.
-#           ALERT: `could not be listed` / `push is UNVERIFIED` — the sentence wraps across two
-#           lines, so match either half rather than the whole of it.
-#        c. <remote> was listed and does not carry this HEAD — the silent mis-push, and the only
+#        b. <remote> was listed and does not carry this HEAD — the silent mis-push, and the only
 #           condition in which the remote positively contradicts the push. Treat the work as
 #           unpushed and find out what the branch actually holds before pushing again.
 #           ALERT: `is NOT this HEAD`, or `has no '<expected-branch>' to show for it` when the
 #           listing came back with no such branch at all.
+#   6  the push reported success but this guard could NOT PERFORM the check — <remote> itself
+#      could not be listed. VERIFICATION DID NOT RUN. Nothing about the remote was read, so
+#      nothing here disproves the push — and nothing here confirms it either. The push exited 0,
+#      which is exactly the claim this guard exists not to take on trust: the `--dry-run` and
+#      `remote.<name>.push`-refspec cases under 4(b) exit 0 having delivered nothing. So "the
+#      work is probably there" is a guess, not a finding. What IS established is that the failure
+#      is in the check (a `--remote` naming a remote the push never wrote to, a network drop, an
+#      expired credential), not necessarily in the delivery.
+#      A code of its own (#172), split out of what used to be a THIRD meaning of exit 4 — on the
+#      same principle guarded-merge.sh's exit 5 already applies to conflicts: reusing another
+#      condition's number for "I could not determine the answer" makes a caller that branches on
+#      the integer unable to tell "refused, nothing written", "disproved", and "not proved either
+#      way" apart. guarded-merge.sh's own header states it, and this is that same reasoning with
+#      the nouns substituted.
+#      Fix the check, then run this guard again — it has no verify-only mode, so re-verifying
+#      means re-running it whole, and that is safe: re-pushing work the remote already holds
+#      changes nothing, and re-pushing work it does not hold is the outcome you wanted.
+#      ALERT: `could not be listed` / `push is UNVERIFIED` — the sentence wraps across two
+#      lines, so match either half rather than the whole of it.
 #   *  git push's own exit code, if the push itself failed. Nothing else was done.
 #
 # That last line is why every path here also prints a line starting `guarded-push:` —
 # propagating git's status is what the contract asks for, but git (or a pre-push hook, or a
-# wrapper on $PATH) can itself return 2 or 4, which would otherwise be indistinguishable from
+# wrapper on $PATH) can itself return 2, 4 or 6, which would otherwise be indistinguishable from
 # this script's own verdicts. **Read the message, not only the code**: a git failure always says
 # "git push failed (exit N)".
 #
 # ⚠ `--remote` must name the remote the push actually writes to. Verifying `origin` while the
 # push args say `-- -u upstream <branch>` would read a ref nobody wrote; that mismatch surfaces
-# as exit 4 rather than as a false success, but it is a caller error, not a real divergence.
+# as exit 4 (a listable remote that lacks the branch) or exit 6 (an unlistable one) rather than
+# as a false success, but it is a caller error, not a real divergence.
 
 set -euo pipefail
 
@@ -218,7 +225,8 @@ fi
 # command substitution kills this script on the spot, with git's own status (128) and with stderr
 # swallowed — after a push that already succeeded. The caller would read 128 as "the push failed,
 # nothing else was done", the exact inversion of what happened, and the ALERT below would be
-# unreachable. Verification failing is not the same as verification passing: it is exit 4.
+# unreachable. Verification failing is not the same as verification passing: it is exit 6 — the
+# check itself did not run, which is a different claim from "it ran and disagreed" (#172).
 #
 # The two streams are captured SEPARATELY. Folding them with `2>&1` put whatever git or ssh
 # happened to write first onto line 1 of the very variable the sha is parsed out of (#47): the
@@ -265,9 +273,10 @@ if [ "$ls_rc" -ne 0 ]; then
     echo "              push is UNVERIFIED (git ls-remote exited $ls_rc):"
     printf '%s\n' "$remote_err" | sed 's/^/                  /'
     # This sentence, not the reference table, is what a caller actually reads (#93). Saying
-    # "treat the work as unpushed" here — the wording of condition (c), where the remote really
-    # does contradict the push — sent operators to re-push on the one exit 4 that establishes
-    # nothing at all. The check failed; the push did not.
+    # "treat the work as unpushed" here — the wording used where the remote really does contradict
+    # the push (exit 4, below) — sent operators to re-push on the one code that establishes
+    # nothing at all. The check failed; the push did not. It now has its own code (6, #172) so a
+    # caller branching on the integer alone no longer has to parse this sentence to tell them apart.
     echo "              Do NOT assume the work landed — and do NOT assume it didn't. The CHECK"
     echo "              failed, not necessarily the push. If the push targeted a different remote,"
     echo "              re-run with --remote <name> so the guard checks the one you wrote to."
@@ -275,7 +284,7 @@ if [ "$ls_rc" -ne 0 ]; then
     echo "              verify-only mode, and a re-push of work the remote already holds is a"
     echo "              no-op."
   } >&2
-  exit 4
+  exit 6
 fi
 
 # Anchored on the SHAPE of an object id, not on position. `NR==1 {print $1}` trusted the first
