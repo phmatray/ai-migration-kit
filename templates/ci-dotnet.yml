@@ -571,7 +571,7 @@ jobs:
           # correctement mais sans jamais nommer BUNDLE_SRC, contrairement à toutes les autres
           # branches de refus de cette étape.
           if [ -z "$BUNDLE_DIST" ]; then
-            echo "::error::BUNDLE_DIST ('$BUNDLE_SRC') désigne la racine du dépôt."
+            echo "::error::BUNDLE_DIST est vide une fois normalisé : il désigne BUNDLE_SRC ('$BUNDLE_SRC'), la racine du dépôt."
             echo "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), pas le dépôt lui-même."
             exit 1
           fi
@@ -604,8 +604,10 @@ jobs:
           # plus rien — « ça a l'air entretenu, ça ne mesure rien », exactement le défaut que cette
           # étape existe pour empêcher, reproduit dans l'étape elle-même. Le vert est ici la
           # couleur attendue, donc rien ne le signalerait jamais.
-          if [ -z "${BUNDLE_DIST:-}" ] || [ ! -d "$BUNDLE_DIST" ]; then
-            echo "::error::BUNDLE_DIST ('${BUNDLE_DIST:-}') n'est pas un répertoire de ce dépôt."
+          # `-z "$BUNDLE_DIST"` n'a plus sa place ici : le refus nommé ci-dessus garantit déjà que
+          # BUNDLE_DIST n'est jamais vide à ce point de l'exécution.
+          if [ ! -d "$BUNDLE_DIST" ]; then
+            echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas un répertoire de ce dépôt."
             echo "Corrigez \"dist\" dans la configuration committée, ou supprimez le fichier"
             echo "pour désactiver la garde."
             exit 1
