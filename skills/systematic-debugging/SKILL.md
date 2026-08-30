@@ -51,13 +51,20 @@ Complete each phase before moving to the next. The phases exist because skipping
 
 Do this *before* touching any code.
 
-1. **Read the error carefully.** The message, the full stack trace, line numbers, file paths, error codes. Errors frequently name the cause outright; skimming past them is how easy bugs become hard ones.
-2. **Reproduce it consistently.** What are the exact steps? Does it happen every time? If you can't reproduce it, you can't verify a fix later — so gather more data rather than guessing in the dark.
-3. **Check recent changes.** `git diff`, recent commits, new dependencies, config or environment changes. "It worked before" means *something* changed — find what.
-4. **Gather evidence at component boundaries.** When the system has multiple layers (CI → build → sign, request → service → DB), don't guess which layer is at fault. Instrument each boundary — log what enters and exits each component — run once, and let the evidence point to the failing layer. Then investigate *that* layer.
-5. **Trace the data flow.** When the error is deep in the call stack, trace the bad value backward to where it originates, and fix it at the source. See `root-cause-tracing.md` for the full backward-tracing technique.
+1. **Build a feedback loop — this is the phase.** One command that goes red on *this* bug and green once it's fixed. Everything else in Phase 1 feeds it, and everything in Phases 2–4 consumes it. See **`feedback-loop.md`** for the ten ways to construct one, how to tighten it, what to do about non-deterministic bugs, and what to do when you genuinely can't build one.
+2. **Read the error carefully.** The message, the full stack trace, line numbers, file paths, error codes. Errors frequently name the cause outright; skimming past them is how easy bugs become hard ones — and they usually tell you which seam the loop should attach to.
+3. **Reproduce it consistently.** What are the exact steps? Does it happen every time? Reproduction is the loop going red on demand; if it only happens sometimes, raise the rate rather than hunting for a clean repro (`feedback-loop.md` §3).
+4. **Check recent changes.** `git diff`, recent commits, new dependencies, config or environment changes. "It worked before" means *something* changed — find what. Two known states also make a bisection loop possible.
+5. **Gather evidence at component boundaries.** When the system has multiple layers (CI → build → sign, request → service → DB), don't guess which layer is at fault. Instrument each boundary — log what enters and exits each component — run once, and let the evidence point to the failing layer. Then investigate *that* layer.
+6. **Trace the data flow.** When the error is deep in the call stack, trace the bad value backward to where it originates, and fix it at the source. See `root-cause-tracing.md` for the full backward-tracing technique.
 
-You're done with Phase 1 when you can state what is failing and why, with evidence — not a hunch.
+**You're done with Phase 1 when you can name one command you have already run at least once** — show
+the invocation and its (redacted) output — that is **red-capable** (drives the real code path and
+asserts the user's exact symptom), **deterministic**, **fast**, and **agent-runnable**; *and* you can
+state what is failing and why, with evidence from that run rather than from a hunch.
+
+**No red-capable command, no Phase 2.** A cause you inferred by reading is a hypothesis, not evidence
+— it belongs in Phase 3, where something can refute it.
 
 ### Phase 2 — Pattern analysis
 
@@ -100,6 +107,8 @@ Stop fixing and step back to fundamentals: Is this pattern sound? Are we continu
 
 These references in this directory go deeper on specific situations. Read the one that fits:
 
+- **`feedback-loop.md`** — build the red-capable command Phase 1 ends on: the ten-rung construction ladder, the tighten pass, raising the rate on non-deterministic bugs, and the completion criterion. Read this one first; it's the phase.
+- **`scripts/hitl-loop.template.sh`** — the last rung of that ladder: when a human must click, drive them from a script so the loop stays structured and its answers come back as parseable `KEY=VALUE` lines.
 - **`root-cause-tracing.md`** — trace a bug backward through the call stack to its original trigger (and how to add instrumentation when you can't trace by reading).
 - **`defense-in-depth.md`** — after finding the root cause of an invalid-data bug, add validation at every layer so the bug becomes structurally impossible.
 - **`condition-based-waiting.md`** — fix flaky/timing-dependent tests by waiting for the actual condition instead of guessing at a delay.
@@ -109,6 +118,7 @@ These references in this directory go deeper on specific situations. Read the on
 
 If you catch yourself thinking any of these, you've drifted into guessing:
 
+- Reading code to build a theory before a red command exists.
 - "Quick fix for now, investigate later."
 - "Let me just try changing X and see."
 - "I'll make several changes and run the tests."
@@ -150,7 +160,7 @@ Each of these *feels* reasonable in the moment. The right column is why it costs
 
 | Phase | Activities | Done when |
 |---|---|---|
-| **1. Root cause** | Read errors, reproduce, check recent changes, instrument boundaries, trace data flow | You can state what fails and *why*, with evidence |
+| **1. Root cause** | **Build a feedback loop** (`feedback-loop.md`), read errors, reproduce, check recent changes, instrument boundaries, trace data flow | You can name one red-capable command you have **already run** — deterministic, fast, agent-runnable — and say what fails and *why* from its output |
 | **2. Pattern** | Find working examples, read references fully, list differences, map dependencies | You know what's different between working and broken |
 | **3. Hypothesis** | State one hypothesis, test it minimally | It's confirmed — or refuted and you have a new one |
 | **4. Implementation** | Failing test, single fix at the source, verify | Bug is gone, the new test passes, nothing else broke |
