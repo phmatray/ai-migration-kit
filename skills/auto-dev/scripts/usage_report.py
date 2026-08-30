@@ -20,6 +20,11 @@ each kind it found — `SESSIONS: N in <proj>   (X top-level, Y sub-agent)` — 
 with zero Agent-tool workers prints `0 sub-agent` rather than leaving the split to be guessed
 from the row count.
 
+KNOWN GAP (#309): a sub-agent dispatched through the `Workflow` tool nests one level deeper —
+<proj>/<session-id>/subagents/workflows/wf_*/agent-*.jsonl — and is not yet discovered here.
+`0 sub-agent` on a project dir you know used workflows means transcripts are missing, not that
+none were dispatched.
+
 Usage:
     python usage_report.py [PROJECT_DIR] [--main SESSION_ID] [--top N]
 
