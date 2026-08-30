@@ -115,4 +115,29 @@ git -C "$wt_path" symbolic-ref --quiet --short HEAD | grep -qF "$BRANCH_B" \
 
 echo "  ok: incident-spelling — the correctly-slashed rule passes before the directory exists, exit 0"
 
+# ---------------------------------------------------------------- 3. Step 4 calls the guard, not a re-spelling
+#
+# A tool the kit ships is a tool Step 4 actually reaches for — pin that the prose names it, and pin
+# the ⛔ clause naming BOTH observed failure spellings from the incident this whole suite is about,
+# so a future edit cannot quietly drop either warning without going red.
+
+SKILL="$KIT/skills/implement-issue/SKILL.md"
+[ -f "$SKILL" ] || { echo "FAIL [skill-doc]: $SKILL not found"; exit 1; }
+
+STEP4=$(sed -n '/^## Step 4 /,/^## Step 5 /p' "$SKILL")
+[ -n "$STEP4" ] || { echo "FAIL [skill-doc]: could not extract Step 4's section from $SKILL"; exit 1; }
+
+printf '%s\n' "$STEP4" | grep -qF 'make-worktree.sh' \
+  || { echo "FAIL [skill-doc]: Step 4 does not reference make-worktree.sh"; exit 1; }
+printf '%s\n' "$STEP4" | grep -q '⛔' \
+  || { echo "FAIL [skill-doc]: Step 4 carries no ⛔ clause for this step's own hazard"; exit 1; }
+printf '%s\n' "$STEP4" | grep -qF 'git check-ignore' \
+  || { echo "FAIL [skill-doc]: Step 4's ⛔ clause does not name the hand-written 'git check-ignore' spelling"; exit 1; }
+printf '%s\n' "$STEP4" | grep -qF 'git commit' \
+  || { echo "FAIL [skill-doc]: Step 4's ⛔ clause does not name 'git commit' in the main checkout"; exit 1; }
+printf '%s\n' "$STEP4" | grep -qF 'main checkout' \
+  || { echo "FAIL [skill-doc]: Step 4's ⛔ clause does not say WHERE the observed commit landed (the main checkout)"; exit 1; }
+
+echo "  ok: skill-doc — Step 4 names make-worktree.sh and pins the ⛔ clause naming both spellings"
+
 echo "implement-issue-worktree-step golden test OK"

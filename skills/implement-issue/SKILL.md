@@ -135,9 +135,9 @@ review, and ready-flip; a subagent implements a task and reports back.
 
 ## Step 4 — Create **this issue's own** worktree
 
-**This issue gets a worktree of its own, always.** Not "a worktree" — *this* one. Use
-`superpowers:using-git-worktrees` for an isolated workspace branched off `main`, and name the branch
-for the issue, e.g. `feat/<issue>-<short-slug>` (slug from the issue title).
+**This issue gets a worktree of its own, always.** Not "a worktree" — *this* one, created or reused
+through `scripts/make-worktree.sh` below (#280), off `main`. Name the branch for the issue, e.g.
+`feat/<issue>-<short-slug>` (slug from the issue title).
 
 ⛔ **Never implement from the checkout you were launched in**, even when that checkout is already a
 worktree. That skill's Step 0 says "already in a linked worktree → skip creation", and a run launched
@@ -164,18 +164,27 @@ worktree directory is the kit's convention, not a fact about the repository you 
 the check **now**, while both outcomes are still ahead of you: it takes no worktree path, so the one
 call covers the branch that creates and the branch that inherits (#86).
 
-Do not defer it until `$WORKTREE` is bound and then derive its argument from that variable — the
-recipe is deliberately shaped to prevent it. `git -C "$WORKTREE" rev-parse --show-toplevel` names the
-linked worktree rather than the checkout the hazard lives in (it fails **open**), and waiting until
-the worktree exists means creating one in an unignored home before refusing, which leaves it on disk.
-The recipe, the bare-repository case, the verdicts, the reason `2` is not a stop, and the rule against
-editing someone's `.gitignore` unasked all live in
-[`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md) — run it from there, not
-from a copy here, which is how the four copies of this table drifted apart in the first place (#71).
+⛔ **This step is one call, never a re-spelling — of the check OR of the write.** A phase-1 worker
+reached this exact point, composed its own two-line worktree-ignore check instead of calling the
+kit's, got a false "NOT ignored" verdict from `git check-ignore -q "$LOCATION"` spelled **without the
+trailing slash** on a directory that did not exist yet, and "fixed" it with a `git commit` in the
+**main checkout** — landing `chore: ignore .worktrees/` on the user's own local, unpushed branch
+(`e0ad515`, 2026-08-27, `docs/desktop-launcher`; #280). Both are named so neither can recur unnoticed:
+a hand-written `git check-ignore` in place of the shared check, and **any** `git commit` in the main
+checkout at this step, for any reason — there is nothing at this step a commit is ever the answer to.
+Call `scripts/make-worktree.sh` (below); do not compose your own version of what it does.
 
-`0` go ahead · `1` a home is **not** ignored, so stop here — before the worktree and before the
-scaffold commit · `2` ignored but over-broad, so **do** go ahead and mention the profile cost ·
-`3`/`127` no verdict was reached, which is not a pass.
+Do not defer the ignore proof until `$WORKTREE` is bound and then derive its argument from that
+variable — the recipe is deliberately shaped to prevent it. `git -C "$WORKTREE" rev-parse
+--show-toplevel` names the linked worktree rather than the checkout the hazard lives in (it fails
+**open**), and waiting until the worktree exists means creating one in an unignored home before
+refusing, which leaves it on disk. The recipe, the bare-repository case, the verdicts, the reason `2`
+is not a stop, and the rule against editing someone's `.gitignore` unasked all live in
+[`../_shared/worktree-ignore-check.md`](../_shared/worktree-ignore-check.md) — read it there for the
+rationale and the full verdict table, never a copy here, which is how the four copies of this table
+drifted apart in the first place (#71). `scripts/make-worktree.sh` is that recipe, made executable
+(#280): `0`/`2` go ahead · `1` a home is **not** ignored, so stop — before the worktree and before the
+scaffold commit · `3`/`126`/`127` no verdict was reached, which is not a pass.
 
 ### If the branch-name check found nothing: check GitHub for the issue, not just the branch
 
@@ -197,17 +206,34 @@ tie-break rule and an empty-fetch guard. §5's recipe queries `gh pr list` for o
 actually *closes* this issue (GitHub's own closing-keyword set, not a bare mention) and writes the
 result to `/tmp/issue-$ISSUE-closers.json`; `tests/pr-existence-guard/test.sh` proves that program's
 behavior against fixtures shaped exactly like #195. The short version: `0` → nothing to resume onto,
-proceed to "Then reuse or create" below; `1` → resume onto it and skip Step 5's scaffold entirely;
-`2`+ → the exact shape of the #195 incident, resume onto the most-implemented one (§5 has the
-tie-break) and **name the duplicate in the Step 10 report** — this is not a stop-and-ask case under
-the Autonomy contract, but a standing duplicate PR is worth a human's attention regardless.
+proceed to "Create or reuse, through the guard" below; `1` → resume onto it and skip Step 5's scaffold
+entirely; `2`+ → the exact shape of the #195 incident, resume onto the most-implemented one (§5 has
+the tie-break) and **name the duplicate in the Step 10 report** — this is not a stop-and-ask case
+under the Autonomy contract, but a standing duplicate PR is worth a human's attention regardless.
 
-Then reuse or create, and record the two names every later step needs:
+### Create or reuse, through the guard
+
+Whether the branch-name check matched or the fallback above resolved to nothing new to create, hand
+the rest to the guard — it is the single call this step now is (#280):
 
 ```bash
-WORKTREE=<absolute path of this issue's worktree>   # the one just found, or the one just created
-GUARDS=<this skill's own scripts/ directory>        # skills/implement-issue/scripts from the kit root
+GUARDS=<this skill's own scripts/ directory>   # skills/implement-issue/scripts, resolved from the
+                                                # MAIN checkout — no worktree exists yet to have its own copy
+"$GUARDS/make-worktree.sh" -C <anywhere-in-the-repo> "$BRANCH"
 ```
+
+`0` → stdout carries, in this order, `WORKTREE=<absolute path>` and `BRANCH=<branch>`; read them and
+record the two names every later step needs. `2` → REFUSED, printed on stderr — most often the
+ignore-check's `1` (a worktree home is not ignored: the message names the exact `.gitignore` line to
+add and stops there, **never** writing it — see the ⛔ clause above) or its `3`/`126`/`127` (no
+verdict was reached). Either way: **stop here, before Step 5's scaffold** — this is the Autonomy
+contract's genuine blocker, not a default to pick past.
+
+**If the fallback above resumed onto an existing PR whose branch has no local worktree yet**,
+`make-worktree.sh` does not cover that case — it only creates fresh off `main` or reuses an exact
+branch-name match. Fetch and check it out by hand instead (existing local branch: `git worktree add`
+from it; remote-only: `git worktree add -b "$BRANCH" "origin/$BRANCH"`), into a home the same call
+above has already proven ignored.
 
 Carry `$BRANCH` forward — Steps 5–9 pass it to the guards **explicitly**, because a guard
 that read the branch from `HEAD` would be reading the very value it exists to check, and would agree
