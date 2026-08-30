@@ -356,6 +356,15 @@ jobs:
               echo "$g.sh accepted a path that is not a git repository"; exit 1
             fi
           done
+          # make-worktree.sh (#280) lives in the same directory with the same -C/--help/refusal
+          # contract, but a different invocation shape — it takes only `<branch>`, no trailing
+          # `-- <git args>` — so it gets its own check rather than joining the loop above, which
+          # would otherwise pass it an argument list it does not accept.
+          mw_script="$KIT/skills/implement-issue/scripts/make-worktree.sh"
+          bash "$mw_script" --help | grep -q 'Exit codes:'
+          if bash "$mw_script" -C "$PWD" no-such-branch 2>/dev/null; then
+            echo "make-worktree.sh accepted a path that is not a git repository"; exit 1
+          fi
 
       - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists, requirements cross-check)
         run: python3 tests/skills/check-frontmatter.py
@@ -448,6 +457,9 @@ jobs:
 
       - name: Main-worktree golden test (the derivation the profile probe and merge-pr both need)
         run: ./tests/main-worktree/test.sh
+
+      - name: Implement-issue worktree-step golden test (Step 4 as one call, never a re-spelling, #280)
+        run: ./tests/implement-issue-worktree-step/test.sh
 
       - name: Roseline golden test (shipped MCP config + the gate, driven to red)
         run: ./tests/roseline/test.sh

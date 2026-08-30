@@ -348,8 +348,9 @@ that still catches a same-slug race this cannot.
 
 A PR that once closed this issue but is now closed doesn't count — `--state open` already excludes it.
 
-Otherwise create the worktree via `superpowers:using-git-worktrees`, then the draft PR (empty
-scaffold commit so the branch is ahead of `main`):
+Otherwise create the worktree via `scripts/make-worktree.sh` (`implement-issue/SKILL.md` Step 4 —
+never a hand-rolled worktree/ignore check, #280), then the draft PR (empty scaffold commit so the
+branch is ahead of `main`):
 
 ```bash
 "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \

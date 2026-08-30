@@ -564,6 +564,34 @@ jobs:
           [ -n "$BUNDLE_SRC" ] || BUNDLE_SRC=.
           BUNDLE_DIST=${BUNDLE_DIST#./}
           while [ "$BUNDLE_DIST" != "${BUNDLE_DIST%/}" ]; do BUNDLE_DIST=${BUNDLE_DIST%/}; done
+          # `..` doit être refusé ICI AUSSI, indépendamment de l'étape de configuration : celle-ci
+          # refuse déjà tout `..` sur la valeur BRUTE (lignes ~459-461), mais cette copie doit tenir
+          # pour des entrées qui n'ont jamais traversé cette étape (une matrice éditée à la main, un
+          # second chemin de configuration, un adoptant qui modifie le workflow directement) — la
+          # promesse même que documentent les commentaires de cette étape (#293). Sans ce refus, un
+          # `BUNDLE_DIST` qui commence lexicalement par `BUNDLE_SRC/` mais qui remonte hors de son
+          # arborescence via `..` passerait le test de confinement plus bas (`case "$BUNDLE_DIST/" in
+          # "$BUNDLE_SRC"/?*)`, une simple comparaison de chaînes qui ne résout jamais `..` — et la
+          # garde certifierait « à jour » un répertoire qu'elle n'a jamais eu l'intention d'inspecter.
+          case "/$BUNDLE_DIST/" in
+            */../*)
+              echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') remonte hors de son arborescence."
+              echo "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), jamais y"
+              echo "remonter par '..' : le test de confinement plus bas compare des chaînes, pas des"
+              echo "chemins résolus, et un '..' le contournerait silencieusement."
+              exit 1 ;;
+          esac
+          # `BUNDLE_DIST` peut s'effondrer sur la chaîne vide sans jamais avoir été littéralement
+          # vide (ex. BUNDLE_SRC="." BUNDLE_DIST="./" ci-dessus) : il désigne alors la racine du
+          # dépôt, jamais un `dist` légitime — un bundle qui EST le dépôt n'est pas un bundle. Sans
+          # ce refus nommé, le contrôle générique plus bas (`! -d "$BUNDLE_DIST"`) refuse déjà
+          # correctement mais sans jamais nommer BUNDLE_SRC, contrairement à toutes les autres
+          # branches de refus de cette étape.
+          if [ -z "$BUNDLE_DIST" ]; then
+            echo "::error::BUNDLE_DIST est vide une fois normalisé : il désigne BUNDLE_SRC ('$BUNDLE_SRC'), la racine du dépôt."
+            echo "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), pas le dépôt lui-même."
+            exit 1
+          fi
           # L'égalité d'abord, et nommée. `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` l'acceptait
           # (`*` matche la chaîne vide, donc `web/` matche `web/*`) : `npm ci` vient de créer
           # node_modules DANS l'arbre que cette garde inspecte, et comme elle liste volontairement
@@ -593,8 +621,10 @@ jobs:
           # plus rien — « ça a l'air entretenu, ça ne mesure rien », exactement le défaut que cette
           # étape existe pour empêcher, reproduit dans l'étape elle-même. Le vert est ici la
           # couleur attendue, donc rien ne le signalerait jamais.
-          if [ -z "${BUNDLE_DIST:-}" ] || [ ! -d "$BUNDLE_DIST" ]; then
-            echo "::error::BUNDLE_DIST ('${BUNDLE_DIST:-}') n'est pas un répertoire de ce dépôt."
+          # `-z "$BUNDLE_DIST"` n'a plus sa place ici : le refus nommé ci-dessus garantit déjà que
+          # BUNDLE_DIST n'est jamais vide à ce point de l'exécution.
+          if [ ! -d "$BUNDLE_DIST" ]; then
+            echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas un répertoire de ce dépôt."
             echo "Corrigez \"dist\" dans la configuration committée, ou supprimez le fichier"
             echo "pour désactiver la garde."
             exit 1
