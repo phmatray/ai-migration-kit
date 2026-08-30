@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Golden test for skills/auto-dev/scripts/usage_report.py's transcript discovery (#281).
+#
+# The bug: the script discovered sessions with one glob, `<proj>/*.jsonl`, which matches only the
+# transcripts sitting DIRECTLY in the project directory. A worker dispatched via the Agent tool
+# writes its transcript to `<proj>/<session-id>/subagents/agent-*.jsonl` instead — a layout the
+# glob never opens, and nothing in the output said so. Measured on this repo's own 2026-08-27
+# fleet run: 21 sub-agent transcripts carrying 86% of the run's tokens were silently invisible,
+# and the ORCHESTRATOR vs WORKERS split was wrong in exactly the direction that flatters the
+# orchestrator's share.
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+KIT="$PWD"
+
+SCRIPT="$KIT/skills/auto-dev/scripts/usage_report.py"
+[ -f "$SCRIPT" ] || { echo "FAIL: $SCRIPT missing"; exit 1; }
+
+. "$KIT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT"
+
+# ------------------------------------------------------------------------------- fixture builders
+#
+# Each transcript line only needs a `message.model` + `message.usage` object — scan() in
+# usage_report.py reads nothing else.
+write_usage_line() {
+  # $1 = out file (appended), $2 = model, $3..$6 = input/output/cacheWrite/cacheRead
+  local out="$1" model="$2" tin="$3" tout="$4" tcw="$5" tcr="$6"
+  python3 - "$out" "$model" "$tin" "$tout" "$tcw" "$tcr" <<'PY'
+import json, sys
+out, model, tin, tout, tcw, tcr = sys.argv[1:7]
+rec = {
+    "type": "assistant",
+    "message": {
+        "model": model,
+        "usage": {
+            "input_tokens": int(tin),
+            "output_tokens": int(tout),
+            "cache_creation_input_tokens": int(tcw),
+            "cache_read_input_tokens": int(tcr),
+        },
+    },
+}
+with open(out, "a") as f:
+    f.write(json.dumps(rec) + "\n")
+PY
+}
+
+write_user_line() {
+  # $1 = out file (appended), $2 = text — exercises first_user_label()'s string-content branch.
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+out, text = sys.argv[1], sys.argv[2]
+rec = {"type": "user", "message": {"role": "user", "content": text}}
+with open(out, "a") as f:
+    f.write(json.dumps(rec) + "\n")
+PY
+}
+
+MODEL="claude-sonnet-4-5-20250929"
+
+# ------------------------------------------------------------------------- two-kind (the bug)
+#
+# top session "sess-main": input 1500 | output 300 | cacheWrite 50  | cacheRead 15 → 1,865 tok
+# sub session "agent-a1" (parent sess-main): input 2000 | output 400 | cacheWrite 100 | cacheRead 20 → 2,520 tok
+# grand total: 4,385 tok, across 2 sessions (1 top-level, 1 sub-agent).
+PROJ1=$(kit_scratch)
+write_usage_line "$PROJ1/sess-main.jsonl" "$MODEL" 1000 200 50 10
+write_usage_line "$PROJ1/sess-main.jsonl" "$MODEL" 500  100 0  5
+
+mkdir -p "$PROJ1/sess-main/subagents"
+write_user_line  "$PROJ1/sess-main/subagents/agent-a1.jsonl" "the raw first-user text — must lose to the meta.json description below"
+write_usage_line "$PROJ1/sess-main/subagents/agent-a1.jsonl" "$MODEL" 2000 400 100 20
+cat > "$PROJ1/sess-main/subagents/agent-a1.meta.json" <<'JSON'
+{"agentType": "general-purpose", "description": "measure sub-agent token share"}
+JSON
+
+OUT1=$(kit_scratch)/out.txt
+python3 "$SCRIPT" "$PROJ1" --main sess-main > "$OUT1" 2>&1 || {
+  echo "FAIL: usage_report.py exited non-zero on the two-kind fixture"; cat "$OUT1"; exit 1; }
+
+# The grand total is the SUM of both files, not the top-level file alone (the original bug).
+grep -q "total tokens 4,385" "$OUT1" || {
+  echo "FAIL: grand total is not the sum of the top-level AND sub-agent transcripts (expected 4,385)"
+  cat "$OUT1"; exit 1; }
+
+# Session count is 2 (both files counted), and the header states the top/sub-agent split rather
+# than leaving it to be inferred from the row count.
+grep -q "SESSIONS: 2 in $PROJ1" "$OUT1" || {
+  echo "FAIL: header does not report 2 sessions"; cat "$OUT1"; exit 1; }
+grep -q "(1 top-level, 1 sub-agent)" "$OUT1" || {
+  echo "FAIL: header does not state the top-level/sub-agent split"; cat "$OUT1"; exit 1; }
+
+# Every row is labelled with its kind, so the two are distinguishable in the listing. The
+# session column truncates to 8 chars (usage_report.py's `r['sid'][:8]`), hence "sess-mai".
+grep -qE '\btop\b.*sess-mai' "$OUT1" || {
+  echo "FAIL: the top-level row is not marked with its kind"; cat "$OUT1"; exit 1; }
+grep -qE '\bsub\b.*agent-a1' "$OUT1" || {
+  echo "FAIL: the sub-agent row is not marked with its kind"; cat "$OUT1"; exit 1; }
+
+# The sub-agent row prefers its sibling .meta.json description over first_user_label()'s text.
+grep -q "measure sub-agent token share" "$OUT1" || {
+  echo "FAIL: sub-agent row does not use the sibling .meta.json description as its label"
+  cat "$OUT1"; exit 1; }
+if grep -q "must lose to the meta.json description" "$OUT1"; then
+  echo "FAIL: sub-agent row fell back to first_user_label() despite a sibling .meta.json existing"
+  cat "$OUT1"; exit 1
+fi
+
+# ORCHESTRATOR vs WORKERS: the sub-agent's tokens land on the WORKER side even though its parent
+# session ("sess-main") IS the orchestrator named by --main — attributing them to the parent would
+# restate the original under-count in the other direction, just with a smaller error.
+if ! python3 - "$OUT1" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r"orchestrator\s*:\s*\$([\d.]+)", text)
+w = re.search(r"workers\+other:\s*\$([\d.]+)", text)
+assert m and w, "ORCHESTRATOR vs WORKERS section missing"
+orch, work = float(m.group(1)), float(w.group(1))
+# Sonnet rates: (3.0, 15.0, 3.75, 0.30) $/1M tok, applied per session.
+top_cost = (1500*3.0 + 300*15.0 + 50*3.75 + 15*0.30) / 1e6
+sub_cost = (2000*3.0 + 400*15.0 + 100*3.75 + 20*0.30) / 1e6
+assert abs(orch - top_cost) < 0.01, f"orchestrator cost {orch} != top-level-only {top_cost}"
+assert abs(work - sub_cost) < 0.01, f"workers cost {work} != sub-agent-only {sub_cost} (parent-of-sub is the orchestrator, but its tokens are a worker's)"
+PY
+then
+  echo "FAIL: ORCHESTRATOR vs WORKERS split did not attribute the sub-agent's tokens to the worker side"
+  cat "$OUT1"; exit 1
+fi
+echo "ok: two-kind — top-level + Agent-tool sub-agent transcripts both counted, summed, labelled, and split correctly"
+
+# --------------------------------------------------------------- top-only (no subagents/ dir)
+#
+# Zero sub-agent transcripts must be a PRINTED fact, not an absence that looks like completeness.
+PROJ2=$(kit_scratch)
+write_user_line  "$PROJ2/sess-solo.jsonl" "solo top-level session, no subagents dir anywhere"
+write_usage_line "$PROJ2/sess-solo.jsonl" "$MODEL" 100 20 0 0
+
+OUT2=$(kit_scratch)/out.txt
+python3 "$SCRIPT" "$PROJ2" > "$OUT2" 2>&1 || {
+  echo "FAIL: usage_report.py exited non-zero on the top-only fixture"; cat "$OUT2"; exit 1; }
+
+grep -q "SESSIONS: 1 in $PROJ2" "$OUT2" || {
+  echo "FAIL: header does not report 1 session for the top-only fixture"; cat "$OUT2"; exit 1; }
+grep -q "(1 top-level, 0 sub-agent)" "$OUT2" || {
+  echo "FAIL: zero sub-agent transcripts is not printed as a fact — looks like an omission instead"
+  cat "$OUT2"; exit 1; }
+echo "ok: top-only — a project dir with no subagents/ anywhere reports (1 top-level, 0 sub-agent), not silence"

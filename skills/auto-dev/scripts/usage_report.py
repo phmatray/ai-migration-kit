@@ -2,9 +2,28 @@
 """auto-dev cost accounting — aggregate token usage across the orchestrator + every
 background worker session, so you can track tokens/merge and $/merge across runs.
 
-Background workers run as their OWN Claude sessions (tmux panes) inside the same
-worktree, so their transcripts live alongside the orchestrator's in the project dir:
-    ~/.claude/projects/<url-encoded-worktree-path>/<session-id>.jsonl
+Workers are dispatched one of two ways, and both land transcripts this script must open —
+counting only one route silently drops every worker dispatched the other way (#281):
+
+  `claude -p` (tmux panes)   its OWN top-level Claude session, transcript alongside the
+                             orchestrator's directly in the project dir:
+                               <proj>/<session-id>.jsonl
+  Agent-tool sub-agent       a transcript nested under the DISPATCHING session's own dir:
+                               <proj>/<session-id>/subagents/agent-*.jsonl
+                             kept separate because a sub-agent's tokens are never folded
+                             into its dispatcher's top-level transcript — they exist only
+                             here, and skipping this layout is how they go uncounted rather
+                             than merely mis-attributed.
+
+`<proj>` is  ~/.claude/projects/<url-encoded-worktree-path>.  Every run reports how many of
+each kind it found — `SESSIONS: N in <proj>   (X top-level, Y sub-agent)` — so a project dir
+with zero Agent-tool workers prints `0 sub-agent` rather than leaving the split to be guessed
+from the row count.
+
+KNOWN GAP (#309): a sub-agent dispatched through the `Workflow` tool nests one level deeper —
+<proj>/<session-id>/subagents/workflows/wf_*/agent-*.jsonl — and is not yet discovered here.
+`0 sub-agent` on a project dir you know used workflows means transcripts are missing, not that
+none were dispatched.
 
 Usage:
     python usage_report.py [PROJECT_DIR] [--main SESSION_ID] [--top N]
@@ -69,6 +88,41 @@ def first_user_label(path):
         pass
     return ""
 
+def row_label(path):
+    # A sibling <stem>.meta.json — the shape an Agent-tool sub-agent's transcript carries,
+    # e.g. subagents/agent-XXXX.jsonl + subagents/agent-XXXX.meta.json — records the
+    # dispatcher's own `description` for the task, which is a better label than whatever the
+    # sub-agent's first user-turn happens to contain (often the whole forwarded prompt). Prefer
+    # it when present; every other transcript falls back to first_user_label() exactly as
+    # before, so no behaviour changes where no meta file exists.
+    meta_path = path[:-len(".jsonl")] + ".meta.json" if path.endswith(".jsonl") else None
+    if meta_path and os.path.isfile(meta_path):
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+            desc = meta.get("description")
+            if desc:
+                return " ".join(str(desc).split())[:80]
+        except Exception:
+            pass
+    return first_user_label(path)
+
+def discover_transcripts(proj):
+    """Yield (path, kind, parent) for every transcript this project dir holds.
+
+    kind='top'  <proj>/<session-id>.jsonl               — orchestrator or a `claude -p` worker;
+                                                            parent=None.
+    kind='sub'  <proj>/<session-id>/subagents/*.jsonl    — an Agent-tool sub-agent worker;
+                                                            parent=<session-id> of the dir it sits
+                                                            under (its dispatcher — may or may not
+                                                            be the orchestrator).
+    """
+    for p in sorted(glob.glob(os.path.join(proj, "*.jsonl"))):
+        yield p, "top", None
+    for p in sorted(glob.glob(os.path.join(proj, "*", "subagents", "*.jsonl"))):
+        parent = os.path.basename(os.path.dirname(os.path.dirname(p)))
+        yield p, "sub", parent
+
 def scan(path):
     tin = tout = tcw = tcr = nmsg = 0
     model = None
@@ -102,22 +156,28 @@ def main(argv):
         print(f"project dir not found: {proj}", file=sys.stderr); return 2
 
     rows = []
-    for p in glob.glob(os.path.join(proj, "*.jsonl")):
+    for p, kind, parent in discover_transcripts(proj):
         sid = os.path.basename(p)[:-6]
-        r = scan(p); r["sid"] = sid; r["label"] = first_user_label(p)
+        r = scan(p); r["sid"] = sid; r["kind"] = kind; r["parent"] = parent
+        r["label"] = row_label(p)
         rows.append(r)
     rows.sort(key=lambda r: r["cost"], reverse=True)
+    n_top = sum(1 for r in rows if r["kind"] == "top")
+    n_sub = sum(1 for r in rows if r["kind"] == "sub")
 
     def f(n): return f"{n:,}"
     g = {k: sum(r[k] for r in rows) for k in ("tin","tout","tcw","tcr","nmsg","cost")}
     tot_tok = g["tin"]+g["tout"]+g["tcw"]+g["tcr"]
 
-    print(f"SESSIONS: {len(rows)} in {proj}\n")
-    print(f"{'$equiv':>9}  {'model':>6}  {'output':>11}  {'cacheRead':>14}  {'msgs':>5}  session / label")
+    # Zero sub-agent transcripts is a fact worth PRINTING, not an absence a reader has to infer
+    # from the row count — that silence is exactly what let the original under-count look
+    # complete.
+    print(f"SESSIONS: {len(rows)} in {proj}   ({n_top} top-level, {n_sub} sub-agent)\n")
+    print(f"{'$equiv':>9}  {'model':>6}  {'kind':>3}  {'output':>11}  {'cacheRead':>14}  {'msgs':>5}  session / label")
     print("-"*120)
     for r in rows[:top]:
-        tag = "  <<< ORCHESTRATOR" if r["sid"] == main_id else ""
-        print(f"{r['cost']:9.2f}  {r['model']:>6}  {f(r['tout']):>11}  {f(r['tcr']):>14}  {r['nmsg']:>5}  {r['sid'][:8]} {r['label']}{tag}")
+        tag = "  <<< ORCHESTRATOR" if r["kind"] == "top" and r["sid"] == main_id else ""
+        print(f"{r['cost']:9.2f}  {r['model']:>6}  {r['kind']:>3}  {f(r['tout']):>11}  {f(r['tcr']):>14}  {r['nmsg']:>5}  {r['sid'][:8]} {r['label']}{tag}")
     print("-"*120)
 
     print(f"\n=== GRAND TOTAL ({len(rows)} sessions) ===")
@@ -137,7 +197,12 @@ def main(argv):
         print(f"  {name:<12}: {f(tok):>16} tok  ({tok/tot_tok*100:4.1f}% of tokens)")
 
     if main_id:
-        m = next((r for r in rows if r["sid"] == main_id), None)
+        # --main names the orchestrator's TOP-LEVEL transcript only. Every 'sub' row counts as a
+        # worker even when its parent session IS the orchestrator — the tokens were spent by a
+        # worker, and folding them into the parent would restate the original under-count (which
+        # dropped them entirely) in the other direction (attributing a worker's cost to the
+        # orchestrator it happened to be dispatched from).
+        m = next((r for r in rows if r["kind"] == "top" and r["sid"] == main_id), None)
         if m:
             rest = g["cost"] - m["cost"]
             print(f"\n=== ORCHESTRATOR vs WORKERS ===")
