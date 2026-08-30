@@ -66,6 +66,40 @@ gh issue create --title "Add CSV export" \
   --body-file /tmp/issue-csv-export.md
 ```
 
+## Worked example — the Spec contract
+
+Continuing the same CSV-export issue: the 📋 Spec (SKILL.md Step 5) closes with the three-heading
+contract. Criteria are a **numbered list, never `- [ ]`** checkboxes — the Step 7 readback and
+`tick-plan.sh` count every checkbox in the body, so a criterion written as one would inflate the
+plan's count and could be ticked by a step that never satisfied it.
+
+```markdown
+### Acceptance criteria
+
+1. AC1 — `GET /reports/{id}?format=csv` returns `Content-Type: text/csv` with a header row matching
+   the report's column metadata.
+2. AC2 — numeric columns render with invariant-culture formatting regardless of the request's
+   `Accept-Language`.
+3. AC3 — a 10,000-row report streams without the process's working-set growing past the JSON
+   exporter's baseline (no full buffering).
+
+### Testing decisions
+
+**Seams under test:** `CsvExportService.Export(ReportModel)`'s returned file content — the same
+public boundary the existing JSON exporter is tested through, not a private formatting helper.
+**Prior art:** `JsonExportServiceTests` already asserts the JSON exporter's `Export()` output the
+same way; the CSV tests mirror its shape.
+**A good test here:** assert on the returned CSV text (header row, a formatted numeric cell, row
+count) — never on which internal method built each cell (see
+[`../_shared/test-seams.md`](../_shared/test-seams.md)).
+
+### Out of scope
+
+- A `.xlsx` export format — a separate content type, not part of this issue.
+- Client-side locale re-formatting of the CSV — the export stays invariant-culture; locale
+  formatting is the spreadsheet's job, not this service's.
+```
+
 ## Area dropdown values (feature_request)
 
 Pick exactly one, copied verbatim from the option list in the live `feature_request.yml`. If the
