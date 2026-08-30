@@ -638,6 +638,57 @@ git -C "$k" add -A
 refuses "$k" R10 \
   "R10 — a tracked executable neither registered nor recorded in not_decisions is refused by name"
 
+# R10's own failure modes, on not_decisions itself (#252 Task 2).
+
+# A path cannot be BOTH a registered program and a recorded non-decision — one file, two
+# contradictory claims.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"',
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",\n'
+    '    "skills/demo/scripts/prog.sh": "wrongly recorded — this IS demo.rule\'s own program"',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R10 \
+  "R10 — a path that is both a registered program and recorded in not_decisions is refused"
+
+# A not_decisions key whose file no longer exists is a stale record.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"',
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",\n'
+    '    "skills/demo/scripts/ghost.sh": "a file that was deleted, but nobody deleted this record"',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R10 "R10 — a not_decisions entry whose file no longer exists is refused as stale"
+
+# An empty reason verifies nothing — the reason IS the whole value of the record.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"',
+    '"scripts/decide.sh": ""',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R10 "R10 — a not_decisions entry with an empty reason is refused"
+
 # --- the exit-code contract ----------------------------------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 rm -f "$k/scripts/decide.sh"
