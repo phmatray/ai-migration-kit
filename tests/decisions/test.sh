@@ -689,6 +689,26 @@ PY
 git -C "$k" add -A
 refuses "$k" R10 "R10 — a not_decisions entry with an empty reason is refused"
 
+# An ABSOLUTE path must never be checked against the real filesystem root — `pathlib`'s `/`
+# operator silently discards the repo root the moment the right side is absolute, so an absolute
+# key would otherwise probe the machine running the check instead of the repo (code-review finding
+# on #252). Every path in this registry is repo-relative; an absolute one is refused outright,
+# never treated as "exists" just because the same absolute path happens to be a real file on disk.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"',
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",\n'
+    '    "/etc/hosts": "an absolute path — must be refused, never checked against the real root"',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R10 "R10 — an absolute path in not_decisions is refused, never checked against the real filesystem root"
+
 # --- the escape hatch of #208 is closed, end to end (#252 Task 3) -------------------------------
 #
 # Before R10, this was a fifteen-second escape: delete a decision's registry row, and every OTHER

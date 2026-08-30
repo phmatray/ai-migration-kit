@@ -541,9 +541,20 @@ def invocation_re(did):
 
 # ------------------------------------------------------------------------------- R10: completeness
 
-# The four globs the spec derives R10's enumeration `E` from. Git's own glob syntax: a bare `*`
-# does not cross a `/`, so `scripts/*.sh` means a direct child of `scripts/`, not anything nested
-# under it — the same restriction the spec's plain-English "matching" language assumes.
+# The four globs the spec derives R10's enumeration `E` from — copied verbatim from the `git
+# ls-files` invocation the issue's own Problem section measured "32 executables" with. That
+# invocation IS the spec: `E` is whatever this exact pathspec set matches, not a plain-English
+# paraphrase of it.
+#
+# ⚠️ Unlike a shell glob, git's pathspec `*` DOES cross a `/` here: `git ls-files -- 'scripts/*.sh'`
+# matches `scripts/sub/nested.sh` too (verified — git's fnmatch-style pathspec glob is not anchored
+# to one path segment the way FNM_PATHNAME shell globbing is). So `TRACKED_EXEC_GLOBS` is not
+# "direct children only" — it is "anywhere under `scripts/`, and anywhere under `skills/*/scripts/`
+# specifically" (a script nested under `skills/x/y/scripts/z.sh` is out of that second pattern's
+# reach only because the singleton `*` between `skills/` and `/scripts/` must still match exactly
+# one segment, not because `*.sh` stops at the first `/`). No script in this repo is nested today,
+# so E's membership is unaffected by this correction; it matters for the NEXT script someone drops
+# into a `scripts/` subdirectory expecting it to sit outside R10's reach.
 TRACKED_EXEC_GLOBS = ("scripts/*.sh", "scripts/*.py", "skills/*/scripts/*.sh", "skills/*/scripts/*.py")
 
 
@@ -553,8 +564,9 @@ def tracked_executables(repo):
     `git ls-files`, not a filesystem walk: a walk would also see whatever this kit's OWN worktree
     convention plants under `.claude/worktrees/` (an agent's linked worktree, a full second
     checkout) and a path staged for deletion but still present on disk. `-z` so a spaced path
-    round-trips intact; git's pathspec globbing does the per-segment `*` matching itself, so the
-    patterns above are handed through verbatim rather than re-implemented.
+    round-trips intact; git's pathspec globbing does the matching itself (see TRACKED_EXEC_GLOBS'
+    own comment on what that globbing actually covers), so the patterns above are handed through
+    verbatim rather than re-implemented.
     """
     try:
         proc = subprocess.run(
@@ -593,11 +605,18 @@ def check_r10(repo, rel_registry, registered_paths, not_decisions, refuse):
                    f"not_decisions[{path!r}] has no reason (or an empty one)",
                    "The reason is the whole value of the record — state why this executable is "
                    "deliberately not a decision, or remove the entry.")
-        if not (repo / path).is_file():
+        # `pathlib`'s `/` operator DISCARDS the left side the moment the right side is absolute —
+        # `repo / "/etc/hosts"` is `Path("/etc/hosts")`, not an error — so an absolute key would
+        # silently check a path on the real filesystem instead of inside the repo, and would also
+        # never match a relative path out of tracked_executables(), leaving it permanently inert in
+        # both directions. Every path in this registry is documented as repo-relative; refuse an
+        # absolute one outright rather than let `is_file()` answer a question about the wrong root.
+        if pathlib.PurePosixPath(path).is_absolute() or not (repo / path).is_file():
             refuse("R10", rel_registry,
                    f"not_decisions records '{path}', which no longer exists",
                    "A stale record outliving its file is a claim about this repo that is no "
-                   "longer true. Delete the entry, or restore the file.")
+                   "longer true. Delete the entry, or restore the file (paths here are always "
+                   "repo-relative, never absolute).")
         if path in registered_paths:
             refuse("R10", rel_registry,
                    f"'{path}' is BOTH a registered program and recorded in not_decisions",

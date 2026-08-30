@@ -109,6 +109,14 @@ Stated here rather than left to be rediscovered.
   executables; a `block` program nobody ever registers in the first place is invisible to it, the
   same way it always was. R10 closes the *exit* (a row deleted out from under a surviving file); it
   does not give a decision-shaped `block` a way to be discovered if it was never entered at all.
+  A second, narrower gap: `TRACKED_EXEC_GLOBS` covers only `scripts/*.sh`, `scripts/*.py`,
+  `skills/*/scripts/*.sh` and `skills/*/scripts/*.py` — the four patterns the issue's own
+  reproduction measured "32 executables" with. A tracked, executable, decision-shaped script
+  outside those four shapes (code review on #252 found `hooks/roseline-gate.sh`, which branches on
+  `ROSELINE_GATE` and a live-server probe to allow or deny a Read) is invisible to R10 the same way
+  a `block` is: it is not enumerated, so it needs neither a row nor a `not_decisions` entry, and the
+  guard never notices it exists. Widening `E` to cover `hooks/` and skill-root scripts is tracked
+  as a follow-up, not folded into this slice.
 - **An unanswerable question aborts the run.** An unknown `program.kind` or a `verdict.source` no
   dispatcher implements is refused by `decide.sh` during extraction, so the check exits 2 before
   other rows are evaluated — the build goes red and the cause is named, but the report's usual
