@@ -661,6 +661,81 @@ grep -qi 'is NOT this HEAD' "$OUT" \
   || fail push-unlistable-vs-mismatch "the alert must say the remote is NOT this HEAD"
 echo "  ok: push-unlistable-vs-mismatch — remote read and disagreed; still exit 4, pinned beside 17/17b's exit 6"
 
+# ---------------------------------------------------------------- 17d. --verify-only: happy path
+#
+# #172's second half: a way to re-check without re-pushing. The remote already carries this HEAD
+# (delivered directly, bypassing the guard, to stand in for "a prior guarded push already landed
+# it") — --verify-only must confirm it and leave the remote exactly as it was.
+
+R=$(new_repo_with_origin push-verify-only-happy)
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work already delivered by an earlier push"
+git -C "$R" push -q origin a
+head_sha=$(git -C "$R" rev-parse HEAD)
+before_remote=$(remote_tip push-verify-only-happy a)
+
+run push-verify-only-happy "$PUSH" -C "$R" --verify-only a
+
+[ "$RC" -eq 0 ] || fail push-verify-only-happy "verify-only against an already-matching remote must succeed (exit $RC)"
+[ "$(remote_tip push-verify-only-happy a)" = "$before_remote" ] \
+  || fail push-verify-only-happy "verify-only moved the remote — it must never push"
+[ "$(remote_tip push-verify-only-happy a)" = "$head_sha" ] \
+  || fail push-verify-only-happy "fixture broken: the remote should already carry HEAD"
+echo "  ok: push-verify-only-happy — confirmed origin/a == HEAD without pushing (0)"
+
+# ---------------------------------------------------------------- 17e. --verify-only: branch the
+# remote lacks
+#
+# The honest answer to "how do I re-verify after fixing --remote?" without ever pushing.
+
+R=$(new_repo_with_origin push-verify-only-missing)
+git -C "$R" checkout -q -b feature
+echo work >> "$R/seed.txt"
+git -C "$R" commit -q -am "work never pushed at all"
+
+run push-verify-only-missing "$PUSH" -C "$R" --verify-only feature
+
+[ "$RC" -eq 4 ] || fail push-verify-only-missing "verify-only on a never-pushed branch must exit 4, got $RC"
+grep -qi "has no 'feature' to show for it" "$OUT" \
+  || fail push-verify-only-missing "the alert must say the remote has no such branch"
+grep -q 'git push exited 0' "$OUT" \
+  && fail push-verify-only-missing "the ALERT claimed a push happened, but --verify-only never pushes"
+[ -z "$(remote_tip push-verify-only-missing feature)" ] \
+  || fail push-verify-only-missing "verify-only pushed the branch — it must never push"
+echo "  ok: push-verify-only-missing — remote lacks the branch; reported (4) without ever pushing"
+
+# ---------------------------------------------------------------- 17f. --verify-only refuses
+# combined push args
+#
+# The args would target a push that will not happen under --verify-only; silently dropping them
+# is how a --remote/refspec mismatch becomes invisible (the issue's own Validation rules).
+
+R=$(new_repo_with_origin push-verify-only-with-args)
+
+run push-verify-only-with-args "$PUSH" -C "$R" --verify-only a -- -u origin x
+
+[ "$RC" -eq 2 ] || fail push-verify-only-with-args "verify-only plus push args must refuse (2), got $RC"
+grep -q 'Nothing sent.' "$OUT" \
+  || fail push-verify-only-with-args "the refusal must say Nothing sent."
+echo "  ok: push-verify-only-with-args — refused (2) before touching git, push args rejected"
+
+# ---------------------------------------------------------------- 17g. --verify-only: unlistable
+# remote
+#
+# The exit-6 case, under the mode that never pushes at all — the ALERT must not claim a push
+# happened, because none did.
+
+R=$(new_repo_with_origin push-verify-only-unlistable)
+
+run push-verify-only-unlistable "$PUSH" -C "$R" --verify-only a --remote nosuchremote
+
+[ "$RC" -eq 6 ] || fail push-verify-only-unlistable "verify-only against an unlistable remote must exit 6, got $RC"
+grep -qi 'unverified\|could not be listed' "$OUT" \
+  || fail push-verify-only-unlistable "the alert must say the check is UNVERIFIED"
+grep -q 'git push exited 0' "$OUT" \
+  && fail push-verify-only-unlistable "the ALERT claimed a push happened, but --verify-only never pushes"
+echo "  ok: push-verify-only-unlistable — exit-6 ALERT never claims a push that --verify-only never made"
+
 # ---------------------------------------------------------------- 18. HEAD moved during the push
 #
 # The asymmetry the review caught: guarded-commit.sh re-asserts after writing, guarded-push.sh
