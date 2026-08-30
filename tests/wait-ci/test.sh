@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# Golden test for skills/auto-dev/scripts/wait-ci.sh (#188).
+#
+# The script used to model a repo as having exactly ONE gating check, picked by a hardcoded
+# default name (`CHECK="Build & Test"`) and matched against `gh pr checks`'s plain-text table.
+# On a repo with two independently-gating checks (this kit's own `kit` + `title-gate`) no single
+# name is correct: the default matches nothing and hangs to MAX_POLLS/exit 1, and setting CHECK to
+# either name false-greens past the other.
+#
+# Field/vocabulary pin (Task 1 Step 1, gh 2.97.0, measured 2026-08-30):
+#   $ gh pr checks --help
+#     JSON FIELDS: bucket, completedAt, description, event, link, name, startedAt, state, workflow
+#     "the --json flag ... includes a `bucket` field, which categorizes the `state` field into
+#      `pass`, `fail`, `pending`, `skipping`, or `cancel`"
+#   $ gh pr checks <a real PR> --json name,state,bucket
+#     [{"bucket":"pass","name":"kit","state":"SUCCESS"}, {"bucket":"pass","name":"title-gate","state":"SUCCESS"}]
+# `bucket` is gh's OWN classification (cli/cli pkg/cmd/pr/checks/aggregate.go: a switch on the raw
+# check-run/status state that maps SUCCESS->pass, SKIPPED/NEUTRAL->skipping, the failure states->
+# fail, CANCELLED->cancel, and everything else — QUEUED, IN_PROGRESS, PENDING, STALE, WAITING,
+# ACTION_REQUIRED's absence, any future state gh adds — to the `pending` default case). So
+# "final" = "bucket != pending" tracks exactly what the old script's `all_final` meant, without
+# this script having to maintain its own copy of gh's raw-state vocabulary.
+#
+# Second pin, found by code review: gh does not print `[]` for a PR with zero checks — it FAILS
+# the whole call, even with --json (cli/cli's `populateStatusChecks` errors before the exporter
+# ever runs). Measured on PR #291 of this repo (a release-please branch with no CI wired):
+#   $ gh pr checks 291 --json name,state,bucket ; echo $?
+#     (stdout empty) / stderr: no checks reported on the 'release-please--...' branch / exit 1
+# That is indistinguishable on stdout alone from a TRANSIENT gh failure (rate limit, network
+# blip), so cases 6-7 below pin that the script tells them apart by stderr text rather than
+# folding every non-zero exit into "zero checks".
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+
+WAIT="./skills/auto-dev/scripts/wait-ci.sh"
+[ -x "$WAIT" ] || { echo "FAIL: $WAIT missing or not executable"; exit 1; }
+KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# Scratch dir and EXIT trap from the shared preamble (#72).
+. "$KIT_ROOT/tests/_lib.sh" || {
+  echo "FAIL: cannot source $KIT_ROOT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
+kit_init "$KIT_ROOT"
+WORK=$(kit_scratch)
+
+# A `gh` stub on PATH. `pr checks <pr> --json ...` (the poll query) serves the Nth canned response
+# under $GH_RESPONSES, clamped to the highest response actually written — a poll count beyond what
+# a case scripted just repeats the last one, which is what "checks stay the same" or "no checks
+# ever appear" both need. A response file starting with "ERR:" instead simulates gh FAILING: the
+# rest of its content goes to stderr and the stub exits 1, matching real gh's shape for both a
+# genuine zero-checks branch and a transient failure. `pr checks <pr>` (no --json, the final
+# summary) and `pr view` (ditto) are fixed lines: the summary's exact text is not what this suite
+# pins.
+mkdir -p "$WORK/bin"
+cat > "$WORK/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "ARGS: $*" >> "$GH_CALL_LOG"
+case "$*" in
+  *"pr checks"*"--json"*)
+    n=$(( $(cat "$GH_CALL_COUNT" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$GH_CALL_COUNT"
+    max=$(cat "$GH_RESPONSES/max" 2>/dev/null || echo 1)
+    use=$n
+    [ "$use" -gt "$max" ] && use=$max
+    content=$(cat "$GH_RESPONSES/$use.json")
+    case "$content" in
+      ERR:*)
+        printf '%s\n' "${content#ERR:}" >&2
+        exit 1
+        ;;
+      *)
+        printf '%s' "$content"
+        ;;
+    esac
+    ;;
+  *"pr checks"*)
+    printf 'kit\tpass\t1s\thttps://example.invalid\t\n'
+    ;;
+  *"pr view"*)
+    echo "  state=OPEN draft=false mergeState=CLEAN"
+    ;;
+  *)
+    echo "STUB: unhandled gh invocation: $*" >&2
+    exit 1
+    ;;
+esac
+STUB
+chmod +x "$WORK/bin/gh"
+export PATH="$WORK/bin:$PATH"
+
+# Arms a fresh scripted response queue: reset_case <name> <poll-1 JSON> [<poll-2 JSON> ...].
+# A poll past the last argument repeats the last one (see the stub's `max` clamp above).
+reset_case() {
+  local name="$1"; shift
+  GH_CALL_LOG="$WORK/gh-calls.$name.log"
+  GH_CALL_COUNT="$WORK/gh-count.$name"
+  GH_RESPONSES="$WORK/gh-resp.$name"
+  export GH_CALL_LOG GH_CALL_COUNT GH_RESPONSES
+  rm -rf "$GH_RESPONSES"; mkdir -p "$GH_RESPONSES"
+  : > "$GH_CALL_LOG"
+  rm -f "$GH_CALL_COUNT"
+  local idx=1 resp
+  for resp in "$@"; do
+    printf '%s' "$resp" > "$GH_RESPONSES/$idx.json"
+    idx=$((idx + 1))
+  done
+  echo "$((idx - 1))" > "$GH_RESPONSES/max"
+}
+
+has_poll() { printf '%s' "$1" | grep -q "] poll $2:"; }
+
+# ---------------------------------------------------------------- 0. usage: no PR args refuses
+
+rc=0
+out=$("$WAIT" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || { echo "FAIL [usage]: expected exit 2 with no PR args, got $rc"; echo "$out"; exit 1; }
+echo "  ok: usage — no PR args refuses with exit 2"
+
+# ---------------------------------------------------------------- 1. this repo's real shape:
+# two independently-gating checks, one still running when the other has already finished.
+
+reset_case shape \
+  '[{"name":"kit","state":"IN_PROGRESS","bucket":"pending"},{"name":"title-gate","state":"SUCCESS","bucket":"pass"}]' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"title-gate","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=5 "$WAIT" 42 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [shape]: expected exit 0, got $rc"; echo "$out"; exit 1; }
+has_poll "$out" 1 || { echo "FAIL [shape]: missing poll 1"; echo "$out"; exit 1; }
+has_poll "$out" 2 || { echo "FAIL [shape]: missing poll 2"; echo "$out"; exit 1; }
+has_poll "$out" 3 && { echo "FAIL [shape]: polled a 3rd time — should have stopped once both were final"; echo "$out"; exit 1; }
+echo "  ok: shape — waits through kit=IN_PROGRESS/title-gate=SUCCESS to both SUCCESS, no CHECK override needed"
+
+# ---------------------------------------------------------------- 2. today's default-CHECK
+# regression: CHECK unset (the fix — no hardcoded name), both checks already final on poll 1.
+# Under the old script this hung to MAX_POLLS/exit 1 (CHECK="Build & Test" matches neither name).
+
+reset_case default-check \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"title-gate","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=5 "$WAIT" 77 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [default-check]: expected exit 0 with CHECK unset, got $rc"; echo "$out"; exit 1; }
+has_poll "$out" 1 || { echo "FAIL [default-check]: missing poll 1"; echo "$out"; exit 1; }
+has_poll "$out" 2 && { echo "FAIL [default-check]: polled again after poll 1 was already all-final"; echo "$out"; exit 1; }
+echo "  ok: default-check — unset CHECK waits on every check by default and returns as soon as they are all final"
+
+# ---------------------------------------------------------------- 3. checks not yet registered:
+# zero checks on poll 1, then they appear (already final) on poll 2 — no premature error.
+
+reset_case zero-then-appear '[]' '[{"name":"kit","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=5 "$WAIT" 99 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [zero-then-appear]: expected exit 0, got $rc"; echo "$out"; exit 1; }
+has_poll "$out" 1 || { echo "FAIL [zero-then-appear]: missing poll 1"; echo "$out"; exit 1; }
+has_poll "$out" 2 || { echo "FAIL [zero-then-appear]: missing poll 2"; echo "$out"; exit 1; }
+echo "  ok: zero-then-appear — a zero-check poll 1 (GitHub still registering the run) does not error"
+
+# ---------------------------------------------------------------- 4. zero checks for the whole
+# run: a fast, loud exit 2 well before MAX_POLLS, not a silent 60-minute poll to timeout.
+
+reset_case zero-forever '[]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=5 "$WAIT" 5 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || { echo "FAIL [zero-forever]: expected exit 2, got $rc"; echo "$out"; exit 1; }
+printf '%s' "$out" | grep -qi 'no checks found for PR 5' || {
+  echo "FAIL [zero-forever]: no clear message naming the PR with no checks"; echo "$out"; exit 1; }
+has_poll "$out" 3 && { echo "FAIL [zero-forever]: should have failed fast, well before MAX_POLLS=5"; echo "$out"; exit 1; }
+echo "  ok: zero-forever — fails fast (exit 2) instead of polling silently to MAX_POLLS"
+
+# ---------------------------------------------------------------- 5. CHECK as an optional
+# allow-list: with CHECK=kit, an unrelated check that never finishes must not block completion.
+
+reset_case allow-list \
+  '[{"name":"kit","state":"IN_PROGRESS","bucket":"pending"},{"name":"unrelated","state":"IN_PROGRESS","bucket":"pending"}]' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"unrelated","state":"IN_PROGRESS","bucket":"pending"}]'
+rc=0
+out=$(CHECK=kit POLL_SECONDS=0 MAX_POLLS=5 "$WAIT" 8 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [allow-list]: expected exit 0 once 'kit' is final, got $rc"; echo "$out"; exit 1; }
+has_poll "$out" 3 && { echo "FAIL [allow-list]: CHECK=kit should have ignored 'unrelated' and stopped at poll 2"; echo "$out"; exit 1; }
+echo "  ok: allow-list — CHECK=kit waits only on the named check, ignoring 'unrelated' still pending"
+
+# Same fixture, no CHECK filter: 'unrelated' staying pending must correctly block completion.
+# Proves case 5 above is the filter doing real work, not 'unrelated' finishing on its own.
+reset_case allow-list-control \
+  '[{"name":"kit","state":"IN_PROGRESS","bucket":"pending"},{"name":"unrelated","state":"IN_PROGRESS","bucket":"pending"}]' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"unrelated","state":"IN_PROGRESS","bucket":"pending"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=3 "$WAIT" 8 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || {
+  echo "FAIL [allow-list-control]: expected exit 1 (timeout) — 'unrelated' never finishes without a CHECK filter, got $rc"
+  echo "$out"; exit 1
+}
+echo "  ok: allow-list-control — without CHECK, a still-pending 'unrelated' correctly blocks completion"
+
+# ---------------------------------------------------------------- 6. a TRANSIENT gh failure (rate
+# limit, network blip — anything but "no checks reported") must NOT count toward MAX_ZERO_POLLS.
+# Three consecutive failures, one more than the default MAX_ZERO_POLLS=2 — if a transient failure
+# were miscounted as a zero-checks poll, this would wrongly exit 2 by poll 2.
+
+reset_case transient-error \
+  'ERR:API rate limit exceeded' \
+  'ERR:context deadline exceeded' \
+  'ERR:API rate limit exceeded' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=6 "$WAIT" 3 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || {
+  echo "FAIL [transient-error]: expected exit 0 once gh recovers, got $rc (a transient failure must not trip MAX_ZERO_POLLS)"
+  echo "$out"; exit 1
+}
+has_poll "$out" 4 || { echo "FAIL [transient-error]: missing poll 4 (the recovery)"; echo "$out"; exit 1; }
+echo "  ok: transient-error — three non-'no checks reported' gh failures in a row do not trip the zero-checks bound"
+
+# ---------------------------------------------------------------- 7. a GENUINE zero-checks branch
+# — gh failing with its real "no checks reported" wording (measured on PR #291 of this repo) —
+# still counts toward MAX_ZERO_POLLS and fails fast, same as case 4's `[]`-shaped fixture.
+
+reset_case zero-via-real-error \
+  "ERR:no checks reported on the 'some-branch' branch" \
+  "ERR:no checks reported on the 'some-branch' branch"
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=6 "$WAIT" 4 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || {
+  echo "FAIL [zero-via-real-error]: expected exit 2, got $rc"; echo "$out"; exit 1
+}
+has_poll "$out" 3 && {
+  echo "FAIL [zero-via-real-error]: should have failed fast, well before MAX_POLLS=6"; echo "$out"; exit 1
+}
+echo "  ok: zero-via-real-error — gh's real 'no checks reported' failure still trips the zero-checks bound"
+
+echo "wait-ci golden test OK"
