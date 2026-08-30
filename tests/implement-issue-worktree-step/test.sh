@@ -115,7 +115,54 @@ git -C "$wt_path" symbolic-ref --quiet --short HEAD | grep -qF "$BRANCH_B" \
 
 echo "  ok: incident-spelling — the correctly-slashed rule passes before the directory exists, exit 0"
 
-# ---------------------------------------------------------------- 3. Step 4 calls the guard, not a re-spelling
+# ---------------------------------------------------------------- 3. a stale worktree record is not a reuse
+#
+# git's own admin metadata can outlive the directory it names (a hand deletion, a partial
+# teardown) and `git worktree list` still reports it for the branch. Reusing that path blindly
+# would exit 0 naming a WORKTREE that Steps 5-9 then fail to -C into — a false success reported by
+# THIS script, not just a later one. Recreate it instead.
+
+caseC="$WORK/case-c"
+init_repo "$caseC" '.claude/worktrees/\n.worktrees/\n'
+BRANCH_C="feat/3-stale-worktree"
+
+out=$("$KIT/$HELPER" -C "$caseC" "$BRANCH_C")
+first_wt=$(printf '%s\n' "$out" | sed -n 's/^WORKTREE=//p')
+[ -d "$first_wt" ] || { echo "FAIL [stale-worktree]: setup — first call did not create $first_wt"; exit 1; }
+
+rm -rf "$first_wt"
+[ ! -e "$first_wt" ] || { echo "FAIL [stale-worktree]: setup — could not remove $first_wt"; exit 1; }
+
+rc=0
+out=$("$KIT/$HELPER" -C "$caseC" "$BRANCH_C" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [stale-worktree]: expected exit 0 (recreate), got $rc"; echo "$out"; exit 1; }
+
+second_wt=$(printf '%s\n' "$out" | sed -n 's/^WORKTREE=//p')
+[ -n "$second_wt" ] || { echo "FAIL [stale-worktree]: no WORKTREE= line in output:"; echo "$out"; exit 1; }
+[ -d "$second_wt" ] \
+  || { echo "FAIL [stale-worktree]: reported WORKTREE=$second_wt does not exist on disk — the stale record was reused, not recreated"; exit 1; }
+
+echo "  ok: stale-worktree — a deleted-but-still-listed worktree is recreated, never reused blind"
+
+# ---------------------------------------------------------------- 4. `--` ends options, not the branch
+#
+# `-C <repo> -- <branch>` is the conventional way to signal end-of-options. A parser that
+# `break`s out of its loop on `--` (guarded-commit.sh's shape, where everything after `--` is
+# passed through verbatim to `git`) discards the branch this script still needs to read itself.
+
+caseD="$WORK/case-d"
+init_repo "$caseD" '.claude/worktrees/\n.worktrees/\n'
+BRANCH_D="feat/4-end-of-options"
+
+rc=0
+out=$("$KIT/$HELPER" -C "$caseD" -- "$BRANCH_D" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [end-of-options]: expected exit 0, got $rc"; echo "$out"; exit 1; }
+printf '%s\n' "$out" | grep -qF "BRANCH=$BRANCH_D" \
+  || { echo "FAIL [end-of-options]: -- swallowed the branch instead of ending options:"; echo "$out"; exit 1; }
+
+echo "  ok: end-of-options — '--' before <branch> does not discard it"
+
+# ---------------------------------------------------------------- 5. Step 4 calls the guard, not a re-spelling
 #
 # A tool the kit ships is a tool Step 4 actually reaches for — pin that the prose names it, and pin
 # the ⛔ clause naming BOTH observed failure spellings from the incident this whole suite is about,

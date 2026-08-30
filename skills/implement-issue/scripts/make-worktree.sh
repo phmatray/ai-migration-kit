@@ -98,7 +98,9 @@ while [ $# -gt 0 ]; do
     -h|--help) usage; exit 0 ;;
     -C)        [ -n "${2:-}" ] || refuse "-C needs a <repo-path>"
                REPO="$2"; shift 2 ;;
-    --)        shift; break ;;
+    --)        shift ;;   # NOT `break`: unlike guarded-commit.sh, nothing after `--` is passed
+               # through verbatim to a downstream command — it is still this script's own
+               # <branch> positional, so parsing must continue rather than stop.
     -*)        refuse "unknown option: $1" ;;
     *)
       [ -z "$BRANCH" ] || refuse "unexpected extra argument: $1 (only one <branch> is accepted)"
@@ -180,12 +182,30 @@ EXISTING=$(printf '%s\n' "$WT_LIST" | awk -v b="branch refs/heads/$BRANCH" '
   $0 == b { print path; exit }
 ')
 
+# git's own admin metadata can outlive the directory it names — a hand deletion, a partial
+# teardown — and `git worktree list` still reports it for this branch (usually `prunable`).
+# Reusing that path blindly would exit 0 naming a WORKTREE Steps 5-9 then fail to -C into, with
+# this script itself reporting the false success. Prune the stale record and fall through to
+# create fresh, exactly as if the exact-match test above had found nothing.
+if [ -n "$EXISTING" ] && [ ! -d "$EXISTING" ]; then
+  git -C "$REPO_ROOT" worktree prune
+  EXISTING=""
+fi
+
 if [ -n "$EXISTING" ]; then
   WORKTREE="$EXISTING"
 else
   WORKTREE="$REPO_ROOT/.claude/worktrees/$BRANCH"
   set +e
-  git -C "$REPO_ROOT" worktree add -q "$WORKTREE" -b "$BRANCH" "$BASE_BRANCH"
+  if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    # The branch already exists with no worktree attached — most often the prune just above
+    # (its worktree was deleted by hand, the branch was not), or a prior run that created the
+    # branch and crashed before finishing. `git worktree add -b` REFUSES a branch that already
+    # exists, so attach a fresh worktree to it instead of trying to create it again.
+    git -C "$REPO_ROOT" worktree add -q "$WORKTREE" "$BRANCH"
+  else
+    git -C "$REPO_ROOT" worktree add -q "$WORKTREE" -b "$BRANCH" "$BASE_BRANCH"
+  fi
   add_rc=$?
   set -e
   if [ "$add_rc" -ne 0 ]; then
