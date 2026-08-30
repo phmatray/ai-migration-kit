@@ -126,7 +126,7 @@ echo "  ok: c/eval — evals.json parses and carries loop-before-hypothesis"
 
 # ---------------------------------------------------------------- (d) the two pointers
 
-fix_check=$(section "skills/merge-pr/SKILL.md" '^\*\*Fix a red CI check\.\*\*' '^## ')
+fix_check=$(section "skills/merge-pr/SKILL.md" '^[*][*]Fix a red CI check[.][*][*]' '^## ')
 [ -n "$fix_check" ] || {
   echo "FAIL [d/merge-pr]: could not find the '**Fix a red CI check.**' correction in"
   echo "                   skills/merge-pr/SKILL.md — if it was renamed, re-point this assertion"
