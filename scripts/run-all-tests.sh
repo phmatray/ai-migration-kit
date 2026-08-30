@@ -182,6 +182,11 @@ EOF
 # 13: skill frontmatter conforms to the guide (requirements.json cross-check included).
 add_gate "python3 tests/skills/check-frontmatter.py"
 
+# 13b: the untrusted-input boundary is still linked from every ingest point, and nothing links it
+# without being declared (#266). Same home as the frontmatter checker — both are absence rules over
+# skills/ whose red paths ride in tests/skills/test.sh below.
+add_gate "python3 tests/skills/check-untrusted-boundary.py"
+
 add_suite "tests/skills/test.sh"
 
 # 14: the inventory script runs and emits valid JSON.
@@ -199,6 +204,7 @@ add_suite "tests/tick-plan/test.sh"
 add_suite "tests/guarded-git/test.sh"
 add_suite "tests/merge-gate/test.sh"
 add_suite "tests/pr-existence-guard/test.sh"
+add_suite "tests/plan-locate-comment-guard/test.sh"
 add_suite "tests/merge-freshness/test.sh"
 add_suite "tests/decisions/test.sh"
 add_suite "tests/guarded-pr-merge/test.sh"
@@ -206,6 +212,7 @@ add_suite "tests/remote-branch-teardown/test.sh"
 add_suite "tests/release-title-gate/test.sh"
 add_suite "tests/worktrees-ignored/test.sh"
 add_suite "tests/main-worktree/test.sh"
+add_suite "tests/implement-issue-worktree-step/test.sh"
 add_suite "tests/roseline/test.sh"
 add_suite "tests/auto-dev-never-wait/test.sh"
 add_suite "tests/auto-dev-takeover-cleanup/test.sh"

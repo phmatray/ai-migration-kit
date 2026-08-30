@@ -240,7 +240,7 @@ jobs:
           # against a config the real Renovate accepts. An unpinned gate is red on correct input,
           # and its obvious "fix" would silently downgrade the config. Floor is major 40.
           # Bumped by the customManager in renovate.json; tests/renovate-config asserts both.
-          RENOVATE_VALIDATOR_VERSION: 44.29.4
+          RENOVATE_VALIDATOR_VERSION: 44.46.6
         run: |
           # Both flags are load-bearing and both were MEASURED against this pin in #79, not read
           # off the docs. Dropping either one re-opens a hole that leaves CI green.
@@ -356,9 +356,27 @@ jobs:
               echo "$g.sh accepted a path that is not a git repository"; exit 1
             fi
           done
+          # make-worktree.sh (#280) lives in the same directory with the same -C/--help/refusal
+          # contract, but a different invocation shape — it takes only `<branch>`, no trailing
+          # `-- <git args>` — so it gets its own check rather than joining the loop above, which
+          # would otherwise pass it an argument list it does not accept.
+          mw_script="$KIT/skills/implement-issue/scripts/make-worktree.sh"
+          bash "$mw_script" --help | grep -q 'Exit codes:'
+          if bash "$mw_script" -C "$PWD" no-such-branch 2>/dev/null; then
+            echo "make-worktree.sh accepted a path that is not a git repository"; exit 1
+          fi
 
       - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists, requirements cross-check)
         run: python3 tests/skills/check-frontmatter.py
+
+      # #266. The boundary itself is prose and cannot go red; its REACH can. This asserts both
+      # directions — every consumer the doc names still links it (and the link RESOLVES), and
+      # nothing in skills/, commands/, templates/, docs/ or the repo root links it without being
+      # named — so a rewrite that drops the reminder from an ingest point fails here rather than
+      # silently leaving that step reading foreign text with no boundary stated. The golden cases
+      # that prove this checker can still refuse ride in the suite step below.
+      - name: Untrusted-input boundary is linked from every ingest point (and nothing links it unlisted)
+        run: python3 tests/skills/check-untrusted-boundary.py
 
       # The frontmatter checker asserts a key is ABSENT, which the six real skills already
       # satisfy — so its pass path proves nothing and a guard that stopped matching would
@@ -406,6 +424,9 @@ jobs:
       - name: PR-existence guard golden test (an issue-scoped search finds a closer under any branch name)
         run: ./tests/pr-existence-guard/test.sh
 
+      - name: Plan-locate comment guard golden test (a null comment body must not crash the plan-locate scan)
+        run: ./tests/plan-locate-comment-guard/test.sh
+
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 
@@ -436,6 +457,9 @@ jobs:
 
       - name: Main-worktree golden test (the derivation the profile probe and merge-pr both need)
         run: ./tests/main-worktree/test.sh
+
+      - name: Implement-issue worktree-step golden test (Step 4 as one call, never a re-spelling, #280)
+        run: ./tests/implement-issue-worktree-step/test.sh
 
       - name: Roseline golden test (shipped MCP config + the gate, driven to red)
         run: ./tests/roseline/test.sh

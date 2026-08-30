@@ -151,9 +151,11 @@ jobs:
           #     lien → un vrai rapport           matche       REFUSÉ     matche
           #     lien cassé                       matche       refusé     refusé
           #
-          # `-L` restaure la ligne du milieu. Les trois lignes sont épinglées par
-          # tests/ci-template/test.sh [10] — dont celle du milieu, qui est la régression qu'une
-          # « simplification » ultérieure vers un `-type f` nu introduirait.
+          # `-L` restaure la ligne du milieu. `tests/ci-template/test.sh` [10b] LIT ce tableau (le
+          # découpe sous l'en-tête « entrée sous coverage/ » ci-dessus) plutôt que de le retyper —
+          # ne renommez ni les libellés de ligne ni les mots « matche »/« refusé »/« REFUSÉ » sans
+          # mettre à jour l'extracteur du même coup (#141). La ligne du milieu est celle qui
+          # rougirait sous une « simplification » ultérieure vers un `-type f` nu.
           #
           # ⚠ Ceci ne change PAS la sémantique de présence : #31 a tranché que cette garde teste la
           # PRÉSENCE et non le COMPTE (voir les ~30 lignes ci-dessus). On ne change ici que ce qui
@@ -524,7 +526,7 @@ jobs:
           # Version EXACTE, jamais `26.x` ni `26.5.x` : la précondition 2 tombe si Node flotte,
           # et `tests/ci-template/test.sh` refuse toute forme non `N.N.N`.
           # Renovate maintient cette ligne — elle est extraite comme dépendance `node`.
-          node-version: 26.7.0
+          node-version: 26.8.1
 
       - name: Reconstruire le bundle front committé
         if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
@@ -548,6 +550,29 @@ jobs:
           if [ -z "${BUNDLE_SRC:-}" ]; then
             echo "::error::BUNDLE_SRC est vide alors que BUNDLE_DIST est renseignée."
             echo "La reconstruction n'a donc pas eu lieu là où vit le bundle."
+            exit 1
+          fi
+          # Normaliser AVANT de comparer — le même './'-strip et trailing-'/'-strip que l'étape de
+          # configuration applique déjà (lignes ~475-477) avant de publier ses sorties. Un invariant
+          # délégué à l'appelant est un invariant perdu au premier changement d'appelant (#96) : si
+          # ces valeurs arrivaient un jour d'ailleurs qu'une sortie déjà normalisée (une matrice, un
+          # second chemin de config, une modification manuelle chez un adoptant), cette copie doit
+          # rendre le même verdict que celle-ci pour toute orthographe équivalente, pas seulement la
+          # paire normalisée que l'étape de configuration publie aujourd'hui (#285).
+          BUNDLE_SRC=${BUNDLE_SRC#./}
+          while [ "$BUNDLE_SRC" != "${BUNDLE_SRC%/}" ]; do BUNDLE_SRC=${BUNDLE_SRC%/}; done
+          [ -n "$BUNDLE_SRC" ] || BUNDLE_SRC=.
+          BUNDLE_DIST=${BUNDLE_DIST#./}
+          while [ "$BUNDLE_DIST" != "${BUNDLE_DIST%/}" ]; do BUNDLE_DIST=${BUNDLE_DIST%/}; done
+          # `BUNDLE_DIST` peut s'effondrer sur la chaîne vide sans jamais avoir été littéralement
+          # vide (ex. BUNDLE_SRC="." BUNDLE_DIST="./" ci-dessus) : il désigne alors la racine du
+          # dépôt, jamais un `dist` légitime — un bundle qui EST le dépôt n'est pas un bundle. Sans
+          # ce refus nommé, le contrôle générique plus bas (`! -d "$BUNDLE_DIST"`) refuse déjà
+          # correctement mais sans jamais nommer BUNDLE_SRC, contrairement à toutes les autres
+          # branches de refus de cette étape.
+          if [ -z "$BUNDLE_DIST" ]; then
+            echo "::error::BUNDLE_DIST est vide une fois normalisé : il désigne BUNDLE_SRC ('$BUNDLE_SRC'), la racine du dépôt."
+            echo "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), pas le dépôt lui-même."
             exit 1
           fi
           # L'égalité d'abord, et nommée. `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` l'acceptait
@@ -579,8 +604,10 @@ jobs:
           # plus rien — « ça a l'air entretenu, ça ne mesure rien », exactement le défaut que cette
           # étape existe pour empêcher, reproduit dans l'étape elle-même. Le vert est ici la
           # couleur attendue, donc rien ne le signalerait jamais.
-          if [ -z "${BUNDLE_DIST:-}" ] || [ ! -d "$BUNDLE_DIST" ]; then
-            echo "::error::BUNDLE_DIST ('${BUNDLE_DIST:-}') n'est pas un répertoire de ce dépôt."
+          # `-z "$BUNDLE_DIST"` n'a plus sa place ici : le refus nommé ci-dessus garantit déjà que
+          # BUNDLE_DIST n'est jamais vide à ce point de l'exécution.
+          if [ ! -d "$BUNDLE_DIST" ]; then
+            echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas un répertoire de ce dépôt."
             echo "Corrigez \"dist\" dans la configuration committée, ou supprimez le fichier"
             echo "pour désactiver la garde."
             exit 1

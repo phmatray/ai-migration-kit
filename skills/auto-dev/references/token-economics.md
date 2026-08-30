@@ -50,6 +50,24 @@ Each tool round-trip is a turn, and every turn re-reads the whole context.
   **write** (1.25× input), not a cheap read (0.1×). A needless short tick is pure cost; a wake after a
   long idle should batch all pending reconcile work to amortize the rewrite.
 
+## Lever 4 — route work to the tier that priced it best
+
+### Measured per-tier costs, including the top tier
+
+Measured from a 19-merge run on bsca-dev/partners-api (2026-08-24), 37 worker sessions, via `scripts/usage_report.py`:
+
+| Tier | Sessions | Tokens | $ list-equiv | $/Mtok |
+|---|---|---|---|---|
+| opus (top) | 4 | 78,844,117 | $187.23 | $2.376 |
+| sonnet (mid) | 31 | 568,624,991 | $238.46 | $0.419 |
+| haiku (small) | 2 | 9,012,921 | $1.51 | $0.168 |
+
+**Derived cost ratios:** 5.7× (top:mid), 2.5× (mid:small), 14.1× (top:small).
+
+Dollar figures are API list-price equivalents — on a subscription they map to rate-limit budget, not cash.
+
+**Historical note:** An earlier record stated "≈2.7×" as the mid:small ratio but did not document the measurements it came from (the printed 2.395/2.145 figures do not derive that ratio). The ratio should be re-derived from a documented run rather than propagated without source.
+
 ## Measurement
 
 `scripts/usage_report.py <project-transcript-dir> --main <orchestrator-session-id>` aggregates tokens

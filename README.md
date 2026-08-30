@@ -27,6 +27,7 @@
 - [The audit product — `/migrate-audit`](#the-audit-product--migrate-audit)
 - [The pipeline](#the-pipeline)
 - [The issue/PR lifecycle skills](#the-issuepr-lifecycle-skills)
+- [Desktop launcher](#desktop-launcher)
 - [Safety rails](#safety-rails)
 - [Repository layout](#repository-layout)
 - [Proof it works](#proof-it-works)
@@ -207,6 +208,24 @@ keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Thei
 [`requirements.json`](requirements.json). Call graph and full dependency matrix:
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Desktop launcher
+
+[**AI Kit**](https://github.com/Atypical-Consulting/omarchy-aikit) runs these
+skills from the [Omarchy](https://omarchy.org/) desktop instead of the command
+line: pick a repository, pick a skill, and the session starts in a tmux terminal.
+Issues and PRs are chosen from a list rather than typed as numbers, a bar widget
+shows the sessions in flight and the PRs a background `auto-dev` fleet has
+landed, and a cross-repo work queue answers "what should I work on?" — failing
+CI, requested reviews, your open PRs, assigned and planned issues, across every
+repository at once.
+
+Menus read a local SQLite mirror of GitHub kept fresh by a systemd timer, so no
+menu waits on the network.
+
+```bash
+omarchy plugin add https://github.com/Atypical-Consulting/omarchy-aikit.git --enable
+```
+
 ## Safety rails
 
 - Dedicated `migration/<date>` branch; commit at every green gate.
@@ -230,7 +249,7 @@ skills/triage-backlog/  the queue's outlet: verify, cluster and re-decide open i
 skills/systematic-debugging/ root-cause-before-fix process, harness-agnostic
 skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
 skills/setup-repo/      the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
-skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar)
+skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary)
 scripts/                preflight.sh (phase-0 gate) · run-all-tests.sh (one command for everything CI checks, exit 2 on a missing prerequisite) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies · bundle-gate.json.example — copy-pasteable config for the opt-in committed-bundle drift gate
 tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired. Run them all with `./scripts/run-all-tests.sh`

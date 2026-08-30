@@ -75,12 +75,34 @@ if [ "$PLAN_SRC" = comment ]; then
   # the filter independently per page and concatenates the results, so `last` only sees whichever
   # page happens to print after the others.
   PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate --slurp \
-    | jq -r '[.[][] | select(.body | contains("🛠️ Implementation plan"))] | last | .id')
+    | jq -r '
+      # >>> plan-locate marker-comment guard
+      # `.body // ""` is a defensive guard, not a confirmed crash fix: GitHub's REST schema types
+      # `issue-comment.body` as a plain non-nullable string (unlike the PR/issue `body` the sibling
+      # `test()` guard at §5 fixed for #259, which IS documented nullable) — so a `null` comment body
+      # is not known-reachable through this endpoint. `contains()` still throws on `null` if one ever
+      # arrives, exactly the way `test()` did before #259, so this coerces to `""` for the same
+      # "no match" outcome as any other non-marker body, at effectively no cost (#278).
+      # `last | .id` alone renders a genuine zero-match as the literal jq value `null`, and `jq -r`
+      # prints that as the four-character string "null" — not empty output. The surrounding bash
+      # gates on `[ -z "$PLAN_COMMENT_ID" ]`, which is false for a non-empty string, so without
+      # `// empty` the fallback scan and the "no plan" stop below never fire on an ordinary
+      # zero-match comment set (#286).
+      [.[][] | select((.body // "") | contains("🛠️ Implementation plan"))] | last | .id // empty
+      # <<< plan-locate marker-comment guard
+      ')
 
   # Fallback if no marker (older/hand-written plan): latest comment that has checkbox lines.
   if [ -z "$PLAN_COMMENT_ID" ]; then
     PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate --slurp \
-      | jq -r '[.[][] | select(.body | (contains("- [ ]") or contains("- [x]")))] | last | .id')
+      | jq -r '
+        # >>> plan-locate checkbox-fallback guard
+        # Same defensive null-body guard as the marker-comment scan above, applied to the
+        # checkbox-line fallback (#278).
+        # Same `// empty` fix as the marker-comment guard above, for the same reason (#286).
+        [.[][] | select((.body // "") | (contains("- [ ]") or contains("- [x]")))] | last | .id // empty
+        # <<< plan-locate checkbox-fallback guard
+        ')
   fi
 
   # Nothing in the body AND nothing in comments? Stop — there is no plan to execute (Autonomy contract).
@@ -293,8 +315,10 @@ jq --arg issue "$ISSUE" '
   # $issue is the numeric issue id, bound above via --arg. `\b…#<n>\b` stops "214" from matching a
   # #2140/#1214 substring. `:?\s*` accepts both "Closes #42" and "Closes: #42" — GitHub recognizes
   # the colon form too — while still requiring the keyword to sit immediately before the number, not
-  # just somewhere in the same sentence.
-  [.[] | select(.body | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s*#" + $issue + "\\b"))]
+  # just somewhere in the same sentence. `.body // ""` guards a PR with no description: `gh` reports
+  # that as JSON `null`, and `test()` throws on `null` rather than treating it as non-matching (#259)
+  # — coercing to `""` makes it evaluate to "no match" like any other non-closing body.
+  [.[] | select((.body // "") | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s*#" + $issue + "\\b"))]
   # <<< issue-scoped PR-existence guard
 ' /tmp/issue-$ISSUE-mentions.json > /tmp/issue-$ISSUE-closers.json
 
@@ -324,8 +348,9 @@ that still catches a same-slug race this cannot.
 
 A PR that once closed this issue but is now closed doesn't count — `--state open` already excludes it.
 
-Otherwise create the worktree via `superpowers:using-git-worktrees`, then the draft PR (empty
-scaffold commit so the branch is ahead of `main`):
+Otherwise create the worktree via `scripts/make-worktree.sh` (`implement-issue/SKILL.md` Step 4 —
+never a hand-rolled worktree/ignore check, #280), then the draft PR (empty scaffold commit so the
+branch is ahead of `main`):
 
 ```bash
 "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \

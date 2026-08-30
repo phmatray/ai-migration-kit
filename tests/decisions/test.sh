@@ -160,7 +160,7 @@ refuses() {
 echo "== A. the dispatcher answers — every fixture, verdict by verdict"
 
 # The recorded verdicts. Each line is <fixture> <expected-verdict-or-RC2>, and together they pin
-# all eight precedence rules plus the two refusal paths. Kept as a here-doc rather than an
+# all fifteen precedence rules plus the two refusal paths. Kept as a here-doc rather than an
 # associative array: this must parse under macOS bash 3.2, which has none (scripts/parse-sweep.sh).
 while read -r fixture expected; do
   [ -n "$fixture" ] || continue
@@ -190,6 +190,8 @@ draft-flag.json ready
 draft-state.json ready
 blocked-approval.json review
 blocked-changes-requested.json review
+changes-requested.json review
+unresolved-threads.json review
 empty RC2
 not-an-object.json RC2
 FIXTURES_EOF
@@ -296,6 +298,191 @@ else
   bad "a '#' inside a quoted verdict value was truncated, breaking R4/R5 on an otherwise-coherent kit:"
   printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
 fi
+
+# --- R6 reads subset emits, and a comment naming an unbuilt field is not a real read (#261) ------
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+# Give demo.rule a shape: the marked block is where R6 reads what the input state actually
+# contains, matched against what READ_RE finds the program reading (`.state`).
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(printf '%s' '"CLEAN"' | jq '{state: .}')
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R6 — a shape whose emitted keys cover the program's reads passes (baseline for the case below)"
+else
+  bad "R6 — the shape baseline itself does not pass, so the comment case below is meaningless:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# A comment naming a field the shape does NOT build must not be counted as a real read.
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    "set -euo pipefail\n",
+    "set -euo pipefail\n# also reads .legacy_field for back-compat\n",
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R6 — a comment mentioning a field the shape does not build is not counted as a real read"
+else
+  bad "R6 — a documentary comment made the guard refuse a shape-covered kit it must accept:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# A genuine (non-comment) read of a field the shape does not build must be refused — the positive
+# case the two above only set up for.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(printf '%s' '"CLEAN"' | jq '{state: .}')
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}',
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}\n'
+    '       elif .legacy_field == "x" then {verdict:"stop", rule:"legacy"}',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R6 "R6 — a genuine read of a field the shape does not build is refused"
+
+# A comment INSIDE the marked shape block naming a `{...}` construction for a field the live shape
+# does not build must not be counted as a real emit — the mirror image of the two read-side cases
+# above, on emitted_keys() instead of READ_RE (#274). Left unfixed, the comment's phantom
+# `legacy_field` key covers a genuine missing read and R6 wrongly passes.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+# earlier revision built: { legacy_field: .foo, state: .bar }
+state=$(printf '%s' '"CLEAN"' | jq '{state: .}')
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}',
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}\n'
+    '       elif .legacy_field == "x" then {verdict:"stop", rule:"legacy"}',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R6 \
+  "R6 — a comment inside the shape block naming an unbuilt field is not counted as a real emit"
+
+# A `#` embedded inside a SINGLE-quoted string on the same shape line as a real `{...}` construction
+# must not truncate that construction and hide a real emit (code-review finding on #274): a shape
+# block is ordinary bash/jq, never protected by R3's "no single quote" refusal the way a
+# `kind=="block"` program is, so this is reachable in real shape text — the actual registered
+# `merge.step4` shape embeds `gh api graphql -f query='…'`.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(echo 'see issue #99 for context' > /dev/null; printf '%s' '"CLEAN"' | jq '{state: .}')
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R6 — a '#' inside a single-quoted string on the shape line does not truncate a real emit"
+else
+  bad "R6 — a single-quoted '#' on the shape's own line wrongly hid a real emit, causing a false refusal:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# The inverse: an odd number of embedded `"` inside a single-quoted string on the shape line must not
+# desync the double-quote parity and leave a genuine TRAILING comment un-stripped — that would
+# resurrect the exact phantom-emit bug #274 fixes, reached through a second quoting path.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(printf '%s' '"CLEAN"' | jq '{state: .}'); echo 'the value is "quoted' > /dev/null  # earlier revision built: { legacy_field: .foo, state: .bar }
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}',
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}\n'
+    '       elif .legacy_field == "x" then {verdict:"stop", rule:"legacy"}',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R6 \
+  "R6 — an odd embedded quote inside a single-quoted string does not hide a genuine trailing comment's phantom key"
 
 # --- R7 the owner must INVOKE, not merely mention -----------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"

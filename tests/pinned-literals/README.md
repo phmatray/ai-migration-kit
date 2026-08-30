@@ -22,6 +22,31 @@ Anything that is **neither** is refused, naming `file:line`. That asymmetry is t
 (`#90`, approach B): a new copy of the pin must **fail loudly**, never be quietly swept into
 agreement. An exclusion list would have inverted it.
 
+`#158` widened the check past this one pin, in two directions — read the rest of this file for the
+original `xunit.v3` classification, still accurate for that pin, then see below for what changed:
+
+- **A second DERIVED pin** — `COVERAGE_EXT_VERSION` (`Microsoft.Testing.Extensions.CodeCoverage`),
+  marker `pinned:coverage-ext`, one more row in `PINS`, same "marked / historical / refuse" rule as
+  `xunit.v3`'s. Its own canonical marked claim lives at `tests/xunit-v3/apply-transform.py`, right
+  next to `COVERAGE_EXT_VERSION`'s definition; the existing measurement banners in
+  `templates/ci-dotnet.yml` and `tests/xunit-v3/test.sh` spell the package by its short alias
+  ("CodeCoverage", not the full id `claim_patterns()` anchors on) and are recorded HISTORICAL
+  instead, rather than widening that shared pattern for one package's alias.
+- **A third KIND, AGREED**, for a literal with **no constant to derive from** — `samples/LegacyShop`
+  is a frozen fixture, and nothing may derive FROM it. Three AGREED pins
+  (`frozen-xunit-core` / `frozen-xunit-runner` / `frozen-test-sdk`, package `xunit` /
+  `xunit.runner.visualstudio` / `Microsoft.NET.Test.Sdk`) hold that fixture's two in-repo
+  restatements — `renovate.json`'s description of the frozen fixture, and the scratch v2 csproj
+  `tests/xunit-v3/test.sh` builds to mirror it — to **each other**: every marked occurrence must
+  state the same value, or the check refuses naming every value seen; fewer than two marked
+  occurrences refuses too (an agreement of one is vacuous). AGREED has no literal-scan half — with
+  no authority there is no "the version" to hunt unmarked spellings of, so it sees only what is
+  explicitly marked, **plus one `witness`**: `samples/LegacyShop`'s own real csproj, read directly
+  for a third occurrence since a frozen file can never carry a marker of its own. Without it the two
+  restatements could agree with each other while both had drifted from the fixture they restate, and
+  the check would still accept — code review on #158 caught that gap; the witness closes it. See
+  `scripts/pinned-literals-check.py`'s own `Pin`/`check_pin_agreed` docstrings for the mechanism.
+
 > **Never rewrite a historical entry to agree with the constant.** The `mtp-v2` enumerations exist
 > precisely to show that the *major does not determine the MTP line* — which is what `MTP_LINE`
 > encodes. "Fixing" them destroys the distinction.
@@ -93,12 +118,17 @@ it.
 
 ### deliberately out of scope
 
-- **`COVERAGE_EXT_VERSION`** and the rest of the `Microsoft.Testing.*` family. `#90` scopes this
-  pass to `xunit.v3`, the leg Renovate bumps most visibly. Extending the check is one more entry in
-  its `PINS` table, not a redesign.
-- **Generating** `templates/ci-dotnet.yml` or the scratch fixtures from the constant (`#90`
-  brainstorm D): the template ships verbatim and has no generation step, and the fixtures are
-  inputs.
+- **The rest of the `Microsoft.Testing.*` family** beyond `CodeCoverage` (`Platform`,
+  `Extensions.Telemetry`, `Extensions.TrxReport.Abstractions`, …). `#158` covers the two legs
+  Renovate bumps (`xunit.v3`, `CodeCoverage`); the rest move AS the platform line rather than
+  carrying their own independent version, so there is no separate literal to pin yet.
+- **Generating** `templates/ci-dotnet.yml` or the scratch fixtures from a constant (`#90` brainstorm
+  D, revisited and still rejected by `#158`): the template ships verbatim and has no generation
+  step, and the fixtures are inputs — `samples/LegacyShop` most of all, since it is frozen and
+  nothing may derive FROM it (which is the whole reason `#158` needed a THIRD kind, AGREED, above).
+- **`repo-audit/net10_blacklist.json`**, the portfolio-side third restatement `renovate.json` used
+  to name. It is not reachable from this repo's scan root, so the AGREED trio covers the two
+  in-repo files only — `#158`'s issue says so rather than pretending to cover three.
 
 ## The marker convention
 

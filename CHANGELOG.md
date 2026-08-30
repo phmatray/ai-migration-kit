@@ -8,6 +8,29 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [1.15.0](https://github.com/phmatray/ai-migration-kit/compare/v1.14.0...v1.15.0) (2026-08-27)
+
+
+### Features
+
+* **auto-dev:** investigate and guard against double-dispatching an issue ([#248](https://github.com/phmatray/ai-migration-kit/issues/248)) ([#256](https://github.com/phmatray/ai-migration-kit/issues/256)) ([8518e7c](https://github.com/phmatray/ai-migration-kit/commit/8518e7cc079737730cf0d304a99221e134ce2f8b))
+* **auto-dev:** price top tier and refine tier routing ([#271](https://github.com/phmatray/ai-migration-kit/issues/271)) ([#275](https://github.com/phmatray/ai-migration-kit/issues/275)) ([529dd09](https://github.com/phmatray/ai-migration-kit/commit/529dd0931e587b17cf582e5b0035c62b5ee177e8))
+* **skills:** state the untrusted-input boundary at every ingest point ([#266](https://github.com/phmatray/ai-migration-kit/issues/266)) ([#268](https://github.com/phmatray/ai-migration-kit/issues/268)) ([fb5976d](https://github.com/phmatray/ai-migration-kit/commit/fb5976d94c4a3ed3b147dd71db473fff9a80ca2c))
+
+
+### Bug Fixes
+
+* **auto-dev:** survey.sh distinguishes a failed vocabulary pipeline from a manifest with no effort axis ([#251](https://github.com/phmatray/ai-migration-kit/issues/251)) ([#262](https://github.com/phmatray/ai-migration-kit/issues/262)) ([6e1c9f9](https://github.com/phmatray/ai-migration-kit/commit/6e1c9f94d1e1ccf1eaa5d73ce71d51645d1d7eaf))
+* **decisions:** R4 and R5 read what a program emits, not what its comments say ([#253](https://github.com/phmatray/ai-migration-kit/issues/253)) ([#257](https://github.com/phmatray/ai-migration-kit/issues/257)) ([0c010ef](https://github.com/phmatray/ai-migration-kit/commit/0c010efab613781c4165ec7a2945ce12eb49298b))
+* **decisions:** R6 reads what a program reads, not what its comments say ([#261](https://github.com/phmatray/ai-migration-kit/issues/261)) ([#263](https://github.com/phmatray/ai-migration-kit/issues/263)) ([94055c8](https://github.com/phmatray/ai-migration-kit/commit/94055c87d5245760594aceb492043daa705153d8))
+* **implement-issue:** give the three remaining guarded-git guarantees checks that can fail CI ([#161](https://github.com/phmatray/ai-migration-kit/issues/161)) ([#260](https://github.com/phmatray/ai-migration-kit/issues/260)) ([94959cd](https://github.com/phmatray/ai-migration-kit/commit/94959cd1498c53ab7b00c7c25e795d5ab46dafdd))
+* **implement-issue:** make the Step 5 PR-title fallback path-first, not diff-shape-first ([#245](https://github.com/phmatray/ai-migration-kit/issues/245)) ([#255](https://github.com/phmatray/ai-migration-kit/issues/255)) ([9daaa00](https://github.com/phmatray/ai-migration-kit/commit/9daaa005f028631c788aec2906743c60722f1de5))
+* **implement-issue:** resume onto an existing open PR instead of scaffolding a second one ([#214](https://github.com/phmatray/ai-migration-kit/issues/214)) ([#246](https://github.com/phmatray/ai-migration-kit/issues/246)) ([849f0b5](https://github.com/phmatray/ai-migration-kit/commit/849f0b5541a6112da34b0606ea96b85a532ba190))
+* **implement-issue:** the plan-locate comment scan no longer crashes on a null comment body ([#278](https://github.com/phmatray/ai-migration-kit/issues/278)) ([#284](https://github.com/phmatray/ai-migration-kit/issues/284)) ([8e68a9b](https://github.com/phmatray/ai-migration-kit/commit/8e68a9bb7159db29eaf32d7793b2e275294c4c57))
+* **implement-issue:** the PR-existence guard no longer crashes on a null PR body ([#259](https://github.com/phmatray/ai-migration-kit/issues/259)) ([#276](https://github.com/phmatray/ai-migration-kit/issues/276)) ([e77d340](https://github.com/phmatray/ai-migration-kit/commit/e77d3402a60ac82d7c341276d5480579848ca7e2))
+* **repo-setup:** one home for deriving a repository's main working tree ([#125](https://github.com/phmatray/ai-migration-kit/issues/125)) ([#247](https://github.com/phmatray/ai-migration-kit/issues/247)) ([7b66a66](https://github.com/phmatray/ai-migration-kit/commit/7b66a6631c418160e80e953bbb08a45dbe4fc4ee))
+* **templates:** read the coverage-guard table from the template it pins ([#141](https://github.com/phmatray/ai-migration-kit/issues/141)) ([#277](https://github.com/phmatray/ai-migration-kit/issues/277)) ([75e9041](https://github.com/phmatray/ai-migration-kit/commit/75e90418647684169af1462076b737301812d708))
+
 ## [1.14.0](https://github.com/phmatray/ai-migration-kit/compare/v1.13.1...v1.14.0) (2026-08-21)
 
 
