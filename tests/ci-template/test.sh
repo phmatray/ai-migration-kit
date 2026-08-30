@@ -1514,7 +1514,6 @@ cov_table_expect() {
   esac
 }
 
-ENTRY_KINDS=(directory dangling-symlink symlinked-report)
 for entry in "${ENTRY_KINDS[@]}"; do
   rm -rf "$cov/coverage" && mkdir -p "$cov/coverage"
   case "$entry" in
