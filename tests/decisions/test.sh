@@ -689,6 +689,77 @@ PY
 git -C "$k" add -A
 refuses "$k" R10 "R10 — a not_decisions entry with an empty reason is refused"
 
+# --- the escape hatch of #208 is closed, end to end (#252 Task 3) -------------------------------
+#
+# Before R10, this was a fifteen-second escape: delete a decision's registry row, and every OTHER
+# rule goes quiet along with it — R7's owner check and R8's token derivation both iterate only over
+# STILL-REGISTERED decisions, so an orphaned program and its restating table become invisible to
+# both. R10 is what still notices the file exists.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+
+# A second, harmless decision, so the registry is never EMPTY once demo.rule's row is deleted below
+# — an empty `decisions` list would hit the pre-existing #45 refusal (Unanswerable, exit 2), which
+# would prove nothing about R10 specifically.
+cat > "$k/skills/demo/scripts/other.sh" <<'OTHER'
+#!/usr/bin/env bash
+set -euo pipefail
+jq -c '{verdict:"ok", rule:"only"}'
+OTHER
+chmod +x "$k/skills/demo/scripts/other.sh"
+cat > "$k/skills/demo/OTHER.md" <<'OWNER2'
+# Demo other skill
+
+```bash
+scripts/decide.sh demo.other < state.json
+```
+OWNER2
+mkdir -p "$k/tests/demo-other"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/tests/demo-other/test.sh"
+chmod +x "$k/tests/demo-other/test.sh"
+python3 - "$k/decisions/registry.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+doc = json.load(open(p))
+doc["decisions"].append({
+    "id": "demo.other",
+    "issue": 0,
+    "program": {"kind": "exec", "path": "skills/demo/scripts/other.sh"},
+    "shape": None,
+    "owner": "skills/demo/OTHER.md",
+    "suites": ["tests/demo-other/test.sh"],
+    "stdin": True,
+    "verdict": {"source": "stdout-json", "vocabulary": ["ok"]},
+})
+json.dump(doc, open(p, "w"), indent=2)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "a second, harmless decision keeps the kit coherent (baseline for the escape-hatch case below)"
+else
+  bad "the two-decision baseline does not pass, so the escape-hatch case below is meaningless:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# Reproduce the #208 escape: delete demo.rule's OWN registry row, but leave its program (prog.sh)
+# and its restating table (SKILL.md's "Apply the verdict" table) exactly as they were.
+python3 - "$k/decisions/registry.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+doc = json.load(open(p))
+doc["decisions"] = [d for d in doc["decisions"] if d["id"] != "demo.rule"]
+json.dump(doc, open(p, "w"), indent=2)
+PY
+run_check "$k"
+case "$CHECK_OUT" in
+  *R8*) bad "the escape-hatch fixture — R8 fired, but it must NOT: R8 going silent once demo.rule \
+is unregistered is the escape itself, and a fixture where R8 still catches it does not reproduce \
+#208's shape" ;;
+  *) ok "R8 stays silent once demo.rule is unregistered — the exact silent half of the #208 escape" ;;
+esac
+refuses "$k" R10 \
+  "R10 — deleting a decision's row while its program and restating table survive is refused (the #208 escape, now closed)"
+
 # --- the exit-code contract ----------------------------------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 rm -f "$k/scripts/decide.sh"

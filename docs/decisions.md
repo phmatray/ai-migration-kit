@@ -47,6 +47,10 @@ invented, where the thing the test proves green *is* the thing an agent pastes).
    `"$DECIDE" <id>` or `scripts/decide.sh <id>`.
 4. Run `python3 scripts/decision-check.py` and fix what it names.
 
+Adding a script under `scripts/` or `skills/*/scripts/` that is **not** a decision? Record it
+instead of registering it: add `"<path>": "<why this is not a control-flow choice>"` under
+`not_decisions` in `decisions/registry.json`. R10 refuses it by name otherwise.
+
 ## What the guard refuses
 
 | Rule | Refuses |
@@ -60,6 +64,7 @@ invented, where the thing the test proves green *is* the thing an agent pastes).
 | R7 | an owner that names its decision but never invokes it |
 | R8 | prose that re-enumerates the states the program tests |
 | R9 | a registry that is not internally coherent |
+| R10 | a tracked executable that is neither registered nor recorded as deliberately not a decision |
 
 **R8's token set is derived by regex from the program text**, never listed in the registry. That is
 deliberate and it is the whole design: a typed vocabulary in the manifest would be a second copy, in
@@ -89,10 +94,21 @@ Stated here rather than left to be rediscovered.
   cannot see #175, #161, #163, #158, #144, or #170's own command-list restatement. An author who
   knows the rule can trivially evade it. The claim is "this specific, already-observed restatement
   shape becomes impossible", not "restatement becomes impossible".
-- **Nothing proves everything real is registered.** R1 proves every row in the registry is real; the
-  converse guard — every decision-shaped thing in the tree has a row — does not exist yet. Delete the
-  `merge.step4` row, paste the table back, and the guard is silent. That counter-guard is the next
-  slice.
+- **R10 proves everything real is registered — for one shape.** R1 proves every row in the registry
+  is real; R10 (#252) is the converse: every tracked executable matching `scripts/*.sh`,
+  `scripts/*.py`, `skills/*/scripts/*.sh` or `skills/*/scripts/*.py` must be either some decision's
+  `program.path` (**registered**) or a key of the registry's `not_decisions` map with a one-line
+  reason (**recorded**) — anything in neither set is refused by name. Delete the `merge.step4` row
+  and paste the `mergeStateStatus` table back, and R10 now catches exactly what R7 and R8 miss:
+  `merge-verdict.sh` drops out of both sets the instant its row is gone, and R10 names the file and
+  both remedies. `tests/decisions/test.sh` drives this end to end — deleting a decision's row while
+  its program and restating table survive, proving R8 goes silent (the escape) while R10 still fires
+  (the close).
+  **What R10 still cannot see**: a `block` decision — a marked jq program pasted into a reference
+  file rather than a standalone script — has no *path* to enumerate. R10 walks the filesystem for
+  executables; a `block` program nobody ever registers in the first place is invisible to it, the
+  same way it always was. R10 closes the *exit* (a row deleted out from under a surviving file); it
+  does not give a decision-shaped `block` a way to be discovered if it was never entered at all.
 - **An unanswerable question aborts the run.** An unknown `program.kind` or a `verdict.source` no
   dispatcher implements is refused by `decide.sh` during extraction, so the check exits 2 before
   other rows are evaluated — the build goes red and the cause is named, but the report's usual
