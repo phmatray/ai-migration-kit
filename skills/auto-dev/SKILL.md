@@ -520,7 +520,13 @@ finding nobody ever sees.
 to aggregate tokens + $-equivalent across the orchestrator and every worker, broken down by model.
 Report **tokens/merge** and **$/merge**. (Auto-detects the transcript dir from `$PWD`; dollar figures
 are API list-price equivalents — on a subscription they're rate-limit budget, not cash; the
-authoritative cash figure is `/cost`.)
+authoritative cash figure is `/cost`.) It counts a worker transcript under **either** dispatch route —
+its own `claude -p` session (`<proj>/<session-id>.jsonl`) or an Agent-tool sub-agent
+(`<proj>/<session-id>/subagents/agent-*.jsonl`) — and attributes a sub-agent's tokens to the WORKER
+side of `ORCHESTRATOR vs WORKERS` even when its parent session is the orchestrator (#281). Read the
+header's `SESSIONS: N in <proj>   (X top-level, Y sub-agent)` line before trusting the totals below
+it: that split is the check that the scan saw the whole fleet — a `0 sub-agent` count on a fleet you
+dispatched via the Agent tool means transcripts are missing, not that none were spawned.
 
 ---
 
