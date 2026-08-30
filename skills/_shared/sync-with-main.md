@@ -165,9 +165,11 @@ Then, on **both** paths, build before pushing:
 "$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH"
 ```
 
-`guarded-push.sh` reads the remote back and requires `origin/$BRANCH` to equal this `HEAD` (exit 4 if
-not) — a zero exit from `git push` is a claim about what git attempted, not a receipt saying your
-work is where you think it is.
+`guarded-push.sh` reads the remote back and requires `origin/$BRANCH` to equal this `HEAD` — a zero
+exit from `git push` is a claim about what git attempted, not a receipt saying your work is where
+you think it is. Exit **4** means the remote was read and disagrees; exit **6** means the read-back
+itself failed and nothing was proved either way — re-run with `--verify-only` rather than re-pushing
+blind (#172).
 
 Never push a merge you haven't at least built. If another PR lands *after* you sync but before yours
 merges, you may have to re-run this whole procedure — it's cheap, and a re-sync right before merge is
