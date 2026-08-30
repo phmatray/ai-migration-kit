@@ -49,6 +49,19 @@
 # a PR reports zero checks for MAX_ZERO_POLLS consecutive polls (nothing to wait on — most likely
 # no CI configured on this branch, not worth a silent hour-long stall); 1 on timeout (MAX_POLLS
 # reached with at least one check still pending).
+#
+# GENUINE zero checks vs a TRANSIENT `gh` failure (rate limit, network blip, an auth hiccup) look
+# identical on stdout alone — both leave it empty — so counting either one toward MAX_ZERO_POLLS
+# would let a couple of unlucky API calls produce the same wrong "no CI configured" verdict this
+# script exists to avoid, after as little as ~2 polls instead of a real MAX_POLLS timeout. gh's own
+# source (cli/cli pkg/cmd/pr/checks: `populateStatusChecks`) only ever fails a `--json` call BEFORE
+# printing anything for exactly one reason — zero checks exist — and always with the same message,
+# "no checks reported on the '<branch>' branch" (measured on PR #291 of this repo, a
+# release-please branch with no CI wired: exit 1, that text on stderr, nothing on stdout, WITH
+# --json). So gh failing with that exact wording is treated as a genuine zero-checks poll (counts
+# toward MAX_ZERO_POLLS); gh failing any other way is treated as transient — logged, not counted
+# either way, and the poll just continues — matching the old script's fallback of folding any
+# failure into "unknown" and polling on rather than giving up early with a wrong verdict.
 
 set -uo pipefail
 
@@ -71,6 +84,14 @@ PRS=("$@")
 ZERO_POLLS=()
 for _pr in "${PRS[@]}"; do ZERO_POLLS+=(0); done
 
+# Captures each `gh pr checks --json` call's stderr so a genuine "no checks reported" can be told
+# apart from any other failure (see the header). Guarded the way survey.sh/guarded-push.sh capture
+# stderr elsewhere in this kit: a failing mktemp must not be misread as "gh printed nothing".
+GH_ERR_FILE=""
+if GH_ERR_FILE="$(mktemp 2>/dev/null)"; then
+  trap 'rm -f "$GH_ERR_FILE"' EXIT
+fi
+
 # One jq call per PR per poll: applies the optional CHECK allow-list, then reduces the (possibly
 # filtered) checks array to three tab-separated fields — how many checks, how many of those are
 # still pending, and a "name:state,..." line for the human-readable poll log.
@@ -88,8 +109,33 @@ for i in $(seq 1 "$MAX_POLLS"); do
   line=""
   idx=0
   for pr in "${PRS[@]}"; do
-    json=$(gh pr checks "$pr" --json name,state,bucket 2>/dev/null) || true
+    if json=$(gh pr checks "$pr" --json name,state,bucket 2>"${GH_ERR_FILE:-/dev/null}"); then
+      gh_rc=0
+    else
+      gh_rc=$?
+    fi
+    gh_err=''
+    [ -n "$GH_ERR_FILE" ] && gh_err=$(cat -- "$GH_ERR_FILE" 2>/dev/null)
+
+    transient=0
+    if [ "$gh_rc" -ne 0 ]; then
+      if printf '%s' "$gh_err" | grep -qi 'no checks reported'; then
+        json='[]'   # genuine zero checks — see the header
+      else
+        transient=1
+      fi
+    fi
     [ -n "$json" ] || json='[]'
+
+    if [ "$transient" -eq 1 ]; then
+      # Neither confirms nor disconfirms "zero checks": ZERO_POLLS is left exactly as it was, so a
+      # blip can't manufacture progress toward MAX_ZERO_POLLS, and can't erase real progress either.
+      line="${line} PR${pr}=[gh error, retrying: ${gh_err:-<no output>}]"
+      all_final=0
+      idx=$((idx + 1))
+      continue
+    fi
+
     summary=$(printf '%s' "$json" | jq -r --arg allow "$CHECK" "$JQ_SUMMARY" 2>/dev/null) \
       || summary=$'0\t0\t'
     count=0; pending=0; checkline=''

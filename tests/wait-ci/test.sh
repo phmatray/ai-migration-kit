@@ -20,6 +20,15 @@
 # ACTION_REQUIRED's absence, any future state gh adds — to the `pending` default case). So
 # "final" = "bucket != pending" tracks exactly what the old script's `all_final` meant, without
 # this script having to maintain its own copy of gh's raw-state vocabulary.
+#
+# Second pin, found by code review: gh does not print `[]` for a PR with zero checks — it FAILS
+# the whole call, even with --json (cli/cli's `populateStatusChecks` errors before the exporter
+# ever runs). Measured on PR #291 of this repo (a release-please branch with no CI wired):
+#   $ gh pr checks 291 --json name,state,bucket ; echo $?
+#     (stdout empty) / stderr: no checks reported on the 'release-please--...' branch / exit 1
+# That is indistinguishable on stdout alone from a TRANSIENT gh failure (rate limit, network
+# blip), so cases 6-7 below pin that the script tells them apart by stderr text rather than
+# folding every non-zero exit into "zero checks".
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -36,8 +45,11 @@ WORK=$(kit_scratch)
 # A `gh` stub on PATH. `pr checks <pr> --json ...` (the poll query) serves the Nth canned response
 # under $GH_RESPONSES, clamped to the highest response actually written — a poll count beyond what
 # a case scripted just repeats the last one, which is what "checks stay the same" or "no checks
-# ever appear" both need. `pr checks <pr>` (no --json, the final summary) and `pr view` (ditto) are
-# fixed lines: the summary's exact text is not what this suite pins.
+# ever appear" both need. A response file starting with "ERR:" instead simulates gh FAILING: the
+# rest of its content goes to stderr and the stub exits 1, matching real gh's shape for both a
+# genuine zero-checks branch and a transient failure. `pr checks <pr>` (no --json, the final
+# summary) and `pr view` (ditto) are fixed lines: the summary's exact text is not what this suite
+# pins.
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -49,7 +61,16 @@ case "$*" in
     max=$(cat "$GH_RESPONSES/max" 2>/dev/null || echo 1)
     use=$n
     [ "$use" -gt "$max" ] && use=$max
-    cat "$GH_RESPONSES/$use.json"
+    content=$(cat "$GH_RESPONSES/$use.json")
+    case "$content" in
+      ERR:*)
+        printf '%s\n' "${content#ERR:}" >&2
+        exit 1
+        ;;
+      *)
+        printf '%s' "$content"
+        ;;
+    esac
     ;;
   *"pr checks"*)
     printf 'kit\tpass\t1s\thttps://example.invalid\t\n'
@@ -168,5 +189,41 @@ out=$(POLL_SECONDS=0 MAX_POLLS=3 "$WAIT" 8 2>&1) || rc=$?
   echo "$out"; exit 1
 }
 echo "  ok: allow-list-control — without CHECK, a still-pending 'unrelated' correctly blocks completion"
+
+# ---------------------------------------------------------------- 6. a TRANSIENT gh failure (rate
+# limit, network blip — anything but "no checks reported") must NOT count toward MAX_ZERO_POLLS.
+# Three consecutive failures, one more than the default MAX_ZERO_POLLS=2 — if a transient failure
+# were miscounted as a zero-checks poll, this would wrongly exit 2 by poll 2.
+
+reset_case transient-error \
+  'ERR:API rate limit exceeded' \
+  'ERR:context deadline exceeded' \
+  'ERR:API rate limit exceeded' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=6 "$WAIT" 3 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || {
+  echo "FAIL [transient-error]: expected exit 0 once gh recovers, got $rc (a transient failure must not trip MAX_ZERO_POLLS)"
+  echo "$out"; exit 1
+}
+has_poll "$out" 4 || { echo "FAIL [transient-error]: missing poll 4 (the recovery)"; echo "$out"; exit 1; }
+echo "  ok: transient-error — three non-'no checks reported' gh failures in a row do not trip the zero-checks bound"
+
+# ---------------------------------------------------------------- 7. a GENUINE zero-checks branch
+# — gh failing with its real "no checks reported" wording (measured on PR #291 of this repo) —
+# still counts toward MAX_ZERO_POLLS and fails fast, same as case 4's `[]`-shaped fixture.
+
+reset_case zero-via-real-error \
+  "ERR:no checks reported on the 'some-branch' branch" \
+  "ERR:no checks reported on the 'some-branch' branch"
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=6 "$WAIT" 4 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || {
+  echo "FAIL [zero-via-real-error]: expected exit 2, got $rc"; echo "$out"; exit 1
+}
+has_poll "$out" 3 && {
+  echo "FAIL [zero-via-real-error]: should have failed fast, well before MAX_POLLS=6"; echo "$out"; exit 1
+}
+echo "  ok: zero-via-real-error — gh's real 'no checks reported' failure still trips the zero-checks bound"
 
 echo "wait-ci golden test OK"
