@@ -101,7 +101,10 @@ OWNER
       "stdin": true,
       "verdict": { "source": "stdout-json", "vocabulary": ["go", "stop"] }
     }
-  ]
+  ],
+  "not_decisions": {
+    "scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"
+  }
 }
 REG
 
@@ -617,6 +620,23 @@ cat >> "$k/skills/demo/SKILL.md" <<'NEWTOKEN'
 | `CLEAN` | go |
 NEWTOKEN
 refuses "$k" R8 "R8 — a NEW program branch restated as a table fires with the registry untouched"
+
+# --- R10 every executable is registered or recorded (#252) --------------------------------------
+#
+# The counter-guard to R1: R1 proves everything IN the registry is real, R10 proves everything
+# REAL is in the registry (registered as a program) or explicitly recorded as deliberately not
+# one. The escape this closes is the fifteen-second one from #252's own Problem section: delete a
+# decision's registry row, and its program stops being anyone's business — R10 is what still
+# notices it exists.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat > "$k/skills/demo/scripts/extra.sh" <<'EXTRA'
+#!/usr/bin/env bash
+exit 0
+EXTRA
+chmod +x "$k/skills/demo/scripts/extra.sh"
+git -C "$k" add -A
+refuses "$k" R10 \
+  "R10 — a tracked executable neither registered nor recorded in not_decisions is refused by name"
 
 # --- the exit-code contract ----------------------------------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
