@@ -85,6 +85,20 @@ sec=$(section_of "$out" "Coding standards")
 grep -qF "none" <<<"$sec" || fail "detect: Coding standards did not fall back to 'none':
 $sec"
 
+# 4c. The five v2.0 headers `detect` prints must also appear, verbatim, in the SCHEMA block of
+#     references/profile-template.md — not the worked example below it — so the writer (`detect`)
+#     and the reader's schema cannot drift apart the way #157 warned about for the older sections.
+#     Scoped to the schema fence (between "## The schema" and "## Worked example"): the worked
+#     example repeats "## Identity" etc. for a DIFFERENT repo, and a whole-file grep would let a
+#     header that only ever appears there pass as if it were part of the contract.
+TEMPLATE="$KIT/skills/get-repo-profile/references/profile-template.md"
+schema_block=$(awk '/^## The schema/{f=1} f{print} /^## Worked example/{exit}' "$TEMPLATE")
+for s in "## Tracker" "## Domain language" "## ADRs" "## Out-of-scope records" "## Coding standards"; do
+  grep -qF "$s" <<<"$schema_block" \
+    || fail "profile-template.md's schema block is missing the '$s' header detect now prints — the
+      writer and the schema have drifted apart (#311)"
+done
+
 # 5. The worktree-home probe reports the MEASURED ignore status, never a fixed claim (#71).
 #    detect's whole contract is "facts a probe established", and this field was the exception: it
 #    tested whether the directory EXISTS and the template then wrote "(git-ignored)" beside it. Those
