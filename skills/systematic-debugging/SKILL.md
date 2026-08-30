@@ -79,19 +79,25 @@ Understand the shape of the problem before you change anything.
 
 Apply the scientific method so a confirmed cause, not a coincidence, drives the fix.
 
-1. **State one hypothesis, specifically:** "I think X is the root cause because Y." Write it down. Vague hypotheses can't be tested.
-2. **Test it minimally** — the smallest change that confirms or refutes it, one variable at a time. Changing several things at once means you won't know which one mattered.
-3. **Check the result.** Confirmed → Phase 4. Refuted → form a *new* hypothesis from what you learned; don't stack another guess on top.
-4. **When you don't know, say so.** "I don't understand X" is a valid, useful state — research it or ask, rather than pretending and patching.
+1. **Generate 3–5 ranked hypotheses *before* testing any of them.** Producing one hypothesis and testing it anchors you on the first plausible idea — the rest of the session then goes into defending it. Write the list down, most-likely first.
+2. **Each hypothesis must be falsifiable — state its prediction.** The shape: *"If X is the cause, then changing Y makes the bug disappear / Z makes it worse."* A hypothesis you cannot state a prediction for is a vibe, not a hypothesis: sharpen it or discard it.
+3. **Show the ranked list before you start testing.** Your human partner often re-ranks it instantly ("we deployed a change to #3 yesterday") or has already ruled one out. Cheap checkpoint, large payoff — but don't block on it; proceed with your own ranking if they're away.
+4. **Test them in rank order, minimally, one variable at a time.** The smallest change that confirms or refutes the prediction. Changing several things at once means you won't know which one mattered — and the loop from Phase 1 is what reads the verdict.
+5. **Check the result.** Confirmed → Phase 4. Refuted → cross it off and take the next one; a refuted hypothesis is evidence that narrows the list, not a reason to invent a sixth on the spot. **All of them refuted → back to Phase 1**, with a sharper loop: a list that is entirely wrong usually means the loop is asserting on the wrong symptom, not that the bug is unknowable.
+6. **When you don't know, say so.** "I don't understand X" is a valid, useful state — research it or ask, rather than pretending and patching.
 
 ### Phase 4 — Implementation
 
 Fix the cause you confirmed, and prove it.
 
-1. **Write a failing test first.** The simplest reproduction that fails because of this bug — an automated test where possible, a one-off script otherwise. A test that fails now and passes after is what proves the fix is real rather than coincidental. (Use your project's test-driven-development practice for writing it.)
-2. **Make one fix, at the source.** Address the confirmed root cause, one change at a time. No bundled refactors or "while I'm here" improvements — they muddy what actually resolved the bug.
-3. **Verify.** The new test passes, no other tests broke, the original issue is actually gone. Confirm the fix worked before claiming it's done.
-4. **If the fix fails, stop and re-examine.** Count your attempts. Under three: return to Phase 1 with the new information. **Three or more failed fixes is a signal in itself** — see below.
+1. **Instrument to *decide between* hypotheses, never to browse.** Each probe must map to a specific prediction from Phase 3. In order of preference: a **debugger or REPL** if the environment supports one (one breakpoint beats ten log lines); otherwise **targeted logs at the boundaries that distinguish the hypotheses**. Never "log everything and grep" — that buries the signal you came for and changes the timing of the bug you're chasing.
+   - **Tag every probe** with a unique marker: `[DEBUG-<4 hex>]`, e.g. `[DEBUG-a4f2]`. Untagged probes survive the fix and rot; tagged ones die in one grep.
+   - **Cleanup is that grep, scoped to your own change:** `git diff main...HEAD | grep 'DEBUG-'` must come back empty before you call it done. (Scoped to the diff, not the tree — a fixture that legitimately contains the string is not your leftover.)
+   - **Performance regressions take the other branch:** logs are usually the wrong instrument. Establish a baseline measurement first (timing harness, profiler, query plan), then bisect against it. Measure first, fix second.
+2. **Write a failing test first.** The simplest reproduction that fails because of this bug — an automated test where possible, a one-off script otherwise. A test that fails now and passes after is what proves the fix is real rather than coincidental. (Use your project's test-driven-development practice for writing it.) This is usually the Phase 1 loop, minimised and moved somewhere permanent.
+3. **Make one fix, at the source.** Address the confirmed root cause, one change at a time. No bundled refactors or "while I'm here" improvements — they muddy what actually resolved the bug.
+4. **Verify, and write the cause down where the next debugger will read it.** The new test passes, no other tests broke, the Phase 1 loop no longer goes red, and `grep 'DEBUG-'` over your diff is empty. Then **name the confirmed hypothesis in the commit message** — it is the root cause the Iron Law demanded, and a commit that says *what* changed without *why it was broken* throws that away exactly when it becomes cheap to keep.
+5. **If the fix fails, stop and re-examine.** Count your attempts. Under three: return to Phase 1 with the new information. **Three or more failed fixes is a signal in itself** — see below.
 
 ### When three or more fixes fail: question the architecture
 
@@ -154,6 +160,7 @@ Each of these *feels* reasonable in the moment. The right column is why it costs
 | "Several fixes at once saves time" | You won't know which change worked, and you risk introducing new bugs you'll later blame on the old one. |
 | "Reference is too long, I'll adapt it" | Partial understanding is the most common source of these bugs. Read it fully. |
 | "I see the problem, let me fix it" | Seeing the *symptom* isn't understanding the *cause*. |
+| "One hypothesis is enough — I can see it" | The first plausible idea is where anchoring starts. Three to five ranked, falsifiable ones cost minutes and routinely demote the "obvious" one to third. |
 | "One more fix attempt" (after 2+) | Three-plus failures points at the architecture, not the bug. Question the design instead of patching again. |
 
 ## Quick reference
@@ -162,8 +169,8 @@ Each of these *feels* reasonable in the moment. The right column is why it costs
 |---|---|---|
 | **1. Root cause** | **Build a feedback loop** (`feedback-loop.md`), read errors, reproduce, check recent changes, instrument boundaries, trace data flow | You can name one red-capable command you have **already run** — deterministic, fast, agent-runnable — and say what fails and *why* from its output |
 | **2. Pattern** | Find working examples, read references fully, list differences, map dependencies | You know what's different between working and broken |
-| **3. Hypothesis** | State one hypothesis, test it minimally | It's confirmed — or refuted and you have a new one |
-| **4. Implementation** | Failing test, single fix at the source, verify | Bug is gone, the new test passes, nothing else broke |
+| **3. Hypothesis** | Rank 3–5 falsifiable hypotheses (each with its prediction), test in order, one variable at a time | One is confirmed against the loop — or all are refuted and the list is narrower |
+| **4. Implementation** | Tagged instrumentation per prediction, failing test, single fix at the source, verify | Bug is gone, the new test passes, nothing else broke, `DEBUG-` tags are cleaned up, and the cause is in the commit message |
 
 ## When investigation finds no single root cause
 
