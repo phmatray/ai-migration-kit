@@ -476,6 +476,9 @@ jobs:
       - name: Wait-ci golden test (waits on every gating check via --json, not one hardcoded name, #188)
         run: ./tests/wait-ci/test.sh
 
+      - name: Usage-report golden test (counts sub-agent transcripts too, not just top-level, #281)
+        run: ./tests/usage-report/test.sh
+
       - name: Survey golden test (effort tiers by the manifest's own vocabulary, not S/M/L)
         run: ./tests/survey/test.sh
 
