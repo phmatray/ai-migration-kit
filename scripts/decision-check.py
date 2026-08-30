@@ -21,6 +21,8 @@ So a decision now gets ONE id, ONE program and ONE home, listed in `decisions/re
   * an owner that stopped invoking its own decision       (R7)
   * prose that re-enumerates the states the program tests (R8)
   * a registry that is not internally coherent            (R9)
+  * a tracked executable that is neither registered nor
+    recorded as deliberately not a decision               (R10)
 
 Every program's text is obtained by running `scripts/decide.sh --program <id>`. That is deliberate:
 one home for extraction. A second implementation of the marker walk here would agree with the
@@ -49,17 +51,27 @@ defect class it cannot see #175 (a mermaid hand-off chain), #161 (a function-ord
 trivially evade it. The claim is "this specific, already-observed restatement shape becomes
 impossible", not "restatement becomes impossible".
 
-And the counter-guard hole, which is the larger one:
+And the counter-guard, closed by R10 (#252):
 
-R1 proves everything IN the registry is real. NOTHING HERE PROVES EVERYTHING REAL IS IN THE
-REGISTRY. Delete the `merge.step4` row, paste the `mergeStateStatus` table back, and this guard is
-silent — the same shape as the stale suite inventory `ci-wiring-check.py` exists to close, which was
-solved by DISCOVERING suites from the filesystem. There is no discovery predicate for "this script
-is a decision", and a heuristic one would be worse than the manifest: it would either miss the next
-decision or cry wolf on every helper, and both teach the reader to stop believing it. The honest
-counter-guard is a recorded-exception list in `scripts/pinned-literals-check.py`'s style — every
-executable under `scripts/` and `skills/**/scripts/` is either registered or listed by path with a
-reason — and it is SLICE TWO, not slice one.
+R1 proves everything IN the registry is real. R10 is the converse: every tracked executable
+matching `scripts/*.sh`, `scripts/*.py`, `skills/*/scripts/*.sh` or `skills/*/scripts/*.py` must be
+either some decision's `program.path` (registered), or a key of the registry's `not_decisions` map
+with a one-line reason (recorded). Anything in neither set is refused BY NAME. Delete the
+`merge.step4` row and paste the `mergeStateStatus` table back — the #252 escape this whole file
+documented as its own known hole — and `merge-verdict.sh` drops out of both sets: R10 now refuses
+it, naming the file and both remedies (register it, or record it).
+
+There is still no discovery predicate for "this script is a decision", and a heuristic one would be
+worse than the manifest: it would either miss the next decision or cry wolf on every helper, and
+both teach the reader to stop believing it. R10 takes the `scripts/pinned-literals-check.py` shape
+instead — a recorded-exception list, `not_decisions`, living in `decisions/registry.json` itself so
+one file answers "what is a decision here?" in both directions.
+
+WHAT R10 STILL CANNOT SEE: a `block` decision (a marked jq program pasted into a reference file,
+never a standalone script) has no PATH to enumerate — R10 walks the filesystem for executables, and
+a `block` program that nobody ever registers is invisible to it by construction, exactly as it was
+before. R10 closes the exit (delete a row, keep the file); it does not close the never-entered case
+for a `block`-shaped decision that was never given a row to begin with.
 
 R6 is over-approximated on purpose in the direction of silence: a field constructed by a NESTED
 object inside the shape counts as emitted, so R6 misses some real mismatches but never false-alarms.
@@ -88,11 +100,12 @@ Usage:
   decision-check.py [--repo <path>] [--registry <path>]
 
 Exit codes:
-  0  every decision is well-formed, single-homed, invoked by its owner, and unrestated by prose
-  1  REFUSE — one or more of R1..R8. ALL failures are reported, never the first one only
-  2  no verdict is possible — the registry is unreadable or not JSON, `decisions` is empty, a
-     declared home cannot be read, or `decide.sh --program` could not produce a program (which is
-     also how a missing `jq` arrives here)
+  0  every decision is well-formed, single-homed, invoked by its owner, and unrestated by prose —
+     and every tracked executable is registered or recorded (R10)
+  1  REFUSE — one or more of R1..R10. ALL failures are reported, never the first one only
+  2  no verdict is possible — the registry is unreadable or not JSON, `decisions` is empty,
+     `not_decisions` is not an object, a declared home cannot be read, or `decide.sh --program`
+     could not produce a program (which is also how a missing `jq` arrives here)
 """
 
 import argparse
@@ -210,6 +223,13 @@ class Unanswerable(Exception):
 
 
 def load_registry(path):
+    """The registry document, and its `decisions` list, validated.
+
+    Returns `(doc, decisions)` — the whole parsed document, not just the list — because R10 (#252)
+    reads a second top-level key, `not_decisions`, from the same file. One document answers "what
+    is a decision here?" in both directions; a function that discarded everything but `decisions`
+    would force a second, separate read of the same file for the other half of that question.
+    """
     try:
         text = path.read_text()
     except OSError as exc:
@@ -230,7 +250,24 @@ def load_registry(path):
             "empty set. An empty registry is not 'nothing to do'; it is a registry that lost "
             "its contents."
         )
-    return decisions
+    return doc, decisions
+
+
+def load_not_decisions(doc, rel_registry):
+    """The `not_decisions` map: `{<path>: <reason>}`, read from the same document as `decisions`.
+
+    Absent entirely reads as `{}` — a registry that predates R10, or one with nothing yet recorded,
+    is not a schema violation on its own; `check_r10` is what has an opinion about which paths that
+    leaves uncovered. A present-but-malformed value (not an object) IS a plumbing error: there is no
+    single row to blame it on, unlike a bad entry inside it, which `check_r10` refuses by key.
+    """
+    raw = doc.get("not_decisions", {})
+    if not isinstance(raw, dict):
+        raise Unanswerable(
+            f"{rel_registry}: not_decisions must be an object of {{path: reason}}, got "
+            f"{type(raw).__name__}"
+        )
+    return raw
 
 
 def program_text(repo, did):
@@ -502,13 +539,107 @@ def invocation_re(did):
     return re.compile(dispatcher + r"\s+" + re.escape(did) + r"(?![A-Za-z0-9_.-])")
 
 
+# ------------------------------------------------------------------------------- R10: completeness
+
+# The four globs the spec derives R10's enumeration `E` from — copied verbatim from the `git
+# ls-files` invocation the issue's own Problem section measured "32 executables" with. That
+# invocation IS the spec: `E` is whatever this exact pathspec set matches, not a plain-English
+# paraphrase of it.
+#
+# ⚠️ Unlike a shell glob, git's pathspec `*` DOES cross a `/` here: `git ls-files -- 'scripts/*.sh'`
+# matches `scripts/sub/nested.sh` too (verified — git's fnmatch-style pathspec glob is not anchored
+# to one path segment the way FNM_PATHNAME shell globbing is). So `TRACKED_EXEC_GLOBS` is not
+# "direct children only" — it is "anywhere under `scripts/`, and anywhere under `skills/*/scripts/`
+# specifically" (a script nested under `skills/x/y/scripts/z.sh` is out of that second pattern's
+# reach only because the singleton `*` between `skills/` and `/scripts/` must still match exactly
+# one segment, not because `*.sh` stops at the first `/`). No script in this repo is nested today,
+# so E's membership is unaffected by this correction; it matters for the NEXT script someone drops
+# into a `scripts/` subdirectory expecting it to sit outside R10's reach.
+TRACKED_EXEC_GLOBS = ("scripts/*.sh", "scripts/*.py", "skills/*/scripts/*.sh", "skills/*/scripts/*.py")
+
+
+def tracked_executables(repo):
+    """Every tracked path matching TRACKED_EXEC_GLOBS — the enumeration `E` R10 holds complete.
+
+    `git ls-files`, not a filesystem walk: a walk would also see whatever this kit's OWN worktree
+    convention plants under `.claude/worktrees/` (an agent's linked worktree, a full second
+    checkout) and a path staged for deletion but still present on disk. `-z` so a spaced path
+    round-trips intact; git's pathspec globbing does the matching itself (see TRACKED_EXEC_GLOBS'
+    own comment on what that globbing actually covers), so the patterns above are handed through
+    verbatim rather than re-implemented.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-z", "--", *TRACKED_EXEC_GLOBS],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise Unanswerable(f"could not enumerate tracked executables for R10: {exc}")
+    if proc.returncode != 0:
+        raise Unanswerable(
+            f"git ls-files exited {proc.returncode} while enumerating R10's scope: "
+            f"{proc.stderr.strip()}"
+        )
+    return sorted(p for p in proc.stdout.split("\0") if p)
+
+
+def check_r10(repo, rel_registry, registered_paths, not_decisions, refuse):
+    """R10: every tracked executable is registered as a program or recorded as deliberately not
+    one — the converse of R1. Let `E` be `tracked_executables(repo)`, `R` be `registered_paths`
+    (every `program.path` of an `exec`-kind decision) and `N` be `not_decisions`'s keys.
+
+    Refuses:
+      * `E - R - N` non-empty  — an executable neither registered nor recorded, named individually.
+      * `N ∩ R` non-empty      — a path cannot be both a registered program and a recorded
+                                  non-decision; that is one file making two contradictory claims.
+      * a key of `N` that does not exist on disk — a stale record outliving its file.
+      * a `not_decisions` value that is empty or not a string — the reason IS the whole value of
+        the record; a record with no reason verifies nothing.
+    """
+    tracked = tracked_executables(repo)
+
+    for path, reason in sorted(not_decisions.items()):
+        if not isinstance(reason, str) or not reason.strip():
+            refuse("R10", rel_registry,
+                   f"not_decisions[{path!r}] has no reason (or an empty one)",
+                   "The reason is the whole value of the record — state why this executable is "
+                   "deliberately not a decision, or remove the entry.")
+        # `pathlib`'s `/` operator DISCARDS the left side the moment the right side is absolute —
+        # `repo / "/etc/hosts"` is `Path("/etc/hosts")`, not an error — so an absolute key would
+        # silently check a path on the real filesystem instead of inside the repo, and would also
+        # never match a relative path out of tracked_executables(), leaving it permanently inert in
+        # both directions. Every path in this registry is documented as repo-relative; refuse an
+        # absolute one outright rather than let `is_file()` answer a question about the wrong root.
+        if pathlib.PurePosixPath(path).is_absolute() or not (repo / path).is_file():
+            refuse("R10", rel_registry,
+                   f"not_decisions records '{path}', which no longer exists",
+                   "A stale record outliving its file is a claim about this repo that is no "
+                   "longer true. Delete the entry, or restore the file (paths here are always "
+                   "repo-relative, never absolute).")
+        if path in registered_paths:
+            refuse("R10", rel_registry,
+                   f"'{path}' is BOTH a registered program and recorded in not_decisions",
+                   "One file, two contradictory claims. Remove it from whichever side is wrong: "
+                   "if it is a decision's program, it cannot also be deliberately not one.")
+
+    uncovered = sorted(set(tracked) - registered_paths - set(not_decisions))
+    for path in uncovered:
+        refuse("R10", path,
+               "is neither a registered decision's program nor recorded in not_decisions",
+               f"Register it — add a row to {rel_registry} naming this as some decision's "
+               "program.path; or record it — add an entry under not_decisions there, "
+               f'e.g. "{path}": "<why this is deliberately not a decision>".')
+
+
 # ------------------------------------------------------------------------------------- the check
 
 
 def check(repo, registry_path):
-    decisions = load_registry(registry_path)
-    failures = []
     rel_registry = _rel(repo, registry_path)
+    doc, decisions = load_registry(registry_path)
+    not_decisions = load_not_decisions(doc, rel_registry)
+    failures = []
 
     def refuse(rule, where, message, *remedy):
         failures.append((rule, where, message, remedy))
@@ -675,6 +806,10 @@ def check(repo, registry_path):
         # independent of git entirely, so an unreadable index must not hide an unrelated defect.
         refuse("R1", rel_registry, f"the git index could not be read: {mode_error}",
                "No program's executability is knowable. An unanswerable question is not a pass.")
+
+    # ------------------------------------------------------------- R10 registry completeness
+    registered_paths = {path for _did, path in exec_paths if path}
+    check_r10(repo, rel_registry, registered_paths, not_decisions, refuse)
 
     # ---------------------------------------------------------------------- R7 and R8, prose
     all_tokens = set()
