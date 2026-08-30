@@ -268,7 +268,7 @@ caveats — some analyzer diagnostics can't be auto-fixed and must be hand-corre
 ### Measuring divergence from the base (#171)
 
 The check-runs above speak only to the head SHA — they say nothing about whether `main` has moved
-since they ran. That is a separate read, and it is **not written out here**: it is one of the three
+since they ran. That is a separate read, and it is **not written out here**: it is one of the four
 reads §4's shape block composes, and this file deliberately builds that state in exactly one place.
 A second copy of the `compare` call in this file is how the `behind` / `behind_by` rename got past
 review the first time.
@@ -285,11 +285,13 @@ it was green against no longer exists.
 
 Step 4 does not read `mergeStateStatus` and work out what to do about it. It builds one state object
 and hands it to the registered decision **`merge.step4`** (#208), whose program is
-`skills/merge-pr/scripts/merge-verdict.sh` and whose precedence — thirteen named rules, in order —
+`skills/merge-pr/scripts/merge-verdict.sh` and whose precedence — fourteen named rules, in order —
 is written in that file's header, once.
 
 The **shape** below is the other half of that contract, and the reason it carries markers: the
-program reads five fields by name, and this block is what has to build them. They drifted apart once
+program reads seven fields by name — `behind_by`, `mergeStateStatus`, `isDraft`, `reviewDecision`,
+`failed`, `pending`, `unresolved_threads` — and this block is what has to build them. They are
+listed rather than counted because a bare number goes stale in silence and a list can be checked. They drifted apart once
 already — a `--jq` object construction renamed `behind_by` to `behind` while the script still read
 `behind_by`, so the freshness guard read `null` forever and a human reviewer, not CI, caught it
 (#171 / #147). `scripts/decision-check.py` R6 now compares the two mechanically: every field the
@@ -298,12 +300,36 @@ only one side is a red build rather than a guard that silently stops guarding.
 
 ```bash
 # >>> decision merge.step4 shape >>>
+# The thread read is its OWN statement with its OWN failure branch, deliberately not a fourth line
+# inside the group below: a query that fails there contributes nothing, `unresolved_threads`
+# defaults to empty, and empty reads as "no threads" — which merges. That is #294 wearing the
+# fix's clothes. On a GitHub Enterprise host add `--hostname <host>`; without it this query fails
+# with "Could not resolve to a Repository", and the `||` branch is what stops that reading as a
+# clean bill of health.
+threads=$( set -o pipefail
+           gh api graphql --paginate -f query='
+  query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){ repository(owner:$owner,name:$repo){
+    pullRequest(number:$pr){ reviewThreads(first:100, after:$endCursor){
+      pageInfo{ hasNextPage endCursor }
+      nodes{ isResolved comments(first:1){ nodes{ path } } } } } } }' \
+             -F owner='{owner}' -F repo='{repo}' -F pr="$PR" \
+             --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+                   | select(.isResolved == false)
+                   | .comments.nodes[0].path // "(pr-level)"' \
+           | jq -Rsc 'split("\n") | map(select(length > 0))' ) \
+  || { echo "merge-pr: the reviewThreads query failed — an unanswered query is not 'no threads'" >&2
+       exit 1; }
 state=$( { gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" \
              --jq '{behind_by, ahead_by}'
            gh pr view "$PR" --json mergeStateStatus,isDraft,reviewDecision \
              --jq '{mergeStateStatus, isDraft, reviewDecision}'
            printf '%s' "$ci" | jq '{failed: [.failed[].name], pending: [.pending[].name]}'
+           printf '%s' "$threads" | jq '{unresolved_threads: .}'
          } | jq -s add )
+printf '%s' "$state" | jq -e 'has("unresolved_threads")' > /dev/null \
+  || { echo "merge-pr: the assembled state carries no unresolved_threads key — the read above did" >&2
+       echo "  not reach it (empty \$threads, or a different shell). Do NOT decide on this state." >&2
+       exit 1; }
 # <<< decision merge.step4 shape <<<
 verdict=$(printf '%s' "$state" | "$DECIDE" merge.step4)
 ```
@@ -314,6 +340,30 @@ composition instead of two unrelated reads of the same PR: the CI gate's *reduce
 
 `$BASE...$BRANCH` — three dots — gives `behind_by` relative to the base; reversing it silently
 inverts the answer.
+
+`unresolved_threads` carries the threads' **paths**, not a count — the same way `failed` and
+`pending` carry job names rather than a tally, so the Step 8 report can say *which* threads were
+cleared. Only the length decides; the strings are for the human. A thread with no inline path (a
+PR-level conversation) still counts, under `(pr-level)`.
+
+⚠️ **A failed thread query must abort the state build, never yield an empty list.** This is
+`decide.sh`'s own doctrine — *no verdict is not a pass* — applied one layer earlier: a failed query
+and a PR with nothing open spell the same `[]`, and one of them merges unreviewed. That equivalence
+is what made #294 survivable for two PRs, so the read is a separate statement with an explicit
+`|| … exit 1`, and `set -o pipefail` is what carries `gh`'s exit status across the `jq` after it.
+
+⚠️ **The `has("unresolved_threads")` assertion is not belt-and-braces — it is the only check that
+survives this block being run in pieces.** `printf '%s' "" | jq '{unresolved_threads: .}'` prints
+*nothing* and exits 0, so an empty `$threads` does not yield an empty list: it drops the key
+entirely, and `// []` then reads that as "no threads". An agent that runs the read and the assembly
+as two separate commands loses `$threads` between them and lands exactly there. The assertion
+inspects the artifact actually being handed to the decision, which no amount of care upstream
+substitutes for.
+
+⚠️ **`--paginate` is load-bearing.** `reviewThreads(first:100)` sits at GitHub's page maximum, so
+without it a PR whose 101st thread is the unresolved one reads as fully resolved and merges — a
+fail-open of precisely the shape this section exists to close. `--paginate` needs *both* the
+`$endCursor` variable and the `pageInfo` selection; drop either and it quietly fetches one page.
 
 ⚠️ **The compare read and the pr-view read are sequential and not atomic.** A sibling PR merging
 between them yields `behind_by: 0` beside a merge state of `BEHIND`, which is precisely why the
@@ -380,13 +430,25 @@ rather than running this fallback.
 
 ---
 
-## 6. Unresolved review threads (`CHANGES_REQUESTED` / open conversations)
+## 6. Unresolved review threads (`blocked-changes-requested` / `unresolved-threads`)
 
-The overall decision:
+Where SKILL.md Step 4 sends you when `merge.step4` answers `review` with either of those two rules.
+§4's shape block already counted the open threads; this section is how you read and clear them.
+
+The overall decision — useful context, **not** the gate:
 
 ```bash
 gh pr view "$PR" --json reviewDecision --jq .reviewDecision   # APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null
 ```
+
+⚠️ **`reviewDecision` is empty for a `COMMENTED` review, and that is the common case.** A review bot
+— GitHub's code-quality bot among them — posts `COMMENTED`, which sets no review decision and leaves
+the merge state clean. Until #294 that meant its findings reached no gate at all: two PRs merged with
+four and one unresolved thread on them. Read the threads, not the decision.
+
+⚠️ **`gh pr view --json reviews` shows those bot reviews with an EMPTY `body`.** The substance is
+only in the inline `reviewThreads` below. "Empty review body" must never be read as "no feedback" —
+that reading is what made the merges look defensible afterwards.
 
 Inline review comments (REST — quick read of what reviewers said and where):
 
@@ -409,6 +471,11 @@ gh api graphql -f query='
   --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false) | {id, path:.comments.nodes[0].path, body:.comments.nodes[0].body}'
 ```
 
+⚠️ **On a GitHub Enterprise host `gh api graphql` needs an explicit `--hostname <host>`.** Without it
+the query fails with *"Could not resolve to a Repository"* — which reads exactly like "this PR has no
+threads" to anyone who does not check the exit code. Check it: an unanswered query is not an empty
+answer. §4's shape block aborts the whole state build on this path for the same reason.
+
 Fix the legitimate asks in the worktree, commit + push (project identity). Then either reply to the
 thread explaining the fix, or resolve it once addressed (`THREAD_ID` from the query above):
 
@@ -418,10 +485,21 @@ gh api graphql -f query='
   -F id="$THREAD_ID"
 ```
 
-For a comment you disagree with, **reply on the thread** with your reasoning rather than silently
-ignoring it (`superpowers:receiving-code-review` discipline). The goal is to flip `reviewDecision` off
-`CHANGES_REQUESTED` honestly. A required-approvals block you can't self-clear is a genuine
-blocker — surface it.
+**A thread has two honest exits, and the `unresolved-threads` rule accepts both.** This matters more
+than it looks: the rule blocks the merge, so a gate clearable only by changing code would hang an
+autonomous run forever on the first finding the agent judges wrong or cannot satisfy.
+
+1. **Fix the ask**, push, then resolve the thread.
+2. **Reply on the thread with your reasoning, then resolve it** (`superpowers:receiving-code-review`
+   discipline). Disagreeing is a legitimate outcome of review.
+
+What is forbidden is resolving *silently*: it clears the gate and deletes the reason. Reply first,
+resolve second, always in that order — the reply is the artifact a human reads later to decide
+whether the agent was right.
+
+The goal is that no thread is left both open and unanswered — not that `reviewDecision` flips, which
+for a `COMMENTED` review it never will. A required-approvals block you can't self-clear, or a thread
+you can neither satisfy nor honestly answer, is a genuine blocker — surface it.
 
 ---
 
