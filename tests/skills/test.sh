@@ -366,4 +366,18 @@ if failures:
     sys.exit(1)
 print("ok   no file under skills/ re-spells the main-worktree derivation")
 PY
+
+# ---------------------------------------------------------------------------------------------
+# preconditions.md refuses a non-GitHub tracker in one sentence (#311). Fixture-free: this is a
+# grep against the committed reference itself, not a probe run against a scratch repo — the
+# probe/profile side of the Tracker line is pinned by tests/repo-profile/test.sh.
+echo "== preconditions refuse a non-GitHub tracker (#311) =="
+PRECONDITIONS="$KIT_ROOT/skills/_shared/preconditions.md"
+[ -f "$PRECONDITIONS" ] || { echo "FAIL: $PRECONDITIONS missing"; exit 1; }
+grep -q 'Tracker' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not mention the profile's Tracker line"; exit 1; }
+grep -q 'not a supported tracker' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
+echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
+
 echo "skills golden test: all cases behaved as specified"
