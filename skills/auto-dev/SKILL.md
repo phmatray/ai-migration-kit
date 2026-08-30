@@ -380,7 +380,9 @@ phase 2 only once the check is final, and states the finished check table inline
 worker has nothing left to wait for:
 
 ```bash
-scripts/wait-ci.sh <pr> [pr...]     # supervisor-side, backgrounded; returns when checks are final
+scripts/wait-ci.sh <pr> [pr...]     # supervisor-side, backgrounded; waits on EVERY check the PR
+                                     # has — no CHECK=<name> to set, no per-repo config to keep in
+                                     # sync — and returns once they are all final
 # …then dispatch phase 2 with a "CI IS ALREADY GREEN — VERIFIED, DO NOT WAIT" block naming each
 # check and its duration, plus: "you are the retry; a previous session died backgrounding a watch."
 ```
@@ -392,10 +394,13 @@ Also tell the phase-2 worker to **skip its local `dotnet build`/`dotnet test` ga
 ran the full suite on that exact head commit — it is another ~16 min for no new information. Keep the
 local gate only when the branch was just re-synced and CI has not re-run.
 
-⚠️ **`wait-ci.sh` parsing gotcha:** `gh pr checks` output is **TAB-separated** and check names contain
-spaces (`Build & Test`), so any awk must use `-F'\t'`. With the default whitespace split, `$2` is `&`,
-the waiter sees a non-`pending` value, and it exits immediately claiming success — a false green that
-sends you straight back into the failure it exists to prevent.
+**`wait-ci.sh` waits on every gating check, not one hardcoded name (#188).** It reads `gh pr checks
+--json name,state,bucket` and requires *every* check's `bucket` — gh's own pass/fail/pending/
+skipping/cancel classification — to leave `pending` before returning, so a repo with more than one
+independently-gating check (this kit's own `kit` + `title-gate`) is covered without picking which
+one name to hardcode. `CHECK` still exists, but only as an optional comma-separated allow-list for
+a check you deliberately want to ignore — setting it to the one check that matters is what used to
+false-green past the others.
 
 ## Step 4 — Supervise (the loop)
 
