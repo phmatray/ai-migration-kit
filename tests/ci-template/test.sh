@@ -348,7 +348,8 @@ CONTAINMENT_ROWS=$(printf '%s\n' \
   "docs-site	web/dist	refuse" \
   "web	.	refuse" \
   ".	dist	accept" \
-  "./	./dist/	accept")
+  "./	./dist/	accept" \
+  ".	./	refuse")
 
 # Reports which COPY disagreed, and on which row. A shared table whose failure says only
 # "row 4 failed" reintroduces the two-sources problem one level up.
