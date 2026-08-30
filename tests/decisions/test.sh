@@ -381,6 +381,43 @@ PY
 git -C "$k" add -A
 refuses "$k" R6 "R6 — a genuine read of a field the shape does not build is refused"
 
+# A comment INSIDE the marked shape block naming a `{...}` construction for a field the live shape
+# does not build must not be counted as a real emit — the mirror image of the two read-side cases
+# above, on emitted_keys() instead of READ_RE (#274). Left unfixed, the comment's phantom
+# `legacy_field` key covers a genuine missing read and R6 wrongly passes.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+# earlier revision built: { legacy_field: .foo, state: .bar }
+state=$(printf '%s' '"CLEAN"' | jq '{state: .}')
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}',
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}\n'
+    '       elif .legacy_field == "x" then {verdict:"stop", rule:"legacy"}',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R6 \
+  "R6 — a comment inside the shape block naming an unbuilt field is not counted as a real emit"
+
 # --- R7 the owner must INVOKE, not merely mention -----------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 # Delete the fenced call, leaving the skill otherwise intact. This is the exact move that would

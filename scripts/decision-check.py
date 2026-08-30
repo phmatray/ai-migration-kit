@@ -628,7 +628,7 @@ def check(repo, registry_path):
         if err:
             refuse("R6", shape["home"], f"'{did}'s shape block: {err}")
             continue
-        emits = emitted_keys(block)
+        emits = emitted_keys(strip_comments(block))
         reads = set(READ_RE.findall(prog_emitted))
         missing = sorted(reads - emits)
         if missing:
