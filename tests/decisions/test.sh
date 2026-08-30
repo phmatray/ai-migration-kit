@@ -101,7 +101,10 @@ OWNER
       "stdin": true,
       "verdict": { "source": "stdout-json", "vocabulary": ["go", "stop"] }
     }
-  ]
+  ],
+  "not_decisions": {
+    "scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"
+  }
 }
 REG
 
@@ -617,6 +620,165 @@ cat >> "$k/skills/demo/SKILL.md" <<'NEWTOKEN'
 | `CLEAN` | go |
 NEWTOKEN
 refuses "$k" R8 "R8 — a NEW program branch restated as a table fires with the registry untouched"
+
+# --- R10 every executable is registered or recorded (#252) --------------------------------------
+#
+# The counter-guard to R1: R1 proves everything IN the registry is real, R10 proves everything
+# REAL is in the registry (registered as a program) or explicitly recorded as deliberately not
+# one. The escape this closes is the fifteen-second one from #252's own Problem section: delete a
+# decision's registry row, and its program stops being anyone's business — R10 is what still
+# notices it exists.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat > "$k/skills/demo/scripts/extra.sh" <<'EXTRA'
+#!/usr/bin/env bash
+exit 0
+EXTRA
+chmod +x "$k/skills/demo/scripts/extra.sh"
+git -C "$k" add -A
+refuses "$k" R10 \
+  "R10 — a tracked executable neither registered nor recorded in not_decisions is refused by name"
+
+# R10's own failure modes, on not_decisions itself (#252 Task 2).
+
+# A path cannot be BOTH a registered program and a recorded non-decision — one file, two
+# contradictory claims.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"',
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",\n'
+    '    "skills/demo/scripts/prog.sh": "wrongly recorded — this IS demo.rule\'s own program"',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R10 \
+  "R10 — a path that is both a registered program and recorded in not_decisions is refused"
+
+# A not_decisions key whose file no longer exists is a stale record.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"',
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",\n'
+    '    "skills/demo/scripts/ghost.sh": "a file that was deleted, but nobody deleted this record"',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R10 "R10 — a not_decisions entry whose file no longer exists is refused as stale"
+
+# An empty reason verifies nothing — the reason IS the whole value of the record.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"',
+    '"scripts/decide.sh": ""',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R10 "R10 — a not_decisions entry with an empty reason is refused"
+
+# An ABSOLUTE path must never be checked against the real filesystem root — `pathlib`'s `/`
+# operator silently discards the repo root the moment the right side is absolute, so an absolute
+# key would otherwise probe the machine running the check instead of the repo (code-review finding
+# on #252). Every path in this registry is repo-relative; an absolute one is refused outright,
+# never treated as "exists" just because the same absolute path happens to be a real file on disk.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one"',
+    '"scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",\n'
+    '    "/etc/hosts": "an absolute path — must be refused, never checked against the real root"',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R10 "R10 — an absolute path in not_decisions is refused, never checked against the real filesystem root"
+
+# --- the escape hatch of #208 is closed, end to end (#252 Task 3) -------------------------------
+#
+# Before R10, this was a fifteen-second escape: delete a decision's registry row, and every OTHER
+# rule goes quiet along with it — R7's owner check and R8's token derivation both iterate only over
+# STILL-REGISTERED decisions, so an orphaned program and its restating table become invisible to
+# both. R10 is what still notices the file exists.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+
+# A second, harmless decision, so the registry is never EMPTY once demo.rule's row is deleted below
+# — an empty `decisions` list would hit the pre-existing #45 refusal (Unanswerable, exit 2), which
+# would prove nothing about R10 specifically.
+cat > "$k/skills/demo/scripts/other.sh" <<'OTHER'
+#!/usr/bin/env bash
+set -euo pipefail
+jq -c '{verdict:"ok", rule:"only"}'
+OTHER
+chmod +x "$k/skills/demo/scripts/other.sh"
+cat > "$k/skills/demo/OTHER.md" <<'OWNER2'
+# Demo other skill
+
+```bash
+scripts/decide.sh demo.other < state.json
+```
+OWNER2
+mkdir -p "$k/tests/demo-other"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/tests/demo-other/test.sh"
+chmod +x "$k/tests/demo-other/test.sh"
+python3 - "$k/decisions/registry.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+doc = json.load(open(p))
+doc["decisions"].append({
+    "id": "demo.other",
+    "issue": 0,
+    "program": {"kind": "exec", "path": "skills/demo/scripts/other.sh"},
+    "shape": None,
+    "owner": "skills/demo/OTHER.md",
+    "suites": ["tests/demo-other/test.sh"],
+    "stdin": True,
+    "verdict": {"source": "stdout-json", "vocabulary": ["ok"]},
+})
+json.dump(doc, open(p, "w"), indent=2)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "a second, harmless decision keeps the kit coherent (baseline for the escape-hatch case below)"
+else
+  bad "the two-decision baseline does not pass, so the escape-hatch case below is meaningless:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# Reproduce the #208 escape: delete demo.rule's OWN registry row, but leave its program (prog.sh)
+# and its restating table (SKILL.md's "Apply the verdict" table) exactly as they were.
+python3 - "$k/decisions/registry.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+doc = json.load(open(p))
+doc["decisions"] = [d for d in doc["decisions"] if d["id"] != "demo.rule"]
+json.dump(doc, open(p, "w"), indent=2)
+PY
+run_check "$k"
+case "$CHECK_OUT" in
+  *R8*) bad "the escape-hatch fixture — R8 fired, but it must NOT: R8 going silent once demo.rule \
+is unregistered is the escape itself, and a fixture where R8 still catches it does not reproduce \
+#208's shape" ;;
+  *) ok "R8 stays silent once demo.rule is unregistered — the exact silent half of the #208 escape" ;;
+esac
+refuses "$k" R10 \
+  "R10 — deleting a decision's row while its program and restating table survive is refused (the #208 escape, now closed)"
 
 # --- the exit-code contract ----------------------------------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"

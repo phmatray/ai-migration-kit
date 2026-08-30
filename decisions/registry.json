@@ -23,5 +23,40 @@
       "verdict": { "source": "stdout-json",
                    "vocabulary": ["no-ci","pending","failed","clear"] }
     }
-  ]
+  ],
+  "not_decisions": {
+    "scripts/audit-inventory.sh": "a read-only structural inventory probe of a .NET repo, not a control-flow choice",
+    "scripts/ci-wiring-check.py": "a structural completeness guard (every suite is CI-wired); it has no verdict vocabulary of its own to register",
+    "scripts/contrast-check.py": "a WCAG contrast-ratio calculator, not a control-flow choice",
+    "scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",
+    "scripts/decision-check.py": "the guard that enforces this very registry; it cannot audit itself as one of its own subjects",
+    "scripts/followups.py": "a read-only aggregator of migration follow-ups, not a control-flow choice",
+    "scripts/main-worktree.sh": "resolves a path (the main working tree's root); it answers a question, it does not branch on one",
+    "scripts/parse-sweep.sh": "a structural guard (every suite parses under bash 3.2), not a control-flow choice with a verdict vocabulary",
+    "scripts/pinned-literals-check.py": "a structural guard in its own declare-or-record style (the precedent R10 mirrors); not a control-flow choice",
+    "scripts/preflight.sh": "a prerequisite probe, not a control-flow choice",
+    "scripts/release-title-diff.sh": "lists changed paths for release-title-gate.sh; a data-extraction helper feeding a decision, not one itself",
+    "scripts/release-title-gate.sh": "a structural gate — a title matches the required shape or it does not; no verdict vocabulary to register",
+    "scripts/report-dashboard.py": "renders a static HTML dashboard from report.json; a report generator, not a control-flow choice",
+    "scripts/run-all-tests.sh": "the test-suite orchestrator; it runs gates and suites in sequence, it does not itself decide anything",
+    "scripts/worktrees-ignored.sh": "a structural guard (worktree homes are ignored), not a control-flow choice with a verdict vocabulary",
+    "skills/auto-dev/scripts/analyze_cache.py": "an offline token-usage analysis report, not a control-flow choice",
+    "skills/auto-dev/scripts/measure_phase2.py": "an offline cost-measurement report, not a control-flow choice",
+    "skills/auto-dev/scripts/reconcile.sh": "a deterministic GitHub ground-truth query for the supervisor loop; it reports state, the supervisor decides",
+    "skills/auto-dev/scripts/survey.sh": "a deterministic issue-queue query; it orders and reports, the supervisor decides",
+    "skills/auto-dev/scripts/usage_report.py": "an offline cost-accounting report, not a control-flow choice",
+    "skills/auto-dev/scripts/wait-ci.sh": "blocks until CI is final and prints the result table; it reports state, the caller decides what to do with it",
+    "skills/get-repo-profile/scripts/repo-profile.sh": "detects and prints repo facts, or shows the committed profile; a probe, not a control-flow choice",
+    "skills/implement-issue/scripts/_assert-branch.sh": "sourced by the guards, never executed on its own — a shared assertion helper, not an independent decision",
+    "skills/implement-issue/scripts/guarded-commit.sh": "a guarded git-write wrapper; it enforces an invariant (HEAD is the named branch), not a registered verdict vocabulary",
+    "skills/implement-issue/scripts/guarded-merge.sh": "a guarded git-write wrapper, same shape as guarded-commit.sh",
+    "skills/implement-issue/scripts/guarded-push.sh": "a guarded git-write wrapper, same shape as guarded-commit.sh",
+    "skills/implement-issue/scripts/make-worktree.sh": "a guarded worktree-creation wrapper; it enforces the ignore-proof precondition before creating or reusing a worktree, not a registered verdict vocabulary",
+    "skills/implement-issue/scripts/tick-plan.sh": "writes a checkbox-flipped plan back to GitHub, fail-closed; a mechanical write helper, not a control-flow choice",
+    "skills/merge-pr/scripts/guarded-pr-merge.sh": "merges a PR and reads the outcome back from `gh pr view`'s state; a guarded write plus read-back, not a registered verdict vocabulary",
+    "skills/merge-pr/scripts/remote-branch-teardown.sh": "finishes a remote-branch delete `gh pr merge` left undone; a mechanical cleanup step, not a control-flow choice",
+    "skills/setup-repo/scripts/parse-manifest.py": "reads a repo-setup manifest and emits flat records; a data-shape translator, not a control-flow choice",
+    "skills/setup-repo/scripts/project-area-options.py": "rewrites a copied issue form's Area dropdown from the manifest; a mechanical rewrite, not a control-flow choice",
+    "skills/setup-repo/scripts/repo-setup.sh": "converges a repo to the expected configuration (plan/apply); it does not itself emit a registered verdict"
+  }
 }

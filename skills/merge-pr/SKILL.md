@@ -366,9 +366,11 @@ on any diff). Commit with the project identity, push, loop back to Step 3:
 ```
 
 The guards refuse (exit 2) when `HEAD` is anything but `$BRANCH`, prove afterwards that the commit
-landed there (exit 3 if not), and read the remote back to confirm it carries this `HEAD` (exit 4 if
-not). This loop can run several times against a moving branch, which is precisely when a bare
-`git commit -am` is worth least: a zero exit says what git attempted, not where the work went.
+landed there (exit 3 if not), and read the remote back to confirm it carries this `HEAD` — exit **4**
+if the remote disagrees, exit **6** if the read-back itself couldn't run (re-check with
+`--verify-only` rather than re-pushing blind, #172). This loop can run several times against a
+moving branch, which is precisely when a bare `git commit -am` is worth least: a zero exit says
+what git attempted, not where the work went.
 
 **Sync with `main` (for `BEHIND`/`DIRTY`).** Merge the latest base in and resolve conflicts so the PR
 is mergeable again. Follow the shared procedure in
