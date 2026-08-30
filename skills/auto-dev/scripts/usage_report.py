@@ -69,6 +69,22 @@ def first_user_label(path):
         pass
     return ""
 
+def discover_transcripts(proj):
+    """Yield (path, kind, parent) for every transcript this project dir holds.
+
+    kind='top'  <proj>/<session-id>.jsonl               — orchestrator or a `claude -p` worker;
+                                                            parent=None.
+    kind='sub'  <proj>/<session-id>/subagents/*.jsonl    — an Agent-tool sub-agent worker;
+                                                            parent=<session-id> of the dir it sits
+                                                            under (its dispatcher — may or may not
+                                                            be the orchestrator).
+    """
+    for p in sorted(glob.glob(os.path.join(proj, "*.jsonl"))):
+        yield p, "top", None
+    for p in sorted(glob.glob(os.path.join(proj, "*", "subagents", "*.jsonl"))):
+        parent = os.path.basename(os.path.dirname(os.path.dirname(p)))
+        yield p, "sub", parent
+
 def scan(path):
     tin = tout = tcw = tcr = nmsg = 0
     model = None
@@ -102,11 +118,14 @@ def main(argv):
         print(f"project dir not found: {proj}", file=sys.stderr); return 2
 
     rows = []
-    for p in glob.glob(os.path.join(proj, "*.jsonl")):
+    for p, kind, parent in discover_transcripts(proj):
         sid = os.path.basename(p)[:-6]
-        r = scan(p); r["sid"] = sid; r["label"] = first_user_label(p)
+        r = scan(p); r["sid"] = sid; r["kind"] = kind; r["parent"] = parent
+        r["label"] = first_user_label(p)
         rows.append(r)
     rows.sort(key=lambda r: r["cost"], reverse=True)
+    n_top = sum(1 for r in rows if r["kind"] == "top")
+    n_sub = sum(1 for r in rows if r["kind"] == "sub")
 
     def f(n): return f"{n:,}"
     g = {k: sum(r[k] for r in rows) for k in ("tin","tout","tcw","tcr","nmsg","cost")}
@@ -116,7 +135,7 @@ def main(argv):
     print(f"{'$equiv':>9}  {'model':>6}  {'output':>11}  {'cacheRead':>14}  {'msgs':>5}  session / label")
     print("-"*120)
     for r in rows[:top]:
-        tag = "  <<< ORCHESTRATOR" if r["sid"] == main_id else ""
+        tag = "  <<< ORCHESTRATOR" if r["kind"] == "top" and r["sid"] == main_id else ""
         print(f"{r['cost']:9.2f}  {r['model']:>6}  {f(r['tout']):>11}  {f(r['tcr']):>14}  {r['nmsg']:>5}  {r['sid'][:8]} {r['label']}{tag}")
     print("-"*120)
 
@@ -137,7 +156,12 @@ def main(argv):
         print(f"  {name:<12}: {f(tok):>16} tok  ({tok/tot_tok*100:4.1f}% of tokens)")
 
     if main_id:
-        m = next((r for r in rows if r["sid"] == main_id), None)
+        # --main names the orchestrator's TOP-LEVEL transcript only. Every 'sub' row counts as a
+        # worker even when its parent session IS the orchestrator — the tokens were spent by a
+        # worker, and folding them into the parent would restate the original under-count (which
+        # dropped them entirely) in the other direction (attributing a worker's cost to the
+        # orchestrator it happened to be dispatched from).
+        m = next((r for r in rows if r["kind"] == "top" and r["sid"] == main_id), None)
         if m:
             rest = g["cost"] - m["cost"]
             print(f"\n=== ORCHESTRATOR vs WORKERS ===")
