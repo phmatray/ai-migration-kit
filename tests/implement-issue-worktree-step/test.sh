@@ -65,6 +65,23 @@ wt_count=$(git -C "$caseA" worktree list --porcelain | grep -c '^worktree ')
 
 echo "  ok: unignored-home — exit 2, .gitignore byte-identical, no new commit, no worktree left behind"
 
+# The never-write invariant, in the refusal's own words (#280's Task 3): the operator must be able
+# to act on the message alone, without re-deriving what to add — so the exact line has to be in
+# it, verbatim, alongside the instruction that THEY add it, never this script.
+printf '%s\n' "$out" | grep -qF '.claude/worktrees/' \
+  || { echo "FAIL [unignored-home]: refusal does not name the exact .gitignore line to add:"; echo "$out"; exit 1; }
+printf '%s\n' "$out" | grep -qF 'Add this line yourself' \
+  || { echo "FAIL [unignored-home]: refusal does not tell the operator to add the line themselves:"; echo "$out"; exit 1; }
+
+echo "  ok: unignored-home — the refusal names the exact line, and says to add it yourself"
+
+# The other half of the same invariant: not just "does not write it in this run", but "cannot",
+# by construction — the write call itself must not exist in the script's source.
+! grep -qF '>> .gitignore' "$KIT/$HELPER" \
+  || { echo "FAIL [never-write]: $HELPER contains a literal '>> .gitignore' — it must never write the file it only ever proposes editing"; exit 1; }
+
+echo "  ok: never-write — the script contains no '>> .gitignore' write, by construction"
+
 # ---------------------------------------------------------------- 2. the incident's exact spelling
 #
 # .gitignore DOES carry `.claude/worktrees/` and `.worktrees/` — both anchored, trailing-slash,
