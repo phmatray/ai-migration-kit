@@ -117,7 +117,7 @@ link, and a file that adds one without appearing below.
 - `commands/auto-dev-worker.md` — the standing rules a dispatched worker reads in a fresh context
 
 ⚠️ **`commands/auto-dev-worker.md` is on this list for a reason worth keeping.** A worker is a
-separate `claude -p` session that never opens `skills/auto-dev/SKILL.md`; the supervisor stating the
-boundary in its own file does nothing for the process that actually reads the issue. The widest
+separate sub-agent session that never opens `skills/auto-dev/SKILL.md`; the supervisor stating the
+boundary in its own file does nothing for the agent that actually reads the issue. The widest
 untrusted-input surface in the kit is reached only through the command file, which is why the
 checker scans `commands/` as well as `skills/`.

@@ -366,4 +366,23 @@ if failures:
     sys.exit(1)
 print("ok   no file under skills/ re-spells the main-worktree derivation")
 PY
+# ---------------------------------------------------------------------------------------------
+# The `claude -p` worker substrate is gone (#314, the v2.0 breaking change): auto-dev dispatches
+# every worker as an in-process background sub-agent through the Agent tool, and a sub-agent has
+# no `--strict-mcp-config` flag and no process to die. Any file that still names either is stale
+# doctrine a supervisor would follow — it scans the real tree, not a scratch copy, because the
+# defect IS the committed prose. `evals/` legitimately keeps `claude -p` (it drives the eval
+# harness, not a worker) and is deliberately outside the scope below.
+echo "== no auto-dev file names the claude -p worker substrate (#314) =="
+SUBSTRATE_HITS=$(grep -rn 'claude -p\|--strict-mcp-config' \
+  "$KIT_ROOT/skills/auto-dev" \
+  "$KIT_ROOT/commands/auto-dev-worker.md" \
+  "$KIT_ROOT/commands/auto-dev-merge.md" \
+  "$KIT_ROOT/skills/_shared/untrusted-input-boundary.md" || true)
+if [ -n "$SUBSTRATE_HITS" ]; then
+  echo "FAIL: the claude -p / --strict-mcp-config worker substrate is named again (#314):"
+  echo "$SUBSTRATE_HITS" | sed 's/^/  /'
+  exit 1
+fi
+echo "ok   no auto-dev file names claude -p or --strict-mcp-config"
 echo "skills golden test: all cases behaved as specified"

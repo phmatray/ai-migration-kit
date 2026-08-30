@@ -5,7 +5,7 @@ background worker session, so you can track tokens/merge and $/merge across runs
 Workers are dispatched one of two ways, and both land transcripts this script must open —
 counting only one route silently drops every worker dispatched the other way (#281):
 
-  `claude -p` (tmux panes)   its OWN top-level Claude session, transcript alongside the
+  pre-2.0 process worker    its OWN top-level Claude session, transcript alongside the
                              orchestrator's directly in the project dir:
                                <proj>/<session-id>.jsonl
   Agent-tool sub-agent       a transcript nested under the DISPATCHING session's own dir:
@@ -110,7 +110,7 @@ def row_label(path):
 def discover_transcripts(proj):
     """Yield (path, kind, parent) for every transcript this project dir holds.
 
-    kind='top'  <proj>/<session-id>.jsonl               — orchestrator or a `claude -p` worker;
+    kind='top'  <proj>/<session-id>.jsonl               — orchestrator or a pre-2.0 process worker;
                                                             parent=None.
     kind='sub'  <proj>/<session-id>/subagents/*.jsonl    — an Agent-tool sub-agent worker;
                                                             parent=<session-id> of the dir it sits

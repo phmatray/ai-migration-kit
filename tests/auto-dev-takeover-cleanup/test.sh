@@ -10,9 +10,9 @@
 # triage either — the same guarantee every other merged PR in this kit gets via `merge-pr` Steps
 # 6-7, just never invoked here.
 #
-# The fix reuses the fleet's own phase-2 dispatch contract (`/auto-dev-merge <PR>`, the same
-# `--model <tier> --strict-mcp-config` shape Step 3 already uses) to run a cleanup-only
-# `merge-pr <PR>` after the takeover's MERGED verdict — `merge-pr`'s own Step 1 resume contract
+# The fix reuses the fleet's own phase-2 dispatch contract (a background sub-agent spawned with
+# the Agent tool at the cheap tier, invoking `auto-dev-merge <PR>` — the same spawn form Step 3
+# already uses, #314) to run a cleanup-only `merge-pr <PR>` after the takeover's MERGED verdict — `merge-pr`'s own Step 1 resume contract
 # detects `state == MERGED` and routes straight to Steps 6-7 (follow-up triage, then
 # worktree/branch teardown), so the dispatch is pure cleanup with no risk of a second merge
 # attempt, and it explicitly does not count against the fleet's N worker slots. This suite pins
@@ -33,10 +33,17 @@ fail() { echo "FAIL: $1"; exit 1; }
 SKILL_MD="$KIT/skills/auto-dev/SKILL.md"
 [ -f "$SKILL_MD" ] || fail "missing $SKILL_MD"
 
-# 1. The MERGED clause dispatches a cleanup session via the SAME phase-2 contract Step 3 uses
-#    (model tier + --strict-mcp-config), not an ad hoc bare invocation.
-grep -qF 'claude -p "/auto-dev-merge <PR>" --model <tier> --strict-mcp-config' "$SKILL_MD" \
-  || fail "SKILL.md's takeover MERGED clause does not reuse Step 3's phase-2 dispatch contract"
+# 1. The MERGED clause dispatches a cleanup sub-agent via the SAME phase-2 spawn form Step 3 uses
+#    (an Agent-tool spawn at the small tier, in the background, whose prompt invokes
+#    `auto-dev-merge <PR>`), not an ad hoc bare invocation — and says so by pointing at Step 3
+#    rather than restating the whole block (#314: no `claude -p` process, no `--strict-mcp-config`).
+grep -qF 'Agent(model: <small tier>, run in background, prompt: "Invoke `auto-dev-merge` with args `<PR>`' "$SKILL_MD" \
+  || fail "SKILL.md's takeover MERGED clause does not spawn the cleanup sub-agent in Step 3's phase-2 form"
+grep -qF 'the way Step 3 spawns phase 2' "$SKILL_MD" \
+  || fail "SKILL.md's takeover MERGED clause does not point its cleanup dispatch at Step 3's spawn form"
+if grep -q 'claude -p\|--strict-mcp-config' "$SKILL_MD"; then
+  fail "SKILL.md still names the pre-2.0 process substrate: $(grep -n 'claude -p\|--strict-mcp-config' "$SKILL_MD" | head -3)"
+fi
 
 # 2. It says the cleanup session does not count against the fleet's N worker slots.
 grep -qF 'not** one of the' "$SKILL_MD" \
