@@ -2,10 +2,13 @@
 # auto-dev wait-ci — block until each PR's gating checks are ALL final, then print the result table.
 #
 # Why this exists (see SKILL.md, "NEVER dispatch phase 2 while CI is pending"):
-# a phase-2 merge worker's run ends with its turn (pre-2.0: a process). Dispatched while CI is still
-# pending, it reaches for a background watch ("I'll resume when the poll notifies me"),
-# ends its turn, and its run is over mid-merge — the PR just stays open. That is a
-# dispatch-timing bug, not a prompt-wording one: dispatching at "PR ready" *guarantees*
+# a phase-2 merge worker is a background sub-agent whose final message is its report, and
+# whose run ends with its turn (#314; before 2.0 it was a one-shot process, and the rule
+# predates the substrate). Dispatched while CI is still pending, the only thing it can do
+# is wait — so it reaches for a background watch ("I'll resume when the poll notifies me"),
+# ends its turn, and its run is over mid-merge: what the supervisor receives is that
+# deferral as the report, nothing resumes the agent, and the PR just stays open. That is
+# a dispatch-timing bug, not a prompt-wording one: dispatching at "PR ready" *guarantees*
 # the worker meets a pending run. Five worker sessions were lost this way in a single
 # .NET run with Testcontainers (Build & Test there takes 16-20 min: it pulls ~4.4 GB of
 # SQL Server + Oracle images) before the wait was moved up to the supervisor.
