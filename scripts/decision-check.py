@@ -80,9 +80,9 @@ comment happened to mention it. R2 (jq compiles) and R3 (no single quote) stay o
 deliberately: both validate the program's literal, pasted-verbatim text, comments included, not a
 derived vocabulary — stripping would validate a program CI never actually runs.
 
-R6's READ_RE reads the same stripped view (#261): it has the identical comment-as-phantom-token
-exposure R4/R5/R8 close, on the read side rather than the emit side, and is not a considered
-exception like R2/R3.
+R6's READ_RE reads the same stripped view (#261), and its emit side (`emitted_keys`, fed the shape
+`block`) does too (#274): both close the identical comment-as-phantom-token exposure R4/R5/R8 close,
+and neither is a considered exception like R2/R3.
 
 Usage:
   decision-check.py [--repo <path>] [--registry <path>]
@@ -152,40 +152,50 @@ ANNOTATION_LOOKBACK = 3
 
 def strip_comments(text):
     """Strip a `#`-to-end-of-line comment from each line, without touching `#` inside a
-    double-quoted string.
+    single- or double-quoted string.
 
     Feeds R4, R5 (VERDICT_LIT_RE / RULE_LIT_RE) and R8's TOKEN_RE derivation: those rules judge what
     a program EMITS or TESTS, and a comment documenting that (`# emits verdict:"stop" when …`) is
     prose about the program, not a branch of it — counting it invents a phantom cause R5 refuses
     for, or a phantom token that can hide a real R8 gap (a comment-derived token is SUBTRACTED on
     R8's annotated-table path, so a wider raw token set there is not the safe direction it is on R8's
-    un-annotated path).
+    un-annotated path). R6's `emitted_keys()` reads this stripped view too, on the shape `block`
+    rather than on `prog` (#274) — and single quotes MUST be tracked there: a shape block is
+    ordinary bash/jq (`merge.step4`'s own registered shape embeds `gh api graphql -f query='…'`),
+    never protected by R3's "no single quote" refusal the way a `kind=="block"` program is, so a `#`
+    genuinely can hide inside one on shape text in a way it structurally cannot on `prog`.
 
     Every registered program is `#`-commented (jq and bash agree on that), so a line-oriented,
-    double-quote-tracking scan handles every program this repo has today. Known gaps, none observed
-    in a registered program — extend the scanner if one arrives, rather than special-casing a caller:
-    single quotes are not tracked at all (R3 already refuses a single quote outright in a `block`
-    program, so a `#` cannot hide inside one there; an `exec` program's own single-quoted shell
-    wrapping has never needed a bare `#` in this kit); a double-quoted string spanning more than one
-    physical line desyncs the per-line quote state, since it resets at every line break; and a bare
-    `#` from bash's `${#arr[@]}` / `$#` length idiom, or a backslash-escaped quote occurring outside
-    any already-open string, is not special-cased — the first is read as a comment start, the second
-    can toggle the quote state unexpectedly. (An earlier draft tracked backslash-escapes while
-    *inside* a string, but that half-measure mishandled exactly the outside-a-string case above
-    without being exercised by any registered program either way, so it was removed rather than kept
-    as untested complexity — see `tests/decisions/test.sh`'s own doctrine: every rule here is proved
-    by breaking a working kit, never by reading the guard and believing it.)
+    quote-tracking scan handles every program this repo has today; tracking BOTH quote kinds
+    independently (a quote of one kind is inert while a span of the other is open) also closes the
+    inverse failure a single-quote-blind scanner has on `emitted_keys()`'s new caller: an odd number
+    of `"` embedded inside a `'…'` string used to desync the double-quote parity and leave a genuine
+    trailing `# comment` un-stripped — the exact phantom-emit bug #274 exists to close, reachable
+    through a second quoting path. Known gaps, none observed in a registered program — extend the
+    scanner if one arrives, rather than special-casing a caller: a quoted string (either kind)
+    spanning more than one physical line desyncs the per-line quote state, since it resets at every
+    line break; and a bare `#` from bash's `${#arr[@]}` / `$#` length idiom, or a backslash-escaped
+    quote occurring outside any already-open string, is not special-cased — the first is read as a
+    comment start, the second can toggle the quote state unexpectedly. (An earlier draft tracked
+    backslash-escapes while *inside* a string, but that half-measure mishandled exactly the
+    outside-a-string case above without being exercised by any registered program either way, so it
+    was removed rather than kept as untested complexity — see `tests/decisions/test.sh`'s own
+    doctrine: every rule here is proved by breaking a working kit, never by reading the guard and
+    believing it.)
 
-    R6's READ_RE also reads this stripped view (#261), not raw `prog`.
+    R6's READ_RE also reads this stripped view (#261).
     """
     out = []
     for line in text.split("\n"):
-        in_string = False
+        in_dq = False
+        in_sq = False
         cut = len(line)
         for i, ch in enumerate(line):
-            if ch == '"':
-                in_string = not in_string
-            elif ch == "#" and not in_string:
+            if ch == '"' and not in_sq:
+                in_dq = not in_dq
+            elif ch == "'" and not in_dq:
+                in_sq = not in_sq
+            elif ch == "#" and not in_dq and not in_sq:
                 cut = i
                 break
         out.append(line[:cut])

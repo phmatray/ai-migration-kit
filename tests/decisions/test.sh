@@ -418,6 +418,72 @@ git -C "$k" add -A
 refuses "$k" R6 \
   "R6 — a comment inside the shape block naming an unbuilt field is not counted as a real emit"
 
+# A `#` embedded inside a SINGLE-quoted string on the same shape line as a real `{...}` construction
+# must not truncate that construction and hide a real emit (code-review finding on #274): a shape
+# block is ordinary bash/jq, never protected by R3's "no single quote" refusal the way a
+# `kind=="block"` program is, so this is reachable in real shape text — the actual registered
+# `merge.step4` shape embeds `gh api graphql -f query='…'`.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(echo 'see issue #99 for context' > /dev/null; printf '%s' '"CLEAN"' | jq '{state: .}')
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R6 — a '#' inside a single-quoted string on the shape line does not truncate a real emit"
+else
+  bad "R6 — a single-quoted '#' on the shape's own line wrongly hid a real emit, causing a false refusal:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# The inverse: an odd number of embedded `"` inside a single-quoted string on the shape line must not
+# desync the double-quote parity and leave a genuine TRAILING comment un-stripped — that would
+# resurrect the exact phantom-emit bug #274 fixes, reached through a second quoting path.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(printf '%s' '"CLEAN"' | jq '{state: .}'); echo 'the value is "quoted' > /dev/null  # earlier revision built: { legacy_field: .foo, state: .bar }
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}',
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}\n'
+    '       elif .legacy_field == "x" then {verdict:"stop", rule:"legacy"}',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R6 \
+  "R6 — an odd embedded quote inside a single-quoted string does not hide a genuine trailing comment's phantom key"
+
 # --- R7 the owner must INVOKE, not merely mention -----------------------------------------------
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 # Delete the fenced call, leaving the skill otherwise intact. This is the exact move that would
