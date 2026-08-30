@@ -127,6 +127,83 @@ case "$CMD" in
       echo "  TODO: no .github/ISSUE_TEMPLATE/ directory"
     fi
 
+    section "Tracker"
+    # Every lifecycle skill drives GitHub semantics through `gh`; this is the one probe that can
+    # genuinely fail to reach a verdict (no origin remote at all) rather than answer "none".
+    origin_url="$(git remote get-url origin 2>/dev/null || true)"
+    if [ -z "$origin_url" ]; then
+      echo "TODO: no origin remote — cannot name the tracker"
+    else
+      tracker_host="$(printf '%s\n' "$origin_url" | sed -E 's#^(git@|https?://)([^/:]+).*#\2#')"
+      # $SLUG (above) is `gh repo view` succeeding against THIS remote — true for github.com and
+      # for a GHES host `gh` is configured to talk to, so it is the positive signal, not just a
+      # literal "github.com" string match.
+      if [ "$tracker_host" = "github.com" ] || [ -n "${SLUG:-}" ]; then
+        printf 'tracker: github (%s)\n' "$tracker_host"
+      else
+        printf 'tracker: other: %s\n' "$tracker_host"
+      fi
+    fi
+
+    section "Domain language"
+    domain_lang="none"
+    for f in CONTEXT.md CONTEXT-MAP.md docs/CONTEXT.md; do
+      if [ -f "$f" ]; then domain_lang="$f"; break; fi
+    done
+    printf '  %s\n' "$domain_lang"
+
+    section "ADRs"
+    adr_root="none"
+    for d in docs/adr doc/adr adr .agents/adr; do
+      if [ -d "$d" ]; then
+        adr_n="$(find "$d" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+        adr_root="$d/ ($adr_n files)"
+        break
+      fi
+    done
+    printf '  root: %s\n' "$adr_root"
+    # The MCP half is a fact about THIS MACHINE'S session, never a fact about the repo (same rule
+    # as the Worktree home probe's `note:` line above) — the "via AdrMcp" branch says so inline.
+    if ! command -v claude >/dev/null 2>&1; then
+      echo "  server: files only (claude CLI not found)"
+    else
+      adr_mcp="$(claude mcp list 2>/dev/null || true)"
+      if printf '%s\n' "$adr_mcp" | grep -iqE '(^|[^a-z])adr(mcp)?([^a-z]|$)'; then
+        echo "  server: via AdrMcp (claude mcp list names 'adr') — on this machine only, not a fact about the repo"
+      else
+        echo "  server: files only (no 'adr' MCP server in \`claude mcp list\`)"
+      fi
+    fi
+
+    section "Out-of-scope records"
+    if [ -d docs/out-of-scope ]; then
+      oos_n="$(find docs/out-of-scope -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
+      printf '  docs/out-of-scope/ (%s files)\n' "$oos_n"
+    else
+      echo "  none"
+    fi
+
+    section "Coding standards"
+    cs_found=0
+    for f in CONTRIBUTING.md CODING_STANDARDS.md .editorconfig .globalconfig; do
+      if [ -f "$f" ]; then printf '  %s\n' "$f"; cs_found=1; fi
+    done
+    if [ -f Directory.Build.props ] \
+      && grep -qE 'EnforceCodeStyleInBuild|AnalysisLevel' Directory.Build.props 2>/dev/null; then
+      echo "  Directory.Build.props: EnforceCodeStyleInBuild"
+      cs_found=1
+    fi
+    for m in .eslintrc* eslint.config.*; do
+      for f in $m; do
+        if [ -e "$f" ]; then printf '  %s\n' "$f"; cs_found=1; fi
+      done
+    done
+    if [ -f pyproject.toml ] && grep -qF '[tool.ruff]' pyproject.toml 2>/dev/null; then
+      echo "  pyproject.toml: [tool.ruff]"
+      cs_found=1
+    fi
+    [ "$cs_found" -eq 0 ] && echo "  none"
+
     section "Conflict hot-spot candidates (derive resolutions in the template)"
     for c in Directory.Build.props CHANGELOG.md ./*.lock package-lock.json yarn.lock pnpm-lock.yaml Cargo.lock go.sum; do
       [ -e "$c" ] && echo "  ${c#./}"

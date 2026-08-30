@@ -47,7 +47,9 @@ git -C "$repo" init -q
 git -C "$repo" -c user.email=t@test -c user.name=T commit -q --allow-empty -m "init"
 out=$(bash "$SCRIPT" detect "$repo")
 for s in "## Identity" "## Commit identity" "## Build system" "## CI gates" \
-         "## Integration style" "## Labels" "## Issue templates" "## Architecture grain"; do
+         "## Integration style" "## Labels" "## Issue templates" \
+         "## Tracker" "## Domain language" "## ADRs" "## Out-of-scope records" \
+         "## Coding standards" "## Architecture grain"; do
   grep -qF "$s" <<<"$out" || fail "detect: section '$s' missing"
 done
 grep -qF "TODO: no CLAUDE.md commit rule found" <<<"$out" \
@@ -58,6 +60,30 @@ grep -qF "TODO: no marker file at the repo root" <<<"$out" \
   || fail "detect: build-system TODO fallback did not fire"
 # The one commit made above must be visible (probes emit real facts, not only TODOs).
 grep -qF "T <t@test>" <<<"$out" || fail "detect: recent-authors probe lost the real fact"
+
+# 4b. The five v2.0 sections (#311): absence is a VERDICT ("none"), not a TODO, for four of them —
+#     only the Tracker probe can genuinely fail to reach a verdict (no remote at all).
+section_of() { awk -v h="## $2" '$0==h{f=1;next} /^## /{f=0} f' <<<"$1"; }
+
+grep -qF "TODO: no origin remote — cannot name the tracker" <<<"$out" \
+  || fail "detect: Tracker TODO fallback did not fire on a repo with no origin remote:
+$out"
+
+sec=$(section_of "$out" "Domain language")
+grep -qF "none" <<<"$sec" || fail "detect: Domain language did not fall back to 'none':
+$sec"
+
+sec=$(section_of "$out" "ADRs")
+grep -qF "root: none" <<<"$sec" || fail "detect: ADRs root did not fall back to 'none':
+$sec"
+
+sec=$(section_of "$out" "Out-of-scope records")
+grep -qF "none" <<<"$sec" || fail "detect: Out-of-scope records did not fall back to 'none':
+$sec"
+
+sec=$(section_of "$out" "Coding standards")
+grep -qF "none" <<<"$sec" || fail "detect: Coding standards did not fall back to 'none':
+$sec"
 
 # 5. The worktree-home probe reports the MEASURED ignore status, never a fixed claim (#71).
 #    detect's whole contract is "facts a probe established", and this field was the exception: it
@@ -247,5 +273,97 @@ printf 'Read it directly:\n\n```bash\ncat .claude/skills/repo-profile.md\n```\n'
   > "$probe/skills/decoy.md"
 grep -rqE "$PROFILE_CAT_RE" --include='*.md' "$probe/skills" \
   || fail "the bare-cat pattern no longer matches a bare cat — the case above passes vacuously"
+
+# 8. The five v2.0 sections, positive case (#311): a fixture repo carrying a glossary, an ADR
+#    root, an out-of-scope directory and a coding-standards marker, with a non-GitHub origin —
+#    and the ADRs "server" facet exercised on three separate states of the `claude` binary.
+#    PATH is rebuilt from scratch (not prepended) for each variant so a REAL `claude` on this
+#    machine's PATH can never leak into the "absent"/"files only" cases.
+mkbin() {
+  local dir="$1"; shift
+  mkdir -p "$dir"
+  local c p
+  for c in "$@"; do
+    p="$(command -v "$c" 2>/dev/null)" || continue
+    ln -s "$p" "$dir/$c"
+  done
+}
+DETECT_TOOLS="bash git gh grep sed head sort wc find basename cat cut dirname tr"
+
+fx=$(kit_scratch)
+git -C "$fx" init -q -b main
+git -C "$fx" config user.email t@test
+git -C "$fx" config user.name T
+printf '# glossary\n' > "$fx/CONTEXT.md"
+mkdir -p "$fx/docs/adr" "$fx/docs/out-of-scope"
+printf '# ADR 1\n' > "$fx/docs/adr/0001-x.md"
+printf 'rejected idea\n' > "$fx/docs/out-of-scope/a.md"
+printf '[*]\nindent_style = space\n' > "$fx/.editorconfig"
+git -C "$fx" add -A
+git -C "$fx" -c user.email=t@test -c user.name=T commit -q -m base
+git -C "$fx" remote add origin git@gitlab.example.com:x/y.git
+
+# 8a. No `claude` binary anywhere on PATH.
+NOCLAUDE="$(kit_scratch)/bin"
+mkbin "$NOCLAUDE" $DETECT_TOOLS
+out=$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$fx")
+
+grep -qF "tracker: other: gitlab.example.com" <<<"$out" \
+  || fail "detect: a non-GitHub origin was not reported as 'other: <host>':
+$out"
+sec=$(section_of "$out" "Domain language")
+grep -qF "CONTEXT.md" <<<"$sec" || fail "detect: Domain language lost CONTEXT.md:
+$sec"
+sec=$(section_of "$out" "ADRs")
+grep -qF "root: docs/adr/ (1 files)" <<<"$sec" || fail "detect: ADRs root count wrong:
+$sec"
+grep -qF "server: files only (claude CLI not found)" <<<"$sec" \
+  || fail "detect: ADRs server did not report the missing claude CLI:
+$sec"
+sec=$(section_of "$out" "Out-of-scope records")
+grep -qF "docs/out-of-scope/ (1 files)" <<<"$sec" \
+  || fail "detect: Out-of-scope records count wrong:
+$sec"
+sec=$(section_of "$out" "Coding standards")
+grep -qF ".editorconfig" <<<"$sec" || fail "detect: Coding standards lost .editorconfig:
+$sec"
+
+# 8b. `claude` present, but `mcp list` names no `adr` server.
+NOADR="$(kit_scratch)/bin"
+mkbin "$NOADR" $DETECT_TOOLS
+cat > "$NOADR/claude" <<'STUBEOF'
+#!/bin/sh
+if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
+  echo "No MCP servers configured."
+  exit 0
+fi
+exit 1
+STUBEOF
+chmod +x "$NOADR/claude"
+sec=$(section_of "$(PATH="$NOADR" bash "$SCRIPT" detect "$fx")" "ADRs")
+grep -qF "server: files only (no 'adr' MCP server" <<<"$sec" \
+  || fail "detect: ADRs server did not fall back to 'files only' when claude names no adr server:
+$sec"
+
+# 8c. `claude` present and `mcp list` names an `adr` (AdrMcp) server — a session/machine fact,
+#     never promoted to a claim about the repo.
+WITHADR="$(kit_scratch)/bin"
+mkbin "$WITHADR" $DETECT_TOOLS
+cat > "$WITHADR/claude" <<'STUBEOF'
+#!/bin/sh
+if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
+  echo "adr: dnx AdrMcp@latest  - ✓ Connected"
+  exit 0
+fi
+exit 1
+STUBEOF
+chmod +x "$WITHADR/claude"
+sec=$(section_of "$(PATH="$WITHADR" bash "$SCRIPT" detect "$fx")" "ADRs")
+grep -qF "server: via AdrMcp" <<<"$sec" \
+  || fail "detect: ADRs server did not report AdrMcp when claude mcp list names 'adr':
+$sec"
+grep -qF "on this machine only" <<<"$sec" \
+  || fail "detect: the AdrMcp server line was not flagged as a machine-local fact, not a repo fact:
+$sec"
 
 echo "repo-profile golden test OK"
