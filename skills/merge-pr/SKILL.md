@@ -622,8 +622,23 @@ earns a record — lives at [`../_shared/filing-bar.md`](../_shared/filing-bar.m
 apply it per *cluster*, not per symptom; the routing table below is what happens after each cluster
 has passed or failed:
 
+**Run the prior-rejection lookup on each cluster before the gates**, per
+[`../_shared/prior-rejections.md`](../_shared/prior-rejections.md) — `search_adrs` in semantic mode
+filtered to `status: rejected`, or the grep fallback without the `adr` server. It goes first because
+it is a **veto** rather than a fourth gate (`filing-bar.md` clause 4): a cluster whose concept was
+already declined passes gate 2 every time, since its instances are real. On the cluster and not the
+symptom, for the same reason 6a clusters at all — a symptom carries the vocabulary the reviewer used,
+while the root carries the concept the ADR was written about. Whatever it finds, Step 8's recap
+carries `prior-rejection lookup: <semantic|grep fallback> · <n> hits`, with `(AdrMcp not connected)`
+when the fallback ran.
+
+This step **never writes an ADR** — not `create_adr`, not `set_status`, not an edit. Authoring a
+rejection is a decision, and decisions are `triage-backlog`'s under the owner's confirmation; a merge
+that nobody is necessarily watching is the wrong place to take one.
+
 | The cluster is | Channel | Why |
 |---|---|---|
+| a match for a **prior rejection** (`status: rejected` ADR) | a comment on the merged PR naming the ADR — **not** filed | the decision was already taken and written down; re-filing re-litigates it under a new name, which is exactly what the record exists to stop. Only the ADR's own *Consequences* clause lifts this, and only when you can say what changed |
 | an instance of a **root issue that exists** | a `- [ ]` item or comment **on that issue** | the work is already committed to; this sharpens its scope instead of lengthening the queue |
 | the same job as a **root that was just closed** | **reopen** that issue with the evidence | a fix that didn't finish the job is one issue still open, not two issues — and the reopen is the honest record of it |
 | ≥2 findings sharing a **root not yet tracked** | **one** `create-issue` run for the *root*, citing the instances as evidence | fixing symptoms one by one in code the root refactor deletes is work thrown away twice — once writing it, once resolving its conflict |
