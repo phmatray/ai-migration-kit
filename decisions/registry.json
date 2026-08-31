@@ -31,6 +31,7 @@
     "scripts/contrast-check.py": "a WCAG contrast-ratio calculator, not a control-flow choice",
     "scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",
     "scripts/decision-check.py": "the guard that enforces this very registry; it cannot audit itself as one of its own subjects",
+    "scripts/dependency-health.sh": "a read-only probe of a delivered dependency graph — it runs `dotnet list package --vulnerable/--deprecated` and reports what it found, the same shape as audit-inventory.sh; phase 6's exit gate is what branches on the result",
     "scripts/followups.py": "a read-only aggregator of migration follow-ups, not a control-flow choice",
     "scripts/main-worktree.sh": "resolves a path (the main working tree's root); it answers a question, it does not branch on one",
     "scripts/parse-sweep.sh": "a structural guard (every suite parses under bash 3.2), not a control-flow choice with a verdict vocabulary",

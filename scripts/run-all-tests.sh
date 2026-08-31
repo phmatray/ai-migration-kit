@@ -195,6 +195,8 @@ add_gate "./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool
 
 add_suite "tests/audit-inventory/test.sh"
 
+add_suite "tests/dependency-health/test.sh"
+
 # 15: every template under templates/ is valid YAML.
 add_gate "python3 -c \"import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/**/*.yml', recursive=True)]\""
 
