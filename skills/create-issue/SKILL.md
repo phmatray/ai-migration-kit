@@ -107,6 +107,10 @@ export, an admin panel"). Don't open a Q&A — infer scope from the prompt, READ
 codebase. Treat each named idea as its own issue and loop. For each, settle on a crisp **title**
 (imperative, e.g. "Add CSV export") before writing anything.
 
+If the target repo has a root `CONTEXT.md`, settle the title and the body's nouns in its terms
+(prefer the glossary's word, never one listed under `_Avoid_`); if it has none, say so in one
+sentence of the report and proceed.
+
 ### With `--seed #N`, the idea comes from the issue
 
 A raw issue — filed from the GitHub UI, by a bot, or by hand — carries no brainstorm, spec or plan, so
@@ -140,7 +144,8 @@ gh issue view "$N" --json comments --jq '.comments[].body' \
   | grep -cE 'Implementation plan|^### Task|^- \[[ x]\]' || true          # plan in a comment?
 ```
 
-- **Either probe is non-zero, and no `--force`** → **refuse and change nothing.** Report *"#N is already seeded — pass `--force` to re-seed it"* and stop. A live plan's
+- **Either probe is non-zero, and no `--force`** → **refuse and change nothing.** Report
+  *"#N is already seeded — pass `--force` to re-seed it"* and stop. A live plan's
   checkboxes are `implement-issue`'s progress record; overwriting them silently un-ticks work that
   has already landed and committed, which is the one failure a seeder can cause that nobody notices.
   A comment-hosted plan is the worse half of this: appending a fresh body plan does not overwrite it,

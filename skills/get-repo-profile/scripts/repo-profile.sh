@@ -127,6 +127,105 @@ case "$CMD" in
       echo "  TODO: no .github/ISSUE_TEMPLATE/ directory"
     fi
 
+    section "Tracker"
+    # Every lifecycle skill drives GitHub semantics through `gh`; this is the one probe that can
+    # genuinely fail to reach a verdict (no origin remote at all) rather than answer "none".
+    origin_url="$(git remote get-url origin 2>/dev/null || true)"
+    if [ -z "$origin_url" ]; then
+      echo "TODO: no origin remote — cannot name the tracker"
+    else
+      # Three remote-URL shapes, tried in order: `ssh://[user@]host[:port]/…`,
+      # `http(s)://[user[:token]@]host[:port]/…` (a CI checkout token embeds credentials right
+      # here — `x-access-token:ghp_…@github.com`), and the scp-like `git@host:owner/repo`. The
+      # original single-pattern version only matched the last two, so an `ssh://` remote or one
+      # carrying embedded credentials fell through unparsed and got misread as a non-GitHub host.
+      tracker_host="$(printf '%s\n' "$origin_url" | sed -E \
+        -e 's#^ssh://([^@/]+@)?([^/:]+)(:[0-9]+)?/.*#\2#' \
+        -e 's#^(https?)://([^@/]+@)?([^/:]+)(:[0-9]+)?/.*#\3#' \
+        -e 's#^git@([^:]+):.*#\1#')"
+      # $SLUG (above) is `gh repo view` succeeding against THIS remote — true for github.com and
+      # for a GHES host `gh` is configured to talk to, so it is the positive signal, not just a
+      # literal "github.com" string match.
+      if [ "$tracker_host" = "github.com" ] || [ -n "${SLUG:-}" ]; then
+        printf 'tracker: github (%s)\n' "$tracker_host"
+      else
+        printf 'tracker: other: %s\n' "$tracker_host"
+      fi
+    fi
+
+    section "Domain language"
+    domain_lang="none"
+    for f in CONTEXT.md CONTEXT-MAP.md docs/CONTEXT.md; do
+      if [ -f "$f" ]; then domain_lang="$f"; break; fi
+    done
+    printf '  %s\n' "$domain_lang"
+
+    section "ADRs"
+    adr_root="none"
+    for d in docs/adr doc/adr adr .agents/adr; do
+      if [ -d "$d" ]; then
+        adr_n="$(find "$d" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+        adr_root="$d/ ($adr_n files)"
+        break
+      fi
+    done
+    printf '  root: %s\n' "$adr_root"
+    # The MCP half is a fact about THIS MACHINE'S session, never a fact about the repo (same rule
+    # as the Worktree home probe's `note:` line above) — the "via AdrMcp" branch says so inline.
+    if ! command -v claude >/dev/null 2>&1; then
+      echo "  server: files only (claude CLI not found)"
+    else
+      # `claude mcp list` probes each configured server live, so an unreachable/slow one can hang
+      # this call indefinitely — exactly what `detect`'s own contract ("best-effort... never
+      # abort") forbids. Bound it where `timeout`(1) exists (GNU coreutils; not on a stock macOS);
+      # elsewhere fall back to the unbounded call rather than fail the whole probe over a missing
+      # tool.
+      if command -v timeout >/dev/null 2>&1; then
+        adr_mcp="$(timeout 5s claude mcp list 2>/dev/null || true)"
+      else
+        adr_mcp="$(claude mcp list 2>/dev/null || true)"
+      fi
+      if printf '%s\n' "$adr_mcp" | grep -iqE '(^|[^a-z])adr(mcp)?([^a-z]|$)'; then
+        echo "  server: via AdrMcp (claude mcp list names 'adr') — on this machine only, not a fact about the repo"
+      else
+        echo "  server: files only (no 'adr' MCP server in \`claude mcp list\`)"
+      fi
+    fi
+
+    section "Out-of-scope records"
+    if [ -d docs/out-of-scope ]; then
+      oos_n="$(find docs/out-of-scope -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
+      printf '  docs/out-of-scope/ (%s files)\n' "$oos_n"
+    else
+      echo "  none"
+    fi
+
+    section "Coding standards"
+    cs_found=0
+    for f in CONTRIBUTING.md CODING_STANDARDS.md .editorconfig .globalconfig; do
+      if [ -f "$f" ]; then printf '  %s\n' "$f"; cs_found=1; fi
+    done
+    if [ -f Directory.Build.props ]; then
+      dbp_markers=""
+      grep -qF 'EnforceCodeStyleInBuild' Directory.Build.props 2>/dev/null \
+        && dbp_markers="EnforceCodeStyleInBuild"
+      grep -qF 'AnalysisLevel' Directory.Build.props 2>/dev/null \
+        && dbp_markers="${dbp_markers:+$dbp_markers, }AnalysisLevel"
+      # Report exactly which marker(s) matched — printing a fixed string regardless of which of
+      # the two actually fired would record a coding standard the repo never stated.
+      [ -n "$dbp_markers" ] && { printf '  Directory.Build.props: %s\n' "$dbp_markers"; cs_found=1; }
+    fi
+    for m in .eslintrc* eslint.config.*; do
+      for f in $m; do
+        if [ -e "$f" ]; then printf '  %s\n' "$f"; cs_found=1; fi
+      done
+    done
+    if [ -f pyproject.toml ] && grep -qF '[tool.ruff]' pyproject.toml 2>/dev/null; then
+      echo "  pyproject.toml: [tool.ruff]"
+      cs_found=1
+    fi
+    [ "$cs_found" -eq 0 ] && echo "  none"
+
     section "Conflict hot-spot candidates (derive resolutions in the template)"
     for c in Directory.Build.props CHANGELOG.md ./*.lock package-lock.json yarn.lock pnpm-lock.yaml Cargo.lock go.sum; do
       [ -e "$c" ] && echo "  ${c#./}"
