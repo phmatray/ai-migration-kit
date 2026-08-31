@@ -251,6 +251,16 @@ grep -qF '## Commit identity' "$KIT/$PROFILE" \
   || fail "$PROFILE is tracked but carries no '## Commit identity' section — the lifecycle skills
       read it there; fill the schema in skills/get-repo-profile/references/profile-template.md"
 
+# The five v2.0 sections (#311) must be present in the KIT'S OWN committed profile too, the same
+# way '## Commit identity' is pinned above — a schema that only ever shows up in the template and
+# never in the kit's own dogfood copy is exactly the drift #157 exists to catch.
+for s in "## Tracker" "## Domain language" "## ADRs" "## Out-of-scope records" "## Coding standards"; do
+  grep -qF "$s" "$KIT/$PROFILE" \
+    || fail "$PROFILE is tracked but carries no '$s' section — regenerate it with
+      \`skills/get-repo-profile/scripts/repo-profile.sh detect\` FROM THE MAIN WORKING TREE (#125)
+      and fill in the five v2.0 sections (#311)"
+done
+
 # 7. No skill reads the profile with a bare `cat` (#157). The helper's whole reason to exist is that
 #    it distinguishes "absent" from "empty": `show` prints NO_PROFILE and exits 3 (case 1 above),
 #    while a bare cat writes one line to STDERR, nothing to stdout, and returns a status the reading
