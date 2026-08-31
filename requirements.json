@@ -12,6 +12,7 @@
   ],
   "mcps": [
     { "name": "RoselineMCP connected", "match": "roseline", "level": "required", "requiresSdk": "10", "launcher": "dnx", "hint": "shipped by this plugin via .mcp.json and launched with dnx, which needs the .NET 10 SDK even though the pipeline itself accepts >= 8; usage is enforced by hooks/roseline-gate.sh, disable with ROSELINE_GATE=off (mandatory for all C# analysis)" },
+    { "name": "AdrMcp connected", "match": "adr", "level": "recommended", "requiresSdk": "10", "launcher": "dnx", "hint": "shipped by this plugin via .mcp.json and launched with dnx (.NET 10 SDK); optional — create-issue and merge-pr fall back to reading docs/adr/*.md frontmatter and say so" },
     { "name": "context7 MCP connected", "match": "context7", "level": "recommended", "hint": "recommended: up-to-date docs for the target frameworks" }
   ],
   "sessionSkills": [

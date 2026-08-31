@@ -208,4 +208,35 @@ assert floored["status"] == "missing", \
 assert "10" in floored["hint"], f"...and still names the floor it wanted: {floored['hint']!r}"
 PY
 
+# 7. AdrMcp ships the same way roseline does, at a LOWER level: `.mcp.json` starts it with `dnx`
+#    (the .NET 10 SDK's launcher), so the manifest declares the launcher and the floor — but the
+#    entry is `recommended`, because every consumer degrades to reading `docs/adr/*.md` frontmatter
+#    (#316). Both halves are asserted: the manifest declaration, and the fact that a recommended
+#    entry can never turn into a phase-0 hard fail on a host that lacks the server.
+#
+#    `$out` from case 1 is long gone by here — cases 5 and 5b rebind it to a SYNTHETIC kit's report —
+#    so this case re-runs the REAL preflight rather than reading a stale variable that would assert
+#    against the wrong manifest entirely.
+real_out=$(./scripts/preflight.sh --json || true)
+python3 - "$real_out" <<'PY'
+import json, sys
+out = json.loads(sys.argv[1])
+req = json.load(open("requirements.json"))
+adr = [m for m in req["mcps"] if m.get("match") == "adr"]
+assert len(adr) == 1, f"requirements.json must declare exactly one `match: adr` mcps entry, got {len(adr)}"
+adr = adr[0]
+assert adr["name"] == "AdrMcp connected", f"unexpected name: {adr['name']!r}"
+assert adr["level"] == "recommended", \
+    f"AdrMcp degrades to reading docs/adr/*.md, so it is recommended, not {adr['level']!r}"
+assert adr.get("launcher") == "dnx", f"the launcher is how .mcp.json starts it: {adr.get('launcher')!r}"
+assert adr.get("requiresSdk") == "10", f"dnx ships with the .NET 10 SDK: {adr.get('requiresSdk')!r}"
+assert "docs/adr" in adr["hint"], f"the hint must name the fallback the consumers use: {adr['hint']!r}"
+seen = {c["name"]: c for c in out["checks"]}
+assert "AdrMcp connected" in seen, "preflight must report the manifest entry"
+status = seen["AdrMcp connected"]["status"]
+assert status != "missing", \
+    f"a recommended entry is a documented degradation, never a phase-0 hard fail, got {status!r}"
+assert status in ("ok", "absent", "unknown"), f"unexpected status {status!r}"
+PY
+
 echo "preflight golden test OK"
