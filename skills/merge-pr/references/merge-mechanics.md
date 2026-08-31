@@ -387,9 +387,10 @@ Clears a branch the corrections loop finds stale — `behind_by > 0` (§3), or a
 again, then loop back to wait for CI (§3).
 
 The procedure — merge-not-rebase, the union/regenerate/take-the-higher rule-of-thumb keyed off the
-profile's *Conflict hot-spots* table, and finish-and-verify — is shared with `implement-issue` and
-lives in [`../../_shared/sync-with-main.md`](../../_shared/sync-with-main.md). Never push a merge you
-haven't at least built.
+profile's *Conflict hot-spots* table, sourcing the other side's intent for a genuinely semantic
+conflict, and finish-and-verify — is shared with `implement-issue` and lives in
+[`../../_shared/sync-with-main.md`](../../_shared/sync-with-main.md). Never push a merge you haven't
+at least built.
 
 Its writes are guarded, so pass `$BRANCH`, `$WORKTREE`, `$GUARDS` and `$BASE` (SKILL.md Step 2)
 through to it. Two things bite here specifically:
@@ -398,8 +399,9 @@ through to it. Two things bite here specifically:
   `main`. Sync from the wrong one and the PR stays `BEHIND` no matter how many times this loop runs.
 - **Exit 5 from `guarded-merge.sh` means conflicts — keep going, don't re-run.** It is the expected
   outcome of a `DIRTY` sync, not an error: resolve, then complete the merge with
-  `guarded-commit.sh … -- --no-edit`. Re-running the merge instead gets refused (exit 2), because the
-  index still carries the unfinished one.
+  `guarded-commit.sh … -- -F /tmp/merge-msg-$ISSUE.txt` (the `Conflicts:` message
+  `_shared/sync-with-main.md` prescribes). Re-running the merge instead gets refused (exit 2), because
+  the index still carries the unfinished one.
 
 ### The fallback when the branch can't be pushed (#147)
 
@@ -673,8 +675,8 @@ else's in-progress work.
 | `git branch -d` refuses: "not fully merged" | After a squash-merge the branch isn't "merged" by git's reckoning | Use `-D` (force) — the squash commit on `main` carries the work |
 | `mergeable=UNKNOWN` right after `main` moved | GitHub is recomputing the merge state | Not a blocker — re-poll shortly; nudge a main-sync only if it persists |
 | Commands act on the wrong checkout | A `cd` in a compound command gets reset between tool calls | Use `git -C <path>` / absolute paths — especially the teardown, which must run against `$MAIN`, not the worktree being deleted |
-| `guarded-merge: CONFLICTS on <branch>` (exit 5) | **Not an error** — the expected outcome of a `DIRTY` sync. HEAD is still your branch and the conflicts are in the working tree | Resolve per the rule-of-thumb (§5), then **complete** the merge: `guarded-commit.sh … -- --no-edit`. To walk away instead, `guarded-merge.sh … -- --abort` |
-| `guarded-merge: REFUSED — the index … already carries an UNRESOLVED merge` (exit 2) | A previous sync stopped at exit 5 and was never finished; git refuses a second merge on an unmerged index (its own exit 128) | **Nothing merged.** Finish the one in flight (resolve + `guarded-commit … -- --no-edit`) or abandon it (`-- --abort`), then sync again |
+| `guarded-merge: CONFLICTS on <branch>` (exit 5) | **Not an error** — the expected outcome of a `DIRTY` sync. HEAD is still your branch and the conflicts are in the working tree | Resolve per the rule-of-thumb (§5, sourcing the other side's intent for a semantic one), then **complete** the merge: `guarded-commit.sh … -- -F /tmp/merge-msg-$ISSUE.txt`. To walk away instead, `guarded-merge.sh … -- --abort` |
+| `guarded-merge: REFUSED — the index … already carries an UNRESOLVED merge` (exit 2) | A previous sync stopped at exit 5 and was never finished; git refuses a second merge on an unmerged index (its own exit 128) | **Nothing merged.** Finish the one in flight (resolve + `guarded-commit … -- -F /tmp/merge-msg-$ISSUE.txt`) or abandon it (`-- --abort`), then sync again |
 | `guarded-commit.sh: No such file or directory` in the corrections loop | `$GUARDS`/`$WORKTREE`/`$BRANCH` were never recorded — Step 2 deferred the worktree and Step 4 created one without setting them | Record all four names (Step 2's block) at the point the worktree appears, then re-run the correction |
 | `guarded-*: REFUSED — HEAD is on 'X' but this task owns 'Y'` (exit 2) | Prevention working: the corrections are being run from the wrong checkout | **Nothing was written.** Move to the PR branch's own worktree (§2) and retry — never "just commit anyway" |
 | `remote-branch-teardown: failed to delete origin/<branch>: …` (exit 1) | The remote branch survived the merge (Step 5's `--delete-branch` never reached it, and `delete_branch_on_merge` is off or didn't fire) and the DELETE call itself failed for a reason other than "already gone" — permissions, rate limit, network | **Not tolerable — a real leak, not a race.** Read the API error, fix what it names, and re-run `remote-branch-teardown.sh` with the same two arguments; it's idempotent (an already-gone branch on retry is just another `already-gone`) |
