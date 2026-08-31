@@ -449,4 +449,19 @@ for f in "skills/implement-issue/SKILL.md" "skills/merge-pr/SKILL.md"; do
 done
 echo "ok   both consumers name suggest_adr_from_change, ## Follow-ups and the docs/adr fallback"
 
+# ---------------------------------------------------------------------------------------------
+# AdrMcp is documented as shipped, next to the RoselineMCP paragraph it mirrors, and the ADR index
+# is reachable from both entry documents (#316). A dependency the kit ships without saying so is
+# the failure this pins — the README already carries that promise for roseline.
+echo "== README and ARCHITECTURE document AdrMcp and the ADR root (#316) =="
+for f in "README.md" "ARCHITECTURE.md"; do
+  path="$KIT_ROOT/$f"
+  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+  for needle in 'AdrMcp' 'docs/adr'; do
+    grep -q -- "$needle" "$path" \
+      || { echo "FAIL: $path does not mention '$needle'"; exit 1; }
+  done
+done
+echo "ok   README and ARCHITECTURE both name AdrMcp and docs/adr"
+
 echo "skills golden test: all cases behaved as specified"

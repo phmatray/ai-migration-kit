@@ -97,6 +97,23 @@ You do not need to `claude mcp add roseline` — the kit ships the server itself
 > told what is missing and nothing is blocked in the meantime; install the .NET 10 SDK to get
 > roseline itself.
 
+### AdrMcp is shipped too — recommended, not enforced
+
+The kit's own architectural decisions live under [`docs/adr/`](docs/adr/README.md) as MADR 4.0
+markdown, and [AdrMcp](https://github.com/Atypical-Consulting/AdrMcp) is what makes them *askable*
+rather than merely present: `search_adrs` at brainstorm time, `find_stale_adrs` when a `code_refs`
+entry stops resolving, `suggest_adr_from_change` when a diff touches a path a decision governs. It
+ships the same way roseline does — [`.mcp.json`](.mcp.json) (`dnx AdrMcp --yes`), so installing the
+plugin installs the dependency — and needs the same **.NET 10 SDK** for `dnx`.
+
+The difference is the level. [`requirements.json`](requirements.json) records it as
+**`recommended`**, not required: roseline is required because *every* C# analysis goes through it,
+while ADRs are consulted at two steps of two skills. Without the server, `create-issue` and
+`merge-pr` fall back to grepping `docs/adr/*.md` frontmatter and **say so in their recap** — the
+degradation is named, never silent. CI cannot start an MCP server, so
+`python3 tests/adr/check-adrs.py` is a deliberate structural mirror of the server's own
+`validate_adr`, and it gates the committed ADRs on every run.
+
 It also **enforces** it. Preflight only ever proved roseline was *connected*; nothing made it
 *used*, and in practice `Read`/`Grep` on a `.cs` file stayed the path of least resistance. So
 [`hooks/roseline-gate.sh`](hooks/roseline-gate.sh) runs as a `PreToolUse` hook and **denies** `Read`
@@ -254,6 +271,7 @@ scripts/                preflight.sh (phase-0 gate) · run-all-tests.sh (one com
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies · bundle-gate.json.example — copy-pasteable config for the opt-in committed-bundle drift gate
 tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired. Run them all with `./scripts/run-all-tests.sh`
 samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
+docs/adr/               the kit's own architectural decisions (MADR 4.0) — index in docs/adr/README.md, served by AdrMcp
 docs/case-studies/      real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output
 docs/bundle-gate.md     what the opt-in committed-bundle drift gate measures, its validation rules, how to disable it
