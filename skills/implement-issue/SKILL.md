@@ -435,6 +435,13 @@ so this is the commit most likely to be made from a tree that moved under you.
 
 If the review is clean, say so and skip the fix commit.
 
+**If the diff touches a path an accepted ADR names in its `code_refs`, propose the ADR update.**
+Run `suggest_adr_from_change` over `git diff main...HEAD` through the `adr` server and put the
+returned draft under the PR's `## Follow-ups` heading as *ADR proposal*; without the server, grep
+`docs/adr/*.md` frontmatter for a `code_refs` path this diff touches and write the proposal by hand
+from the ADR it names, saying AdrMcp was not connected. It is a **proposal for the owner**: do not
+`create_adr` it, do not `set_status` anything, and do not edit the ADR in this PR.
+
 ## Step 8 — Sync with `main` and resolve conflicts
 
 `main` moves while this PR sits in draft. Mark it ready against a stale base and it merges with

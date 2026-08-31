@@ -687,6 +687,162 @@ grep -q 'not a supported tracker' "$PRECONDITIONS" \
   || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
 echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
 
+# ---------------------------------------------------------------------------------------------
+# The roseline-gate essay moved to docs/roseline-gate.md (#325). Fixture-free: the defect this
+# guards is the committed essay drifting away from its own four properties, or the README's link
+# to it eroding, not something a scratch fixture could stand in for.
+echo "== docs/roseline-gate.md carries the roseline-gate essay, linked from README (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+path = root / "docs" / "roseline-gate.md"
+if not path.is_file():
+    print("FAIL: docs/roseline-gate.md missing")
+    sys.exit(1)
+
+text = path.read_text(encoding="utf-8")
+for phrase in (
+    "Inert outside C# projects",
+    "A one-shot escape",
+    "Fails open, always",
+    "never enforces a tool that cannot be there",
+):
+    if phrase not in text:
+        print("FAIL: docs/roseline-gate.md is missing the phrase %r" % phrase)
+        sys.exit(1)
+
+readme = (root / "README.md").read_text(encoding="utf-8")
+if "docs/roseline-gate.md" not in readme:
+    print("FAIL: README.md does not link docs/roseline-gate.md")
+    sys.exit(1)
+
+print("ok   docs/roseline-gate.md carries the four properties, and README links it")
+PY
+
+# ---------------------------------------------------------------------------------------------
+# README leads with the failure modes and a "Which command?" table, and links every skill and
+# command (#325). Fixture-free, same reason as the #313 CONTEXT.md case above: the defect is the
+# committed README drifting out of shape, not something a scratch fixture models better.
+echo "== README leads with failure modes, routes by situation, links every skill/command (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+readme = (root / "README.md").read_text(encoding="utf-8")
+
+for heading in ("## Why this kit exists", "## Which command?"):
+    if heading not in readme:
+        print("FAIL: README.md is missing the heading %r" % heading)
+        sys.exit(1)
+
+targets = set(re.findall(r"\]\(([^)]+)\)", readme))
+
+missing = []
+for skill_dir in sorted((root / "skills").iterdir()):
+    if not skill_dir.is_dir() or skill_dir.name == "_shared":
+        continue
+    rel = "skills/%s/SKILL.md" % skill_dir.name
+    if not (root / rel).is_file():
+        continue
+    if rel not in targets:
+        missing.append(rel)
+
+for cmd in sorted((root / "commands").glob("*.md")):
+    rel = "commands/%s" % cmd.name
+    if rel not in targets:
+        missing.append(rel)
+
+if missing:
+    print("FAIL: README.md does not link: %s" % ", ".join(missing))
+    sys.exit(1)
+
+print("ok   README.md links every skills/*/SKILL.md and commands/*.md")
+PY
+
+# ---------------------------------------------------------------------------------------------
+# A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
+# locations, a line budget so it stays pointers rather than sediment, and every relative link
+# actually resolves — a link that used to work but now 404s is worse than no pointer at all.
+echo "== exactly one pointer-only CLAUDE.md exists, <= 60 lines, links resolve (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+candidates = [root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]
+present = [p for p in candidates if p.is_file()]
+if len(present) != 1:
+    print("FAIL: expected exactly one of CLAUDE.md / .claude/CLAUDE.md, found %d" % len(present))
+    sys.exit(1)
+
+path = present[0]
+lines = path.read_text(encoding="utf-8").splitlines()
+if len(lines) > 60:
+    print("FAIL: %s has %d lines, over the 60-line budget" % (path, len(lines)))
+    sys.exit(1)
+
+text = "\n".join(lines)
+for m in re.finditer(r"\]\(([^)]+)\)", text):
+    target = m.group(1)
+    if target.startswith("http://") or target.startswith("https://") or target.startswith("#"):
+        continue
+    target_path = target.split("#", 1)[0]
+    resolved = (path.parent / target_path).resolve()
+    if not resolved.exists():
+        print("FAIL: %s links %r, which does not resolve (tried %s)" % (path, target, resolved))
+        sys.exit(1)
+
+print("ok   %s exists, is <= 60 lines, and every relative link resolves" % path.relative_to(root))
+PY
+# create-issue consults the accepted ADRs before it brainstorms (#316). The touchpoint is prose and
+# cannot go red on its own, so this pins the three load-bearing spellings: the server tool it calls,
+# the verdict it must write when an idea contradicts a decision, and the file fallback for a host
+# with no AdrMcp.
+echo "== create-issue checks the idea against accepted ADRs (#316) =="
+CREATE_ISSUE="$KIT_ROOT/skills/create-issue/SKILL.md"
+[ -f "$CREATE_ISSUE" ] || { echo "FAIL: $CREATE_ISSUE missing"; exit 1; }
+for needle in 'search_adrs' 'contradicts ADR-' 'docs/adr'; do
+  grep -q "$needle" "$CREATE_ISSUE" \
+    || { echo "FAIL: $CREATE_ISSUE does not mention '$needle'"; exit 1; }
+done
+echo "ok   create-issue names search_adrs, the contradiction verdict and the docs/adr fallback"
+
+# ---------------------------------------------------------------------------------------------
+# A diff that touches an accepted ADR's `code_refs` proposes an ADR update rather than making one
+# (#316). Both consumers get the same paragraph, so both are pinned — and each must name
+# `suggest_adr_from_change` AND the `## Follow-ups` heading the draft lands under, because a draft
+# named without a destination is the failure mode this touchpoint exists to avoid.
+echo "== implement-issue and merge-pr propose an ADR update, never write one (#316) =="
+for f in "skills/implement-issue/SKILL.md" "skills/merge-pr/SKILL.md"; do
+  path="$KIT_ROOT/$f"
+  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+  for needle in 'suggest_adr_from_change' '## Follow-ups' 'code_refs' 'docs/adr'; do
+    grep -q -- "$needle" "$path" \
+      || { echo "FAIL: $path does not mention '$needle'"; exit 1; }
+  done
+done
+echo "ok   both consumers name suggest_adr_from_change, ## Follow-ups and the docs/adr fallback"
+
+# ---------------------------------------------------------------------------------------------
+# AdrMcp is documented as shipped, next to the RoselineMCP paragraph it mirrors, and the ADR index
+# is reachable from both entry documents (#316). A dependency the kit ships without saying so is
+# the failure this pins — the README already carries that promise for roseline.
+echo "== README and ARCHITECTURE document AdrMcp and the ADR root (#316) =="
+for f in "README.md" "ARCHITECTURE.md"; do
+  path="$KIT_ROOT/$f"
+  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+  for needle in 'AdrMcp' 'docs/adr'; do
+    grep -q -- "$needle" "$path" \
+      || { echo "FAIL: $path does not mention '$needle'"; exit 1; }
+  done
+done
+echo "ok   README and ARCHITECTURE both name AdrMcp and docs/adr"
+
 echo "skills golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------

@@ -284,6 +284,15 @@ Every synthesized field is a claim you made about someone else's issue, so list 
 Invoke `superpowers:brainstorming`, then apply it **autonomously** (no questions, pick the recommended
 option, note assumptions). Split its output into two sections so the trail reads brainstorm → spec.
 
+**Before you write the approaches, consult the accepted ADRs for the idea's area.** Run `search_adrs`
+(mode `semantic`, status `accepted`) through the `adr` server; without it, grep `docs/adr/*.md`
+frontmatter for `status: accepted` and the area tag, and say so ("ADRs read from files; AdrMcp not
+connected"). The repo profile's *ADRs* section names the root — `none` means there is nothing to
+consult, which is a sentence you write rather than a step you skip silently. The brainstorm then
+states, per hit, *consistent with ADR-N* or *contradicts ADR-N — reopening because …*. A
+contradiction is a finding the owner sees, never a silent override, and every cited id goes on the
+`**Related:**` line (Step 7).
+
 **If `--grill` was passed, the round goes between the two halves of this step: brainstorm → grill →
 Spec.** Not before the brainstorm — [`../_shared/grilling.md`](../_shared/grilling.md) defines the
 frontier by *exclusion* against what the brainstorm already settles ("a decision the evidence already
@@ -428,7 +437,8 @@ effort too — **all** labels go on at creation.
 **Assemble the body** top (most-read) to bottom, into one temp file:
 
 1. The template fields from Step 4 (Problem / Proposed solution / Area …) — visible.
-2. The `**Related:** #N, #M` line from Step 3, if any.
+2. The `**Related:** #N, #M` line from Step 3, if any — plus every ADR id Step 5's check
+   cited, written `ADR-N` alongside the issue numbers.
 3. The collapsible 🧠 **Brainstorm** and 📋 **Spec** from Step 5 — the Spec carries its
    `### Acceptance criteria` / `### Testing decisions` / `### Out of scope` contract.
 4. The 🛠️ **Implementation plan** from Step 6 — **visible, never inside a `<details>`**.

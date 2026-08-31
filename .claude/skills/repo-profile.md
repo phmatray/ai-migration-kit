@@ -14,8 +14,8 @@
 
 ## Commit identity
 - **Author line:** `git -c user.email=phmatray@gmail.com -c user.name="Philippe Matray"`
-- **Source:** git config, cross-checked against the full list of log authors (there is no `CLAUDE.md`
-  in this repo, so nothing overrides it).
+- **Source:** git config, cross-checked against the full list of log authors. A `.claude/CLAUDE.md`
+  exists (#325) and sets no identity — the git-config value stands.
 - **The other identities in the log, none of which you may use:** `renovate[bot]`,
   `github-actions[bot]` (release-please), and a second human identity
   `Philippe Matray <philippe@atypical.consulting>` — the work address, present on early commits. The
@@ -174,11 +174,15 @@ hand-copying it further.
   of I8 would fill this in once one exists).
 
 ## ADRs
-- **Root:** none — no `docs/adr/`, `doc/adr/`, `adr/` or `.agents/adr/` at the repo root (#311;
-  I7b owns wiring a consumer to whichever root eventually exists).
-- **Server:** files only (as `detect` measured on the generating machine — `claude mcp list`
-  named no `adr`/AdrMcp server there; a session fact, not a repo fact, and not durable across
-  machines).
+- **Root:** `docs/adr/` — seven MADR 4.0 records (`NNNN-<kebab-title>.md`) plus the rendered index
+  at `docs/adr/README.md` (#316). This is the root `create-issue` Step 5, `implement-issue` Step 7
+  and `merge-pr` Step 6 read; it is no longer `none`, so none of them may skip the check.
+- **Server:** `adr` — **AdrMcp**, shipped by this plugin in `.mcp.json` (`dnx AdrMcp --yes`) and
+  declared `recommended` in `requirements.json` (`requiresSdk: "10"`, `launcher: dnx`). Whether it is
+  *connected* stays a session fact rather than a repo fact — `claude mcp list` answers differently on
+  every machine — so a consumer that does not have it greps `docs/adr/*.md` frontmatter instead and
+  says so in its recap. The structural half is not session-dependent:
+  `python3 tests/adr/check-adrs.py` mirrors `validate_adr` and runs in CI.
 
 ## Out-of-scope records
 - none — no `docs/out-of-scope/` yet (#311; I7a owns wiring `triage-backlog`/`create-issue` to it

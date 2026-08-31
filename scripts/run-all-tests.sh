@@ -222,6 +222,13 @@ add_suite "tests/usage-report/test.sh"
 add_suite "tests/survey/test.sh"
 add_suite "tests/hitl-loop/test.sh"
 
+# The kit's own ADRs are structurally sound. The gate runs the checker over the REAL
+# docs/adr/ — the suite below only drives it over fixtures, so without this line a
+# malformed committed ADR would never turn anything red (#316).
+add_gate "python3 tests/adr/check-adrs.py"
+
+add_suite "tests/adr/test.sh"
+
 # 16: the contrast checker itself, pass AND fail paths.
 add_gate "$(cat <<'EOF'
 python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
