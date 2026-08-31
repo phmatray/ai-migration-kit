@@ -470,7 +470,12 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
           proj_err="$(printf '%s' "$proj_err" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//')"
           case "$proj_rc" in
             0) : ;; # already reported +ADD by the diff pass above; nothing more to say
-            3) note "!NOTE" "form" "$f1 — copied, but its Area dropdown could not be generated ($proj_err)" ;;
+            # A projection that was promised (the diff pass's "+ADD … Area dropdown will be
+            # generated") and then didn't happen is drift, not a footnote (#240): route it through
+            # refuse() like every other partial `apply` result, so it counts toward REFUSED and
+            # apply's exit code — never a silent !NOTE at exit 0 that a future `plan`/`apply` has
+            # no way to see again once the form exists on disk (#198's #240 follow-up finding 4).
+            3) refuse "forms" "$f1 — copied, but its Area dropdown could not be generated ($proj_err)" ;;
             *) refuse "forms" "could not project $f1's Area dropdown: $proj_err" ;;
           esac
         fi
