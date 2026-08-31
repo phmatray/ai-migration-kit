@@ -65,6 +65,15 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload" 2>/dev/null) || exit 0
 # The cheap reject, before any parsing: nothing here can matter to a command with no `git` in it.
 case "$cmd" in *git*) ;; *) exit 0 ;; esac
 
+# A heredoc body is FILE CONTENT, not commands, and this parser cannot tell the two apart: newlines
+# are folded to `;` below, so `cat > x.sh <<'SH'` … `git commit -m x` … `SH` would be judged as a
+# real commit and denied — blocking the writing of any script, doc or test whose text contains one
+# of these lines, which this repository's own suites do. A parse it cannot trust is fail-open (the
+# same rule the unterminated-quote branch below follows), so a command carrying `<<` (heredoc) or
+# `<<<` (here-string) is let through whole. The cost is a real `git commit` sharing a line with a
+# heredoc; the alternative is a gate that makes `Write`-by-heredoc impossible in every profiled repo.
+case "$cmd" in *'<<'*) exit 0 ;; esac
+
 cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null) || exit 0
 
 # ------------------------------------------------------------------- strip quotes and comments
@@ -75,22 +84,44 @@ cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null) || exit 0
 #
 # Newlines are folded to `;` first: they are a segment separator like `;` anyway, and doing it here
 # means a quoted string that spans lines is still seen as ONE quoted span rather than two broken
-# ones. The awk program is fed a single line, so `#` runs only to the next `;`, never to the end of
-# a multi-line script.
+# ones. The awk program is fed a single line, so a `#` comment runs only to the next separator,
+# never to the end of a multi-line script.
+#
+# Three details, each of which was a hole before it was one:
+#
+#   * a stripped quoted span leaves a PLACEHOLDER token (`@Q@`), not a space. Deleting it outright
+#     removed the word, and `git -C "$WORKTREE" commit -m "x"` then cleaned to `git -C   commit …` —
+#     the `-C` walk below ate `commit` as its path argument, the subcommand became `-m`, and the
+#     dominant idiom in this whole kit (`git -C "$WORKTREE" …`, which its own references prescribe
+#     over `cd … &&`) sailed straight through the gate it was written for.
+#   * `#` starts a comment only at a WORD BOUNDARY, as in real shell. Anywhere-`#` meant
+#     `git log --grep=a#b && git reset --hard` hid its second command from the walk entirely. The
+#     comment then runs to the next `;`, `|`, `&` — the same separators the segment walk splits on,
+#     so a comment can never swallow a command that really would run.
+#   * `(`, `)`, `{`, `}` become spaces, so `(git commit …)`, `{ git commit …; }` and the bodies of
+#     `if`/`for`/`while` are tokenised as the commands they are rather than as one opaque word.
 #
 # `sq`/`dq`/`bs` are built with sprintf because the program itself is single-quoted in shell and so
 # cannot contain a literal `'`.
 clean=$(printf '%s' "$cmd" | tr '\n' ';' | awk '
 BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92) }
 {
-  out = ""; q = ""; n = length($0); i = 1
+  out = ""; q = ""; n = length($0); i = 1; prev = " "
   while (i <= n) {
     c = substr($0, i, 1)
     if (q == "") {
-      if (c == bs)            { out = out " "; i += 2; continue }
-      if (c == sq || c == dq) { q = c; out = out " "; i++; continue }
-      if (c == "#")           { while (i <= n && substr($0, i, 1) != ";") i++; continue }
-      out = out c; i++
+      if (c == bs)            { out = out " "; prev = " "; i += 2; continue }
+      if (c == sq || c == dq) { q = c; out = out "@Q@"; prev = "Q"; i++; continue }
+      if (c == "#" && (prev == " " || prev == ";" || prev == "|" || prev == "&")) {
+        while (i <= n) {
+          c = substr($0, i, 1)
+          if (c == ";" || c == "|" || c == "&") break
+          i++
+        }
+        continue
+      }
+      if (c == "(" || c == ")" || c == "{" || c == "}") { out = out " "; prev = " "; i++; continue }
+      out = out c; prev = c; i++
     } else {
       if (q == dq && c == bs) { i += 2; continue }
       if (c == q)             { q = "" }
@@ -129,13 +160,15 @@ Set GIT_GATE=off to disable this gate for one command or for the session."
 
 # --------------------------------------------------------------------------------- the probe
 # A denial names a `guarded-*.sh` replacement, so the gate must not deny where that replacement
-# cannot exist. A repository carrying a committed `.claude/skills/repo-profile.md` has opted into
+# cannot exist. A repository carrying a `.claude/skills/repo-profile.md` has opted into
 # `create-issue`/`implement-issue`/`merge-pr` and therefore HAS those guards to route to; a
 # repository without one gets no denial, ever. This is exactly the role the `dnx` probe plays for
 # `roseline-gate.sh` (#112): never deny in favour of a replacement that cannot apply here.
 #
-# From a linked worktree the profile is present because it is tracked (#157) — which is precisely
-# when the guards matter most. `GIT_GATE=on` short-circuits it, the same way `ROSELINE_GATE=on`
+# The file is read with `[ -f ]`, not `git ls-files`: the profile IS committed by convention (which
+# is why it is present in a linked worktree at all, #157 — precisely when the guards matter most),
+# but proving that would put a second `git` spawn on the path of every Bash call, and an untracked
+# profile is a repository mid-adoption rather than one to stop enforcing in. `GIT_GATE=on` short-circuits it, the same way `ROSELINE_GATE=on`
 # does: the user is the only authority this hook can consult about a repo it cannot recognise.
 is_profiled() { # $1 a directory
   local dir="$1" top
@@ -154,10 +187,14 @@ judge() { # $1 one segment of the stripped command
   [ $# -gt 0 ] || return 0
 
   # Prefixes that carry a command rather than being one: `env FOO=1 git …`, `sudo git …`,
-  # `TZ=UTC git …`. Anything else stops the walk — the segment simply is not a git invocation.
+  # `TZ=UTC git …` — and the shell keywords a segment inherits once `(`/`)`/`{`/`}` have become
+  # spaces, so that `if true; then git commit …; fi` and `for f in a b; do git push; done` are
+  # judged on their bodies rather than skipped as "the segment starts with `then`". Anything else
+  # stops the walk — the segment simply is not a git invocation.
   while [ $# -gt 0 ]; do
     case "$1" in
-      env|sudo|command|nohup|time) shift ;;
+      env|sudo|command|nohup|time|exec|builtin) shift ;;
+      then|do|else|elif|'!') shift ;;
       [A-Za-z_]*=*) shift ;;
       *) break ;;
     esac
@@ -187,25 +224,39 @@ judge() { # $1 one segment of the stripped command
 
   # Nothing below is worth a probe, so the probe runs only once a git subcommand is in hand.
   case "$sub" in
-    checkout|restore|reset|clean|push|commit|merge) ;;
+    checkout|switch|restore|reset|clean|push|commit|merge) ;;
     *) return 0 ;;
   esac
 
   if [ "$FORCE" != 1 ]; then
-    local dir="$seg_dir"
-    [ -n "$dir" ] || dir="$cwd"
-    case "$dir" in /*) ;; *) dir="${cwd:-.}/$dir" ;; esac
+    local dir="$cwd"
+    if [ -n "$seg_dir" ]; then
+      local cdir="$seg_dir"
+      case "$cdir" in /*) ;; *) cdir="${cwd:-.}/$cdir" ;; esac
+      # The `-C` path is used ONLY when it resolves to a real repository. A path that does not —
+      # `git -C $WORKTREE commit`, where the hook sees the variable unexpanded, or `-C @Q@` where
+      # it was quoted — is no evidence at all, and treating "cannot resolve" as "not profiled"
+      # made every `-C` carrying a variable a silent off-switch for that segment. Falling back to
+      # the payload's cwd is the honest reading: this is still a command the session is running
+      # from somewhere, and that somewhere is what the probe can actually answer about.
+      if git -C "$cdir" rev-parse --show-toplevel >/dev/null 2>&1; then dir="$cdir"; fi
+    fi
     is_profiled "$dir" || return 0
   fi
 
   local a
   case "$sub" in
-    checkout)
-      # A pathspec of `.` is the whole tree, with or without a ref and with or without `--`.
-      # `git checkout <branch>` and `git checkout -- <named path>` are scoped and stay allowed.
+    checkout|switch)
+      # Two shapes of the same whole-tree discard: a pathspec of `.` (with or without a ref, with
+      # or without `--`), and the force flags, which throw the tree away while changing branch —
+      # `git checkout -f main` and `git switch --discard-changes main` are the #26 scenario spelled
+      # without a pathspec. `git checkout <branch>`, `git switch -c <branch>` and
+      # `git checkout -- <named path>` are scoped and stay allowed.
       for a in "$@"; do
-        [ "$a" = "." ] && deny "$seg" \
-          "That discards every uncommitted change in the tree. Use \`git checkout -- <path>\` for the one file you mean, or commit through \`skills/implement-issue/scripts/guarded-commit.sh\` first."
+        case "$a" in
+          .|-f|--force|--discard-changes) deny "$seg" \
+            "That discards every uncommitted change in the tree, including another agent's in a shared checkout. Use \`git checkout -- <path>\` for the one file you mean, or switch branches without the force flag." ;;
+        esac
       done
       ;;
     restore)
@@ -221,6 +272,16 @@ judge() { # $1 one segment of the stripped command
       done
       ;;
     clean)
+      # `-n`/`--dry-run` wins over `-f`, whichever order they appear in and whether or not `-n` is
+      # bundled: `git clean -ndf` deletes nothing. It is precisely the command the deny reason
+      # recommends, so denying it would send the reader in a circle.
+      for a in "$@"; do
+        case "$a" in
+          --dry-run) return 0 ;;
+          --*) ;;
+          -*n*) return 0 ;;
+        esac
+      done
       for a in "$@"; do
         case "$a" in
           --force) deny "$seg" "That deletes untracked files irreversibly. Use \`git clean -n\` to look first, or \`git stash -u\` to keep them." ;;

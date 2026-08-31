@@ -146,6 +146,51 @@ verdict "A17 inside a double-quoted string" pass "" "$(pay Bash 'echo "git push 
 verdict "A18 inside a single-quoted string" pass "" "$(pay Bash "printf '%s' 'git reset --hard'" "$PROF")"
 verdict "A19 after a # comment"        pass "" "$(pay Bash 'git log --oneline # git reset --hard' "$PROF")"
 
+# --------------------------------------- 2b. the shapes a first tokeniser got wrong (R)
+# Every case here is a behaviour a code review REPRODUCED against the first implementation, kept as
+# a regression row rather than a note. Together they are the bulk of what an agent actually types.
+
+# `git -C "$WORKTREE" …` is what this kit's own references prescribe over `cd … &&`, and it is the
+# dominant idiom across skills/. Deleting the quoted span instead of standing a token in its place
+# made `-C` swallow the subcommand, so the gate was blind to the exact incident class it exists for.
+verdict "R1  git -C \"quoted\" commit"  deny "guarded-commit.sh" \
+  "$(pay Bash 'git -C "$WORKTREE" commit -m "wip"' "$PROF")"
+# ...and unquoted, with the variable the hook cannot expand: an unresolvable `-C` is no evidence, so
+# the probe falls back to cwd rather than treating it as "not a profiled repo".
+verdict "R2  -C names an unresolvable path" deny "guarded-commit.sh" \
+  "$(pay Bash 'git -C $WORKTREE commit -m wip' "$PROF")"
+# ...whereas a `-C` that DOES resolve, to a repo without a profile, still means what it says.
+verdict "R3  -C resolves to an unprofiled repo" pass "" \
+  "$(pay Bash "git -C $PLAIN commit -m wip" "$PROF")"
+
+# Grouping and control flow: `(`, `{`, `then`, `do`. A bare write wrapped in any of them used to
+# stop the prefix walk on its first token and never be judged at all.
+verdict "R4  subshell"                 deny "guarded-commit.sh" "$(pay Bash '(git commit -m x)' "$PROF")"
+verdict "R5  brace group"              deny "guarded-commit.sh" "$(pay Bash '{ git commit -m x; }' "$PROF")"
+verdict "R6  inside an if"             deny "guarded-commit.sh" "$(pay Bash 'if true; then git commit -m x; fi' "$PROF")"
+verdict "R7  inside a for"             deny "guarded-push.sh"   "$(pay Bash 'for f in a b; do git push; done' "$PROF")"
+
+# `#` is a comment only at a word boundary, as in real shell — and the comment ends at the next
+# separator, so it can never swallow a command that really would run.
+verdict "R8  a # inside a word hides nothing" deny "git reset --keep" \
+  "$(pay Bash 'git log --grep=a#b && git reset --hard' "$PROF")"
+
+# The force flags are the same whole-tree discard as a `.` pathspec, spelled without one.
+verdict "R9  checkout -f"              deny "git checkout -- <path>" "$(pay Bash 'git checkout -f main' "$PROF")"
+verdict "R10 switch --discard-changes" deny "git checkout -- <path>" "$(pay Bash 'git switch --discard-changes main' "$PROF")"
+
+# `git clean -ndf` deletes nothing — it is the command the deny reason recommends, so denying it
+# would send the reader in a circle.
+verdict "R11 clean -ndf is a dry run"  pass "" "$(pay Bash 'git clean -ndf' "$PROF")"
+
+# A heredoc body is FILE CONTENT. Denying it would make it impossible to WRITE a script, doc or
+# test whose text contains one of these lines — which this repository's own suites do — so a
+# command carrying `<<` is a parse the gate does not trust, and it fails open.
+verdict "R12 a heredoc body is not a command" pass "" \
+  "$(pay Bash "cat > t.sh <<'SH'
+git commit -m x
+SH" "$PROF")"
+
 # ---------------------------------------------------- 3. inert where the guards cannot exist
 # The probe's whole argument (the `dnx` argument of #112, transposed): a denial names a
 # `guarded-*.sh` replacement, so it must not fire where that replacement does not exist.

@@ -151,7 +151,7 @@ Full reference — the `dnx` version floor, the `Edit` escape hatch for what ros
   the replacement: the matching `guarded-*.sh` under `skills/implement-issue/scripts/`, which asserts
   the branch before and after (#26, #280). A line that already calls one of those guards is allowed
   whole, `--force-with-lease` included.
-- **Inert unless the guards exist** — it only ever denies in a repository that carries a committed
+- **Inert unless the guards exist** — it only ever denies in a repository that carries a
   `.claude/skills/repo-profile.md`, i.e. one that has opted into the lifecycle skills. Everywhere
   else the plugin is installed, it says nothing.
 - **Fails open, always** — no `jq`, no `awk`, no `git`, an unparseable payload, quoting it cannot
@@ -286,7 +286,7 @@ omarchy plugin add https://github.com/Atypical-Consulting/omarchy-aikit.git --en
   [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh) refuses whole-tree discards, `reset --hard`,
   `clean -f`, a forced push and the bare `commit`/`push`/`merge`, naming the `guarded-*.sh`
   replacement in each reason.
-- That gate is **inert** in any repository without a committed `.claude/skills/repo-profile.md`, and
+- That gate is **inert** in any repository without a `.claude/skills/repo-profile.md`, and
   it **fails open** on every internal error — the decision recorded in
   [ADR 0002](docs/adr/0002-the-roseline-gate-fails-open-always.md).
 - `GIT_GATE=off` disables it for one command or for the session; `GIT_GATE=on` forces it past the
