@@ -433,4 +433,20 @@ for needle in 'search_adrs' 'contradicts ADR-' 'docs/adr'; do
 done
 echo "ok   create-issue names search_adrs, the contradiction verdict and the docs/adr fallback"
 
+# ---------------------------------------------------------------------------------------------
+# A diff that touches an accepted ADR's `code_refs` proposes an ADR update rather than making one
+# (#316). Both consumers get the same paragraph, so both are pinned — and each must name
+# `suggest_adr_from_change` AND the `## Follow-ups` heading the draft lands under, because a draft
+# named without a destination is the failure mode this touchpoint exists to avoid.
+echo "== implement-issue and merge-pr propose an ADR update, never write one (#316) =="
+for f in "skills/implement-issue/SKILL.md" "skills/merge-pr/SKILL.md"; do
+  path="$KIT_ROOT/$f"
+  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+  for needle in 'suggest_adr_from_change' '## Follow-ups' 'code_refs' 'docs/adr'; do
+    grep -q -- "$needle" "$path" \
+      || { echo "FAIL: $path does not mention '$needle'"; exit 1; }
+  done
+done
+echo "ok   both consumers name suggest_adr_from_change, ## Follow-ups and the docs/adr fallback"
+
 echo "skills golden test: all cases behaved as specified"
