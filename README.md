@@ -237,6 +237,7 @@ omarchy plugin add https://github.com/Atypical-Consulting/omarchy-aikit.git --en
 ```
 .claude-plugin/         plugin + marketplace manifests
 ARCHITECTURE.md         skill call graph + dependency matrix (mermaid)
+CONTEXT.md              the kit's own domain glossary, in Matt Pocock's CONTEXT.md format (ported from mattpocock/skills, MIT)
 requirements.json       single source for prerequisites (tools, MCPs, session skills) — read by preflight.sh
 commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit, /migrate-followups, /auto-dev-worker, /auto-dev-merge
 skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
