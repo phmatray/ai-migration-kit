@@ -2,7 +2,7 @@
 # base-run-verdict.sh — read the base branch's CI verdict AT THE SHA a merge just produced (#355).
 #
 # WHY THIS EXISTS. `merge-pr` gates hard on CI *before* the merge and then tears down at PR-green:
-# Step 5 merges, Step 6 files follow-ups, Step 7 deletes the branch, Step 8 reports. Nothing in
+# Step 5 merges, Step 6 files follow-ups, Step 7 deletes the branch, Step 8 recaps. Nothing in
 # that tail ever looks at the workflow run the merge itself triggers on the base branch — so a
 # green PR check-run, which only ever proved the branch was green against the base it was TESTED
 # with, is allowed to stand in for "the tree this merge produced is green". Two PRs each green

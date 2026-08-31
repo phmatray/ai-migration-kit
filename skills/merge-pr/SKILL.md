@@ -396,7 +396,7 @@ substitute is to verify the **merged result** locally instead of syncing the bra
 3. Merge (Step 5) only if it comes back green; otherwise stop and report the sticking point.
 
 This moves the verdict from CI onto the agent's machine, which the rest of this skill deliberately
-avoids — so **record it as a deviation in the Step 8 report**: what was run, and that the green (or
+avoids — so **record it as a deviation in the Step 8 recap**: what was run, and that the green (or
 red) verdict came from this machine rather than from GitHub's check-runs.
 
 This fallback only covers the self-imposed staleness check (`behind_by > 0` while `mergeStateStatus`
@@ -617,7 +617,7 @@ gh pr view "$PR" --json closingIssuesReferences --jq '.closingIssuesReferences[]
 the reverse direction), and:
 
 - **No parent** → prints `no-parent` and exits 0. This is the overwhelming majority of merges — say
-  nothing about it in Step 8's report either, the same way Step 6's "none" follow-up tally stays
+  nothing about it in Step 8's recap either, the same way Step 6's "none" follow-up tally stays
   quiet rather than narrating a non-event.
 - **Parent present, already noted** → prints `already-noted` and exits 0 without writing anything.
   The script is idempotent **per PR number** (it checks the parent's body for this PR's own marker

@@ -34,7 +34,7 @@ graph TD
         TB[triage-backlog]
         RP[get-repo-profile]
         SR[setup-repo]
-        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling · prior-rejections<br>brainstorm-and-spec · plan-shape · tdd-loop"]
+        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling · prior-rejections<br>brainstorm-and-spec · plan-shape · tdd-loop · recap"]
     end
 
     PROF[("repo-profile.md<br>(committed in the target repo)")]
@@ -71,8 +71,8 @@ graph TD
 ```
 
 **The dashed edges above are checked, not hand-synced.** They must match the hand-off table in
-[`skills/_shared/recap.md`](skills/_shared/recap.md) exactly — one row per skill, one edge per
-non-terminal row — and `scripts/recap-wiring-check.py` refuses in CI when either side gains or loses
+[`skills/_shared/recap.md`](skills/_shared/recap.md) exactly — one row per skill, and one edge per
+`/command` a row names (`get-repo-profile` names two, so it draws two) — and `scripts/recap-wiring-check.py` refuses in CI when either side gains or loses
 one (#175). Edit the table; the graph follows. Labels are free text: only the `(from, to)` pair is
 compared.
 

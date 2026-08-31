@@ -99,8 +99,9 @@ repo with a named gap beats an abort that leaves the operator guessing which hal
 
 ## Afterwards
 
-Re-run `get-repo-profile --refresh`. The four TODOs are facts now, so the profile records the real
-axes and the lifecycle skills start applying them.
+`get-repo-profile --refresh` — this skill's row in the hand-off table, and the reason for it: the
+four TODOs are facts now, so the profile records the real axes and the lifecycle skills start
+applying them.
 
 `plan` exiting 1 on drift makes it usable as a CI step, if the repo wants configuration drift to go
 red the way code drift does.

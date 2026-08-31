@@ -391,7 +391,7 @@ composition instead of two unrelated reads of the same PR: the CI gate's *reduce
 inverts the answer.
 
 `unresolved_threads` carries the threads' **paths**, not a count — the same way `failed` and
-`pending` carry job names rather than a tally, so the Step 8 report can say *which* threads were
+`pending` carry job names rather than a tally, so the Step 8 recap can say *which* threads were
 cleared. Only the length decides; the strings are for the human. A thread with no inline path (a
 PR-level conversation) still counts, under `(pr-level)`.
 

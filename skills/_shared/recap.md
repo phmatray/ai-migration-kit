@@ -84,6 +84,10 @@ exists, otherwise to the skill that `commands/<name>.md` invokes — which is ho
 `/migrate-followups` resolves to `followups`. Prose around the spans is free text: reword it
 without fear, but do not spell a command outside backticks, where nothing can see it.
 
+**A cell that names no command must say `—`.** An empty cell, or one that says "still deciding", is
+refused — that is the same silence this file exists to end, and letting it read as "terminal" would
+reproduce the defect inside the fix.
+
 **A row is not optional.** Every `skills/<name>/` directory except `_shared/` has exactly one row,
 so adding a skill without deciding what follows it refuses rather than passing quietly.
 

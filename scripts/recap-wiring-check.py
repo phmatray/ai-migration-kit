@@ -43,9 +43,12 @@ Usage:
 Exit codes:
   0  the table, the skills and the graph agree
   1  REFUSE — one line per violation on stdout, prefixed `REFUSE:`
-  2  usage / plumbing error (`ERR:`) — the reference is missing, unreadable, or carries no rows, so
-     no verdict is possible. Never conflate this with 1: an absent verdict is not a pass and it is
-     not a refusal either.
+  2  usage / plumbing error (`ERR:`) — no verdict is possible: the reference is missing, unreadable,
+     carries no rows or a row with fewer than three columns; `skills/` is absent or empty;
+     ARCHITECTURE.md is missing, or has no `## Skill call graph` section or no fence under it.
+     Never conflate this with 1: an absent verdict is not a pass and it is not a refusal either.
+     Refusals already found by the earlier assertions are still PRINTED before the `ERR:` line —
+     losing a verdict you had is its own way of failing open.
 """
 
 import argparse
@@ -80,12 +83,26 @@ COMMAND_RE = re.compile(r"`\s*/([A-Za-z0-9][A-Za-z0-9._-]*)")
 RECAP_LINK_RE = re.compile(r"_shared/recap\.md")
 
 # A mermaid node declaration: `CI[create-issue]`, `SH["_shared/<br/>…"]`, `PROF[("repo-profile.md…")]`.
-NODE_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_]*)\[(.+)\]\s*$")
+# Scanned with `finditer` ANYWHERE on a line, never anchored to a line of its own: mermaid also
+# accepts `A[alpha] -. "next" .-> B[beta]`, and an anchored pattern resolved neither id, dropped the
+# edge, and let a hand-off the table never declared pass unnoticed — the vacuous pass this whole
+# script exists to make impossible.
+NODE_RE = re.compile(r"([A-Za-z][A-Za-z0-9_]*)\[([^\[\]]+)\]")
+
+# A mermaid comment. Commenting an edge out is the natural way to stage a graph edit, and reading
+# one as live produced a refusal for an edge nobody draws.
+COMMENT_PREFIX = "%%"
 
 # A DOTTED mermaid link, in both spellings mermaid accepts: `A -.-> B` and `A -. "label" .-> B`.
 # `-->` and `-- "label" -->` cannot match — the literal `-.` is what separates the two families.
+# Either endpoint may carry its declaration inline (`A[alpha] -. "next" .-> B[beta]`), so the
+# optional `[…]` suffix is part of the pattern rather than something the node scan alone can
+# recover: without it the identifier is not adjacent to the arrow and the edge is dropped whole —
+# a hand-off the table never declared then passes unnoticed.
+NODE_SUFFIX = r"(?:\[[^\[\]]+\])?"
 DASHED_EDGE_RE = re.compile(
-    r"([A-Za-z][A-Za-z0-9_]*)\s*-\.(?:[^\n]*?\.)?->\s*([A-Za-z][A-Za-z0-9_]*)")
+    r"([A-Za-z][A-Za-z0-9_]*)" + NODE_SUFFIX + r"\s*-\.(?:[^\n]*?\.)?->\s*"
+    r"([A-Za-z][A-Za-z0-9_]*)" + NODE_SUFFIX)
 
 # `commands/<name>.md` says which skill it drives in one sentence: Invoke the `followups` skill.
 COMMAND_TARGET_RE = re.compile(r"`([A-Za-z0-9][A-Za-z0-9._-]*)`\s+skill")
@@ -124,10 +141,12 @@ def parse_handoff_table(path):
         if in_fence:
             continue
         if not stripped.startswith("|"):
-            # A blank or prose line ends the table we were reading.
-            if header_seen and not stripped.startswith("|"):
-                if rows:
-                    break
+            # The first non-table line after the header ends the table — even with ZERO rows.
+            # "Keep scanning until some rows turn up" silently absorbed the NEXT table in the file,
+            # header row included, turning an empty hand-off table into a page of nonsense refusals
+            # instead of the honest "no verdict" it is.
+            if header_seen:
+                break
             continue
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if not header_seen:
@@ -194,7 +213,13 @@ def check_table_resolves(repo, rows):
             refusals.append(
                 "REFUSE: %s names `%s`, but skills/%s/SKILL.md does not exist — delete the row or "
                 "restore the skill" % (RECAP_REL, name, name))
-        for command in commands_in(row["next"]):
+        found = commands_in(row["next"])
+        if not found and not strip_code(row["next"]).startswith("—"):
+            refusals.append(
+                "REFUSE: %s's `%s` row names no `/command` and does not say `—` — an empty or "
+                "prose-only cell is exactly the 'skill with no hand-off' that must not look like a "
+                "skill that has none" % (RECAP_REL, name))
+        for command in found:
             if resolve_command(repo, command) is None:
                 refusals.append(
                     "REFUSE: %s's `%s` row hands off to `/%s`, which is neither a skill nor a "
@@ -244,14 +269,14 @@ def parse_handoff_edges(path, known_skills):
             break
         body.append(line)
 
+    body = [line for line in body if not line.lstrip().startswith(COMMENT_PREFIX)]
+
     node_skill = {}
     for line in body:
-        match = NODE_RE.match(line)
-        if not match:
-            continue
-        label = match.group(2).strip().strip("()").strip('"').split("<br")[0].strip()
-        if label in known_skills:
-            node_skill[match.group(1)] = label
+        for node_id, raw in NODE_RE.findall(line):
+            label = raw.strip().strip("()").strip('"').split("<br")[0].strip()
+            if label in known_skills:
+                node_skill[node_id] = label
 
     edges = set()
     for line in body:
@@ -311,12 +336,18 @@ def main(argv=None):
     args = parser.parse_args(argv)
     repo = pathlib.Path(args.repo).resolve()
 
+    refusals = []
     try:
         rows = parse_handoff_table(repo / RECAP_REL)
-        refusals = check_table_resolves(repo, rows)
+        refusals += check_table_resolves(repo, rows)
         refusals += check_skills_link(repo, rows)
         refusals += check_architecture_agrees(repo, rows)
     except PlumbingError as exc:
+        # Print what WAS decided before saying what could not be. A run that reached a real refusal
+        # and then hit a missing ARCHITECTURE.md used to report only "no verdict", hiding the
+        # verdict it already held.
+        for line in refusals:
+            print(line)
         print("ERR: %s" % exc)
         return 2
 

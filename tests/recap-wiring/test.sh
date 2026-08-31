@@ -17,6 +17,16 @@
 #      means "invokes", not "hand-off": `MP --> CI` must not collide with merge-pr's own row, which
 #      points at implement-issue
 #   L. no ARCHITECTURE.md at all                                                    -> exit 2, NOT 1
+#   M. a Next command that resolves through commands/<name>.md                      -> exit 0
+#   N. a dashed edge to a declared node that is not a skill                         -> exit 0
+#   O. the table's rows written inside a ``` fence (so there is no live table)      -> exit 2
+#   P. an EMPTY hand-off table FOLLOWED by another table                            -> exit 2, never
+#      the next table absorbed as hand-off rows
+#   Q. a row naming no `/command` and not saying `—`                                -> REFUSE. This
+#      is the whole point: a hand-off nobody wrote down must not look like a skill that has none
+#   R. a dashed edge whose node ids are declared INLINE on the edge line            -> seen, not
+#      silently dropped
+#   S. a `%%`-commented dashed edge                                                 -> exit 0
 #   I. a Next-command cell naming a command that resolves to no skill               -> REFUSE
 #   J. a duplicate row for one skill                                                -> REFUSE
 #   K. a table with no rows at all                                                  -> exit 2, never
@@ -219,6 +229,75 @@ expect "an empty table is a plumbing error, never a vacuous pass" 2 "$F" "ERR"
 echo "L. --repo with no ARCHITECTURE.md"
 F="$WORK/l"; scaffold "$F"; rm -f "$F/ARCHITECTURE.md"
 expect "a missing graph is a plumbing error, not a refusal" 2 "$F" "ERR"
+
+# ------------------------------------------------ M. a next command that resolves via commands/
+echo "M. a Next command that resolves through commands/<name>.md"
+F="$WORK/m"; scaffold "$F"
+printf 'Invoke the `beta` skill.\n' > "$F/commands/gamma.md"
+write_table "$F" \
+  '| `alpha` | something happened | `/gamma` |' \
+  '| `beta` | something else happened | `—` |'
+expect "the command's skill is what the hand-off lands on" 0 "$F"
+
+# ------------------------------------------------------- N. an edge to a node that is not a skill
+echo "N. a dashed edge to a declared non-skill node"
+F="$WORK/n"; scaffold "$F"
+write_arch "$F" '    A -. "next step: /beta" .-> B' '    A -. "see also" .-> X'
+expect "an edge that does not join two skills is not a hand-off" 0 "$F"
+
+# ------------------------------------------------------------ O. the table hidden in a code fence
+echo "O. the table's rows sit inside a code fence"
+F="$WORK/o"; scaffold "$F"
+{
+  echo '# Recap'
+  echo
+  echo 'The shape, as an example rather than as the live table:'
+  echo
+  echo '```markdown'
+  echo '| Skill | Ends with | Next command |'
+  echo '|---|---|---|'
+  echo '| `alpha` | something happened | `/beta` |'
+  echo '```'
+} > "$F/skills/_shared/recap.md"
+expect "a fenced example is not the hand-off table" 2 "$F" "ERR"
+
+# ------------------------------------------------- P. an empty table followed by a second table
+echo "P. an empty hand-off table with another table after it"
+F="$WORK/p"; scaffold "$F"
+{
+  echo '# Recap'
+  echo
+  echo '| Skill | Ends with | Next command |'
+  echo '|---|---|---|'
+  echo
+  echo '| Something | else | entirely |'
+  echo '|---|---|---|'
+  echo '| `alpha` | a row of a DIFFERENT table | `/beta` |'
+} > "$F/skills/_shared/recap.md"
+expect "the next table is not absorbed as hand-off rows" 2 "$F" "ERR"
+
+# ----------------------------------------------------------- Q. a cell that says nothing at all
+echo "Q. a row naming no command and not saying it is terminal"
+F="$WORK/q"; scaffold "$F"
+write_arch "$F"
+write_table "$F" \
+  '| `alpha` | something happened | still deciding |' \
+  '| `beta` | something else happened | `—` |'
+expect "an undeclared hand-off is refused, not read as terminal" 1 "$F" "REFUSE" "alpha"
+
+# ------------------------------------------------------- R. node ids declared on the edge line
+echo "R. a dashed edge whose nodes are declared inline"
+F="$WORK/r"; scaffold "$F"
+write_arch "$F" \
+  '    A[alpha] -. "next step: /beta" .-> B[beta]' \
+  '    B[beta] -. "next step: /alpha" .-> A[alpha]'
+expect "an inline-declared edge is resolved, not dropped" 1 "$F" "REFUSE" "beta" "alpha" "recap.md"
+
+# ------------------------------------------------------------------ S. a commented-out edge
+echo "S. a %%-commented dashed edge"
+F="$WORK/s"; scaffold "$F"
+write_arch "$F" '    A -. "next step: /beta" .-> B' '    %% B -. "next step: /alpha" .-> A'
+expect "a mermaid comment is not an edge" 0 "$F"
 
 # ------------------------------------------------------------------------------------------ verdict
 echo

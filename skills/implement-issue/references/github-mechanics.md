@@ -171,7 +171,7 @@ wc -l < "/tmp/plan-$ISSUE-anchor.txt"
 
 | files found | verdict |
 |---:|---|
-| `1` | the path moved. Record `STALE: <old> → <new> (Task N)` and use the new path. Step 10 reports the list. |
+| `1` | the path moved. Record `STALE: <old> → <new> (Task N)` and use the new path. Step 10 recaps the list. |
 | `0` or `2`+ | you cannot tell where the work belongs. That task has **no usable plan** — stop before the worktree and the scaffold, and report the path and what the search returned. |
 
 Do **not** repair the plan on the issue. `tick-plan.sh` accepts a body that differs from the original
