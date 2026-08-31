@@ -35,9 +35,11 @@ The orchestrator stays on the top model — its dispatch/conflict reasoning is w
   small answer, the sub-agent does the reading and returns only the conclusion, so the file-dump dies
   with it instead of riding in your re-read-every-turn context. (This is also why a symbol-retrieval
   MCP didn't pay off: it adds per-turn schema weight and extra round-trips — the opposite of this.)
-- **Strip MCP servers workers don't need.** Every connected MCP server injects its tool schemas into
-  *every* turn of *every* session — dead weight re-read thousands of times. `--strict-mcp-config`
-  with only the servers actually used (usually none).
+- **Launch the supervisor session lean.** Every connected MCP server injects its tool schemas into
+  *every* turn of *every* session — dead weight re-read thousands of times — and sub-agents inherit
+  the supervisor's MCP set. Per-worker MCP stripping is no longer available (the Agent tool has no
+  per-spawn MCP config), so connect only the servers actually used (usually none) where you launch
+  the supervisor.
 
 ## Lever 3 — take fewer turns
 

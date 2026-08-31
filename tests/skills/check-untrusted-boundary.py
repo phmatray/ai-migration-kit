@@ -25,7 +25,7 @@ are resolved against the linking file's own directory and compared to the bounda
 and a link that names the boundary but lands somewhere else is reported as BROKEN, not missing.
 
 The scan is deliberately wider than `skills/` (#266 review). `commands/auto-dev-worker.md` is
-read by a fresh `claude -p` worker that never opens `skills/auto-dev/SKILL.md`, so it is a first-
+read by a separate sub-agent session that never opens `skills/auto-dev/SKILL.md`, so it is a first-
 class consumer; a reverse check that stopped at `skills/` would forward-check it and never notice
 the list going stale in the other direction, while the CI step's name promises both.
 
