@@ -1,8 +1,8 @@
 # Architecture
 
 One plugin, two cooperating suites — the **migration pipeline** (legacy-upgrade, followups) and the
-**issue/PR lifecycle** (create-issue, implement-issue, merge-pr, get-repo-profile, and the `auto-dev`
-fleet supervisor above them) — bridged where a
+**issue/PR lifecycle** (create-issue, implement-issue, merge-pr, get-repo-profile, setup-repo, and the
+`auto-dev` fleet supervisor above them) — bridged where a
 migration's deferred work becomes tracked GitHub issues. Every skill carries
 `metadata.suite: ai-migration-kit` in its frontmatter; in Claude Code the plugin namespaces them as
 `ai-migration-kit:<skill>`.
@@ -32,6 +32,7 @@ graph TD
         MP[merge-pr]
         TB[triage-backlog]
         RP[get-repo-profile]
+        SR[setup-repo]
         SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling"]
     end
 
@@ -50,6 +51,8 @@ graph TD
     AD -- "off-scope finds" --> CI
     AD -- "reads at step 1" --> PROF
     RP -- "generates (run once per repo)" --> PROF
+    RP -. "names as the remedy for a missing label axis or issue-form dir" .-> SR
+    SR -. "afterwards: re-run get-repo-profile --refresh" .-> RP
     CI -- "reads at step 1" --> PROF
     II -- "reads at step 1" --> PROF
     MP -- "reads at step 1" --> PROF
@@ -95,6 +98,7 @@ graph LR
         MP[merge-pr]
         TB[triage-backlog]
         RP[get-repo-profile]
+        SR[setup-repo]
         SD[systematic-debugging]
     end
 
@@ -115,6 +119,7 @@ graph LR
         DN["dotnet SDK ≥ 8"]
         PY["python3"]
         GIT["git"]
+        JQ["jq ≥ 1.6"]
         NODE["node/npx · headless Chrome"]
     end
 
@@ -136,6 +141,7 @@ graph LR
 
     II --> GH
     II --> GIT
+    II --> JQ
     II --> SP
     II --> CR
     II -.-> ADR
@@ -148,6 +154,11 @@ graph LR
 
     RP --> GIT
     RP -.-> GH
+
+    SR --> GIT
+    SR --> PY
+    SR --> JQ
+    SR --> GH
 
     AD --> GH
     AD --> GIT
@@ -164,12 +175,13 @@ why no arrow leaves it.
 | `legacy-upgrade` | **roseline** (required) · context7 (rec.) | frontend-design, dataviz, artifact-design (session) | **dotnet ≥ 8**, **git**, **python3** · gh, node, Chrome (rec.) | `preflight.sh`, `audit-inventory.sh`, `report-dashboard.py`, `contrast-check.py` |
 | `followups` | — | — | **python3**, **git** | `followups.py`, `report-dashboard.py` |
 | `create-issue` | adr (rec.) | superpowers (brainstorming, writing-plans) | **gh** | — |
-| `implement-issue` | adr (rec.) | superpowers (worktrees, TDD, subagent/executing-plans, verification, receiving-code-review) · code-review | **gh**, **git** | — |
+| `implement-issue` | adr (rec.) | superpowers (worktrees, TDD, subagent/executing-plans, verification, receiving-code-review) · code-review | **gh**, **git**, **jq** (`tick-plan.sh`'s round-trip check) | — |
 | `merge-pr` | adr (rec.) | superpowers (receiving-code-review) | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
 | `systematic-debugging` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
 | `get-repo-profile` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
+| `setup-repo` | — | — | **git**, **python3** (PyYAML), **jq**, **gh** (admin rights on the settings surface; refused by name without it) | `repo-setup.sh`, `parse-manifest.py`, `project-area-options.py` (bundled in the skill) |
 
 **Bold = required.** The lifecycle trio — and `auto-dev` above them — additionally *reads*
 `.claude/skills/repo-profile.md` in the target repo — generated once by `get-repo-profile`,
