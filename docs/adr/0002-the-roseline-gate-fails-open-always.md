@@ -8,6 +8,7 @@ tags:
 - roseline
 code_refs:
 - path: hooks/roseline-gate.sh
+- path: hooks/git-write-gate.sh
 ---
 
 # The roseline gate fails open, always
@@ -40,3 +41,10 @@ A host that has roseline running by some route the probe cannot see (a hand-adde
 built binary) is not enforced unless the user says `ROSELINE_GATE=on` — the price of never
 deadlocking an unrelated repository. Because "fails open" is invisible when it fires, it has been
 re-derived from scratch twice; that is what this record exists to stop.
+
+This is a decision about **every** hook the plugin ships, not about the roseline one specifically —
+the argument is "the plugin installs globally", and nothing in it is about C#. `hooks/git-write-gate.sh`
+(#326) is the second hook to inherit it, with `GIT_GATE=off`/`on` as the same two switches in the
+same order and the committed `.claude/skills/repo-profile.md` playing the part `dnx` plays here: the
+positive evidence that the replacement the denial names can actually exist in this repository. A
+third hook takes the same terms; it does not get a second record.

@@ -25,6 +25,7 @@
     }
   ],
   "not_decisions": {
+    "hooks/git-write-gate.sh": "a fail-open allow/deny wrapper on one Bash tool call \u2014 it enforces the guard convention (#26, #280), the same class as the guarded-*.sh scripts it routes to; not a control-flow choice with a registered verdict vocabulary",
     "scripts/audit-inventory.sh": "a read-only structural inventory probe of a .NET repo, not a control-flow choice",
     "scripts/ci-wiring-check.py": "a structural completeness guard (every suite is CI-wired); it has no verdict vocabulary of its own to register",
     "scripts/contrast-check.py": "a WCAG contrast-ratio calculator, not a control-flow choice",
@@ -47,6 +48,7 @@
     "skills/auto-dev/scripts/survey.sh": "a deterministic issue-queue query; it orders and reports, the supervisor decides",
     "skills/auto-dev/scripts/usage_report.py": "an offline cost-accounting report, not a control-flow choice",
     "skills/auto-dev/scripts/wait-ci.sh": "blocks until CI is final and prints the result table; it reports state, the caller decides what to do with it",
+    "skills/create-issue/scripts/wire-edges.sh": "a guarded GitHub write helper (sub-issue and blocked_by edges, 404 = text fallback); it prints ok/fallback/FAILED per edge, the calling skill decides what a fallback means for its report",
     "skills/get-repo-profile/scripts/repo-profile.sh": "detects and prints repo facts, or shows the committed profile; a probe, not a control-flow choice",
     "skills/implement-issue/scripts/_assert-branch.sh": "sourced by the guards, never executed on its own — a shared assertion helper, not an independent decision",
     "skills/implement-issue/scripts/guarded-commit.sh": "a guarded git-write wrapper; it enforces an invariant (HEAD is the named branch), not a registered verdict vocabulary",
