@@ -160,6 +160,15 @@ refuse() {
   REFUSED=$((REFUSED + 1))
 }
 
+# Collapses a possibly-multi-line stderr capture onto one line: every report row is a single line
+# by contract, and an embedded newline would split a status row in two (and could spuriously
+# satisfy an unrelated `has_line` check reading the report). Shared by gh_refusal() below and the
+# OS-level form-copy refusal, which has no HTTP status to classify but still needs its stderr
+# flattened the same way.
+flatten_err() {
+  printf '%s' "$1" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//'
+}
+
 # Turns a failed `gh` call's stderr into the cause it actually names, rather than blaming the
 # token for every non-zero exit. Built for `gh label create|edit` (#200), generalized (#222) to
 # every `gh`-write-and-report site in this file — label delete, the settings PATCH, and (through a
@@ -179,7 +188,7 @@ gh_refusal() {
   # reads' pre-#222 sentences) — printed as-is, not wrapped in the "could not VERB 'NAME'" shape
   # below, so existing 403 wording survives unchanged (#222 is about the OTHER statuses).
   local verb="$1" name="$2" err="$3" msg403="${4:-}" flat field
-  flat="$(printf '%s' "$err" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//')"
+  flat="$(flatten_err "$err")"
   case "$err" in
     *"HTTP 403"*)
       if [ -n "$msg403" ]; then
@@ -494,7 +503,7 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
           esac
         fi
       else
-        form_err_flat="$(printf '%s' "$form_err" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//')"
+        form_err_flat="$(flatten_err "$form_err")"
         if [ -n "$form_err_flat" ]; then
           refuse "forms" "could not write $FORMS_TARGET/$f1 — $form_err_flat"
         else
