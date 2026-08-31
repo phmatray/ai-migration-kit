@@ -109,7 +109,6 @@ graph LR
     end
 
     subgraph ext ["External skills / plugins"]
-        SP["superpowers<br>brainstorming · writing-plans ·<br>worktrees · TDD · subagent execution"]
         CR["code-review skill"]
         FD["frontend-design · dataviz ·<br>artifact-design (session skills)"]
     end
@@ -136,13 +135,11 @@ graph LR
     FU --> GIT
 
     CI --> GH
-    CI --> SP
     CI -.-> ADR
 
     II --> GH
     II --> GIT
     II --> JQ
-    II --> SP
     II --> CR
     II -.-> ADR
 
@@ -174,9 +171,9 @@ why no arrow leaves it.
 |---|---|---|---|---|
 | `legacy-upgrade` | **roseline** (required) · context7 (rec.) | frontend-design, dataviz, artifact-design (session) | **dotnet ≥ 8**, **git**, **python3** · gh, node, Chrome (rec.) | `preflight.sh`, `audit-inventory.sh`, `report-dashboard.py`, `contrast-check.py` |
 | `followups` | — | — | **python3**, **git** | `followups.py`, `report-dashboard.py` |
-| `create-issue` | adr (rec.) | superpowers (brainstorming, writing-plans) | **gh** | — |
-| `implement-issue` | adr (rec.) | superpowers (worktrees, TDD, subagent/executing-plans, verification, receiving-code-review) · code-review | **gh**, **git**, **jq** (`tick-plan.sh`'s round-trip check) | — |
-| `merge-pr` | adr (rec.) | superpowers (receiving-code-review) | **gh** (merge rights), **git** | — |
+| `create-issue` | adr (rec.) | — (brainstorm, spec and plan doctrine in `skills/_shared/brainstorm-and-spec.md`, `plan-shape.md`) | **gh** | — |
+| `implement-issue` | adr (rec.) | code-review (plan shape and TDD loop in `skills/_shared/plan-shape.md`, `tdd-loop.md`; worktrees via its own `make-worktree.sh`) | **gh**, **git**, **jq** (`tick-plan.sh`'s round-trip check) | — |
+| `merge-pr` | adr (rec.) | — | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
 | `systematic-debugging` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |

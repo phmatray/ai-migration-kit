@@ -255,7 +255,8 @@ conflict hot-spots) lives in the committed per-repo profile — the skills thems
 (`skills/_shared/` holds their common procedures). They are the natural tail of a migration:
 phase 7's `followups` queue hands items that deserve a real ticket to `create-issue` (the report
 keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Their dependencies
-(authenticated `gh`, the superpowers skill set, a code-review skill) are declared in
+(authenticated `gh`, a code-review skill — no third-party plugin: the brainstorm, plan and TDD
+doctrines ship under `skills/_shared/`) are declared in
 [`requirements.json`](requirements.json). Call graph and full dependency matrix:
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
