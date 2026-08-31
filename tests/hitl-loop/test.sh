@@ -126,7 +126,10 @@ echo "  ok: c/eval — evals.json parses and carries loop-before-hypothesis"
 
 # ---------------------------------------------------------------- (d) the two pointers
 
-fix_check=$(section "skills/merge-pr/SKILL.md" '^[*][*]Fix a red CI check[.][*][*]' '^## ')
+# Stops at the first BLANK line, so the window is the correction's own paragraph and nothing else.
+# A window that ran to the next `^## ` would span 80-odd lines — every other correction in Step 4 —
+# and would still say ok with the pointer moved into the sync or the review correction instead.
+fix_check=$(section "skills/merge-pr/SKILL.md" '^[*][*]Fix a red CI check[.][*][*]' '^[[:space:]]*$')
 [ -n "$fix_check" ] || {
   echo "FAIL [d/merge-pr]: could not find the '**Fix a red CI check.**' correction in"
   echo "                   skills/merge-pr/SKILL.md — if it was renamed, re-point this assertion"

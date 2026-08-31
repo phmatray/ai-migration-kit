@@ -353,17 +353,15 @@ or pending check outranks *both*: flipping a draft to ready only publishes the r
 ordering is fixed in the program's header, and it is the reason the answer is a word rather than a
 set of conditions to weigh.
 
-**Fix a red CI check.** Reproduce locally in the branch's worktree, fix it for real, commit + push. Run
+**Fix a red CI check.** Reproduce locally in the branch's worktree, fix it for real, commit + push.
+*"Reproduce locally" is the load-bearing half* — do it under `systematic-debugging`, whose Phase 1
+criterion is exactly this: own a local command that goes red on the same failure **before** you change
+anything, because CI's log is the symptom and a fix aimed from the log alone comes back as the next
+red run. Run
 the profile's *Build & test* and *CI gates* — the same ones CI runs: the **build** for compile errors,
 the **single-suite test filter** for the failing suite (the full suite may need a CI-only prerequisite
 the profile flags), then the format/lint **apply** then **verify** (verify must exit clean — CI fails
-on any diff).
-
-**"Reproduce locally" is the load-bearing half** — fix the check under `systematic-debugging`: own a
-local command that goes red on the same failure *before* you change anything, because CI's log is a
-symptom and a fix aimed from the log alone comes back as the next red run.
-
-Then commit with the project identity, push, loop back to Step 3:
+on any diff). Commit with the project identity, push, loop back to Step 3:
 
 ```bash
 "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \

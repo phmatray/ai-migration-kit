@@ -164,7 +164,7 @@ why no arrow leaves it.
 | `merge-pr` | — | superpowers (receiving-code-review) | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
-| `systematic-debugging` | — | — | — | `find-polluter.sh` (bundled in the skill) |
+| `systematic-debugging` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
 | `get-repo-profile` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
 
 **Bold = required.** The lifecycle trio — and `auto-dev` above them — additionally *reads*
