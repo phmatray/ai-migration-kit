@@ -418,9 +418,9 @@ cannot happen. Resolve the threads.
 ⚠️ **An empty review body is not "no feedback".** `gh pr view --json reviews` renders a bot's
 `COMMENTED` review with an **empty `body`** — the substance lives only in the inline `reviewThreads`.
 Reading the review list, seeing nothing, and concluding there was nothing to address is precisely how
-#294's findings went unread across two merges. §6's thread query is what actually answers it. Triage with rigor, not deference — verify each finding against the tree, fix the
-legitimate ones one at a time; for any you disagree with, reply on the thread with technical
-reasoning rather than silently ignoring. (This
+#294's findings went unread across two merges. §6's thread query is what actually answers it. Triage the findings — fix the
+legitimate ones; for any you disagree with, reply on the thread with technical reasoning rather than
+silently ignoring. (This
 skill does **not** run a fresh `code-review` pass — `implement-issue` did that before ready; it only
 reacts to review already on the PR.)
 

@@ -115,9 +115,9 @@ it, **run** it in full, **read** the whole output and the exit code, and only th
 the evidence. "Should pass", "looks correct", a previous run, a sub-agent's own report of success:
 none of these is evidence. A regression test is proven by red → green, not by passing once; a
 sub-agent's work is proven by the diff it left, not by its summary. This is why `implement-issue`
-ticks a box, commits, or flips a PR to ready only on output it has seen, and why a resolved merge is
-re-built and re-tested on the merged tree — a clean *textual* merge is not a clean *semantic* one.
+ticks a box, commits, or flips a PR to ready only on output it has seen (its Autonomy contract),
+and why a resolved merge is re-built and re-tested on the merged tree.
 
 ## Consumers
 
-- `skills/implement-issue/SKILL.md` — Step 6 runs every task through this loop, and its Autonomy contract holds every completion claim to *Evidence before claims*
+- `skills/implement-issue/SKILL.md` — Step 6 runs every task through this loop; its Autonomy contract states the same evidence rule in its own words

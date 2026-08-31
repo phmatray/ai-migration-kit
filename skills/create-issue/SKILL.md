@@ -405,10 +405,7 @@ The plan MUST carry all three:
 
 **Pick one Conventional Commits type and use it consistently** in the Global Constraints
 preamble's example (point 2 above) and every task's final commit-message step (point 3 above). The
-rule for choosing it — from the issue's `type` label on any shipped path, `docs:`/`ci:` only when
-every touched path is non-shipped, and why `scripts/release-title-gate.sh` turns the wrong guess into
-a red check the moment the PR opens — is stated once, in `plan-shape.md` §Commit type. Apply it from
-there; do not restate it here.
+rule for choosing it has one home, `plan-shape.md` §Commit type — apply it from there.
 
 Shape (abbreviated — keep the checkboxes, never flatten to prose):
 

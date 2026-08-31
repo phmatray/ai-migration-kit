@@ -541,8 +541,8 @@ than it looks: the rule blocks the merge, so a gate clearable only by changing c
 autonomous run forever on the first finding the agent judges wrong or cannot satisfy.
 
 1. **Fix the ask**, push, then resolve the thread.
-2. **Reply on the thread with your reasoning, then resolve it** — technical reasoning, not
-   performative agreement and not a silent shrug. Disagreeing is a legitimate outcome of review.
+2. **Reply on the thread with your reasoning, then resolve it.** Disagreeing is a legitimate
+   outcome of review.
 
 What is forbidden is resolving *silently*: it clears the gate and deletes the reason. Reply first,
 resolve second, always in that order — the reply is the artifact a human reads later to decide

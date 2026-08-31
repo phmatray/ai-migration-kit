@@ -51,10 +51,8 @@ state the assumption, keep going.** Stop only for a genuine blocker:
 - A merge conflict you can't resolve with confidence — both `main` and your branch rewrote the *same logic*, and picking a side would silently drop a sibling PR's work. The mechanical conflicts (version, changelog, snapshots, lockfiles) have known-correct resolutions (Step 8) — handle those; stop only for genuinely ambiguous ones, showing both sides.
 
 Never tick a box, commit, or flip the PR to ready on an assumption — those three acts claim work is
-*done*; back them with evidence (tests run, output seen —
-[`../_shared/tdd-loop.md`](../_shared/tdd-loop.md) §*Evidence before claims*). A resolved merge is
-the same claim: re-build and re-test on the merged tree — a clean *textual* merge is not a clean
-*semantic* one.
+*done*; back them with evidence (tests run, output seen). A resolved merge is the same claim:
+re-build and re-test on the merged tree — a clean *textual* merge is not a clean *semantic* one.
 
 ## Checklist
 
@@ -539,9 +537,8 @@ Then act on the disposition (the full table is in the reference):
 work and files it as tracked issues, so a creep finding recorded anywhere else is lost at merge. Do not
 widen this PR to justify the creep, and do not delete a sibling PR's work on a hunch.
 
-Triage the findings with rigor, not deference: read them all before acting on any, verify each against the tree, implement the real ones one at a time (test each), and push back (in your
-report) on wrong ones with technical reasoning rather than performatively complying. Then commit and
-push:
+Triage the findings — implement the real ones, push back (in your report) on the wrong ones with
+technical reasoning rather than performatively complying. Then commit and push:
 
 ```bash
 "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \

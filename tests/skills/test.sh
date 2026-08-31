@@ -613,15 +613,15 @@ echo "== the ported doctrine references exist, are linked, and credit their sour
 
 for ref in brainstorm-and-spec plan-shape tdd-loop; do
   if [ -f "$KIT_ROOT/skills/_shared/$ref.md" ]; then
-    echo "ok   [R1 skills/_shared/$ref.md exists]"
+    echo "ok   [DR1 skills/_shared/$ref.md exists]"
   else
-    echo "FAIL: [R1 skills/_shared/$ref.md exists] file is missing"
+    echo "FAIL: [DR1 skills/_shared/$ref.md exists] file is missing"
     fails=$((fails + 1))
   fi
   if grep -qF 'obra/superpowers' "$KIT_ROOT/skills/_shared/$ref.md" 2>/dev/null; then
-    echo "ok   [R2 _shared/$ref.md credits its source]"
+    echo "ok   [DR2 _shared/$ref.md credits its source]"
   else
-    echo "FAIL: [R2 _shared/$ref.md credits its source] missing the 'obra/superpowers' attribution"
+    echo "FAIL: [DR2 _shared/$ref.md credits its source] missing the 'obra/superpowers' attribution"
     fails=$((fails + 1))
   fi
 done
@@ -629,9 +629,9 @@ done
 for pair in "create-issue:brainstorm-and-spec" "create-issue:plan-shape" "implement-issue:plan-shape" "implement-issue:tdd-loop"; do
   skill="${pair%%:*}"; ref="${pair##*:}"
   if grep -qF "](../_shared/$ref.md)" "$KIT_ROOT/skills/$skill/SKILL.md" 2>/dev/null; then
-    echo "ok   [R3 $skill/SKILL.md links _shared/$ref.md]"
+    echo "ok   [DR3 $skill/SKILL.md links _shared/$ref.md]"
   else
-    echo "FAIL: [R3 $skill/SKILL.md links _shared/$ref.md] missing the literal '](../_shared/$ref.md)'"
+    echo "FAIL: [DR3 $skill/SKILL.md links _shared/$ref.md] missing the literal '](../_shared/$ref.md)'"
     fails=$((fails + 1))
   fi
 done
@@ -639,9 +639,9 @@ done
 # tdd-loop.md carries two ports: the loop from obra/superpowers (checked above) and the good-test
 # and mock-at-boundaries guidance from mattpocock/skills, which earns its own credit line.
 if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/_shared/tdd-loop.md" 2>/dev/null; then
-  echo "ok   [R2 _shared/tdd-loop.md credits mattpocock/skills too]"
+  echo "ok   [DR2 _shared/tdd-loop.md credits mattpocock/skills too]"
 else
-  echo "FAIL: [R2 _shared/tdd-loop.md credits mattpocock/skills too] missing the 'mattpocock/skills' attribution"
+  echo "FAIL: [DR2 _shared/tdd-loop.md credits mattpocock/skills too] missing the 'mattpocock/skills' attribution"
   fails=$((fails + 1))
 fi
 
@@ -649,25 +649,25 @@ fi
 # a second copy that can drift; and the new-note fixture SP2 locates is that exact line.
 PLAN_NOTE=$(grep -m1 '^> \*\*For agentic workers:\*\*' "$KIT_ROOT/skills/_shared/plan-shape.md" 2>/dev/null || true)
 if [ -z "$PLAN_NOTE" ]; then
-  echo "FAIL: [R4 plan-shape.md states the header note] no '> **For agentic workers:**' line"
+  echo "FAIL: [DR4 plan-shape.md states the header note] no '> **For agentic workers:**' line"
   fails=$((fails + 1))
 elif printf '%s' "$PLAN_NOTE" | grep -q 'superpowers\|SUB-SKILL'; then
-  echo "FAIL: [R4 plan-shape.md states the header note] the note still prescribes the plugin: $PLAN_NOTE"
+  echo "FAIL: [DR4 plan-shape.md states the header note] the note still prescribes the plugin: $PLAN_NOTE"
   fails=$((fails + 1))
 elif ! printf '%s' "$PLAN_NOTE" | grep -qF 'implement-issue'; then
-  echo "FAIL: [R4 plan-shape.md states the header note] the note does not name implement-issue as the executor: $PLAN_NOTE"
+  echo "FAIL: [DR4 plan-shape.md states the header note] the note does not name implement-issue as the executor: $PLAN_NOTE"
   fails=$((fails + 1))
 elif ! grep -qFx -- "$PLAN_NOTE" "$KIT_ROOT/tests/skills/fixtures/plan-new-header-note.md"; then
-  echo "FAIL: [R4 plan-shape.md states the header note] fixtures/plan-new-header-note.md does not carry plan-shape.md's exact note"
+  echo "FAIL: [DR4 plan-shape.md states the header note] fixtures/plan-new-header-note.md does not carry plan-shape.md's exact note"
   fails=$((fails + 1))
 else
-  echo "ok   [R4 plan-shape.md states the header note, and the new-note fixture carries it]"
+  echo "ok   [DR4 plan-shape.md states the header note, and the new-note fixture carries it]"
 fi
 if grep -q 'REQUIRED SUB-SKILL' "$KIT_ROOT/skills/create-issue/SKILL.md" "$KIT_ROOT/skills/create-issue/references/issue-template.md" 2>/dev/null; then
-  echo "FAIL: [R5 create-issue no longer writes the old header note] 'REQUIRED SUB-SKILL' still appears in create-issue"
+  echo "FAIL: [DR5 create-issue no longer writes the old header note] 'REQUIRED SUB-SKILL' still appears in create-issue"
   fails=$((fails + 1))
 else
-  echo "ok   [R5 create-issue no longer writes the old header note]"
+  echo "ok   [DR5 create-issue no longer writes the old header note]"
 fi
 
 if [ "$fails" -ne 0 ]; then
