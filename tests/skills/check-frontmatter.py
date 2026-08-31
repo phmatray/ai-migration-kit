@@ -4,7 +4,7 @@
 Checks for each skills/*/SKILL.md:
 - name present, kebab-case, equal to the folder name;
 - description present, <= 1024 characters, no XML tags; and a WARN (exit code
-  unchanged) above a 600-character soft ceiling, because a description is
+  unchanged) above a 700-character soft ceiling, because a description is
   always-loaded context paid for on every turn (#323);
 - compatibility <= 500 characters when present;
 - license present (kit requirement, not the guide's);
@@ -60,7 +60,13 @@ warnings = []
 # accretion is visible in CI output while it is still a sentence and not a paragraph. It WARNs and
 # never changes the exit code — a limit with no eval behind it is a number, not a contract, and
 # `evals/run_all.py` is the only thing that can say whether a shorter description still triggers.
-DESCRIPTION_SOFT_CEILING = 600
+#
+# 700 is where a CONSERVATIVE cut lands — one that keeps every distinct trigger branch, every FR
+# form and every "Does NOT apply" clause the eval sets' negatives lean on. #323 wants ~450, and the
+# way to earn it is `evals/run_all.py --runs-per-query 3` against evals/results/baseline.json, not a
+# smaller constant here: a ceiling below what the bench has cleared would only teach a reader to
+# ignore a standing warning. Tighten it the run after the bench says the shorter forms still fire.
+DESCRIPTION_SOFT_CEILING = 700
 
 skill_files = sorted(ROOT.glob("skills/*/SKILL.md"))
 if not skill_files:

@@ -163,7 +163,7 @@ t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
 p.write_text(t, encoding="utf-8")
 '
 
-echo "== the 600-char soft ceiling WARNs; the guide's 1024 still hard-fails (#323) =="
+echo "== the 700-char soft ceiling WARNs; the guide's 1024 still hard-fails (#323) =="
 # The soft ceiling is this suite's first NON-BINARY verdict: it must print a warning and leave the
 # exit code alone. run_case keys only on pass/fail, so it cannot tell "warned and accepted" from
 # "said nothing and accepted" — which is the whole behaviour under test. Hence a helper that pins
@@ -218,12 +218,12 @@ p.write_text(t, encoding="utf-8")
 PY
 }
 
-run_desc_case "W1 700 chars warns, exit unchanged " 0 \
-  'WARN followups: description is 700 characters' "$(desc_mutator 700)"
+run_desc_case "W1 800 chars warns, exit unchanged " 0 \
+  'WARN followups: description is 800 characters' "$(desc_mutator 800)"
 run_desc_case "W2 1100 chars still hard-fails    " 1 \
   'followups: description is 1100 characters \(guide limit: 1024\)' "$(desc_mutator 1100)"
-run_desc_case "W3 600 chars is silent            " 0 \
-  '!followups: description is' "$(desc_mutator 600)"
+run_desc_case "W3 700 chars is silent            " 0 \
+  '!followups: description is' "$(desc_mutator 700)"
 
 # ---------------------------------------------------------------------------------------------
 # The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
