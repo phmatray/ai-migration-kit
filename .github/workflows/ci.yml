@@ -482,6 +482,14 @@ jobs:
       - name: Survey golden test (effort tiers by the manifest's own vocabulary, not S/M/L)
         run: ./tests/survey/test.sh
 
+      # The gate over the REAL docs/adr/; the suite below only drives the checker over
+      # fixtures, so a malformed committed ADR needs this step to go red (#316).
+      - name: The kit's own ADRs are structurally valid
+        run: python3 tests/adr/check-adrs.py
+
+      - name: ADR golden test (the CI mirror of validate_adr, every rule driven to red)
+        run: ./tests/adr/test.sh
+
       - name: Contrast checker works (pass AND fail paths)
         run: |
           python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
