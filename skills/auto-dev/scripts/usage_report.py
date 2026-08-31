@@ -2,8 +2,8 @@
 """auto-dev cost accounting — aggregate token usage across the orchestrator + every
 background worker session, so you can track tokens/merge and $/merge across runs.
 
-Two transcript layouts land in a project dir, and this script must open both — counting only
-one silently drops whatever sits in the other (#281):
+Three transcript layouts land in a project dir, and this script must open all of them —
+counting only some silently drops whatever sits in the rest (#281, #309):
 
   top-level session          <proj>/<session-id>.jsonl — since 2.0 (#314) this is the
                              ORCHESTRATOR only. A pre-2.0 run also left one per worker here,
@@ -15,16 +15,16 @@ one silently drops whatever sits in the other (#281):
                              never folded into its dispatcher's top-level transcript — they
                              exist only here, and skipping this layout is how they go
                              uncounted rather than merely mis-attributed.
+  workflow-nested sub-agent  <proj>/<session-id>/subagents/workflows/wf_<id>/agent-*.jsonl — the
+                             same worker one level deeper, dispatched through the `Workflow`
+                             tool's agent() calls. Attributed to the top-level <session-id>, not
+                             to wf_<id>: a workflow run is a grouping inside a session, not a
+                             dispatchable session of its own (#309).
 
 `<proj>` is  ~/.claude/projects/<url-encoded-worktree-path>.  Every run reports how many of
 each kind it found — `SESSIONS: N in <proj>   (X top-level, Y sub-agent)` — so a project dir
 with zero Agent-tool workers prints `0 sub-agent` rather than leaving the split to be guessed
 from the row count.
-
-KNOWN GAP (#309): a sub-agent dispatched through the `Workflow` tool nests one level deeper —
-<proj>/<session-id>/subagents/workflows/wf_*/agent-*.jsonl — and is not yet discovered here.
-`0 sub-agent` on a project dir you know used workflows means transcripts are missing, not that
-none were dispatched.
 
 Usage:
     python usage_report.py [PROJECT_DIR] [--main SESSION_ID] [--top N]
