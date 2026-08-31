@@ -42,6 +42,7 @@
     "scripts/run-all-tests.sh": "the test-suite orchestrator; it runs gates and suites in sequence, it does not itself decide anything",
     "scripts/worktrees-ignored.sh": "a structural guard (worktree homes are ignored), not a control-flow choice with a verdict vocabulary",
     "skills/auto-dev/scripts/analyze_cache.py": "an offline token-usage analysis report, not a control-flow choice",
+    "skills/auto-dev/scripts/decision-tally.sh": "a read-only tally over decide.sh's own event log (counts, ratios and two printed threshold flags); it reports on decisions already made, it does not make one of its own",
     "skills/auto-dev/scripts/measure_phase2.py": "an offline cost-measurement report, not a control-flow choice",
     "skills/auto-dev/scripts/reconcile.sh": "a deterministic GitHub ground-truth query for the supervisor loop; it reports state, the supervisor decides",
     "skills/auto-dev/scripts/survey.sh": "a deterministic issue-queue query; it orders and reports, the supervisor decides",
