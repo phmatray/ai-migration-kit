@@ -131,21 +131,27 @@ gets ticked, and Step 10 never says the plan described a different tree. So the 
 once, mechanically, **before** the worktree and the draft PR exist:
 
 ```bash
-# Spelled from the MAIN checkout, like Step 6's tick-plan.sh: this runs BEFORE Step 4, so there
-# is no $WORKTREE and no $GUARDS yet — those are Step 4's, and this check has to answer first.
-./skills/implement-issue/scripts/plan-freshness.sh -C . --base origin/main /tmp/plan-$ISSUE.md
+# SCRIPTS is this skill's own scripts/ directory — the same value Step 4 later binds as $GUARDS,
+# named here because this check runs BEFORE Step 4 and cannot use a variable Step 4 has not set.
+# It is NOT `./skills/implement-issue/scripts`: these skills are ported into other repositories,
+# where the kit is not the tree being worked on and that relative path resolves to nothing.
+SCRIPTS=<this skill's own scripts/ directory>
+
+# A stale remote-tracking ref reports a path MISSING because the local ref predates the commit that
+# added it. A false stale is worse than no check, so fetch before asking.
+git fetch origin main --quiet
+"$SCRIPTS/plan-freshness.sh" -C . --base origin/main "/tmp/plan-$ISSUE.md"
 ```
 
 `0` → every `modify`/`test`/`delete` path the plan names still resolves; carry on. `5` → at least one
-does not, and the `MISSING <verb> <path> (Task N)` lines name them. `2` → **no verdict** (not a plan,
-an empty file, a base ref that does not resolve): fix the invocation rather than reading the silence
-as fresh. Fetch `origin/main` first — a stale remote-tracking ref reports a path MISSING because the
-local ref predates the commit that added it, which is a false stale. Full recipe:
+does not, and the `MISSING <verb> <path> (Task N)` lines name them. `2` → **no verdict** (no plan file,
+an empty one, a directory that is not a repository, a base ref that does not resolve, or a file with
+no `### Task` in it): fix the invocation rather than reading the silence as fresh. Full recipe:
 `references/github-mechanics.md` §2b.
 
 **Re-anchor each `MISSING` through its task's `**Interfaces:**` line, never by guessing.** That line
 names the symbol the task is actually about, and the symbol — not the path — is the durable identity.
-Search for it on the base ref (`git grep -n -l -F -- '<symbol>' origin/main`) and let the file count
+Search for it on the base ref (`git grep -l -F -- '<symbol>' origin/main`) and let the file count
 decide:
 
 - **exactly one file** → the path moved. Record `STALE: <old> → <new> (Task N)` and use the new path
@@ -181,8 +187,11 @@ Fresh context per task is the point of this mode and also its bill: every subage
 nothing, so task 4's re-reads the files task 1's already mapped. That re-exploration is paid **per
 task**, and `commands/auto-dev-worker.md` measures what per-turn context costs. Pay it once instead:
 
-> **Before task 1**, dispatch **one** `Explore` sub-agent with the plan, the issue's 📋 Spec and the
-> profile's *Architecture grain*. It writes `/tmp/issue-$ISSUE-notes.md` and reports only that it
+> **Before task 1** — so after Step 4, with `$WORKTREE` bound — dispatch **one** `Explore` sub-agent
+> at **`$WORKTREE`**, with the plan, the issue's 📋 Spec and the profile's *Architecture grain*. Name
+> the tree explicitly, the way every other dispatch in Steps 5–9 passes `-C "$WORKTREE"`: a sub-agent
+> left to infer it explores whichever checkout it woke up in, which is the Step 4 hazard one level
+> out. It writes `/tmp/issue-$ISSUE-notes.md` and reports only that it
 > did — per task: the files and symbols involved, the tests that already exist at each seam named on
 > the plan preamble's `**Seams under test:**` line, and the conventions the task must follow. It
 > implements nothing and changes nothing.

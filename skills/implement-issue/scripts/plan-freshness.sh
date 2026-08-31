@@ -34,6 +34,10 @@
 #   MISSING modify <path> (Task N)     it does not — the plan is stale here
 #   SKIP    create <path> (Task N)     a path the plan is about to CREATE; absence is correct
 #
+# `(Task N)` is on ALL THREE lines, not only on MISSING: the task number is what Step 2 needs to
+# find the `**Interfaces:**` line to re-anchor through, and a reader diffing two runs wants the OK
+# lines attributable too. It is the wider of the two shapes #322 described and satisfies both.
+#
 # Verbs are `create|modify|test|delete`; only `modify`, `test` and `delete` are resolved, and a
 # verb carries across the items after it, so `modify a, b; create c` checks a and b and skips c.
 # A `**Files:**` line that names no verb at all is read as `modify` — the checked reading, because
@@ -54,10 +58,16 @@ die2() { echo "plan-freshness: $1" >&2; exit 2; }
 # Trimming and splitting are done with `case` globs and `${…#…}`/`${…%…}` rather than sed: the
 # repo runs its scripts under macOS's bash 3.2 AND BSD sed, where `s/…/\n/` in a replacement is not
 # a newline, so the portable spelling of "split on two-character separators" is this one.
+#
+# `\r` is trimmed alongside the spaces, and it is not hypothetical: the plan reaches this script
+# through `gh api … --jq .body`, and an issue body authored in GitHub's own web editor is CRLF. A
+# surviving carriage return rides on the LAST item of every `**Files:**` line, defeats the trailing
+# punctuation strip below, and reports that path MISSING with a diagnostic that looks identical to
+# the path it is complaining about — the worst possible spelling of a false stale.
 trim() {
   local s="${1-}"
-  while :; do case "$s" in ' '*|$'\t'*) s=${s#?} ;; *) break ;; esac; done
-  while :; do case "$s" in *' '|*$'\t') s=${s%?} ;; *) break ;; esac; done
+  while :; do case "$s" in ' '*|$'\t'*|$'\r'*) s=${s#?} ;; *) break ;; esac; done
+  while :; do case "$s" in *' '|*$'\t'|*$'\r') s=${s%?} ;; *) break ;; esac; done
   printf '%s' "$s"
 }
 
@@ -106,16 +116,32 @@ while IFS= read -r line || [ -n "$line" ]; do
       SEEN_TASK=1
       continue
       ;;
-    '**Files:**'*) ;;
+    # Both spellings of the bold marker. A `**Files**:` line matching nothing would report its whole
+    # task fresh without resolving a single path — a silent un-gating, which is the failure shape
+    # this script exists to remove rather than reproduce one line further in.
+    '**Files:**'*) payload=$(trim "${line#'**Files:**'}") ;;
+    '**Files**:'*) payload=$(trim "${line#'**Files**:'}") ;;
     *) continue ;;
   esac
 
   # A `**Files:**` line above the first `### Task` belongs to no task, so there is nothing to
   # report it against and nothing for Step 2 to re-anchor through. Skipping it is deliberate.
   [ "$SEEN_TASK" -eq 1 ] || continue
-
-  payload=$(trim "${line#'**Files:**'}")
   [ -n "$payload" ] || continue
+
+  # Parenthetical asides come out BEFORE the split, not after. `create-issue`'s own template writes
+  # them — `modify \`Program.cs\` (DI registration)` — and an aside containing a comma would
+  # otherwise be split down the middle into two paths that exist nowhere, reporting `MISSING` twice
+  # and exit 5 on a plan that is perfectly fresh. That is not a cosmetic miscount: exit 5 routes
+  # Step 2 into re-anchoring, and a path invented by the splitter re-anchors to nothing, which is
+  # the "no usable plan" stop. A false stale costs the whole run.
+  while :; do
+    case "$payload" in
+      *'('*')'*) payload="${payload%%(*}${payload#*)}" ;;
+      *) break ;;
+    esac
+  done
+
   payload=${payload//"; "/"$SEP"}
   payload=${payload//", "/"$SEP"}
 
@@ -127,10 +153,12 @@ while IFS= read -r line || [ -n "$line" ]; do
     esac
 
     item=$(trim "$item")
-    # Trailing sentence punctuation, then a trailing parenthetical aside — in that order, because
-    # `**Files:** … modify \`ci.yml\` (one step).` carries both and the aside sits inside the stop.
+    # Trailing sentence punctuation, then any aside the payload-level strip could not pair off.
+    # GUARDED on the item holding BOTH parentheses: `${item%(*}` is a silent no-op when the `(` is
+    # already gone, so an unguarded strip leaves a bare `)` glued to the path and then reports that
+    # as MISSING.
     case "$item" in *.|*,|*';') item=${item%?} ;; esac
-    case "$item" in *')') item=$(trim "${item%(*}") ;; esac
+    case "$item" in *'('*')') item=$(trim "${item%(*}") ;; esac
 
     case "$item" in
       'create '*) verb=create; item=${item#create } ;;

@@ -149,6 +149,6 @@ Spec finding you disagree with is worth a sentence saying why; silently ignoring
 
 Older issues predate `create-issue`'s Spec block. Do not skip the axis — degrade it, and say so:
 review against the issue's **Proposed solution** field (or, failing that, its title and problem
-statement), and open the Spec report with *"no 📋 Spec — reviewed against Proposed solution"*. A
+statement), and open the Spec report with *"no Spec — reviewed against Proposed solution"*. A
 report that silently reviews against a weaker source reads exactly like one that reviewed against a
 Spec, which is the substitution this line exists to prevent.

@@ -131,14 +131,17 @@ still describes `main` before anything is built — the shipped script does it, 
 exit code rather than a judgement:
 
 ```bash
-# $REPO is the checkout you were launched in — the MAIN one. This runs before Step 4, so there is no
-# $WORKTREE and no $GUARDS yet; the freshness question has to be answered before either exists.
+REPO=$(git rev-parse --show-toplevel)          # the checkout you were launched in — the MAIN one
+SCRIPTS=<this skill's own scripts/ directory>  # what Step 4 later binds as $GUARDS
+
+# Both are named here rather than reused because this runs BEFORE Step 4: there is no $WORKTREE and
+# no $GUARDS yet, and the freshness question has to be answered before either exists.
 # origin/main must be up to date first: a stale remote-tracking ref would report a path as MISSING
 # because the local ref predates the commit that added it — a false stale, which is worse than none.
 git -C "$REPO" fetch origin main --quiet
 
 FRESH=0
-"$REPO/skills/implement-issue/scripts/plan-freshness.sh" -C "$REPO" --base origin/main \
+"$SCRIPTS/plan-freshness.sh" -C "$REPO" --base origin/main \
   "/tmp/plan-$ISSUE.md" > "/tmp/plan-$ISSUE-freshness.txt" 2>&1 || FRESH=$?
 
 case "$FRESH" in
@@ -157,10 +160,12 @@ the symbol the task is about; that symbol, not the path, is the durable identity
 base ref and let the count decide — this is the whole rule, and it is deliberately unforgiving:
 
 ```bash
-# One task's symbol, taken verbatim from its **Interfaces:** line. -l so the answer is a file list;
-# `sort -u` because one file can match many times and it is the FILE COUNT that decides.
-git -C "$REPO" grep -n -l -F -- '<symbol from the task Interfaces line>' origin/main \
-  | sort -u > "/tmp/plan-$ISSUE-anchor.txt"
+# One task's symbol, taken verbatim from its **Interfaces:** line. -l because it is the FILE COUNT
+# that decides, and `git grep -l` already emits each file exactly once however many times it hits —
+# so no `sort -u`, and no `-n`, which `-l` would suppress anyway. -F: a symbol is a literal, and an
+# interface name carrying `(`, `.` or `[` would otherwise be read as a regex against itself.
+git -C "$REPO" grep -l -F -- '<symbol from the task Interfaces line>' origin/main \
+  > "/tmp/plan-$ISSUE-anchor.txt"
 wc -l < "/tmp/plan-$ISSUE-anchor.txt"
 ```
 

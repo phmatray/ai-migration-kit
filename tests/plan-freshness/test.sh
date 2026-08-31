@@ -152,7 +152,11 @@ run_case "C10 --base origin/main is the same as the default" 0 "$WORK/all-presen
 # on a mention parked in any other step.
 
 section() {  # section <file> <start-heading> <end-heading> -> path to the extracted block
-  local file="$1" start="$2" end="$3" out="$WORK/section.txt"
+  # One file PER extraction. A single shared $WORK/section.txt made every $STEPn variable hold the
+  # same path, so the five blocks were only ever correct because the calls and their assertions
+  # happened to interleave in order — reorder one and it silently checks a different step's text.
+  local file="$1" start="$2" end="$3" out
+  out="$WORK/section-$(printf '%s' "$start" | tr -c 'A-Za-z0-9' '-').txt"
   awk -v s="$start" -v e="$end" '
     index($0, s) == 1 { inside = 1 }
     inside && index($0, e) == 1 && index($0, s) != 1 { exit }
@@ -172,17 +176,108 @@ want_in() {  # want_in <label> <file> <needle>
 
 [ -r "$SKILL" ] || { echo "FAIL: $SKILL missing"; exit 1; }
 
+echo "== a parenthetical aside is an ASIDE, not two paths (found in review of #322) =="
+#
+# `create-issue`'s own template writes `modify `Program.cs` (DI registration)`. Splitting on ", "
+# before the aside came out turned ONE fresh path into two invented ones, both MISSING, exit 5 —
+# and exit 5 is what routes Step 2 into re-anchoring, where an invented path anchors to nothing and
+# becomes the "no usable plan" stop. A false stale costs the whole run, so it is pinned here.
+cat > "$WORK/aside.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: asides
+
+**Files:** modify `a.sh` (the entry point, and its guard); modify `dir with space/b.sh` (one line).
+PLAN
+run_case "C11 a comma inside () is not a split" 0 "$WORK/aside.md"
+want_line "C12 …and the path survives whole  " "OK modify a.sh (Task 1)"
+
+echo "== a CRLF plan body is read, not reported stale (found in review of #322) =="
+#
+# The plan arrives via `gh api … --jq .body`, and a body authored in GitHub's web editor is CRLF.
+# The stray \r rode the last item of every **Files:** line and made it MISSING — with a diagnostic
+# that printed identically to the path it was complaining about.
+printf '## \xf0\x9f\x9b\xa0\xef\xb8\x8f Implementation plan\r\n\r\n### Task 1: crlf\r\n\r\n**Files:** modify `a.sh`; modify `dir with space/b.sh`.\r\n' > "$WORK/crlf.md"
+run_case "C13 a CRLF plan is exit 0         " 0 "$WORK/crlf.md"
+want_line "C14 …with the CR off the path    " "OK modify dir with space/b.sh (Task 1)"
+
+echo "== a path is passed LITERALLY — brackets included =="
+mkdir -p "$REPO/odd"
+printf 'z\n' > "$REPO/odd/[bracketed].sh"
+git -C "$REPO" add -A
+git -C "$REPO" commit -qm "a bracketed path"
+git -C "$REPO" update-ref refs/remotes/origin/main HEAD
+cat > "$WORK/bracket.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: brackets
+
+**Files:** modify `odd/[bracketed].sh`.
+PLAN
+run_case "C15 a [bracketed] path resolves   " 0 "$WORK/bracket.md"
+want_line "C16 …and is reported verbatim    " "OK modify odd/[bracketed].sh (Task 1)"
+
+echo "== the other bold spelling is READ, not silently skipped =="
+cat > "$WORK/altbold.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: the other spelling
+
+**Files**: modify `gone.sh`.
+PLAN
+run_case "C17 **Files**: is parsed too      " 5 "$WORK/altbold.md"
+want_line "C18 …and its stale path is named " "MISSING modify gone.sh (Task 1)"
+
+echo "== every no-verdict condition is exit 2 — none of them may read as 'fresh' =="
+#
+# Exit 2 is the code that says the question was never answered. Only the task-less case was driven
+# before; the empty-plan guard the script's own header calls load-bearing had no test at all, which
+# is the shape of hole this repo keeps closing.
+: > "$WORK/empty.md"
+run_case "C19 an EMPTY plan refuses         " 2 "$WORK/empty.md"
+run_case "C20 an unresolvable --base refuses" 2 "$WORK/all-present.md" --base no/such/ref
+if "$SCRIPT" -C "$REPO" > "$OUT" 2>&1; then
+  note_fail "C21 no plan file refuses          — exited 0 with no plan argument"
+else
+  [ "$?" = 2 ] && note_ok "C21 no plan file refuses          " \
+    || note_fail "C21 no plan file refuses          — wrong exit code"
+fi
+NOTREPO=$(kit_scratch)
+if "$SCRIPT" -C "$NOTREPO" "$WORK/all-present.md" > "$OUT" 2>&1; then
+  note_fail "C22 a non-repository refuses      — exited 0 outside a git repo"
+else
+  [ "$?" = 2 ] && note_ok "C22 a non-repository refuses      " \
+    || note_fail "C22 a non-repository refuses      — wrong exit code"
+fi
+
+echo "== the shipped script parses under the #131 rules, like every suite does =="
+#
+# `parse-sweep.sh` with no arguments sweeps tests/*/test.sh only, so the SCRIPT this suite exists
+# for is not covered by the CI step that runs it bare. Reuse the shipped tool rather than a second
+# `bash -n`: it also carries the static scan for the bash 3.2 heredoc-in-$( … ) construct, which a
+# modern bash's parser cannot see.
+if "$KIT_ROOT/scripts/parse-sweep.sh" "skills/implement-issue/scripts/plan-freshness.sh" \
+     > "$WORK/sweep.log" 2>&1; then
+  note_ok "C23 plan-freshness.sh parse-sweeps"
+else
+  note_fail "C23 plan-freshness.sh parse-sweeps — parse-sweep refused:"
+  sed 's/^/      /' "$WORK/sweep.log"
+fi
+
 echo "== SKILL.md Step 2 must RUN the freshness pass and carry a STALE list (#322) =="
 STEP2=$(section "$SKILL" "## Step 2 — " "## Step 3 — ")
 want_in "P1 Step 2 calls plan-freshness.sh " "$STEP2" "plan-freshness.sh"
 want_in "P2 Step 2 names the STALE list    " "$STEP2" "STALE:"
 want_in "P3 Step 2 re-anchors via Interfaces" "$STEP2" "**Interfaces:**"
 
-echo "== github-mechanics §2 must carry the call and the re-anchor recipe =="
+echo "== github-mechanics §2b must carry the call and the re-anchor recipe =="
 [ -r "$MECHANICS" ] || { echo "FAIL: $MECHANICS missing"; exit 1; }
-want_in "P4 §2 spells the freshness call   " "$MECHANICS" "plan-freshness.sh"
-want_in "P5 §2 spells the re-anchor search " "$MECHANICS" "grep -n -l -F --"
-want_in "P6 §2 names the STALE record        " "$MECHANICS" "STALE:"
+# Scoped to §2b for the same reason the SKILL.md assertions are scoped per step: a mention parked
+# in §5 would satisfy a whole-file grep while §2b said nothing at all.
+SEC2B=$(section "$MECHANICS" "### 2b. " "## 3. ")
+want_in "P4 §2b spells the freshness call  " "$SEC2B" "plan-freshness.sh"
+want_in "P5 §2b spells the re-anchor search" "$SEC2B" "grep -l -F --"
+want_in "P6 §2b names the STALE record     " "$SEC2B" "STALE:"
 
 echo "== Step 3 must explore ONCE and hand later sub-agents a pointer (#322) =="
 STEP3=$(section "$SKILL" "## Step 3 — " "## Step 4 — ")
