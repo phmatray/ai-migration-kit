@@ -163,36 +163,55 @@ put_label() {   # put_label <name> <color> <description> — create and edit are
      "$GH_LABELS_JSON" > "$GH_LABELS_JSON.tmp" && mv "$GH_LABELS_JSON.tmp" "$GH_LABELS_JSON"
 }
 
+# gh_fail_body <status> <url-suffix> — the stderr shapes gh actually prints for a failed write
+# (#200), MEASURED against a real repository:
+#   gh label edit "area: ci" --description "$(printf 'x%.0s' $(seq 1 101))"
+#     HTTP 422: Validation Failed (https://api.github.com/repos/OWNER/REPO/labels/area:%20ci)
+#     description is too long (maximum is 100 characters)
+# 403 is not independently reproducible here (it needs a token with too little scope, not one this
+# suite can hold), so every caller shares one 403 shape. Shared by every failing write/read this
+# stub imitates (create/edit, delete, the settings PATCH, label list, the settings read — #222)
+# rather than four near-identical copies of the same case statement.
+gh_fail_body() {
+  case "$1" in
+    422)
+      echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/$2)" >&2
+      echo "description is too long (maximum is 100 characters)" >&2 ;;
+    # Not independently measured — this shape asserts two simultaneous field errors are POSSIBLE
+    # in one 422 body (GitHub returns one entry per invalid field), not that this exact wording is
+    # what gh prints for it.
+    422multi)
+      echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/$2)" >&2
+      echo "color is invalid" >&2
+      echo "description is too long (maximum is 100 characters)" >&2 ;;
+    # A `gh` killed by signal (CI timeout, OOM) can exit non-zero with nothing on stderr at all —
+    # this is the shape, not a status gh actually names.
+    empty)
+      : ;;
+    # A transient rate-limit or 5xx: neither a scope problem nor a manifest problem, and the whole
+    # point of #223's read-side half is that this must NOT collapse to the 403 sentence. Deliberately
+    # NOT "HTTP 403" — GitHub's classic REST rate-limit response really is a 403, which #222/#223
+    # leave classified as a scope problem (out of scope: distinguishing 403 flavors); this is the
+    # OTHER shape a real rate-limit or an overloaded API can return.
+    ratelimited)
+      echo "HTTP 429: API rate limit exceeded for installation ID 1 (https://api.github.com/repos/acme/widgets/$2)" >&2 ;;
+    *)
+      echo "HTTP 403: Resource not accessible by integration (https://api.github.com/repos/acme/widgets/$2)" >&2 ;;
+  esac
+}
+
 case "$1 $2" in
   "auth status")   [ "${GH_AUTH_FAILS:-0}" = 1 ] && exit 1; exit 0 ;;
   "repo view")     printf '{"nameWithOwner":"acme/widgets"}\n'; exit 0 ;;
-  "label list")    cat "$GH_LABELS_JSON"; exit 0 ;;
+  "label list")
+    if [ "${GH_LIST_FAILS:-0}" = 1 ]; then
+      gh_fail_body "${GH_LIST_FAIL_STATUS:-403}" "labels"
+      exit 1
+    fi
+    cat "$GH_LABELS_JSON"; exit 0 ;;
   "label create"|"label edit")
-    # Shapes below are the two gh actually prints (#200), MEASURED against a real repository:
-    #   gh label edit "area: ci" --description "$(printf 'x%.0s' $(seq 1 101))"
-    #     HTTP 422: Validation Failed (https://api.github.com/repos/OWNER/REPO/labels/area:%20ci)
-    #     description is too long (maximum is 100 characters)
-    # 403 is not independently reproducible here (it needs a token with too little scope, not one
-    # this suite can hold), so it keeps the shape the settings-PATCH stub already pins below.
     if [ "${GH_LABEL_FAILS:-0}" = 1 ]; then
-      case "${GH_LABEL_FAIL_STATUS:-403}" in
-        422)
-          echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/labels)" >&2
-          echo "description is too long (maximum is 100 characters)" >&2 ;;
-        # Not independently measured — this shape asserts two simultaneous field errors are
-        # POSSIBLE in one 422 body (GitHub returns one entry per invalid field), not that this
-        # exact wording is what gh prints for it.
-        422multi)
-          echo "HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/labels)" >&2
-          echo "color is invalid" >&2
-          echo "description is too long (maximum is 100 characters)" >&2 ;;
-        # A `gh` killed by signal (CI timeout, OOM) can exit non-zero with nothing on stderr at
-        # all — this is the shape, not a status gh actually names.
-        empty)
-          : ;;
-        *)
-          echo "HTTP 403: Resource not accessible by integration (https://api.github.com/repos/acme/widgets/labels)" >&2 ;;
-      esac
+      gh_fail_body "${GH_LABEL_FAIL_STATUS:-403}" "labels"
       exit 1
     fi
     name="$3"; color=""; desc=""; shift 3
@@ -205,6 +224,10 @@ case "$1 $2" in
     done
     put_label "$name" "$color" "$desc"; exit 0 ;;
   "label delete")
+    if [ "${GH_DELETE_FAILS:-0}" = 1 ]; then
+      gh_fail_body "${GH_DELETE_FAIL_STATUS:-403}" "labels"
+      exit 1
+    fi
     jq --arg n "$3" 'map(select(.name != $n))' "$GH_LABELS_JSON" > "$GH_LABELS_JSON.tmp" \
       && mv "$GH_LABELS_JSON.tmp" "$GH_LABELS_JSON"
     exit 0 ;;
@@ -212,7 +235,13 @@ esac
 
 case "$*" in
   *"-X PATCH"*)
-    [ "${GH_PATCH_FAILS:-0}" = 1 ] && { echo "gh: HTTP 403 Must have admin rights" >&2; exit 1; }
+    if [ "${GH_PATCH_FAILS:-0}" = 1 ]; then
+      case "${GH_PATCH_FAIL_STATUS:-403}" in
+        403) echo "gh: HTTP 403 Must have admin rights" >&2 ;;
+        *)   gh_fail_body "${GH_PATCH_FAIL_STATUS:-403}" "acme/widgets" ;;
+      esac
+      exit 1
+    fi
     # Record the new values so the next read reflects the write, same as the label side.
     for a in "$@"; do
       case "$a" in
@@ -222,7 +251,12 @@ case "$*" in
       esac
     done
     exit 0 ;;
-  *"api repos/"*) cat "$GH_SETTINGS_JSON"; exit 0 ;;
+  *"api repos/"*)
+    if [ "${GH_SETTINGS_READ_FAILS:-0}" = 1 ]; then
+      gh_fail_body "${GH_SETTINGS_READ_FAIL_STATUS:-403}" "acme/widgets"
+      exit 1
+    fi
+    cat "$GH_SETTINGS_JSON"; exit 0 ;;
 esac
 exit 0
 STUB
@@ -664,6 +698,31 @@ mixed_form_areas=$(read_area_options "$repo4c/.github/ISSUE_TEMPLATE/bug_report.
   || fail "the substring placeholder leaked into the generated Area dropdown — got: $mixed_form_areas"
 echo "  ok: apply — the substring placeholder never reaches gh and never leaks into the generated dropdown"
 
+# --------------------------------------- 9d. forms: an OS-level write failure names its cause (#222)
+#
+# The form-copy refusal was a bare "could not write $FORMS_TARGET/$f1" — no cause at all, unlike
+# the gh-write refusals #200/#222 fixed for labels and settings. Not a `gh` call, so there is no
+# HTTP status to classify: just capture what mkdir/cp actually said. A plain FILE sitting where the
+# target directory needs to be forces that failure without depending on write permissions (which
+# root — or a container running as root, as CI sometimes does — would sail straight through).
+
+repo4e=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+mkdir -p "$repo4e/.github"
+: > "$repo4e/.github/ISSUE_TEMPLATE"   # a file, not a directory — mkdir -p must fail on this path
+
+fresh_log formwritefail
+rc=0; out=$(bash "$SCRIPT" apply "$repo4e" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, form copy blocked by a non-directory target: expected exit 3, got $rc — output: $out"
+has_line "^!REFUSED .*forms.*could not write .*ISSUE_TEMPLATE/feature_request.yml" "$out" \
+  || fail "the form refusal does not name the path — output: $out"
+case "$out" in
+  *"could not write .github/ISSUE_TEMPLATE/feature_request.yml"$'\n'*)
+    fail "a form-copy refusal reports the path with no OS-level cause — output: $out" ;;
+esac
+echo "  ok: forms — an OS-level form-copy failure names the cause mkdir/cp actually reported, not just the path"
+
 # ------------------------------------------------------------------ 10. settings: one PATCH, once
 
 repo6=$(new_repo) || fail "could not create a scratch git repo"
@@ -801,6 +860,113 @@ esac
 has_line "^!REFUSED .*labels.*gh gave no reason" "$out" \
   || fail "an empty-stderr label refusal must still say something actionable — output: $out"
 echo "  ok: labels — a refusal with empty stderr still reports an actionable cause, never a dangling dash"
+
+# ------------------------------- 12b. a refused label delete names what gh observed (#222)
+#
+# `!REFUSED` collapsed EVERY refused delete to a bare "could not delete '$f1'" — no cause at all,
+# not even the token-scope sentence #200 gave label create/edit. #222 routes it through the same
+# gh_refusal() classifier those already use.
+
+repo12=$(new_repo) || fail "could not create a scratch git repo"
+printf '[{"name":"priority: high","color":"b60205","description":"Pull this first"},{"name":"effort: small","color":"c2e0c6","description":"One task"},{"name":"legacy-thing","color":"ededed","description":"someone else was here"}]\n' \
+  > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":true}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log delete422
+rc=0; out=$(GH_DELETE_FAILS=1 GH_DELETE_FAIL_STATUS=422 bash "$SCRIPT" apply "$repo12" --manifest "$FIXTURE" --prune 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply --prune, delete refused by 422: expected exit 3, got $rc — output: $out"
+n=$(gh_calls_matching "label delete")
+[ "$n" -eq 1 ] || fail "expected exactly 1 delete attempt, got $n"
+case "$out" in
+  *"could not delete 'legacy-thing'"$'\n'*)
+    fail "a refused delete still reports the bare old sentence with no cause — output: $out" ;;
+esac
+has_line "^!REFUSED .*labels.*could not delete 'legacy-thing' — refused (422): description is too long" "$out" \
+  || fail "a 422 delete refusal must echo GitHub's field message, not a bare sentence — output: $out"
+echo "  ok: labels — a refused delete names the status it observed, not a bare sentence"
+
+# ---------------------------- 12c. a refused settings PATCH names what gh observed (#222)
+#
+# The settings refusal hardcoded "the token needs admin rights on it" for EVERY failure, including
+# a 422 (an invalid setting value) that has nothing to do with admin rights. The 403 case keeps
+# that exact sentence (#222's Task 2: it is the established, already-tested wording for that
+# branch) — only the other statuses change.
+
+repo13=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log settings422
+rc=0; out=$(GH_PATCH_FAILS=1 GH_PATCH_FAIL_STATUS=422 bash "$SCRIPT" apply "$repo13" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, settings PATCH refused by 422: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"admin rights"*) fail "a 422 settings refusal must not blame the token — output: $out" ;;
+esac
+has_line "^!REFUSED .*settings.*description is too long" "$out" \
+  || fail "a 422 settings refusal must echo GitHub's field message — output: $out"
+echo "  ok: settings — a 422 refusal names the validation cause, not admin rights"
+
+repo14=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log settings403
+rc=0; out=$(GH_PATCH_FAILS=1 GH_PATCH_FAIL_STATUS=403 bash "$SCRIPT" apply "$repo14" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, settings PATCH refused by 403: expected exit 3, got $rc — output: $out"
+has_line "^!REFUSED .*settings.*the token needs admin rights on it" "$out" \
+  || fail "a 403 settings refusal must keep the established admin-rights sentence — output: $out"
+echo "  ok: settings — a 403 refusal keeps the established admin-rights sentence unchanged"
+
+# ------------------------------------- 12d. reads name what gh observed, not a fixed sentence (#223)
+#
+# `gh label list` and `gh api repos/$SLUG` (reading current settings) discarded stderr and always
+# reported "no access"/"settings were not read" — so a transient rate-limit or a 5xx got the exact
+# same wording as an actual 403. The 403 case keeps the pre-#223 sentence; anything else now names
+# what gh actually said. Folded from #223 into #222 as this issue's fifth site.
+
+repo15=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log listratelimit
+rc=0; out=$(GH_LIST_FAILS=1 GH_LIST_FAIL_STATUS=ratelimited bash "$SCRIPT" apply "$repo15" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label list rate-limited: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"no access to this repository's labels"*)
+    fail "a rate-limited label list must not report the fixed 'no access' sentence — output: $out" ;;
+esac
+has_line "^!REFUSED .*labels.*API rate limit exceeded" "$out" \
+  || fail "a rate-limited label list must name what gh actually said — output: $out"
+echo "  ok: labels — a read refused by something other than real access names that cause, not 'no access'"
+
+fresh_log listaccess
+rc=0; out=$(GH_LIST_FAILS=1 GH_LIST_FAIL_STATUS=403 bash "$SCRIPT" apply "$repo15" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, label list refused by a real 403: expected exit 3, got $rc — output: $out"
+has_line "^!REFUSED .*labels.*no access to this repository's labels" "$out" \
+  || fail "an actual 403 label-list refusal must keep the established 'no access' sentence — output: $out"
+echo "  ok: labels — a real 403 on label list keeps the established 'no access' sentence"
+
+repo16=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log settingsreadratelimit
+rc=0; out=$(GH_SETTINGS_READ_FAILS=1 GH_SETTINGS_READ_FAIL_STATUS=ratelimited bash "$SCRIPT" apply "$repo16" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, settings read rate-limited: expected exit 3, got $rc — output: $out"
+case "$out" in
+  *"settings were not read"*)
+    fail "a rate-limited settings read must not report the fixed 'not read' sentence — output: $out" ;;
+esac
+has_line "^!REFUSED .*settings.*API rate limit exceeded" "$out" \
+  || fail "a rate-limited settings read must name what gh actually said — output: $out"
+echo "  ok: settings — a read refused by something other than real access names that cause, not 'not read'"
+
+fresh_log settingsreadaccess
+rc=0; out=$(GH_SETTINGS_READ_FAILS=1 GH_SETTINGS_READ_FAIL_STATUS=403 bash "$SCRIPT" apply "$repo16" --manifest "$FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "apply, settings read refused by a real 403: expected exit 3, got $rc — output: $out"
+has_line "^!REFUSED .*settings.*settings were not read" "$out" \
+  || fail "an actual 403 settings-read refusal must keep the established 'not read' sentence — output: $out"
+echo "  ok: settings — a real 403 on the settings read keeps the established 'not read' sentence"
 
 # --------------------------------- 13. an over-long description is caught locally, never sent (#200)
 #

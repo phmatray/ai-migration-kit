@@ -1,0 +1,49 @@
+# tracked-exec-globs.txt — the ONE list of git pathspecs naming this kit's own tracked scripts.
+#
+# WHY A FILE (#307). Two guards need the same answer to "which files are this kit's own scripts?",
+# and each carried its own:
+#
+#   * scripts/decision-check.py — R10 (#252) enumerated `scripts/*.sh`, `scripts/*.py`,
+#     `skills/*/scripts/*.sh`, `skills/*/scripts/*.py`, four patterns copied verbatim from the `git
+#     ls-files` invocation #252's own Problem section measured "32 executables" with. That
+#     measurement never claimed to cover `hooks/` or a script sitting at a skill's ROOT, and both
+#     existed here: `hooks/roseline-gate.sh` branches on `ROSELINE_GATE` and a launcher probe to
+#     allow or deny a Read — precisely the shape `decisions/registry.json` governs — and it was
+#     outside `E` by construction, so it needed neither a registry row nor a `not_decisions` record
+#     and the guard never noticed it existed.
+#   * scripts/parse-sweep.sh — sweeps `tests/*/test.sh` only; its own KNOWN LIMITS section and
+#     docs/backlog.md both record that `scripts/`, `hooks/` and `skills/**/scripts/` ship to the
+#     same macOS developers and are not swept. #144 is the open half that widens it.
+#
+# #145 had already fixed this exact shape once, for a third guard. A second literal copy of the
+# list is how it comes back, so the list lives HERE and each consumer filters it:
+#
+#   * decision-check.py takes EVERY line — R10 is about executables, bash and python alike.
+#   * parse-sweep.sh (#144) takes the `*.sh` lines — `bash -n` has nothing to say about a `.py` —
+#     on top of its own `tests/*/test.sh` default, which stays its own business.
+#
+# FORMAT. One git pathspec per line; `#` starts a comment, blank lines are ignored. The pathspecs
+# are handed to `git ls-files -z -- <pathspec>…` VERBATIM, never re-implemented as a filesystem
+# walk: a walk would also see whatever this kit's own worktree convention plants under
+# `.claude/worktrees/`, and a path staged for deletion but still on disk.
+#
+# ⚠️ git's pathspec `*` CROSSES a `/` (fnmatch without FNM_PATHNAME), unlike a shell glob's. So
+# `skills/*.sh` means "any `.sh` anywhere under `skills/`" — skill root, `scripts/` subdirectory and
+# any deeper nesting alike — and no `**` spelling is needed. Measured, not assumed:
+# `tests/decisions/test.sh` drives a skill-root script, a nested one and a hook to RED against this
+# file. A consumer reading these lines in a SHELL must turn globbing off (`set -f`) around the
+# unquoted expansion, or the shell will match them against its own working directory first.
+#
+# ⚠️ ADDING A LINE CAN REDDEN CI. R10 refuses, by name, any newly enumerated file that is neither a
+# registered decision's `program.path` nor a key of `not_decisions` in `decisions/registry.json`.
+# Land the rows in the same change as the line.
+#
+# DELIBERATELY ABSENT: `tests/`, `evals/`, `samples/` and `templates/`. They are suites and frozen
+# fixtures, not this kit's own control-flow scripts; sweeping them in would turn `not_decisions`
+# into a dumping ground rather than the deliberate per-file claim it is (#307's Alternatives).
+scripts/*.sh
+scripts/*.py
+skills/*.sh
+skills/*.py
+hooks/*.sh
+hooks/*.py

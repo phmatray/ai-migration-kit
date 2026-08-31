@@ -601,6 +601,82 @@ fi
 echo "grilling link golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# The brainstorm, plan and TDD doctrines the lifecycle skills used to invoke from the superpowers
+# plugin live under skills/_shared/ now (#324) — one home each, ported from obra/superpowers (MIT)
+# and narrowed to this kit's hands-off autonomy contract. A doctrine file nobody links is exactly
+# as good as a plugin nobody installed, so each is pinned three ways: it exists, its consumers link
+# it (the same literal-link shape as the test-seams and grilling blocks above), and the credit line
+# survives — the port is someone else's MIT-licensed work and the attribution is part of the file's
+# contract. The header note every filed plan carries is read out of plan-shape.md rather than
+# re-spelled here, and the fixture the SP2 case below locates must carry that exact note.
+echo "== the ported doctrine references exist, are linked, and credit their source (#324) =="
+
+for ref in brainstorm-and-spec plan-shape tdd-loop; do
+  if [ -f "$KIT_ROOT/skills/_shared/$ref.md" ]; then
+    echo "ok   [DR1 skills/_shared/$ref.md exists]"
+  else
+    echo "FAIL: [DR1 skills/_shared/$ref.md exists] file is missing"
+    fails=$((fails + 1))
+  fi
+  if grep -qF 'obra/superpowers' "$KIT_ROOT/skills/_shared/$ref.md" 2>/dev/null; then
+    echo "ok   [DR2 _shared/$ref.md credits its source]"
+  else
+    echo "FAIL: [DR2 _shared/$ref.md credits its source] missing the 'obra/superpowers' attribution"
+    fails=$((fails + 1))
+  fi
+done
+
+for pair in "create-issue:brainstorm-and-spec" "create-issue:plan-shape" "implement-issue:plan-shape" "implement-issue:tdd-loop"; do
+  skill="${pair%%:*}"; ref="${pair##*:}"
+  if grep -qF "](../_shared/$ref.md)" "$KIT_ROOT/skills/$skill/SKILL.md" 2>/dev/null; then
+    echo "ok   [DR3 $skill/SKILL.md links _shared/$ref.md]"
+  else
+    echo "FAIL: [DR3 $skill/SKILL.md links _shared/$ref.md] missing the literal '](../_shared/$ref.md)'"
+    fails=$((fails + 1))
+  fi
+done
+
+# tdd-loop.md carries two ports: the loop from obra/superpowers (checked above) and the good-test
+# and mock-at-boundaries guidance from mattpocock/skills, which earns its own credit line.
+if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/_shared/tdd-loop.md" 2>/dev/null; then
+  echo "ok   [DR2 _shared/tdd-loop.md credits mattpocock/skills too]"
+else
+  echo "FAIL: [DR2 _shared/tdd-loop.md credits mattpocock/skills too] missing the 'mattpocock/skills' attribution"
+  fails=$((fails + 1))
+fi
+
+# The header note has one home. plan-shape.md states it; create-issue cites it rather than carrying
+# a second copy that can drift; and the new-note fixture SP2 locates is that exact line.
+PLAN_NOTE=$(grep -m1 '^> \*\*For agentic workers:\*\*' "$KIT_ROOT/skills/_shared/plan-shape.md" 2>/dev/null || true)
+if [ -z "$PLAN_NOTE" ]; then
+  echo "FAIL: [DR4 plan-shape.md states the header note] no '> **For agentic workers:**' line"
+  fails=$((fails + 1))
+elif printf '%s' "$PLAN_NOTE" | grep -q 'superpowers\|SUB-SKILL'; then
+  echo "FAIL: [DR4 plan-shape.md states the header note] the note still prescribes the plugin: $PLAN_NOTE"
+  fails=$((fails + 1))
+elif ! printf '%s' "$PLAN_NOTE" | grep -qF 'implement-issue'; then
+  echo "FAIL: [DR4 plan-shape.md states the header note] the note does not name implement-issue as the executor: $PLAN_NOTE"
+  fails=$((fails + 1))
+elif ! grep -qFx -- "$PLAN_NOTE" "$KIT_ROOT/tests/skills/fixtures/plan-new-header-note.md"; then
+  echo "FAIL: [DR4 plan-shape.md states the header note] fixtures/plan-new-header-note.md does not carry plan-shape.md's exact note"
+  fails=$((fails + 1))
+else
+  echo "ok   [DR4 plan-shape.md states the header note, and the new-note fixture carries it]"
+fi
+if grep -q 'REQUIRED SUB-SKILL' "$KIT_ROOT/skills/create-issue/SKILL.md" "$KIT_ROOT/skills/create-issue/references/issue-template.md" 2>/dev/null; then
+  echo "FAIL: [DR5 create-issue no longer writes the old header note] 'REQUIRED SUB-SKILL' still appears in create-issue"
+  fails=$((fails + 1))
+else
+  echo "ok   [DR5 create-issue no longer writes the old header note]"
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "doctrine references golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # skills/_shared/prior-rejections.md must exist, and all THREE consumers must link it (#319). A
 # prior rejection is an ADR with `status: rejected`; the lookup that consults it runs at every inlet
 # (`create-issue` Step 3, `merge-pr` 6c) and the pass that judges the queue (`triage-backlog` Step
@@ -805,6 +881,62 @@ if [ -n "$SUBSTRATE_HITS" ]; then
   exit 1
 fi
 echo "ok   no auto-dev file names claude -p or --strict-mcp-config"
+
+# ---------------------------------------------------------------------------------------------
+# The lifecycle skills no longer depend on the third-party superpowers plugin (#324): the
+# brainstorm, plan and TDD doctrines they used to invoke live under skills/_shared/, and an
+# `Invoke superpowers:X` line on a machine without the plugin degrades silently — the Skill tool
+# has no such name, and the agent improvises whatever shape it likes. So the colon-invocation form
+# is refused anywhere a session actually reads: skills/ and commands/. The bare word is still
+# allowed — systematic-debugging's compatibility credit ("ported from the superpowers skill") and
+# docs/superpowers/ (historical plans, a directory name) are attribution and history, not
+# invocations. Scans the real tree, not a scratch copy: the defect IS the committed prose.
+echo "== no shipped skill or command invokes a superpowers: skill (#324) =="
+SUPERPOWERS_HITS=$(grep -rn 'superpowers:' "$KIT_ROOT/skills" "$KIT_ROOT/commands" || true)
+if [ -n "$SUPERPOWERS_HITS" ]; then
+  echo "FAIL: [SP1 no superpowers: invocation in skills/ or commands/] the plugin is named again (#324):"
+  echo "$SUPERPOWERS_HITS" | sed 's/^/  /'
+  fails=$((fails + 1))
+else
+  echo "ok   [SP1 no superpowers: invocation in skills/ or commands/]"
+fi
+
+# The header note every filed plan carries changed with #324, and every issue filed before it still
+# carries the old one. implement-issue keeps executing both because its Step 2 locator anchors on
+# the `🛠️ Implementation plan` heading, never on the note — this case pins that: the anchor is
+# read out of the recipe itself (a re-spelling here would pass while the recipe drifted), it must
+# not name the plugin, and it must hit a fixture of each note with the same task count.
+echo "== implement-issue locates a plan under either header note (#324) =="
+MECH="$KIT_ROOT/skills/implement-issue/references/github-mechanics.md"
+RECIPE_LINE_RE="grep -q '[^']*' /tmp/plan-\$ISSUE.md"   # tmp-lint:allow — the recipe's own text being matched, not a path this suite writes
+PLAN_ANCHOR=$(grep -o "$RECIPE_LINE_RE" "$MECH" | head -1 | sed "s/^grep -q '\(.*\)' .*$/\1/")
+if [ -z "$PLAN_ANCHOR" ]; then
+  echo "FAIL: [SP2 the §2 locator anchor is readable          ] no \"grep -q '…' <plan file>\" line in $MECH"
+  fails=$((fails + 1))
+elif printf '%s' "$PLAN_ANCHOR" | grep -qi 'superpowers\|SUB-SKILL\|agentic workers'; then
+  echo "FAIL: [SP2 the §2 locator anchor is readable          ] anchors on the header note ('$PLAN_ANCHOR'), not the heading"
+  fails=$((fails + 1))
+else
+  echo "ok   [SP2 the §2 locator anchor is readable          ] '$PLAN_ANCHOR'"
+  for note in old new; do
+    FIXTURE="$KIT_ROOT/tests/skills/fixtures/plan-$note-header-note.md"
+    if ! grep -qF -- "$PLAN_ANCHOR" "$FIXTURE"; then
+      echo "FAIL: [SP2 $note header note is located             ] anchor '$PLAN_ANCHOR' misses $FIXTURE"
+      fails=$((fails + 1))
+    elif [ "$(grep -c '^### Task ' "$FIXTURE")" -ne 2 ]; then
+      echo "FAIL: [SP2 $note header note is located             ] expected 2 '### Task' blocks in $FIXTURE, got $(grep -c '^### Task ' "$FIXTURE")"
+      fails=$((fails + 1))
+    else
+      echo "ok   [SP2 $note header note is located             ] anchor hit, 2 '### Task' blocks in the fixture"
+    fi
+  done
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "superpowers-independence golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
 # CONTEXT.md (#313) — the kit's own domain glossary, in Matt Pocock's format (ported from

@@ -81,6 +81,13 @@ else
   # $GH_READ_SLEEP stalls the READ-BACK — the leg that decides the verdict and that #135 found
   # unbounded. `exec` so the sleep inherits this pid and a kill on it actually ends the call.
   [ -n "${GH_READ_SLEEP:-}" ] && exec sleep "$GH_READ_SLEEP"
+  # $GH_READBACK_CRLF models a text-mode `gh` stdout on THIS call only (#215 Task 1) — every \n it
+  # emits comes back as \r\n, the same class of corruption #199 found in `jq -j`, but here on the
+  # leg that reads back what GitHub now holds rather than the local pre-send round-trip.
+  if [ -n "${GH_READBACK_CRLF:-}" ]; then
+    [ -f "$GH_STORE" ] && sed $'s/$/\r/' "$GH_STORE"
+    exit 0
+  fi
   [ -f "$GH_STORE" ] && cat "$GH_STORE"
 fi
 STUB
@@ -554,5 +561,51 @@ fresh_log crlf-jq-stdout
   || { echo "FAIL [crlf-jq-stdout]: a correct tick was refused under a text-mode jq -j stdout (#199)"
        cat "$WORK/out.crlf-jq-stdout"; exit 1; }
 echo "  ok: crlf-jq-stdout — a text-mode jq -j stdout does not refuse a correct tick"
+
+# 17. Read-back leg (#215 Task 1). Unlike case 16's round-trip check — entirely local, no network
+#     fetch needed, so #199's fix could avoid the stdout boundary altogether — this leg's read of
+#     what GitHub now holds MUST cross gh's own stdout to reach us; there is no way to skip that
+#     boundary. GH_READBACK_CRLF models a text-mode `gh` stdout on the read (`--jq .body`) call
+#     only (the PATCH leg is untouched), isolating the read-back comparison specifically. A
+#     genuinely correct write must still be reported verified, not escalated to a false ALERT.
+fresh_log crlf-readback-stdout
+export GH_READBACK_CRLF=1
+crlf_readback_rc=0
+"$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+  > "$WORK/out.crlf-readback-stdout" 2>&1 || crlf_readback_rc=$?
+unset GH_READBACK_CRLF
+[ "$crlf_readback_rc" -eq 0 ] \
+  || { echo "FAIL [crlf-readback-stdout]: a correct write was refused/ALERTed under a text-mode gh
+        stdout on the read-back leg (#215)"; cat "$WORK/out.crlf-readback-stdout"; exit 1; }
+grep -q 'body verified intact' "$WORK/out.crlf-readback-stdout" \
+  || { echo "FAIL [crlf-readback-stdout]: no verified-intact verdict"; cat "$WORK/out.crlf-readback-stdout"; exit 1; }
+echo "  ok: crlf-readback-stdout — a text-mode gh stdout on the read-back does not falsely ALERT (#215)"
+
+# 18. The checkbox-only-diff guard (#215 Task 2). Unlike the read-back leg, BOTH operands here
+#     (--before and --after) are transformed by the SAME tool (unticked_form, which shells out to
+#     sed) before being compared, so a corruption sed applies uniformly to every invocation lands
+#     on both sides identically and cancels out in the diff. Modelled the same way case 16 models
+#     jq -j: wrap the real sed (reached via $REAL_SED in the environment, never spliced into the
+#     generated script as a literal — same untrusted-path reasoning as case 16's $REAL_JQ) and
+#     append \r to every line it emits, scoped to just this invocation.
+REAL_SED="$(command -v sed)"
+mkdir -p "$WORK/binsed"
+cat > "$WORK/binsed/sed" <<'STUB'
+#!/usr/bin/env bash
+# Wraps the real sed, reached via $REAL_SED in the environment, and appends \r to every line it
+# emits. unticked_form is the only sed call tick-plan.sh makes on this path, so wrapping every sed
+# invocation here is fine.
+"$REAL_SED" "$@" | "$REAL_SED" $'s/$/\r/'
+STUB
+chmod +x "$WORK/binsed/sed"
+
+fresh_log crlf-checkbox-diff-sed-stdout
+( PATH="$WORK/binsed:$PATH"; export PATH REAL_SED
+  "$TICK" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+    > "$WORK/out.crlf-checkbox-diff-sed-stdout" 2>&1 ) \
+  || { echo "FAIL [crlf-checkbox-diff-sed-stdout]: a correct tick was refused under a text-mode sed
+        stdout on the checkbox-only-diff guard (#215)"
+       cat "$WORK/out.crlf-checkbox-diff-sed-stdout"; exit 1; }
+echo "  ok: crlf-checkbox-diff-sed-stdout — a text-mode sed stdout does not break the checkbox-only-diff guard (#215)"
 
 echo "tick-plan golden test OK"

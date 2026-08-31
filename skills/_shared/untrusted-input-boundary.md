@@ -118,6 +118,8 @@ link, and a file that adds one without appearing below.
 - `commands/auto-dev-worker.md` — the standing rules a dispatched worker reads in a fresh context
 - `skills/_shared/prior-rejections.md` — the issue titles and gists fed **into** the prior-rejection
   lookup (the rejected ADRs it searches are kit-authored; what is matched against them is not)
+- `skills/followups/SKILL.md` — the answered questionnaire `--ingest` reads back, whose free-text
+  answers (a `wont` reason, a `later` note) a third party — the repo owner — wrote
 
 ⚠️ **`commands/auto-dev-worker.md` is on this list for a reason worth keeping.** A worker is a
 separate sub-agent session that never opens `skills/auto-dev/SKILL.md`; the supervisor stating the

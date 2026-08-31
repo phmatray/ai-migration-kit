@@ -467,6 +467,9 @@ jobs:
       - name: Remote-branch-teardown golden test (Step 7 finishes the delete, doesn't assume it)
         run: ./tests/remote-branch-teardown/test.sh
 
+      - name: Merge-pr parent-decision-note golden test (Step 5c notes a landed child on its tracking parent)
+        run: ./tests/merge-pr-parent/test.sh
+
       - name: Release-title gate golden test (pass AND fail paths)
         run: ./tests/release-title-gate/test.sh
 

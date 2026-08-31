@@ -26,13 +26,14 @@
   ],
   "not_decisions": {
     "hooks/git-write-gate.sh": "a fail-open allow/deny wrapper on one Bash tool call \u2014 it enforces the guard convention (#26, #280), the same class as the guarded-*.sh scripts it routes to; not a control-flow choice with a registered verdict vocabulary",
+    "hooks/roseline-gate.sh": "a fail-open allow/deny gate on one Read tool call \u2014 every path that is not 'deny this .cs Read' exits 0 silently (docs/adr/0002), and the deny travels as a PreToolUse permissionDecision, which is not a verdict source decide.sh dispatches; the same class as hooks/git-write-gate.sh, which is modelled on it line for line (#307, #353)",
     "scripts/audit-inventory.sh": "a read-only structural inventory probe of a .NET repo, not a control-flow choice",
     "scripts/ci-wiring-check.py": "a structural completeness guard (every suite is CI-wired); it has no verdict vocabulary of its own to register",
     "scripts/contrast-check.py": "a WCAG contrast-ratio calculator, not a control-flow choice",
     "scripts/decide.sh": "the dispatcher itself — it runs decisions, it is not one",
     "scripts/decision-check.py": "the guard that enforces this very registry; it cannot audit itself as one of its own subjects",
     "scripts/dependency-health.sh": "a read-only probe of a delivered dependency graph — it runs `dotnet list package --vulnerable/--deprecated` and reports what it found, the same shape as audit-inventory.sh; phase 6's exit gate is what branches on the result",
-    "scripts/followups.py": "a read-only aggregator of migration follow-ups, not a control-flow choice",
+    "scripts/followups.py": "aggregates follow-ups and applies the owner's stated answers to the reports; it decides nothing itself",
     "scripts/main-worktree.sh": "resolves a path (the main working tree's root); it answers a question, it does not branch on one",
     "scripts/parse-sweep.sh": "a structural guard (every suite parses under bash 3.2), not a control-flow choice with a verdict vocabulary",
     "scripts/pinned-literals-check.py": "a structural guard in its own declare-or-record style (the precedent R10 mirrors); not a control-flow choice",
@@ -60,10 +61,12 @@
     "skills/implement-issue/scripts/tick-plan.sh": "writes a checkbox-flipped plan back to GitHub, fail-closed; a mechanical write helper, not a control-flow choice",
     "skills/merge-pr/scripts/base-run-verdict.sh": "resolves the base branch's check-runs for one sha and maps the registered `ci.verdict` answer onto a post-merge green/red/unverified report; it delegates every CI rule to that decision rather than restating one",
     "skills/merge-pr/scripts/guarded-pr-merge.sh": "merges a PR and reads the outcome back from `gh pr view`'s state; a guarded write plus read-back, not a registered verdict vocabulary",
+    "skills/merge-pr/scripts/parent-decision-note.sh": "reads a merged child issue's native `parent` field and appends one line to the parent's body when one exists; a mechanical read-then-conditional-edit (idempotent per PR number), not a control-flow choice",
     "skills/merge-pr/scripts/remote-branch-teardown.sh": "finishes a remote-branch delete `gh pr merge` left undone; a mechanical cleanup step, not a control-flow choice",
     "skills/setup-repo/scripts/parse-manifest.py": "reads a repo-setup manifest and emits flat records; a data-shape translator, not a control-flow choice",
     "skills/setup-repo/scripts/project-area-options.py": "rewrites a copied issue form's Area dropdown from the manifest; a mechanical rewrite, not a control-flow choice",
     "skills/setup-repo/scripts/repo-setup.sh": "converges a repo to the expected configuration (plan/apply); it does not itself emit a registered verdict",
+    "skills/systematic-debugging/find-polluter.sh": "a bisection utility a developer runs by hand to find which test creates unwanted state \u2014 it reports the polluter it bisected to, the debugger decides what to do about it; not a control-flow choice the methodology makes",
     "skills/systematic-debugging/scripts/hitl-loop.template.sh": "a TEMPLATE a debugger copies and edits \u2014 it prompts a human and prints their answers as KEY=VALUE; it has no verdict of its own to register",
     "skills/triage-backlog/scripts/rejected-adrs.sh": "a read-only keyword lookup over rejected ADRs; it reports rows and distinguishes 'found none' from 'could not look', the calling skill decides whether a hit blocks a filing"
   }
