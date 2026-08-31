@@ -1,15 +1,26 @@
 # Skill-triggering evals
 
-A **safe, repeatable** regression check for the five lifecycle skills' *descriptions* —
-[`create-issue`](../skills/create-issue), [`implement-issue`](../skills/implement-issue),
-[`merge-pr`](../skills/merge-pr), [`get-repo-profile`](../skills/get-repo-profile),
+A **safe, repeatable** regression check for **every** skill's *description* — all ten of
+[`auto-dev`](../skills/auto-dev), [`create-issue`](../skills/create-issue),
+[`followups`](../skills/followups), [`get-repo-profile`](../skills/get-repo-profile),
+[`implement-issue`](../skills/implement-issue), [`legacy-upgrade`](../skills/legacy-upgrade),
+[`merge-pr`](../skills/merge-pr), [`setup-repo`](../skills/setup-repo),
+[`systematic-debugging`](../skills/systematic-debugging) and
 [`triage-backlog`](../skills/triage-backlog).
 
-`triage-backlog` joined in the same shape as the others (`triage-backlog-trigger-eval.json`, in
-`SKILLS` and `DEFAULT_KNOWN`). Its close boundaries — against `create-issue` (open work) and
-`merge-pr` (file at the inlet, mid-merge) — are carried as negatives inside its own set rather than
-in `boundary-trigger-eval.json`, which is specifically the `implement-issue` ↔ `merge-pr` pair and
-whose runner is written around exactly those two.
+`<skill>-trigger-eval.json` here is a skill's **triggering contract**, and its only home (#331).
+It used to have two: these sets, plus a per-skill bullet list under `tests/skills/` that CI
+guarded and nothing ran. The two drifted — `create-issue` carried 8 bullets against 11 different
+JSON queries, and five skills had a bullet list and no eval set at all, so "re-run the evals" left
+half the kit unmeasured while CI reported every contract present. The markdown lists are retired;
+the sets absorbed every bullet they were missing, near-miss annotations included (that is what the
+`note` field is for).
+
+Each skill's close boundaries are carried as negatives **inside its own set** — `setup-repo` vs
+`get-repo-profile` (write vs read), `auto-dev` vs its own children (many issues vs one),
+`followups` vs `triage-backlog` (report.json queues vs GitHub issues), `systematic-debugging` vs
+new-code work. `boundary-trigger-eval.json` stays what it always was: specifically the
+`implement-issue` ↔ `merge-pr` pair, with a runner written around exactly those two.
 
 > **Moved here from `Atypical-Consulting/Koine` on 2026-07-25**, when these four skills were
 > consolidated into this repo as the canonical, profile-driven copies and Koine switched to
@@ -23,7 +34,8 @@ landing**"). With no automated coverage, a description edit can silently start o
 These evals catch that: each skill has a set of should-trigger phrasings and near-miss negatives, and
 [`trigger_eval.py`](trigger_eval.py) measures the trigger rate of the *installed* description.
 
-> Tooling/test-infra only — no product code. Issue #372 (builds on #370).
+> Tooling/test-infra only — no product code. Issue #372 (builds on #370); widened to all
+> ten skills, and made the single home for the triggering contract, by #331.
 
 ## Why a local runner (the `run_eval` 0-trigger diagnosis)
 
@@ -73,7 +85,7 @@ python3 evals/trigger_eval.py --skill get-repo-profile \
   --eval-set evals/get-repo-profile-trigger-eval.json \
   --runs-per-query 3 --out evals/results/get-repo-profile.json
 
-# all four + the boundary, refreshing the committed baseline
+# all ten + the boundary, refreshing the committed baseline
 python3 evals/run_all.py --runs-per-query 3
 ```
 
@@ -86,6 +98,27 @@ To re-check after a description edit: re-run the affected skill's set and compar
 `python3 evals/run_all.py --skills <name>` *merges* into the committed `baseline.json` (it refreshes
 only that skill and leaves the others intact), so it is safe to re-run one skill at a time.
 
+## The CI contract
+
+CI enforces the sets **structurally**, never by running them.
+[`tests/skills/check-frontmatter.py`](../tests/skills/check-frontmatter.py) fails the build unless,
+for every `skills/<name>/SKILL.md`, `evals/<name>-trigger-eval.json`:
+
+- exists;
+- parses as JSON and is a non-empty **list of objects**;
+- uses only the runner's keys — `query`, `should_trigger`, optional `note` (a stray key such as the
+  boundary set's `expect` is a copy-paste the runner would silently ignore);
+- gives every entry a non-empty string `query` and a boolean `should_trigger`;
+- repeats no `query` — a duplicated one inflates recall for free;
+- carries **both** polarities: at least one `should_trigger: true` and at least one `false`.
+
+That is the whole of what CI checks, and it is deliberate. **The bench itself stays manual**: each
+query spawns a real `claude -p` (× `--runs-per-query` × ten skills), it needs an authenticated CLI
+on the runner, it costs tokens, and by design it kills real skills mid-stream (§Safety above).
+Structural in CI, measured on demand. A skill added later without a set fails CI by name, with the
+path to create — [`tests/skills/test.sh`](../tests/skills/test.sh) cases `T1`–`T7` are the witness
+that each of those refusals still fires.
+
 ## Baseline
 
 Captured with `--runs-per-query 3`, threshold 0.5 (full data in [`results/`](results); summary in
@@ -94,10 +127,28 @@ signal to look at.
 
 | Skill | Queries | Pass | Recall (should-trigger) | Specificity (should-not) |
 |-------|--------:|-----:|:-----------------------:|:------------------------:|
-| `create-issue`     | 18 | 18/18 | 1.0 | 1.0 |
-| `implement-issue`  | 18 | 18/18 | 1.0 | 1.0 |
-| `merge-pr`         | 18 | 18/18 | 1.0 | 1.0 |
-| `get-repo-profile` | 18 | 18/18 | 1.0 | 1.0 |
+| `create-issue`          | 23 | 18/18 † | 1.0 † | 1.0 † |
+| `implement-issue`       | 21 | 18/18 † | 1.0 † | 1.0 † |
+| `merge-pr`              | 20 | 18/18 † | 1.0 † | 1.0 † |
+| `get-repo-profile`      | 22 | 18/18 † | 1.0 † | 1.0 † |
+| `triage-backlog`        | 20 | — ‡ | — ‡ | — ‡ |
+| `auto-dev`              | 19 | — ‡ | — ‡ | — ‡ |
+| `followups`             | 19 | — ‡ | — ‡ | — ‡ |
+| `legacy-upgrade`        | 20 | — ‡ | — ‡ | — ‡ |
+| `setup-repo`            | 21 | — ‡ | — ‡ | — ‡ |
+| `systematic-debugging`  | 19 | — ‡ | — ‡ | — ‡ |
+
+† Last measured over the **18** queries these sets held before #331 grew them; the ported negatives
+are not in that number, so re-run the skill before quoting it as current.
+‡ **Not yet measured.** These sets are new (or, for `triage-backlog`, were in `SKILLS` without ever
+being run). Refresh one at a time — `python3 evals/run_all.py --skills <name> --runs-per-query 3`
+merges into the committed `baseline.json` rather than overwriting it.
+
+`followups` is expected to sit **at the floor** in a headless probe: without repo context it barely
+fires at all (positives ≈ 0/3 — see the "Optimisation du déclenchement du skill `followups`" entry
+in [`docs/backlog.md`](../docs/backlog.md), where the skill-creator loop measured it). Whatever that
+run records **is** its baseline, not a target to hit; the reliable signal there is the other half —
+zero over-triggering across its near-miss negatives.
 
 Specificity is *real*, not just "nothing fired": each near-miss negative fires the **expected sibling**
 skill (e.g. `implement issue 47` → `implement-issue`, `file an issue …` → `create-issue`,

@@ -522,3 +522,57 @@ if failures:
 print("ok   no file under skills/ re-spells the main-worktree derivation")
 PY
 echo "skills golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
+# The trigger contract has ONE home, and the records say so (#331). The ten
+# tests/skills/<name>.triggers.md lists were a CACHE of the eval sets — a second copy of a contract
+# nothing ran, which CI certified while the sets it duplicated drifted away from it. Deleting them
+# is only half the fix: as long as a live document still points a reader at that path, the cache is
+# rebuilt the first time someone follows the pointer. So this pins the pointer, not just the files.
+#
+# Pinned against the real tree (no scratch fixture): the defect IS the committed prose.
+echo "== the trigger contract has one home, and the records name it (#331) =="
+
+if compgen -G "$KIT_ROOT/tests/skills/*.triggers.md" > /dev/null 2>&1; then
+  echo "FAIL: [R1 no tests/skills/*.triggers.md         ] a retired trigger list is back — the"
+  echo "      contract lives in evals/<skill>-trigger-eval.json, guarded by check-frontmatter.py"
+  fails=$((fails + 1))
+else
+  echo "ok   [R1 no tests/skills/*.triggers.md         ]"
+fi
+
+# Only these may still say "triggers.md", and each for a reason that is not a pointer:
+#   CHANGELOG.md, reviews/  — dated, immutable records of what the kit did on a given day;
+#                             rewriting them would falsify history (CHANGELOG.md is release-please's).
+#   docs/backlog.md         — the entry rewritten as a CLOSED item, which has to name what closed.
+#   tests/skills/*.py|sh    — this suite and the checker, explaining the rule they replaced.
+# Anything else naming the path is a live pointer at a home that no longer exists.
+R2_ALLOWED="CHANGELOG.md docs/backlog.md tests/skills/check-frontmatter.py tests/skills/test.sh"
+r2_unexpected=""
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  case "$f" in reviews/*) continue ;; esac
+  case " $R2_ALLOWED " in *" $f "*) continue ;; esac
+  r2_unexpected="$r2_unexpected $f"
+done <<< "$(git -C "$KIT_ROOT" grep -l -F "triggers.md" -- . 2>/dev/null)"
+if [ -n "$r2_unexpected" ]; then
+  echo "FAIL: [R2 no live pointer at the retired path  ]$r2_unexpected"
+  echo "      still names tests/skills/<name>.triggers.md — point it at evals/<skill>-trigger-eval.json"
+  fails=$((fails + 1))
+else
+  echo "ok   [R2 no live pointer at the retired path  ]"
+fi
+
+if grep -qF 'trigger-eval.json' "$KIT_ROOT/ARCHITECTURE.md" 2>/dev/null; then
+  echo "ok   [R3 ARCHITECTURE.md names the new home   ]"
+else
+  echo "FAIL: [R3 ARCHITECTURE.md names the new home   ] its \"Where each concern lives\" row must"
+  echo "      point Triggering contracts at evals/<name>-trigger-eval.json"
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "one-trigger-home golden test: all cases behaved as specified"

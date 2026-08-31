@@ -9,10 +9,22 @@ rendra rentable (YAGNI sinon).
   et ouvre les correctifs.
 - **Timeout sur `claude mcp list` dans le préflight** : un CLI qui bloque (auth expirée) gèle la
   phase 0. Déclencheur : premier gel constaté.
-- **Banc de déclenchement sur les 6 skills** : les listes `tests/skills/*.triggers.md` sont des
-  contrats statiques — la CI garde leur présence (check-frontmatter.py), pas la cible ≥ 90 % ;
-  seul `followups` a jamais vu le banc (16/16, v1.5.0). Déclencheur : prochaine modification
-  d'une `description` → passer la liste du skill touché au banc skill-creator.
+- **Banc de déclenchement sur les 10 skills — ✅ fait (2026-08-31, #331).** L'entrée disait
+  « listes statiques, CI garde la présence, pas la cible » : c'était vrai des
+  `tests/skills/*.triggers.md`, et faux depuis que `evals/` existe. Le banc est réel
+  (`evals/trigger_eval.py` mesure la `description` *installée* avec un vrai `claude -p` ;
+  `evals/run_all.py` rafraîchit `evals/results/baseline.json`), et le contrat n'a plus qu'une
+  maison : `evals/<skill>-trigger-eval.json`, une par skill, pour les **dix** skills. Les dix
+  listes markdown — un cache d'un contrat que rien n'exécutait — sont retirées, et
+  `check-frontmatter.py` valide désormais le jeu d'évals (JSON valide, clés du runner, pas de
+  requête dupliquée, les deux polarités présentes) au lieu du markdown.
+  Le banc reste **manuel** : il lance un `claude -p` par requête, il coûte des tokens et il tue
+  de vrais skills en cours de flux (`evals/README.md` §Safety) — la CI garde la structure, la
+  mesure se déclenche à la demande. Déclencheur permanent : une modification de `description`
+  → `python3 evals/run_all.py --skills <skill>` et comparaison au `baseline.json` committé.
+  `followups` reste attendu au plancher en sonde headless (positifs ≈ 0/3 sans contexte de repo,
+  cf. l'entrée « Optimisation du déclenchement du skill `followups` » ci-dessous) : ce chiffre
+  mesuré *est* sa ligne de base, pas une cible à atteindre.
 - **Traduction anglaise des 4 references françaises de `legacy-upgrade`** (audit-executive,
   delivery-playbook, report-template, rewrite-playbook) : la surface distribuée est anglaise
   depuis v1.7.0 (SKILL.md, commandes), ces references restent françaises. Déclencheur : premier
