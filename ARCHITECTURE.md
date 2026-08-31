@@ -9,7 +9,8 @@ migration's deferred work becomes tracked GitHub issues. Every skill carries
 
 ## Skill call graph — who calls whom
 
-Solid arrows = one skill invokes / hands off to another. Dashed = suggested next step.
+Solid arrows = one skill **invokes** another during its own run — nobody types a command. Dashed
+arrows are **hand-offs**: the command the user runs next when this skill finishes.
 The cylinder is shared **data**, not a skill: the committed per-repo profile.
 
 ```mermaid
@@ -40,18 +41,22 @@ graph TD
 
     M --> LU
     MF --> FU
-    LU -- "phase 7: present the open tail" --> FU
-    FU -- "convert a follow-up into an issue" --> CI
+    LU -. "phase 7: /migrate-followups" .-> FU
+    FU -. "convert an entry: /create-issue" .-> CI
     CI -. "next step: /implement-issue #N" .-> II
     II -. "hand-off: /merge-pr #PR" .-> MP
+    MP -. "then: /implement-issue #<next>" .-> II
+    TB -. "next step: /implement-issue #<kept>" .-> II
     MP -- "files deferred work" --> CI
     AD -- "dispatches N workers" --> AW
     AW -- "phase 1" --> II
     AW -- "phase 2" --> MP
     AD -- "off-scope finds" --> CI
+    AD -. "held L/XL: /implement-issue #N" .-> II
     AD -- "reads at step 1" --> PROF
     RP -- "generates (run once per repo)" --> PROF
     RP -. "names as the remedy for a missing label axis or issue-form dir" .-> SR
+    RP -. "then: /create-issue <idea>" .-> CI
     SR -. "afterwards: re-run get-repo-profile --refresh" .-> RP
     CI -- "reads at step 1" --> PROF
     II -- "reads at step 1" --> PROF
@@ -64,6 +69,12 @@ graph TD
     MP --- SH
     TB --- SH
 ```
+
+**The dashed edges above are checked, not hand-synced.** They must match the hand-off table in
+[`skills/_shared/recap.md`](skills/_shared/recap.md) exactly — one row per skill, one edge per
+non-terminal row — and `scripts/recap-wiring-check.py` refuses in CI when either side gains or loses
+one (#175). Edit the table; the graph follows. Labels are free text: only the `(from, to)` pair is
+compared.
 
 The `followups → create-issue → implement-issue → merge-pr → create-issue` chain is deliberate:
 `merge-pr` files the follow-ups it discovers, which feeds the queue again — the backlog stays

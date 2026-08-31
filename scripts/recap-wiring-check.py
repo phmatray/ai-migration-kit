@@ -26,6 +26,13 @@ What it checks, against `skills/_shared/recap.md`'s hand-off table:
      `_shared/recap.md`, so a skill cannot quietly grow a hand-written ending again. The link is
      what the check can see; whether a given RUN filled the four blocks is a judgement call and
      stays one, exactly as it does for `preconditions.md`.
+  3. ARCHITECTURE.md AGREES — the dashed edges of the skill call graph (`A -. "…" .-> B`) form
+     exactly the same set of `(skill, next-skill)` pairs as the table's non-terminal rows. Extra on
+     either side refuses, naming which side lacks it. SOLID edges are ignored on purpose: they mean
+     "invokes during its own run" (`MP --> CI` files follow-ups through create-issue), and reading
+     one as a hand-off would contradict merge-pr's own row, which points at implement-issue.
+     Only the `(from, to)` pair is compared, never the edge's label — so rewording the prose on an
+     arrow can never produce a false refusal.
 
 Everything here is `pathlib` + `re`: no shell idioms, so it behaves the same on a Windows checkout
 (#174).
@@ -49,6 +56,13 @@ import sys
 # The reference that owns the recap shape and the hand-off table.
 RECAP_REL = pathlib.PurePosixPath("skills/_shared/recap.md")
 
+# The graph the hand-offs are drawn in. Only the fence under this heading is read: ARCHITECTURE.md
+# carries a second mermaid graph (external dependencies) whose dashed arrows mean "recommended
+# dependency" — a different relation entirely, and one whose endpoints are MCP servers and CLI
+# tools rather than skills.
+ARCHITECTURE_REL = pathlib.PurePosixPath("ARCHITECTURE.md")
+CALL_GRAPH_HEADING = "## Skill call graph"
+
 # `skills/_shared/` holds shared references, not a skill — it has no SKILL.md and gets no row.
 NOT_A_SKILL = {"_shared"}
 
@@ -64,6 +78,14 @@ COMMAND_RE = re.compile(r"`\s*/([A-Za-z0-9][A-Za-z0-9._-]*)")
 # from a skill, `skills/_shared/recap.md` from the repo root, and a bare mention all satisfy it —
 # what matters is that the skill points at the one home rather than restating the shape.
 RECAP_LINK_RE = re.compile(r"_shared/recap\.md")
+
+# A mermaid node declaration: `CI[create-issue]`, `SH["_shared/<br/>…"]`, `PROF[("repo-profile.md…")]`.
+NODE_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_]*)\[(.+)\]\s*$")
+
+# A DOTTED mermaid link, in both spellings mermaid accepts: `A -.-> B` and `A -. "label" .-> B`.
+# `-->` and `-- "label" -->` cannot match — the literal `-.` is what separates the two families.
+DASHED_EDGE_RE = re.compile(
+    r"([A-Za-z][A-Za-z0-9_]*)\s*-\.(?:[^\n]*?\.)?->\s*([A-Za-z][A-Za-z0-9_]*)")
 
 # `commands/<name>.md` says which skill it drives in one sentence: Invoke the `followups` skill.
 COMMAND_TARGET_RE = re.compile(r"`([A-Za-z0-9][A-Za-z0-9._-]*)`\s+skill")
@@ -190,6 +212,85 @@ def check_table_resolves(repo, rows):
     return refusals
 
 
+def parse_handoff_edges(path, known_skills):
+    """The `(from-skill, to-skill)` pairs the call graph draws as DASHED edges.
+
+    Node ids are resolved through the `id[label]` declarations in the same fence, and an edge whose
+    endpoints do not BOTH resolve to a skill is dropped: `AW`, `M`, `PROF` and `SH` are real nodes
+    in that graph and none of them is a skill with a recap to hand off from.
+    """
+    text = read_text(path)
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.startswith(CALL_GRAPH_HEADING):
+            start = i
+            break
+    if start is None:
+        raise PlumbingError("%s has no '%s' section" % (path, CALL_GRAPH_HEADING))
+    fence = None
+    for i in range(start + 1, len(lines)):
+        if lines[i].strip().startswith("```mermaid"):
+            fence = i
+            break
+        if lines[i].startswith("## "):
+            break
+    if fence is None:
+        raise PlumbingError("%s's '%s' section carries no ```mermaid fence"
+                            % (path, CALL_GRAPH_HEADING))
+    body = []
+    for line in lines[fence + 1:]:
+        if line.strip().startswith("```"):
+            break
+        body.append(line)
+
+    node_skill = {}
+    for line in body:
+        match = NODE_RE.match(line)
+        if not match:
+            continue
+        label = match.group(2).strip().strip("()").strip('"').split("<br")[0].strip()
+        if label in known_skills:
+            node_skill[match.group(1)] = label
+
+    edges = set()
+    for line in body:
+        for src, dst in DASHED_EDGE_RE.findall(line):
+            if src in node_skill and dst in node_skill:
+                edges.add((node_skill[src], node_skill[dst]))
+    return edges
+
+
+def declared_edges(repo, rows):
+    """The `(from-skill, to-skill)` pairs the hand-off table declares."""
+    edges = set()
+    for row in rows:
+        for command in commands_in(row["next"]):
+            target = resolve_command(repo, command)
+            if target is not None:
+                edges.add((row["skill"], target))
+    return edges
+
+
+def check_architecture_agrees(repo, rows):
+    """Assertion 3 — the graph and the table describe the same hand-off chain."""
+    known = set(skill_dirs(repo))
+    drawn = parse_handoff_edges(repo / ARCHITECTURE_REL, known)
+    declared = declared_edges(repo, rows)
+    refusals = []
+    for src, dst in sorted(declared - drawn):
+        refusals.append(
+            "REFUSE: %s hands `%s` off to `%s`, but %s draws no dashed edge for it — add "
+            "`<%s> -. \"next step\" .-> <%s>` to the skill call graph"
+            % (RECAP_REL, src, dst, ARCHITECTURE_REL, src, dst))
+    for src, dst in sorted(drawn - declared):
+        refusals.append(
+            "REFUSE: %s draws a dashed `%s` -> `%s` hand-off that %s declares no row for — make it "
+            "a solid edge if it is an invocation, or give the table the row"
+            % (ARCHITECTURE_REL, src, dst, RECAP_REL))
+    return refusals
+
+
 def check_skills_link(repo, rows):
     """Assertion 2 — every skill points at the shared reference instead of restating it."""
     refusals = []
@@ -214,6 +315,7 @@ def main(argv=None):
         rows = parse_handoff_table(repo / RECAP_REL)
         refusals = check_table_resolves(repo, rows)
         refusals += check_skills_link(repo, rows)
+        refusals += check_architecture_agrees(repo, rows)
     except PlumbingError as exc:
         print("ERR: %s" % exc)
         return 2
@@ -223,7 +325,7 @@ def main(argv=None):
             print(line)
         return 1
     print("OK: %d skills, one hand-off row each, every next command resolves, "
-          "every skill links the reference" % len(rows))
+          "every skill links the reference, ARCHITECTURE.md's dashed edges agree" % len(rows))
     return 0
 
 

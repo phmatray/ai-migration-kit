@@ -9,6 +9,14 @@
 #   C. a real skill directory with no row in the table                             -> REFUSE, named
 #   D. --repo pointing at a tree with no _shared/recap.md                          -> exit 2, NOT 1
 #   E. a skill whose SKILL.md never links _shared/recap.md                         -> REFUSE, named
+#   F. a hand-off the table declares that ARCHITECTURE.md never draws               -> REFUSE, naming
+#      the side that lacks it
+#   G. a dashed edge ARCHITECTURE.md draws that the table never declares            -> REFUSE, naming
+#      the other side
+#   H. a SOLID edge between two skills with no row for it                           -> exit 0. Solid
+#      means "invokes", not "hand-off": `MP --> CI` must not collide with merge-pr's own row, which
+#      points at implement-issue
+#   L. no ARCHITECTURE.md at all                                                    -> exit 2, NOT 1
 #   I. a Next-command cell naming a command that resolves to no skill               -> REFUSE
 #   J. a duplicate row for one skill                                                -> REFUSE
 #   K. a table with no rows at all                                                  -> exit 2, never
@@ -164,6 +172,26 @@ I invented my own ending and linked nothing.
 EOF
 expect "the unlinked skill is named" 1 "$F" "REFUSE" "beta"
 
+# --------------------------------------------- F. the table declares an edge the graph never draws
+echo "F. a hand-off ARCHITECTURE.md does not draw"
+F="$WORK/f"; scaffold "$F"
+write_arch "$F"
+expect "the missing dashed edge names ARCHITECTURE.md as the side lacking it" 1 "$F" \
+  "REFUSE" "alpha" "beta" "ARCHITECTURE.md"
+
+# --------------------------------------------- G. the graph draws an edge the table never declares
+echo "G. a dashed edge the table never declares"
+F="$WORK/g"; scaffold "$F"
+write_arch "$F" '    A -. "next step: /beta" .-> B' '    B -. "next step: /alpha" .-> A'
+expect "the surplus dashed edge names the table as the side lacking it" 1 "$F" \
+  "REFUSE" "beta" "alpha" "recap.md"
+
+# ------------------------------------------------------------ H. a solid edge is not a hand-off
+echo "H. a solid edge between two skills with no row for it"
+F="$WORK/h"; scaffold "$F"
+write_arch "$F" '    A -. "next step: /beta" .-> B' '    B -- "files deferred work" --> A'
+expect "solid edges are invocations and are ignored" 0 "$F"
+
 # ------------------------------------------------------- I. a next command that resolves nowhere
 echo "I. a Next command naming something that is not a skill or a command"
 F="$WORK/i"; scaffold "$F"
@@ -186,6 +214,11 @@ echo "K. a reference whose table has no rows"
 F="$WORK/k"; scaffold "$F"
 write_table "$F"
 expect "an empty table is a plumbing error, never a vacuous pass" 2 "$F" "ERR"
+
+# --------------------------------------------------------- L. no ARCHITECTURE.md -> no verdict
+echo "L. --repo with no ARCHITECTURE.md"
+F="$WORK/l"; scaffold "$F"; rm -f "$F/ARCHITECTURE.md"
+expect "a missing graph is a plumbing error, not a refusal" 2 "$F" "ERR"
 
 # ------------------------------------------------------------------------------------------ verdict
 echo
