@@ -35,7 +35,7 @@ Written to `migration/assessment.md` — risk map: net6.0 EOL (high), `WebClient
 
 All three csprojs bumped to `net10.0`; test stack to Test SDK 17.14.1, xunit 2.9.3, runner 3.1.1. Rebuild: 0 errors, 1 warning left (SYSLIB0014 — NETSDK1138 disappeared with the TFM). Tests: 6/6 on net10.0.
 
-> Field note (added in 1.10.0): this run predates the phase-5 **xunit v2 → v3** item, so it landed on the v2 line — as the phase-3 guide prescribed at the time. That is exactly the accidental outcome 1.10.0 turns into a decision: `dotnet list package --outdated` proposes `xunit` 2.9.3 and can never propose `xunit.v3`, because the package *identifier* changes. The numbers above are the real run and are left untouched; see `skills/legacy-upgrade/references/xunit-v3-migration.md`.
+> Field note (added in 1.10.0): this run predates the phase-5 **xunit v2 → v3** item, so it landed on the v2 line — as the phase-3 guide prescribed at the time. That is exactly the accidental outcome 1.10.0 turns into a decision: `dotnet list package --outdated` proposes `xunit` 2.9.3 and can never propose `xunit.v3`, because the package *identifier* changes. The numbers above are the real run and are left untouched; see `skills/migrate-legacy/references/xunit-v3-migration.md`.
 
 ## Phase 4 — Remediate
 

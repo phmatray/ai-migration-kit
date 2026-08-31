@@ -3,7 +3,7 @@
 
 Measures whether a skill's *description* causes Claude to invoke that skill for a
 set of queries, without ever executing the skill's body. It is a regression check
-for the installed `create-issue` / `implement-issue` / `merge-pr` / `get-repo-profile`
+for the installed `create-issue` / `implement-issue` / `merge-pr` / `profile-repo`
 descriptions: a description edit that starts over- or under-firing (or blurs the
 `implement-issue` vs `merge-pr` boundary) shows up as a changed trigger rate.
 
@@ -15,7 +15,7 @@ only when that exact uuid-suffixed name appears in the model's `Skill`/`Read` to
 input. That assumes the model invokes the synthetic command by name. But when the
 four lifecycle skills are already installed — as they were in Koine, where this was
 diagnosed — a should-trigger query makes the model invoke the *canonical* skill — e.g.
-`Skill(skill="get-repo-profile")` — never `get-repo-profile-skill-<uuid>`. The
+`Skill(skill="profile-repo")` — never `profile-repo-skill-<uuid>`. The
 substring test therefore never matches and every query scores 0 triggers, for every
 description. (See evals/README.md for the full diagnosis; issue #372.)
 
@@ -51,18 +51,18 @@ from pathlib import Path
 # (so the implement-issue vs merge-pr boundary can be read off a single run).
 # All ten skills, so a near-miss negative records WHICH sibling took it: a specificity
 # number is only real when the `fired` histogram names the skill that should have won (#331).
-DEFAULT_KNOWN = ["auto-dev", "create-issue", "followups", "get-repo-profile", "implement-issue",
-                 "legacy-upgrade", "merge-pr", "setup-repo", "systematic-debugging",
-                 "triage-backlog"]
+DEFAULT_KNOWN = ["auto-dev", "create-issue", "debug-issue", "implement-issue",
+                 "merge-pr", "migrate-legacy", "profile-repo", "review-followups",
+                 "setup-repo", "triage-backlog"]
 
 # A slash command is a skill's other front door, and its file is NOT named after the skill:
-# `/migrate` expands to commands/migrate.md, which contains no "legacy-upgrade". Without this map
+# `/migrate` expands to commands/migrate.md, which contains no "migrate-legacy". Without this map
 # a slash-command query could never be scored as a trigger — it would read 0/N forever and depress
 # recall for a reason that has nothing to do with the description (#331). Keyed by skill, so a
 # command file that names no skill simply never matches.
 SKILL_COMMANDS = {
-    "legacy-upgrade": ("migrate", "migrate-assess", "migrate-verify", "migrate-audit"),
-    "followups": ("migrate-followups",),
+    "migrate-legacy": ("migrate", "migrate-assess", "migrate-verify", "migrate-audit"),
+    "review-followups": ("migrate-followups",),
     "auto-dev": ("auto-dev-worker", "auto-dev-merge"),
 }
 

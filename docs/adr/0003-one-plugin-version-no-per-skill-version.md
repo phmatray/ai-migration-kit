@@ -17,7 +17,7 @@ code_refs:
 
 Skill frontmatter can carry arbitrary metadata, and a `version` key looks like ordinary hygiene, so
 several skills grew one. The plugin ships as a single unit: there is no way to install
-`legacy-upgrade` at one version alongside `merge-pr` at another. (Context lifted from
+`migrate-legacy` at one version alongside `merge-pr` at another. (Context lifted from
 `ARCHITECTURE.md` §Versioning and the docstring of `tests/skills/check-frontmatter.py`; #16.)
 
 ## Considered Options

@@ -88,7 +88,7 @@ run_case() {
 meta_mutator() {
   cat <<PY
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 t = re.sub(r'^metadata:\n(?:[ \t]+.*\n)+', '''$1''', t, count=1, flags=re.M)
 p.write_text(t, encoding="utf-8")
@@ -133,7 +133,7 @@ run_case "P8 metadata.suite missing         " fail "$(meta_mutator 'metadata:
 ')"
 run_case "P9 license key missing            " fail '
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 # Drop the key but leave the WORD in prose: a substring test would still pass here.
 t = t.replace("license: MIT\n", "", 1)
@@ -145,7 +145,7 @@ echo "== prose is not a key: these must be accepted =="
 run_case "N1 untouched baseline             " pass 'import sys'
 run_case "N2 \"version:\" inside compatibility" pass '
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 t = re.sub(r"^compatibility: >-\n(?:[ \t]+.*\n)+",
            "compatibility: >-\n  Requires python3 and git. Tested against gh CLI at\n"
@@ -154,7 +154,7 @@ p.write_text(t, encoding="utf-8")
 '
 run_case "N3 \"version:\" inside description  " pass '
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
            "description: >-\n  Consolidates open migration follow-ups. Reports the schema\n"
@@ -203,11 +203,11 @@ run_desc_case() {
   echo "ok   [$label]"
 }
 
-# Give followups' description exactly $1 NORMALIZED characters (the count the checker uses).
+# Give review-followups' description exactly $1 NORMALIZED characters (the count the checker uses).
 desc_mutator() {
   cat <<PY
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 body = ("Consolidates the open migration follow-ups and updates them at the source. " * 40)[:$1].strip()
 body += "x" * ($1 - len(body))
@@ -219,11 +219,11 @@ PY
 }
 
 run_desc_case "W1 850 chars warns, exit unchanged " 0 \
-  'WARN followups: description is 850 characters' "$(desc_mutator 850)"
+  'WARN review-followups: description is 850 characters' "$(desc_mutator 850)"
 run_desc_case "W2 1100 chars still hard-fails    " 1 \
-  'followups: description is 1100 characters \(guide limit: 1024\)' "$(desc_mutator 1100)"
+  'review-followups: description is 1100 characters \(guide limit: 1024\)' "$(desc_mutator 1100)"
 run_desc_case "W3 750 chars is silent            " 0 \
-  '!followups: description is' "$(desc_mutator 750)"
+  '!review-followups: description is' "$(desc_mutator 750)"
 
 # ---------------------------------------------------------------------------------------------
 # The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
@@ -473,9 +473,9 @@ p.write_text("Read it under [the boundary](./untrusted-input-boundary.md).\n", e
 run_boundary_case "B4 a listed link is wrong-depth   " fail "BROKEN LINK:" "" '
 import pathlib, sys
 # The regression a substring test cannot see: every character of a correct link is present, and it
-# resolves to skills/legacy-upgrade/_shared/… — a path that does not exist. The reminder reads
+# resolves to skills/migrate-legacy/_shared/… — a path that does not exist. The reminder reads
 # fine and is unreachable, which is the guard emptied of meaning while looking green.
-p = pathlib.Path(sys.argv[1]) / "skills/legacy-upgrade/references/phase-1-assess.md"
+p = pathlib.Path(sys.argv[1]) / "skills/migrate-legacy/references/phase-1-assess.md"
 t = p.read_text(encoding="utf-8")
 t = t.replace("](../../_shared/untrusted-input-boundary.md)", "](../_shared/untrusted-input-boundary.md)")
 p.write_text(t, encoding="utf-8")
@@ -808,7 +808,7 @@ echo "decomposition references golden test: all cases behaved as specified"
 # scans the real skills/ tree, not a scratch copy, because the defect IS the committed prose and
 # scripts, not something a fixture could stand in for.
 #
-# Proximity, not "the file mentions both": skills/get-repo-profile/scripts/repo-profile.sh
+# Proximity, not "the file mentions both": skills/profile-repo/scripts/repo-profile.sh
 # legitimately carries an UNRELATED `rev-parse --show-toplevel` (line ~30, resolving the profile
 # PATH argument — out of scope for #125, see the issue's own Assumptions) alongside four
 # worktrees-ignored.sh mentions dozens of lines away. A whole-file substring check would flag that
@@ -888,7 +888,7 @@ echo "ok   no auto-dev file names claude -p or --strict-mcp-config"
 # `Invoke superpowers:X` line on a machine without the plugin degrades silently — the Skill tool
 # has no such name, and the agent improvises whatever shape it likes. So the colon-invocation form
 # is refused anywhere a session actually reads: skills/ and commands/. The bare word is still
-# allowed — systematic-debugging's compatibility credit ("ported from the superpowers skill") and
+# allowed — debug-issue's compatibility credit ("ported from the superpowers skill") and
 # docs/superpowers/ (historical plans, a directory name) are attribution and history, not
 # invocations. Scans the real tree, not a scratch copy: the defect IS the committed prose.
 echo "== no shipped skill or command invokes a superpowers: skill (#324) =="

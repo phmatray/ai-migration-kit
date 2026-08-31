@@ -854,7 +854,7 @@ refuses "$k" R10 "R10 — an absolute path in not_decisions is refused, never ch
 # `not_decisions` record, and the guard never noticed it existed. Two such files were already in
 # this repo when #307 was filed — `hooks/roseline-gate.sh`, a PreToolUse gate that branches on
 # `ROSELINE_GATE` and a launcher probe to allow or deny a Read, and
-# `skills/systematic-debugging/find-polluter.sh` at a skill's root. Each new shape is driven to RED
+# `skills/debug-issue/find-polluter.sh` at a skill's root. Each new shape is driven to RED
 # below over the scratch kit, the same way every other rule here is.
 
 # A hook. `hooks/` holds the only files in this kit that decide whether a tool call runs at all,
@@ -886,7 +886,7 @@ else
 fi
 
 # A script at a skill's ROOT rather than under its `scripts/` subdirectory — the exact shape of
-# `skills/systematic-debugging/find-polluter.sh`.
+# `skills/debug-issue/find-polluter.sh`.
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/root-tool.sh"
 chmod +x "$k/skills/demo/root-tool.sh"
@@ -920,7 +920,7 @@ else
   listed=$(git -C "$REPO" ls-files -- $globs)
   set +f
   missing=''
-  for want in hooks/roseline-gate.sh skills/systematic-debugging/find-polluter.sh; do
+  for want in hooks/roseline-gate.sh skills/debug-issue/find-polluter.sh; do
     case "$listed" in
       *"$want"*) ;;
       *) missing="$missing $want" ;;

@@ -1,11 +1,16 @@
 # Architecture
 
-One plugin, two cooperating suites — the **migration pipeline** (legacy-upgrade, followups) and the
-**issue/PR lifecycle** (create-issue, implement-issue, merge-pr, get-repo-profile, setup-repo, and the
-`auto-dev` fleet supervisor above them) — bridged where a
-migration's deferred work becomes tracked GitHub issues. Every skill carries
-`metadata.suite: ai-migration-kit` in its frontmatter; in Claude Code the plugin namespaces them as
-`ai-migration-kit:<skill>`.
+One plugin, two cooperating suites — the **migration pipeline** (migrate-legacy, review-followups)
+and the **issue/PR lifecycle** (create-issue, implement-issue, merge-pr, profile-repo, setup-repo,
+and the `auto-dev` fleet supervisor above them) — bridged where a migration's deferred work becomes
+tracked GitHub issues. Every skill carries `metadata.suite: ai-migration-kit` in its frontmatter; in
+Claude Code the plugin namespaces them as `ai-migration-kit:<skill>`.
+
+Every folder under `skills/` is named by one of two rules, so the inventory below is predictable
+rather than arbitrary: a **standalone** skill is `verb-object`, and a **member of a family** is
+`<family>-<role>`, where the family is itself a rule-1 name or the bare verb that heads it. Renames
+happen only in a major —
+[ADR 0012](docs/adr/0012-two-skill-naming-rules-verb-object-and-family-role.md) is the decision.
 
 ## Skill call graph — who calls whom
 
@@ -22,8 +27,8 @@ graph TD
     end
 
     subgraph migration ["Migration suite"]
-        LU[legacy-upgrade]
-        FU[followups]
+        LU[migrate-legacy]
+        FU[review-followups]
     end
 
     subgraph lifecycle ["Issue/PR lifecycle suite"]
@@ -32,7 +37,7 @@ graph TD
         II[implement-issue]
         MP[merge-pr]
         TB[triage-backlog]
-        RP[get-repo-profile]
+        RP[profile-repo]
         SR[setup-repo]
         SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling · prior-rejections<br>brainstorm-and-spec · plan-shape · tdd-loop · recap"]
     end
@@ -57,7 +62,7 @@ graph TD
     RP -- "generates (run once per repo)" --> PROF
     RP -. "names as the remedy for a missing label axis or issue-form dir" .-> SR
     RP -. "then: /create-issue <idea>" .-> CI
-    SR -. "afterwards: re-run get-repo-profile --refresh" .-> RP
+    SR -. "afterwards: re-run profile-repo --refresh" .-> RP
     CI -- "reads at step 1" --> PROF
     II -- "reads at step 1" --> PROF
     MP -- "reads at step 1" --> PROF
@@ -72,20 +77,20 @@ graph TD
 
 **The dashed edges above are checked, not hand-synced.** They must match the hand-off table in
 [`skills/_shared/recap.md`](skills/_shared/recap.md) exactly — one row per skill, and one edge per
-`/command` a row names (`get-repo-profile` names two, so it draws two) — and `scripts/recap-wiring-check.py` refuses in CI when either side gains or loses
+`/command` a row names (`profile-repo` names two, so it draws two) — and `scripts/recap-wiring-check.py` refuses in CI when either side gains or loses
 one (#175). Edit the table; the graph follows. Labels are free text: only the `(from, to)` pair is
 compared.
 
-The `followups → create-issue → implement-issue → merge-pr → create-issue` chain is deliberate:
-`merge-pr` files the follow-ups it discovers, which feeds the queue again — the backlog stays
-truthful instead of evaporating in chat.
+The `review-followups → create-issue → implement-issue → merge-pr → create-issue` chain is
+deliberate: `merge-pr` files the follow-ups it discovers, which feeds the queue again — the backlog
+stays truthful instead of evaporating in chat.
 
 **That chain is a cycle, and `triage-backlog` is what keeps it from being a closed one.** Three
 inlets write to the queue — `merge-pr` Step 6, `auto-dev`'s off-scope capture, and direct
 `create-issue` runs — while for a long time the only way out was to build the thing, so the queue
 could only drain at the speed of implementation, which is also what fills it. `triage-backlog` is the
 outlet: it re-decides what is already there, and closing by decision is a documented state there just
-as it has always been in `followups`. The two inlets and the outlet share one criterion —
+as it has always been in `review-followups`. The two inlets and the outlet share one criterion —
 [`skills/_shared/filing-bar.md`](skills/_shared/filing-bar.md) — so what earns an issue and what
 earns continued residence are the same question, asked at different times.
 
@@ -101,16 +106,16 @@ apart silently.
 ```mermaid
 graph LR
     subgraph skills ["Kit skills"]
-        LU[legacy-upgrade]
-        FU[followups]
+        LU[migrate-legacy]
+        FU[review-followups]
         AD[auto-dev]
         CI[create-issue]
         II[implement-issue]
         MP[merge-pr]
         TB[triage-backlog]
-        RP[get-repo-profile]
+        RP[profile-repo]
         SR[setup-repo]
-        SD[systematic-debugging]
+        SD[debug-issue]
     end
 
     subgraph mcp ["MCP servers"]
@@ -173,26 +178,26 @@ graph LR
     AD --> PY
 ```
 
-`systematic-debugging` (SD) has no external dependency at all — it is a pure process skill, which is
+`debug-issue` (SD) has no external dependency at all — it is a pure process skill, which is
 why no arrow leaves it.
 
 ## Dependency matrix
 
 | Skill | MCP | External skills | CLI tools | Kit scripts |
 |---|---|---|---|---|
-| `legacy-upgrade` | **roseline** (required) · context7 (rec.) | frontend-design, dataviz, artifact-design (session) | **dotnet ≥ 8**, **git**, **python3** · gh, node, Chrome (rec.) | `preflight.sh`, `audit-inventory.sh`, `report-dashboard.py`, `contrast-check.py` |
-| `followups` | — | — | **python3**, **git** | `followups.py`, `report-dashboard.py` |
+| `migrate-legacy` | **roseline** (required) · context7 (rec.) | frontend-design, dataviz, artifact-design (session) | **dotnet ≥ 8**, **git**, **python3** · gh, node, Chrome (rec.) | `preflight.sh`, `audit-inventory.sh`, `report-dashboard.py`, `contrast-check.py` |
+| `review-followups` | — | — | **python3**, **git** | `followups.py`, `report-dashboard.py` |
 | `create-issue` | adr (rec.) | — (brainstorm, spec and plan doctrine in `skills/_shared/brainstorm-and-spec.md`, `plan-shape.md`) | **gh** | — |
 | `implement-issue` | adr (rec.) | code-review (plan shape and TDD loop in `skills/_shared/plan-shape.md`, `tdd-loop.md`; worktrees via its own `make-worktree.sh`) | **gh**, **git**, **jq** (`tick-plan.sh`'s round-trip check) | — |
 | `merge-pr` | adr (rec.) | — | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
-| `systematic-debugging` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
-| `get-repo-profile` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
+| `debug-issue` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
+| `profile-repo` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
 | `setup-repo` | — | — | **git**, **python3** (PyYAML), **jq**, **gh** (admin rights on the settings surface; refused by name without it) | `repo-setup.sh`, `parse-manifest.py`, `project-area-options.py` (bundled in the skill) |
 
 **Bold = required.** The lifecycle trio — and `auto-dev` above them — additionally *reads*
-`.claude/skills/repo-profile.md` in the target repo — generated once by `get-repo-profile`,
+`.claude/skills/repo-profile.md` in the target repo — generated once by `profile-repo`,
 committed, then consumed with a plain `cat`.
 
 **The dashed `adr` arrows are the degrading ones.** `create-issue` consults the accepted ADRs before
@@ -241,7 +246,7 @@ the gap for one reader; #143 closed it for the other two.
 
 ## Versioning
 
-The plugin ships as one unit: there is no way to install `legacy-upgrade` at one version alongside
+The plugin ships as one unit: there is no way to install `migrate-legacy` at one version alongside
 `merge-pr` at another, so a per-skill version would communicate a granularity that does not exist —
 and nothing would bump it. Six of them had already drifted behind `plugin.json` before the field was
 removed (#16).

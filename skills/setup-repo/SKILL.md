@@ -7,7 +7,7 @@ description: >-
   when a repo needs configuring or has drifted: "set up the labels", "create the issue templates",
   "turn on auto-delete merged branches", "configure this repository the way the kit expects", "why
   does auto-dev ignore my effort labels", « configure les labels du repo », « crée les templates
-  d'issue », « supprime automatiquement les branches mergées ». It WRITES what get-repo-profile only
+  d'issue », « supprime automatiquement les branches mergées ». It WRITES what profile-repo only
   READS. Does NOT file issues, implement code, or merge PRs.
 license: MIT
 compatibility: >-
@@ -23,7 +23,7 @@ metadata:
 # Configure a repository for the lifecycle skills
 
 `create-issue`, `implement-issue`, `merge-pr` and `auto-dev` are generic workflows wrapped around a
-thin layer of repo-specific facts. `get-repo-profile` records those facts — and when it finds none,
+thin layer of repo-specific facts. `profile-repo` records those facts — and when it finds none,
 its only outlet is a `TODO:` line. That is the right answer for a fact it cannot read and the wrong
 one for a **configuration the repo does not have**, which is what four of its TODOs always are:
 
@@ -99,7 +99,7 @@ repo with a named gap beats an abort that leaves the operator guessing which hal
 
 ## Afterwards
 
-`get-repo-profile --refresh` — this skill's row in the hand-off table, and the reason for it: the
+`profile-repo --refresh` — this skill's row in the hand-off table, and the reason for it: the
 four TODOs are facts now, so the profile records the real axes and the lifecycle skills start
 applying them.
 

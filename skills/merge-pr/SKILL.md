@@ -13,7 +13,7 @@ license: MIT
 compatibility: >-
   Requires an authenticated gh CLI with merge/push rights, and git. Files follow-ups via the
   create-issue skill. Reads the committed repo profile (.claude/skills/repo-profile.md) generated
-  by get-repo-profile.
+  by profile-repo.
 metadata:
   author: Philippe Matray
   suite: ai-migration-kit
@@ -357,7 +357,7 @@ ordering is fixed in the program's header, and it is the reason the answer is a 
 set of conditions to weigh.
 
 **Fix a red CI check.** Reproduce locally in the branch's worktree, fix it for real, commit + push.
-*"Reproduce locally" is the load-bearing half* — do it under `systematic-debugging`, whose Phase 1
+*"Reproduce locally" is the load-bearing half* — do it under `debug-issue`, whose Phase 1
 criterion is exactly this: own a local command that goes red on the same failure **before** you change
 anything, because CI's log is the symptom and a fix aimed from the log alone comes back as the next
 red run. Run

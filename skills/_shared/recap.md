@@ -11,7 +11,7 @@ saying the same thing, which is the drift signature this repo has already paid f
 Worse, the one line the user actually acts on next — `/implement-issue #N` after `create-issue` —
 existed as prose in exactly two of them, while [`ARCHITECTURE.md`](../../ARCHITECTURE.md) drew the
 same hand-offs as dashed mermaid edges. **Two documentations, zero checks.** `merge-pr` landed a PR
-and said nothing about what to do next even though the graph knew the answer; `get-repo-profile`
+and said nothing about what to do next even though the graph knew the answer; `profile-repo`
 exists to bootstrap `create-issue` and never said so.
 
 So the shape lives here, the hand-off lives here, and
@@ -67,21 +67,21 @@ checked against it; they are not a second copy to hand-sync.
 
 | Skill | Ends with | Next command |
 |---|---|---|
-| `get-repo-profile` | the profile written, or read back | `/setup-repo` when it named a missing label axis or issue-form dir, then `/create-issue <idea>` |
-| `setup-repo` | the repo converged on its manifest | `/get-repo-profile --refresh` |
+| `profile-repo` | the profile written, or read back | `/setup-repo` when it named a missing label axis or issue-form dir, then `/create-issue <idea>` |
+| `setup-repo` | the repo converged on its manifest | `/profile-repo --refresh` |
 | `create-issue` | issue(s) filed, each with a plan | `/implement-issue #<issue>` |
 | `implement-issue` | PR **ready**, not landed | `/merge-pr #<pr>` |
 | `merge-pr` | PR merged, follow-ups filed | `/implement-issue #<next-issue>` |
 | `auto-dev` | the eligible queue drained | `/implement-issue #<held-issue>` for anything held as L/XL, else `—` |
 | `triage-backlog` | every open issue re-decided | `/implement-issue #<kept-issue>` |
-| `followups` | the open tail presented | `/create-issue <entry>` to convert an entry |
-| `legacy-upgrade` | phase 7 delivered | `/migrate-followups` |
-| `systematic-debugging` | the root cause identified | `—` (it returns to whatever called it) |
+| `review-followups` | the open tail presented | `/create-issue <entry>` to convert an entry |
+| `migrate-legacy` | phase 7 delivered | `/migrate-followups` |
+| `debug-issue` | the root cause identified | `—` (it returns to whatever called it) |
 
 **How the guard reads this table.** Backticked `/<name>` spans in the *Next command* cell are the
 hand-offs; a cell with none is terminal. `<name>` resolves to `skills/<name>/` when that directory
 exists, otherwise to the skill that `commands/<name>.md` invokes — which is how
-`/migrate-followups` resolves to `followups`. Prose around the spans is free text: reword it
+`/migrate-followups` resolves to `review-followups`. Prose around the spans is free text: reword it
 without fear, but do not spell a command outside backticks, where nothing can see it.
 
 **A cell that names no command must say `—`.** An empty cell, or one that says "still deciding", is

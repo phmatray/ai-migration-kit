@@ -56,10 +56,10 @@ Five failure modes this kit was built to close, each with the evidence behind it
 
 | Problem | Fix | Evidence |
 |---|---|---|
-| *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/legacy-upgrade/SKILL.md`](skills/legacy-upgrade/SKILL.md) | The case-study table in [Proven in production](#proven-in-production): 18 min / ~30 min / ~1 h, measured. |
+| *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/migrate-legacy/SKILL.md`](skills/migrate-legacy/SKILL.md) | The case-study table in [Proven in production](#proven-in-production): 18 min / ~30 min / ~1 h, measured. |
 | *The agent reads whole C# files instead of asking Roslyn.* | The roseline gate denies `Read` on `.cs` and names the tool that replaces it — [`hooks/roseline-gate.sh`](hooks/roseline-gate.sh), [docs/roseline-gate.md](docs/roseline-gate.md) | Preflight only ever proved roseline was *connected*, never that it was *used* (#109). |
 | *Four agents, one checkout — a commit lands in another agent's PR, and every command exits 0.* | Guarded git writes that assert the branch before and after — [`skills/implement-issue/SKILL.md`](skills/implement-issue/SKILL.md) — and the git write-gate that denies the raw command at the tool call, [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh) | #26 / #280: a `git commit` in the wrong checkout, silently accepted. |
-| *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/systematic-debugging/SKILL.md`](skills/systematic-debugging/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
+| *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/debug-issue/SKILL.md`](skills/debug-issue/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
 | *Three inlets, no outlet — the backlog only ever fills.* | One filing bar for every inlet, and a skill that re-decides what's already there — [`skills/triage-backlog/SKILL.md`](skills/triage-backlog/SKILL.md), [`skills/_shared/filing-bar.md`](skills/_shared/filing-bar.md) | [ARCHITECTURE.md](ARCHITECTURE.md)'s cycle paragraph: three writers, nothing that ever closed the loop. |
 
 Framing ported from mattpocock/skills' README ("Why These Skills Exist", problem → fix → linked
@@ -81,8 +81,8 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 | A migrated app to re-verify | [`/migrate-verify`](commands/migrate-verify.md) |
 | A portfolio to cost | [`/migrate-audit`](commands/migrate-audit.md) |
 | Open follow-ups across migrated repos | [`/migrate-followups`](commands/migrate-followups.md) |
-| A new repo for these skills | [`get-repo-profile`](skills/get-repo-profile/SKILL.md), then [`setup-repo`](skills/setup-repo/SKILL.md) |
-| Something is already broken | [`systematic-debugging`](skills/systematic-debugging/SKILL.md) fires on its own |
+| A new repo for these skills | [`profile-repo`](skills/profile-repo/SKILL.md), then [`setup-repo`](skills/setup-repo/SKILL.md) |
+| Something is already broken | [`debug-issue`](skills/debug-issue/SKILL.md) fires on its own |
 
 ## Features
 
@@ -91,9 +91,9 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 - **Read-only executive audit** — `/migrate-audit` produces a costed report (effort in days, risk register, recommended target) per app, plus a portfolio value/effort synthesis across several apps.
 - **Resumable migrations** — gate commits and `migration/` artifacts let an interrupted `/migrate` re-enter at the last green phase instead of starting over.
 - **Generated executive dashboard** — phase 6 emits `migration/report.html` and `report.json` with measured per-phase timings derived from gate commits, not a manual stopwatch.
-- **Issue/PR lifecycle skills** — portable `create-issue`, `implement-issue`, `merge-pr` and `get-repo-profile` skills usable on any repo, driven by a committed per-repo profile.
+- **Issue/PR lifecycle skills** — portable `create-issue`, `implement-issue`, `merge-pr` and `profile-repo` skills usable on any repo, driven by a committed per-repo profile.
 - **Backlog burn-down at scale** — `auto-dev` supervises a fleet of N parallel workers, each taking one issue from plan to merged PR, with conflict-avoiding area isolation and a measured token budget.
-- **Root-cause debugging** — `systematic-debugging` fires before any fix is proposed, so a failure is explained before it is patched.
+- **Root-cause debugging** — `debug-issue` fires before any fix is proposed, so a failure is explained before it is patched.
 - **Preflight safety gate** — `scripts/preflight.sh` verifies required/recommended tools, MCP servers and session skills declared in `requirements.json` before phase 1 starts.
 - **CI/deployment templates** — `templates/ci-dotnet.yml` and `templates/deploy-pages-blazor.yml` wire a migrated app straight into GitHub Actions and Pages. A repo that commits its front-end bundle can also arm the drift gate — see [docs/bundle-gate.md](docs/bundle-gate.md).
 
@@ -235,26 +235,33 @@ User-typed entry points, each a `commands/*.md` file:
 ## Skills
 
 Model-invoked, each a `skills/<name>/SKILL.md` file. The issue/PR lifecycle trio and their
-supervisors are usable on any repo, not just migrations:
+supervisors are usable on any repo, not just migrations.
+
+**The names follow two rules, so the list below is predictable rather than arbitrary:** a standalone
+skill is `verb-object` (`create-issue`, `profile-repo`, `debug-issue`), and a member of a family is
+`<family>-<role>`, where the family is itself a rule-1 name or the bare verb that heads it
+(`migrate` → `migrate-legacy`, `migrate-assess`, `migrate-followups`; `auto-dev` →
+`auto-dev-worker`, `auto-dev-merge`). Renames happen only in a major —
+[ADR 0012](docs/adr/0012-two-skill-naming-rules-verb-object-and-family-role.md) is the decision.
 
 | Skill | Job |
 |---|---|
-| [`legacy-upgrade`](skills/legacy-upgrade/SKILL.md) | The seven-phase pipeline orchestrator that `/migrate` drives — phase references and playbooks. |
+| [`migrate-legacy`](skills/migrate-legacy/SKILL.md) | The seven-phase pipeline orchestrator that `/migrate` drives — phase references and playbooks. |
 | [`create-issue`](skills/create-issue/SKILL.md) | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
 | [`implement-issue`](skills/implement-issue/SKILL.md) | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
 | [`merge-pr`](skills/merge-pr/SKILL.md) | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
 | [`auto-dev`](skills/auto-dev/SKILL.md) | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
 | [`triage-backlog`](skills/triage-backlog/SKILL.md) | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
-| [`get-repo-profile`](skills/get-repo-profile/SKILL.md) | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
+| [`profile-repo`](skills/profile-repo/SKILL.md) | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
 | [`setup-repo`](skills/setup-repo/SKILL.md) | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
-| [`followups`](skills/followups/SKILL.md) | Consolidate the migrated repos' open follow-ups (owner decisions, tasks, deferrals) and update them at the source. |
-| [`systematic-debugging`](skills/systematic-debugging/SKILL.md) | Root cause before any fix is proposed — harness-agnostic, fires on its own ahead of a patch. |
+| [`review-followups`](skills/review-followups/SKILL.md) | Consolidate the migrated repos' open follow-ups (owner decisions, tasks, deferrals) and update them at the source. |
+| [`debug-issue`](skills/debug-issue/SKILL.md) | Root cause before any fix is proposed — harness-agnostic, fires on its own ahead of a patch. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
 conflict hot-spots) lives in the committed per-repo profile — the skills themselves stay portable
 (`skills/_shared/` holds their common procedures). They are the natural tail of a migration:
-phase 7's `followups` queue hands items that deserve a real ticket to `create-issue` (the report
-keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Their dependencies
+phase 7's `review-followups` queue hands items that deserve a real ticket to `create-issue` (the
+report keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Their dependencies
 (authenticated `gh`, a code-review skill — no third-party plugin: the brainstorm, plan and TDD
 doctrines ship under `skills/_shared/`) are declared in
 [`requirements.json`](requirements.json). Call graph and full dependency matrix:
@@ -296,30 +303,30 @@ omarchy plugin add https://github.com/Atypical-Consulting/omarchy-aikit.git --en
 ## Repository layout
 
 ```
-.claude-plugin/         plugin + marketplace manifests
-ARCHITECTURE.md         skill call graph + dependency matrix (mermaid)
-CONTEXT.md              the kit's own domain glossary, in Matt Pocock's CONTEXT.md format (ported from mattpocock/skills, MIT)
-requirements.json       single source for prerequisites (tools, MCPs, session skills) — read by preflight.sh
-commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit, /migrate-followups, /auto-dev-worker, /auto-dev-merge
-skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
-skills/followups/       consolidated follow-up queue across migrated repos, updated at the source
-skills/create-issue/    generic issue/PR lifecycle: seeded issue (brainstorm → spec → plan)
-skills/implement-issue/ generic issue/PR lifecycle: plan → draft PR → ready
-skills/merge-pr/        generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
-skills/auto-dev/        fleet supervisor above the lifecycle skills: N parallel workers burning down the backlog
-skills/triage-backlog/  the queue's outlet: verify, cluster and re-decide open issues — owner confirms every close
-skills/systematic-debugging/ root-cause-before-fix process, harness-agnostic
-skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
-skills/setup-repo/      the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
-skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary, test-seams, grilling, brainstorm-and-spec, plan-shape, tdd-loop, recap)
-scripts/                preflight.sh (phase-0 gate) · run-all-tests.sh (one command for everything CI checks, exit 2 on a missing prerequisite) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release) · recap-wiring-check.py (every skill closes with the shared recap, and its hand-off table matches ARCHITECTURE.md's dashed edges)
-templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies · bundle-gate.json.example — copy-pasteable config for the opt-in committed-bundle drift gate
-tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired. Run them all with `./scripts/run-all-tests.sh`
-samples/LegacyShop/     deliberately-legacy .NET solution (demo fixture, CI-guarded)
-docs/adr/               the kit's own architectural decisions (MADR 4.0) — index in docs/adr/README.md, served by AdrMcp
-docs/case-studies/      real audits and migrations, with generated dashboards
-docs/demo-walkthrough.md  a real pipeline run, with captured RoselineMCP output
-docs/bundle-gate.md     what the opt-in committed-bundle drift gate measures, its validation rules, how to disable it
+.claude-plugin/          plugin + marketplace manifests
+ARCHITECTURE.md          skill call graph + dependency matrix (mermaid)
+CONTEXT.md               the kit's own domain glossary, in Matt Pocock's CONTEXT.md format (ported from mattpocock/skills, MIT)
+requirements.json        single source for prerequisites (tools, MCPs, session skills) — read by preflight.sh
+commands/                /migrate, /migrate-assess, /migrate-verify, /migrate-audit, /migrate-followups, /auto-dev-worker, /auto-dev-merge
+skills/migrate-legacy/   the pipeline orchestrator + phase references + playbooks
+skills/review-followups/ consolidated follow-up queue across migrated repos, updated at the source
+skills/create-issue/     generic issue/PR lifecycle: seeded issue (brainstorm → spec → plan)
+skills/implement-issue/  generic issue/PR lifecycle: plan → draft PR → ready
+skills/merge-pr/         generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
+skills/auto-dev/         fleet supervisor above the lifecycle skills: N parallel workers burning down the backlog
+skills/triage-backlog/   the queue's outlet: verify, cluster and re-decide open issues — owner confirms every close
+skills/debug-issue/      root-cause-before-fix process, harness-agnostic
+skills/profile-repo/     the per-repo profile generator the lifecycle skills consume
+skills/setup-repo/       the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
+skills/_shared/          procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary, test-seams, grilling, brainstorm-and-spec, plan-shape, tdd-loop, recap)
+scripts/                 preflight.sh (phase-0 gate) · run-all-tests.sh (one command for everything CI checks, exit 2 on a missing prerequisite) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release) · recap-wiring-check.py (every skill closes with the shared recap, and its hand-off table matches ARCHITECTURE.md's dashed edges)
+templates/               ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies · bundle-gate.json.example — copy-pasteable config for the opt-in committed-bundle drift gate
+tests/                   one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired. Run them all with `./scripts/run-all-tests.sh`
+samples/LegacyShop/      deliberately-legacy .NET solution (demo fixture, CI-guarded)
+docs/adr/                the kit's own architectural decisions (MADR 4.0) — index in docs/adr/README.md, served by AdrMcp
+docs/case-studies/       real audits and migrations, with generated dashboards
+docs/demo-walkthrough.md a real pipeline run, with captured RoselineMCP output
+docs/bundle-gate.md      what the opt-in committed-bundle drift gate measures, its validation rules, how to disable it
 ```
 
 **Hardening a destructive operation.** `tests/tick-plan/` and `tests/guarded-git/` are not feature

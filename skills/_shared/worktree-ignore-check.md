@@ -93,7 +93,7 @@ script (linked worktree, bare + linked worktrees, a path containing a space) —
 '1s/^worktree //p'` inside it, and not `awk '{print $2}'`, is what keeps a spaced path intact.
 
 `<kit>` is the kit root — the directory holding `skills/` and `scripts/` — resolved when the skill
-loads, the same placeholder `legacy-upgrade` and `followups` use for `<kit>/scripts/…`. Do **not**
+loads, the same placeholder `migrate-legacy` and `review-followups` use for `<kit>/scripts/…`. Do **not**
 write it as a shell variable: an unset `$KIT` expands to `/scripts/main-worktree.sh`, i.e. exit
 `127`, and a caller that treats every non-zero as "stop" then refuses to use any worktree at all.
 `main-worktree.sh` can legitimately be absent on the skills-only adoption path documented below —
@@ -123,7 +123,7 @@ condition unrelated to the hazard being guarded.
 
 ## If the kit's `scripts/` is not there
 
-`get-repo-profile` documents a skills-only adoption path ("drop the four skills into a new repo"), and
+`profile-repo` documents a skills-only adoption path ("drop the four skills into a new repo"), and
 both the guard and `main-worktree.sh` live at the kit root, so either — or both — can legitimately be
 absent. That is a missing *tool*, not a failed *verdict* — don't refuse the worktree over it. Derive
 the main checkout's root by hand instead, with the same recipe `main-worktree.sh` wraps (never from
@@ -154,5 +154,5 @@ a worse failure than the one being prevented. With their go-ahead, add it and re
 The path really is ignored for whoever runs the guard — so the immediate hazard is covered and `0` is
 correct — but the repository carries no such rule, and every teammate's and CI's `git add -A` still
 stages the worktree. The guard prints a `note:` naming that case. Do not promote a `0` carrying such a
-note into a durable claim about the repo (`get-repo-profile` records exactly that, so it repeats the
+note into a durable claim about the repo (`profile-repo` records exactly that, so it repeats the
 note rather than the verdict alone).

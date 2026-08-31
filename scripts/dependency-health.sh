@@ -3,7 +3,7 @@
 #
 # Examines the DELIVERED dependency graph and emits a `dependencyHealth` block, as JSON on stdout,
 # for `migration/report.json` to carry. Phase 6 runs it (see
-# skills/legacy-upgrade/references/phase-6-verify.md).
+# skills/migrate-legacy/references/phase-6-verify.md).
 #
 # Why it exists (#267). Phase 6 defines what "verified" means, and it used to mean three properties
 # of the SOURCE — it compiles, the tests still pass, the diagnostics did not get worse. None of them
@@ -16,7 +16,7 @@
 # customer's app is frequently not fixable inside the migration's scope, so making a finding a hard
 # gate would turn a legitimately-complete migration red for something the pipeline cannot fix, and
 # would push an operator toward skipping a gate. Findings therefore become a recorded section in
-# `migration/report.md` and rows in *Next steps* / *Follow-ups*, which `followups` already drains.
+# `migration/report.md` and rows in *Next steps* / *Follow-ups*, which `review-followups` already drains.
 # What IS hard-gated is the block's existence and a status that is not `unavailable`: **a check that
 # cannot verify must not answer "healthy"**. That is why every failure path below still prints the
 # block, with `status: "unavailable"` and a reason, and exits 1 — an empty `vulnerable[]` from a

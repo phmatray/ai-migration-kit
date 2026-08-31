@@ -63,19 +63,19 @@ _Avoid_: frontier, ready queue, top of backlog
 **Close by decision**:
 An issue closed as *not planned* because it fails the filing bar on review — no consequence, no
 instance in the tree, nobody asked — with the reason recorded in the closing comment rather than
-left silent (`triage-backlog`, `followups`).
+left silent (`triage-backlog`, `review-followups`).
 _Avoid_: wontfix, abandon
 
 **Follow-up / next step / deferred**:
 An open item tracked in a migrated repo's `migration/report.json`: `next_steps` for outstanding
-work, `deferred` for something explicitly not being done now. `followups` consolidates these
+work, `deferred` for something explicitly not being done now. `review-followups` consolidates these
 across every migrated repo.
 _Avoid_: todo, backlog item
 
 ## The machinery
 
 **Gate**:
-A point in a pipeline — a `legacy-upgrade` phase boundary, a decision in `docs/decisions.md` —
+A point in a pipeline — a `migrate-legacy` phase boundary, a decision in `docs/decisions.md` —
 that must resolve before the run continues. A failed gate stops forward progress; it is fixed or
 rolled back, never skipped.
 _Avoid_: check, checkpoint
@@ -124,7 +124,7 @@ another's.
 _Avoid_: scope, component, module
 
 **Phase**:
-One of the seven numbered phases (1–7) of the `legacy-upgrade` pipeline — README.md and the skill's
+One of the seven numbered phases (1–7) of the `migrate-legacy` pipeline — README.md and the skill's
 own frontmatter call it a "seven-phase" pipeline — each ending at a gate before the next one starts.
 Phase 0 (preflight) runs before all seven and is numbered but not counted among them.
 _Avoid_: stage, step
@@ -137,11 +137,11 @@ _Avoid_: stage, step
     registry in `decisions/registry.json`, run by `scripts/decide.sh`, with a declared verdict
     vocabulary. (Quoted verbatim here, not paraphrased — this is the newest and most-guarded of
     the three homes.)
-  - `followups`: an **owner decision** — a follow-up only the repo owner can settle
+  - `review-followups`: an **owner decision** — a follow-up only the repo owner can settle
     (`"owner": true` in a migrated repo's `migration/report.json`; `scripts/followups.py`'s French
     output calls this "décisions propriétaire").
-  - `triage-backlog` / `followups`: **close by decision** — the documented "not pursued" outcome
-    for an issue that fails the filing bar on review.
+  - `triage-backlog` / `review-followups`: **close by decision** — the documented "not pursued"
+    outcome for an issue that fails the filing bar on review.
 
   When the bare word would read the wrong way, qualify it: *registry decision*, *owner decision*,
   *close by decision*. Renaming any of these is a separate decision for the owner, not a side

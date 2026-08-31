@@ -1,5 +1,5 @@
 ---
-name: legacy-upgrade
+name: migrate-legacy
 description: >-
   Use when upgrading, migrating, or modernizing a legacy application — outdated target framework,
   out-of-support runtime, obsolete APIs, old packages, or legacy idioms. Triggers on "upgrade this
@@ -41,7 +41,7 @@ there — never from the current working directory, which is the *target* repo.
 5. **No behavior changes.** The migration preserves observable behavior. Behavior fixes discovered along the way are recorded in the report as follow-ups, not applied.
 6. **The deliverable never narrates its migration.** No banner, footer, meta tag or user-facing string mentions the port, the tooling or the process — the end user gets a product, not a case study. Provenance lives in the README, `migration/report.md` and git history. (In-code comments that encode a maintenance constraint — "verbatim port, do not modernize" — stay.)
 7. **Kit scripts and templates are mandatory.** When the kit ships a tool for a step, improvising is forbidden: inventory → `<kit>/scripts/audit-inventory.sh`; report → `<kit>/scripts/report-dashboard.py` (never hand-written HTML); CI → `<kit>/templates/ci-dotnet.yml`; Blazor deployment → `<kit>/templates/deploy-pages-blazor.yml`. This is what makes migrations reproducible and comparable.
-8. **Delivered = in production.** The pipeline does not stop at local green: follow `references/delivery-playbook.md` (default branch, workflows from the kit templates, Pages, production verified with a deep route + a reviewed screenshot). Phase 7 closes with a pass of the `followups` skill (`<kit>/scripts/followups.py` over the migrated repos): the follow-up queue — owner decisions, tasks, deliberate deferrals — is presented up to date before leaving the repo. A follow-up that deserves a real ticket becomes a GitHub issue via the kit's `create-issue` skill (see the `followups` skill). An app with **no production target** closes phase 7 by recording that owner decision in the report — documented, never silent. Phase 7 also closes the loop on the kit itself: the report's `lessons` entry either points at the kit change this wave produced, or states "nothing to learn from this wave" explicitly (delivery playbook, step 9) — a wave without a `lessons` entry is incomplete.
+8. **Delivered = in production.** The pipeline does not stop at local green: follow `references/delivery-playbook.md` (default branch, workflows from the kit templates, Pages, production verified with a deep route + a reviewed screenshot). Phase 7 closes with a pass of the `review-followups` skill (`<kit>/scripts/followups.py` over the migrated repos): the follow-up queue — owner decisions, tasks, deliberate deferrals — is presented up to date before leaving the repo. A follow-up that deserves a real ticket becomes a GitHub issue via the kit's `create-issue` skill (see the `review-followups` skill). An app with **no production target** closes phase 7 by recording that owner decision in the report — documented, never silent. Phase 7 also closes the loop on the kit itself: the report's `lessons` entry either points at the kit change this wave produced, or states "nothing to learn from this wave" explicitly (delivery playbook, step 9) — a wave without a `lessons` entry is incomplete.
 9. **Remediation must converge.** Track the error count after every phase-4 pass; if two consecutive passes do not reduce it, stop the loop — roll back to the last green-gate commit, record the blockage in the report (remaining diagnostics grouped by id, what was tried), and hand the decision to the owner. Burning passes on a flat error count is a failure mode, not progress.
 
 ## The pipeline
@@ -94,7 +94,7 @@ Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.m
 blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
 `None` is a required answer rather than an omission) and the **Next** line, which is read off this
 skill's row in that file's hand-off table instead of being decided again here. Everything below is
-only what **legacy-upgrade** adds on top of them.
+only what **migrate-legacy** adds on top of them.
 
 - Name the phase reached and every gate's verdict — a pipeline that stopped at a green gate and one
   that stopped at a red one are different outcomes, and hard rule 8 makes "verified production" a

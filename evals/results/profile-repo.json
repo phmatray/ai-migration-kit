@@ -1,5 +1,5 @@
 {
-  "skill_name": "get-repo-profile",
+  "skill_name": "profile-repo",
   "runs_per_query": 3,
   "threshold": 0.5,
   "results": [
@@ -11,7 +11,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -23,7 +23,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -35,7 +35,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -47,7 +47,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -59,7 +59,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -71,7 +71,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -83,7 +83,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -95,7 +95,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -107,7 +107,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -119,7 +119,7 @@
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -185,7 +185,7 @@
     },
     {
       "query": "update CLAUDE.md with what we learned this session",
-      "note": "\u2192 revise-claude-md, not get-repo-profile",
+      "note": "\u2192 revise-claude-md, not profile-repo",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,

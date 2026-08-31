@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Golden test for the systematic-debugging feedback loop (#320).
+# Golden test for the debug-issue feedback loop (#320).
 #
 # The skill's Phase 1 now gates hypothesising behind a command the agent has ALREADY RUN, and the
 # material that says how to build one lives in three shipped artifacts plus two pointers. Each of
@@ -23,7 +23,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 KIT="$PWD"
-SKILL_DIR="skills/systematic-debugging"
+SKILL_DIR="skills/debug-issue"
 REFERENCE="$SKILL_DIR/feedback-loop.md"
 TEMPLATE="$SKILL_DIR/scripts/hitl-loop.template.sh"
 EVALS="$SKILL_DIR/evals/evals.json"
@@ -135,17 +135,17 @@ fix_check=$(section "skills/merge-pr/SKILL.md" '^[*][*]Fix a red CI check[.][*][
   echo "                   skills/merge-pr/SKILL.md — if it was renamed, re-point this assertion"
   echo "                   rather than dropping it."
   exit 1; }
-printf '%s\n' "$fix_check" | grep -q 'systematic-debugging' || {
-  echo "FAIL [d/merge-pr]: the fix-check correction does not name systematic-debugging. A worker"
+printf '%s\n' "$fix_check" | grep -q 'debug-issue' || {
+  echo "FAIL [d/merge-pr]: the fix-check correction does not name debug-issue. A worker"
   echo "                   staring at a red check is exactly who needs the loop."
   exit 1; }
-echo "  ok: d/merge-pr — the fix-check correction points at systematic-debugging"
+echo "  ok: d/merge-pr — the fix-check correction points at debug-issue"
 
-grep -n 'honest effort' "skills/implement-issue/SKILL.md" | grep -q 'systematic-debugging' || {
+grep -n 'honest effort' "skills/implement-issue/SKILL.md" | grep -q 'debug-issue' || {
   echo "FAIL [d/implement-issue]: the Autonomy-contract green-wall bullet ('honest effort') does not"
-  echo "                          name systematic-debugging on the same line. 'Honest effort' has to"
+  echo "                          name debug-issue on the same line. 'Honest effort' has to"
   echo "                          mean the loop was built, not that the fix was retried."
   exit 1; }
-echo "  ok: d/implement-issue — the green-wall blocker points at systematic-debugging"
+echo "  ok: d/implement-issue — the green-wall blocker points at debug-issue"
 
 echo "hitl-loop golden test OK"

@@ -22,13 +22,13 @@ rendra rentable (YAGNI sinon).
   de vrais skills en cours de flux (`evals/README.md` §Safety) — la CI garde la structure, la
   mesure se déclenche à la demande. Déclencheur permanent : une modification de `description`
   → `python3 evals/run_all.py --skills <skill>` et comparaison au `baseline.json` committé.
-  `followups` reste attendu au plancher en sonde headless (positifs ≈ 0/3 sans contexte de repo,
-  cf. l'entrée « Optimisation du déclenchement du skill `followups` » ci-dessous) : ce chiffre
-  mesuré *est* sa ligne de base, pas une cible à atteindre.
+  `review-followups` reste attendu au plancher en sonde headless (positifs ≈ 0/3 sans contexte de
+  repo, cf. l'entrée « Optimisation du déclenchement du skill `review-followups` » ci-dessous) : ce
+  chiffre mesuré *est* sa ligne de base, pas une cible à atteindre.
 - **Mesure du banc après la coupe des descriptions (#323) — dû.** Le déclencheur permanent de
   l'entrée ci-dessus (« une modification de `description` → `run_all.py --skills <skill>` ») a été
   armé le 2026-08-31 : **neuf** descriptions sur dix ont été raccourcies et la dixième
-  (`systematic-debugging`, 513 → 593) a *gagné* les deux formes FR que son jeu d'évals réclamait —
+  (`debug-issue`, 513 → 593) a *gagné* les deux formes FR que son jeu d'évals réclamait —
   8 518 → 6 645 caractères normalisés au total, plus aucune au-dessus du plafond souple de 750 posé
   dans `tests/skills/check-frontmatter.py`. La coupe est **conservatrice** — aucune forme FR, aucune
   clause « Does NOT apply », aucune formulation reprise mot pour mot par une requête d'éval n'a été
@@ -37,11 +37,11 @@ rendra rentable (YAGNI sinon).
   fait pas. Dû avant la prochaine release : `python3 evals/run_all.py --runs-per-query 3`, comparaison
   à `evals/results/baseline.json` (frontière `implement-issue` ↔ `merge-pr` : 6/6 de chaque côté).
   Tant que ce n'est pas fait, le plafond souple reste à 700 et la cible ~450 de #323 attend.
-- **Traduction anglaise des 4 references françaises de `legacy-upgrade`** (audit-executive,
+- **Traduction anglaise des 4 references françaises de `migrate-legacy`** (audit-executive,
   delivery-playbook, report-template, rewrite-playbook) : la surface distribuée est anglaise
   depuis v1.7.0 (SKILL.md, commandes), ces references restent françaises. Déclencheur : premier
   utilisateur non francophone du kit, ou première retouche de fond d'une de ces references.
-- **Optimisation du déclenchement du skill `followups`** : la boucle skill-creator (5 itérations,
+- **Optimisation du déclenchement du skill `review-followups`** : la boucle skill-creator (5 itérations,
   20 requêtes, 3 mesures chacune) n'a départagé aucune variante — en sonde headless sans contexte
   de repo, le skill ne se déclenche presque jamais (positifs ≈ 0/3), donc la mesure est au
   plancher ; seul signal fiable : zéro sur-déclenchement sur les 10 quasi-pièges. Description

@@ -15,12 +15,12 @@
   {"query": "merge PR 281 now that CI is green", "should_trigger": false, "note": "→ merge-pr"},
   {"query": "review the diff on PR 281 without merging it", "should_trigger": false, "note": "→ review/code-review"},
   {"query": "what value objects does the C# emitter generate?", "should_trigger": false, "note": "doc question — no lifecycle skill"},
-  {"query": "set up the repo profile for this repository", "should_trigger": false, "note": "→ get-repo-profile"},
+  {"query": "set up the repo profile for this repository", "should_trigger": false, "note": "→ profile-repo"},
   {"query": "explain how the ANTLR grammar splits lexer and parser", "should_trigger": false, "note": "doc question — no lifecycle skill"},
   {"query": "resume the implementation plan on issue 71", "should_trigger": false, "note": "→ implement-issue"},
   {"query": "close issue 42, it's fixed", "should_trigger": false, "note": "managing an EXISTING issue, not filing one"},
   {"query": "comment on issue 42 that the fix landed", "should_trigger": false, "note": "managing an existing issue"},
   {"query": "list the open issues", "should_trigger": false, "note": "read-only — nothing to file"},
   {"query": "let's brainstorm the design for the new emitter", "should_trigger": false, "note": "standalone brainstorm, no issue to file"},
-  {"query": "I have an issue with my build, it keeps failing", "should_trigger": false, "note": "'issue' = problem, not a GitHub ticket → systematic-debugging"}
+  {"query": "I have an issue with my build, it keeps failing", "should_trigger": false, "note": "'issue' = problem, not a GitHub ticket → debug-issue"}
 ]

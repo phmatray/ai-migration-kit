@@ -1,5 +1,5 @@
 ---
-name: systematic-debugging
+name: debug-issue
 description: >-
   Use BEFORE proposing or applying any fix when something is already broken or behaving unexpectedly
   — a bug, failing or flaky test, crash, exception, stack trace, regression, build break, or
@@ -11,7 +11,8 @@ description: >-
 license: MIT
 compatibility: >-
   Harness-agnostic: no tools, MCP servers or repo state required. Ported from the superpowers skill
-  of the same name, reworded for trigger precision and decoupled from that suite's other skills.
+  `engineering/diagnosing-bugs` (mattpocock/skills, MIT), reworded for trigger precision and
+  decoupled from that suite's other skills.
 metadata:
   author: Philippe Matray
   suite: ai-migration-kit
@@ -200,7 +201,7 @@ Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.m
 blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
 `None` is a required answer rather than an omission) and the **Next** line, which is read off this
 skill's row in that file's hand-off table instead of being decided again here. Everything below is
-only what **systematic-debugging** adds on top of them.
+only what **debug-issue** adds on top of them.
 
 - **What happened** names the root cause and the *red-capable command you already ran* that proves
   it — phase 1's own "done when". A recap that describes the symptom instead has not finished

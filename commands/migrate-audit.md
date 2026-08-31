@@ -3,7 +3,7 @@ description: Read-only executive audit — costed effort, risks, recommended tar
 argument-hint: [app-dir ...]
 ---
 
-Invoke the `legacy-upgrade` skill and run an **executive audit** per `references/audit-executive.md`.
+Invoke the `migrate-legacy` skill and run an **executive audit** per `references/audit-executive.md`.
 
 Targets: each directory passed in `$ARGUMENTS` (otherwise, the current directory).
 

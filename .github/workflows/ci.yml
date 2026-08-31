@@ -326,7 +326,7 @@ jobs:
 
       - name: Every phase guide names its RoselineMCP tools
         run: |
-          bad=$(grep -L 'analyze_solution\|list_diagnostics\|apply_fixes\|edit_member\|rename_symbol\|find_references\|get_call_graph\|get_symbol_at_position\|search_symbols' skills/legacy-upgrade/references/phase-*.md || true)
+          bad=$(grep -L 'analyze_solution\|list_diagnostics\|apply_fixes\|edit_member\|rename_symbol\|find_references\|get_call_graph\|get_symbol_at_position\|search_symbols' skills/migrate-legacy/references/phase-*.md || true)
           if [ -n "$bad" ]; then echo "Phase guides missing tool names: $bad"; exit 1; fi
 
       - name: Preflight script runs (required tooling present on runner)
@@ -360,10 +360,10 @@ jobs:
           # The kit tracks its own profile since #157, so `show "$KIT"` must print that file
           # verbatim; the scratch dir we are standing in has none, so it must report the named
           # NO_PROFILE condition (exit 3) rather than fall back to the kit's.
-          out=$(bash "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" show "$KIT")
+          out=$(bash "$KIT/skills/profile-repo/scripts/repo-profile.sh" show "$KIT")
           [ "$out" = "$(cat "$KIT/.claude/skills/repo-profile.md")" ]
           rc=0
-          out=$(bash "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" show "$PWD") || rc=$?
+          out=$(bash "$KIT/skills/profile-repo/scripts/repo-profile.sh" show "$PWD") || rc=$?
           [ "$rc" = 3 ] && [ "$out" = "NO_PROFILE" ]
           # The guards exist to be called from someone else's checkout, so they belong in this
           # simulation too. --help exercises the header slice against $0 (a hardcoded line range

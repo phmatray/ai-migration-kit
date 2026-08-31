@@ -3,7 +3,7 @@ description: Re-runnable final quality gate for a migrated app — clean build, 
 argument-hint: [path-to-solution]
 ---
 
-Invoke the `legacy-upgrade` skill and run **phase 6 (Verify) only** — see `references/phase-6-verify.md`.
+Invoke the `migrate-legacy` skill and run **phase 6 (Verify) only** — see `references/phase-6-verify.md`.
 
 Target: `$ARGUMENTS` if given, otherwise auto-discover the solution from the current working directory.
 
