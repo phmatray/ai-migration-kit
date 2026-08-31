@@ -47,7 +47,7 @@ state the assumption, keep going.** Stop only for a genuine blocker:
 
 - `gh` not authenticated, or no push access.
 - No `🛠️ Implementation plan` on the issue — not in body, not in a comment (nothing to execute).
-- A task's tests can't be made green after an honest effort — don't fake green, don't commit over a red bar, don't tick a box for work that doesn't pass. Stop and report the wall with the failing output.
+- A task's tests can't be made green after an honest effort — don't fake green, don't commit over a red bar, don't tick a box for work that doesn't pass. Stop and report the wall with the failing output. **"Honest effort" means you ran the `systematic-debugging` loop**: a local command that reproduces the red, built and run before any fix — not a fix retried three times.
 - A merge conflict you can't resolve with confidence — both `main` and your branch rewrote the *same logic*, and picking a side would silently drop a sibling PR's work. The mechanical conflicts (version, changelog, snapshots, lockfiles) have known-correct resolutions (Step 8) — handle those; stop only for genuinely ambiguous ones, showing both sides.
 
 Never tick a box, commit, or flip the PR to ready on an assumption — those three acts claim work is
