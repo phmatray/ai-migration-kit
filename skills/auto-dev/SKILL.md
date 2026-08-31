@@ -226,9 +226,10 @@ SEED   <count>  waiting for a seed: #a #b                                       
 
 **Dispatch only the frontier** (#317): open, no *open* blocker, not a tracking parent, unassigned —
 the `deps=` column is that verdict, and it names the reason on every row it holds. Edges come from
-GitHub's own `blockedBy`/`blocking`/`subIssues`/`assignees`, plus a hand-written `**Blocked by:** #n`
-line in the body (no tool writes that line today; it is there so a person can declare an edge on a
-repo whose dependencies API is unavailable). A blocker that is already closed holds nothing.
+GitHub's own `blockedBy`/`blocking`/`subIssues`/`assignees`, plus the `**Blocked by:** <title> (#n)`
+line `create-issue` writes on every decomposed child — wired or not (#315), so the edge survives a
+host whose dependencies API is unavailable — and the same line typed by hand. A blocker that is
+already closed holds nothing.
 
 Two variants you will meet, both erring toward holding: `blocked_by=?` means the edge list came back
 truncated, so the blockers cannot be named and the row is held rather than guessed; `parent(N+)` is

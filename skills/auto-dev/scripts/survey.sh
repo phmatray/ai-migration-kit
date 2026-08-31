@@ -280,14 +280,18 @@ printf '%s\n' "$ISSUES_JSON" \
                      then (.state | ascii_upcase) == "OPEN"
                      else ($open | index($num)) != null end))
       | map(.number) | unique;
-    # The prose fallback: a `**Blocked by:** #n` line in the body. No tool writes it today, so what
-    # it really parses is what a PERSON typed — hence the tolerant leading run (list bullets,
-    # blockquote markers, bold/italic stars, indentation) and both separators people use between
-    # refs, comma and space. It can only ever ADD a blocker, never clear one — see SKILL.md Step 2:
-    # the worst a hostile body line can do is delay its own issue.
+    # The prose fallback `create-issue` ALWAYS writes on a decomposed child, wired or not
+    # (skills/create-issue/scripts/wire-edges.sh, references/decomposition.md). Its refs are not
+    # bare: the shipped shape is `**Blocked by:** <Blocker title> (#a), <Blocker title> (#b)`, and
+    # `none - can start immediately` when there are none. So this matches the LABEL, then scans
+    # every `#n` out of whatever follows it on that line — titles, parentheses, dashes and all.
+    # `[^\\n]` rather than `.`, because `(?m)` also makes `.` match a newline in Oniguruma, which
+    # would swallow the rest of the body. The leading run tolerates what a person types by hand: a
+    # list bullet, a blockquote marker, indentation. It can only ever ADD a blocker, never clear
+    # one - see SKILL.md Step 2: the worst a hostile body line can do is delay its own issue.
     def bodyblockers:
       ((.body // "")
-       | [ scan("(?m)^[ \\t>*+-]*\\**Blocked[ \\t]+by:?\\**[ \\t]*((?:#[0-9]+[ ,\\t]*)+)")
+       | [ scan("(?m)^[ \\t>*+-]*\\**Blocked[ \\t]+by:?\\**[ \\t]*([^\\n]*)")
            | .[0] | scan("#([0-9]+)") | .[0] | tonumber ]);
     def tier:
       (eff | sub("^effort:\\s*"; "") | ascii_downcase) as $tok

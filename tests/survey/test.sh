@@ -942,6 +942,37 @@ assert_bucket QUEUE 19 "$O12E"; assert_deps "blocking=#20"    19 "$O12E"
 assert_first_queue 19 "$O12E"
 echo "ok: frontier — an out-of-window OPEN blocker, a truncated connection and a hand-typed list item all HOLD"
 
+# ------------------------------ 12f. the body line in the shape create-issue ACTUALLY writes (#315)
+#
+# The producer landed while this was in flight, and it does not write bare refs: every decomposed
+# child carries `**Blocked by:** <Blocker title> (#a), <Blocker title> (#b)` — wired or not — or
+# `none — can start immediately`. A parser that only accepted `#a, #b` straight after the label
+# would read every real child as unblocked, which is the whole bug wearing the producer's clothes.
+# So the label is matched and the refs are scanned out of the rest of the line.
+F12F="$WORK/frontier-producer-shape.json"
+cat > "$F12F" <<JSON
+[
+ {"number":25,"title":"The blocker, as create-issue files it","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":26,"title":"Child with the shipped Blocked by line","labels":[{"name":"effort: small"}],"body":"## Problem\n\nPart of #24.\n\n**Blocked by:** The blocker, as create-issue files it (#25), Something long gone (#900)\n\n## Implementation plan\n- [ ] Step 1: do it",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":27,"title":"Child that declares itself unblocked","labels":[{"name":"effort: small"}],"body":"## Problem\n\nPart of #24.\n\n**Blocked by:** none — can start immediately\n\n## Implementation plan\n- [ ] Step 1: do it",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]}
+]
+JSON
+O12F="$WORK/frontier-producer-shape.out"
+run_survey "$W12" "$F12F" "$O12F"
+assert_bucket HOLD  26 "$O12F"; assert_deps "blocked_by=#25" 26 "$O12F"
+# `none — can start immediately` names no issue, so it holds nothing: the line says "unblocked" and
+# is read as saying exactly that, rather than as a malformed edge.
+assert_bucket QUEUE 27 "$O12F"; assert_deps -               27 "$O12F"
+assert_bucket QUEUE 25 "$O12F"; assert_deps "blocking=#26"  25 "$O12F"
+assert_first_queue 25 "$O12F"
+echo "ok: frontier — the shipped '**Blocked by:** <title> (#n)' shape is parsed, and 'none' holds nothing"
+
 # --------------------------------------- 13. a gh that cannot serve the dependency fields at all
 #
 # `gh` validates --json field names itself and exits 1 with `Unknown JSON field: "blockedBy"` before
