@@ -399,12 +399,16 @@ if not section_headings_before:
     print("FAIL: CONTEXT.md has no '## ' term section before '## Flagged ambiguities'")
     sys.exit(1)
 
-# Every "**Term**:" line must be followed by a non-empty definition line.
+# Every "**Term**:" line must be followed by a non-empty definition line — skipping over at most
+# one blank line, since a term header, blank line, definition is still a valid layout.
 term_re = re.compile(r"^\*\*[^*]+\*\*:\s*$")
 for i, l in enumerate(lines):
     if term_re.match(l):
-        nxt = lines[i + 1] if i + 1 < len(lines) else ""
-        if not nxt.strip():
+        j = i + 1
+        if j < len(lines) and not lines[j].strip():
+            j += 1
+        nxt = lines[j] if j < len(lines) else ""
+        if not nxt.strip() or term_re.match(nxt):
             print("FAIL: CONTEXT.md line %d ('%s') has no definition on the next line" % (i + 1, l))
             sys.exit(1)
 

@@ -38,7 +38,10 @@ _Avoid_: note, park
 A **root** is an open issue that owns a cause; an **instance** is one more occurrence of that
 cause found later. `create-issue` Step 3 folds an instance into its root rather than filing it as
 its own issue.
-_Avoid_: parent/child (that's decomposition, not causation), symptom
+_Avoid_: parent/child (that's decomposition, not causation)
+
+Note: `create-issue` and `merge-pr` both call an instance a **symptom** in prose ("fold a symptom
+into the issue that owns its cause") — that usage is established and kept, not a synonym to avoid.
 
 **Fold**:
 Add a discovered instance to its root issue — as a checklist item or a comment — instead of
@@ -51,10 +54,11 @@ an implementation plan into the body, so an executor can run it cold instead of 
 bare title.
 _Avoid_: enrich, flesh out
 
-**Frontier**:
+**Eligible set**:
 The slice of the open backlog `auto-dev`'s survey actually hands a worker: open, carrying a plan,
-a code task rather than manual QA, unblocked, and within the effort ceiling.
-_Avoid_: ready queue, top of backlog
+a code task rather than manual QA, unblocked, and within the effort ceiling. Named for the term
+`auto-dev/SKILL.md` already uses — this glossary reaches for it rather than coining a second one.
+_Avoid_: frontier, ready queue, top of backlog
 
 **Close by decision**:
 An issue closed as *not planned* because it fails the filing bar on review — no consequence, no
@@ -87,7 +91,10 @@ _Avoid_: result, status, exit code
 A script under `skills/<skill>/scripts/` (or `scripts/`) that wraps a destructive git write —
 commit, push, merge — refuses when a precondition isn't met, and re-reads state afterward instead
 of trusting a zero exit code.
-_Avoid_: wrapper, helper
+_Avoid_: helper
+
+Note: `decisions/registry.json`'s `not_decisions` entries call these same scripts a "guarded …
+wrapper" — that usage is established there and kept, not a synonym to avoid.
 
 **Profile**:
 The committed `.claude/skills/repo-profile.md`: the one source the lifecycle skills read for a
@@ -104,7 +111,11 @@ _Avoid_: worktree dir
 A **worker** is one `auto-dev`-dispatched process taking a single issue from plan to merged PR;
 the **supervisor** is the process above it that keeps N workers running, retires each the moment
 its PR merges, and re-drives any stalled at "ready".
-_Avoid_: agent, orchestrator, fleet member
+_Avoid_: agent, fleet member
+
+Note: `auto-dev/SKILL.md` also calls the supervisor the **orchestrator** in a few places (its own
+description block, the cost-accounting section) — both names are in live use there; this glossary
+doesn't pick a winner.
 
 **Area**:
 The label axis (`area: docs`, `area: skills`, …) that partitions the tree into non-overlapping
@@ -113,8 +124,9 @@ another's.
 _Avoid_: scope, component, module
 
 **Phase**:
-One of the eight numbered stages (0–7) of the `legacy-upgrade` pipeline, each ending at a gate
-before the next one starts.
+One of the seven numbered phases (1–7) of the `legacy-upgrade` pipeline — README.md and the skill's
+own frontmatter call it a "seven-phase" pipeline — each ending at a gate before the next one starts.
+Phase 0 (preflight) runs before all seven and is numbered but not counted among them.
 _Avoid_: stage, step
 
 ## Flagged ambiguities
