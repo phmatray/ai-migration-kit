@@ -14,8 +14,8 @@
 
 ## Commit identity
 - **Author line:** `git -c user.email=phmatray@gmail.com -c user.name="Philippe Matray"`
-- **Source:** git config, cross-checked against the full list of log authors (there is no `CLAUDE.md`
-  in this repo, so nothing overrides it).
+- **Source:** git config, cross-checked against the full list of log authors. A `.claude/CLAUDE.md`
+  exists (#325) and sets no identity — the git-config value stands.
 - **The other identities in the log, none of which you may use:** `renovate[bot]`,
   `github-actions[bot]` (release-please), and a second human identity
   `Philippe Matray <philippe@atypical.consulting>` — the work address, present on early commits. The

@@ -17,5 +17,9 @@
   {"query": "what build system and test framework does Koine use?", "should_trigger": false, "note": "doc question — answerable, no profile generation"},
   {"query": "update CLAUDE.md with what we learned this session", "should_trigger": false, "note": "→ revise-claude-md, not get-repo-profile"},
   {"query": "what's the difference between value objects and entities in DDD?", "should_trigger": false, "note": "doc question — no lifecycle skill"},
-  {"query": "run the test suite and tell me what fails", "should_trigger": false, "note": "no lifecycle skill"}
+  {"query": "run the test suite and tell me what fails", "should_trigger": false, "note": "no lifecycle skill"},
+  {"query": "what's my GitHub profile?", "should_trigger": false, "note": "the user's profile, not the repo config — shares the word only"},
+  {"query": "update my global git config", "should_trigger": false, "note": "local git config, not the skills' profile"},
+  {"query": "show me the repo's README", "should_trigger": false, "note": "a simple read, no profile generation"},
+  {"query": "profile this app's performance, it's slow", "should_trigger": false, "note": "'profile' = perf profiling, not configuration"}
 ]

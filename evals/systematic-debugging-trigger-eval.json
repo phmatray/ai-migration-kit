@@ -1,0 +1,22 @@
+[
+  {"query": "this test fails intermittently, can you fix it?", "should_trigger": true, "note": "a flaky test — guessing at a fix is exactly the temptation"},
+  {"query": "the build broke after my last commit", "should_trigger": true, "note": "build break, a known-good state to bisect back to"},
+  {"query": "I get a NullReferenceException here, patch it", "should_trigger": true, "note": "'patch it' — must fire BEFORE the fix is proposed"},
+  {"query": "the migration worked yesterday and now 500s", "should_trigger": true, "note": "a regression, no stack trace offered — carries legacy-upgrade's word 'migration', so a miss here is likely lost to that sibling rather than to a weak description"},
+  {"query": "why does this integration test hang in CI but pass locally?", "should_trigger": true, "note": "environment-dependent failure"},
+  {"query": "the app segfaults on startup since we upgraded, find out why", "should_trigger": true, "note": "crash + a suspected trigger — carries legacy-upgrade's word 'upgraded'; check the fired histogram before blaming the description"},
+  {"query": "this stack trace is from production, get to the bottom of it", "should_trigger": true, "note": "'get to the bottom of it' — root cause explicitly asked for"},
+  {"query": "we shipped a regression: orders over 1000 now round wrong", "should_trigger": true, "note": "a wrong-output bug, not a crash"},
+  {"query": "the deploy fails with an exception I don't understand, fix it", "should_trigger": true, "note": "'fix it' over an unexplained exception"},
+  {"query": "ce test est flaky, corrige-le", "should_trigger": true, "note": "FR — flaky test"},
+  {"query": "ca marchait avant, maintenant ca plante au demarrage", "should_trigger": true, "note": "FR — worked before, crashes now"},
+
+  {"query": "add a retry policy to this HTTP client", "should_trigger": false, "note": "new behavior — nothing is broken"},
+  {"query": "refactor this service into smaller classes", "should_trigger": false, "note": "working code, refactoring"},
+  {"query": "write tests for this class", "should_trigger": false, "note": "new tests, no failure to explain"},
+  {"query": "add validation and error handling to the import endpoint", "should_trigger": false, "note": "error HANDLING is new code, not a bug to diagnose"},
+  {"query": "set up a CI workflow", "should_trigger": false, "note": "tooling"},
+  {"query": "review this PR", "should_trigger": false, "note": "→ code-review; the code already works"},
+  {"query": "how does the debugger attach to a container?", "should_trigger": false, "note": "informational question — shares 'debug', nothing is failing"},
+  {"query": "implement issue 47, it already has a plan", "should_trigger": false, "note": "→ implement-issue"}
+]

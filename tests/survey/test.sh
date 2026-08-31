@@ -111,6 +111,35 @@ assert_bucket() {
   fi
 }
 
+# $1 output file, $2 expected count, $3 expected third column ("-" or "waiting for a seed: #a #b")
+#
+# Asserts the RENDERED row, not the jq expression that produces it: the supervisor reads this line
+# off stdout, so the contract is the two tab-separated fields, and a test that re-derived them from
+# the same jq program could never disagree with a bug in it (the tautological anti-pattern in
+# skills/_shared/test-seams.md).
+assert_seed_row() {
+  local out="$1" want_count="$2" want_tail="$3" line n got_count got_tail
+  n=$(grep -c '^SEED' "$out" || true)
+  if [ "$n" -ne 1 ]; then
+    echo "FAIL: expected exactly 1 SEED row, found $n"; echo "---"; cat "$out"; exit 1
+  fi
+  line=$(grep '^SEED' "$out")
+  # LAST row, always: it is a summary of the rows above it, and one printed mid-list is one the
+  # supervisor — which reads the tail — will not find. It is also what keeps this addition
+  # conflict-free against the other in-flight survey.sh changes.
+  if [ "$(tail -n 1 "$out")" != "$line" ]; then
+    echo "FAIL: the SEED row is not the last line of the output"; echo "---"; cat "$out"; exit 1
+  fi
+  got_count=$(printf '%s' "$line" | cut -f2)
+  got_tail=$(printf '%s' "$line" | cut -f3)
+  if [ "$got_count" != "$want_count" ] || [ "$got_tail" != "$want_tail" ]; then
+    echo "FAIL: SEED row mismatch"
+    echo "  want: count=$want_count tail=$want_tail"
+    echo "  got : count=$got_count tail=$got_tail"
+    exit 1
+  fi
+}
+
 run_survey() {
   # $1 = CWD the case runs from (controls whether .github/repo-setup.yml resolves), $2 = fixture,
   # $3 = stdout capture path, $4 = optional survey.sh path (defaults to the real $SURVEY — case 6
@@ -152,6 +181,10 @@ assert_bucket HOLD  104 "$O1"
 assert_bucket SKIP  105 "$O1"
 assert_bucket SKIP  106 "$O1"
 echo "ok: word-vocab — this repo's own effort: small/medium/large labels tier and queue correctly"
+
+# The unplanned tail #312 exists to surface: #105 is the fixture's only plan-less, non-QA issue.
+assert_seed_row "$O1" 1 "waiting for a seed: #105"
+echo "ok: word-vocab — the SEED summary row names the one issue waiting for a seed"
 
 # ------------------------------------------------------------------- 2. letter-vocab (no regress)
 
@@ -592,3 +625,57 @@ if grep -q "no effort: labels found" "$O10.err"; then
   exit 1
 fi
 echo "ok: vocab-tmp-readback-failure — a successful pipeline whose output can't be read back is named distinctly, not folded into \"no effort axis\""
+
+# --------------------------------------------- 11. the SEED summary row (#312): what still needs a plan
+#
+# The row exists because an unplanned backlog and a drained one look identical in the QUEUE/HOLD/SKIP
+# rows alone — the supervisor sees a short queue and reports an empty one. Two facts about the count
+# that the bucket assertions above cannot pin:
+#
+#   * it is NOT "the SKIP rows without a plan". A raw issue filed from the GitHub UI carries no
+#     effort: label either, so it tiers to 999 and lands in HOLD, not SKIP — counting only SKIP rows
+#     would miss precisely the population `--seed` was added for. The count is every row with
+#     plan=false, whichever bucket it fell into.
+#   * manual-QA issues are excluded even when they have no plan: seeding one produces a plan no
+#     headless worker may execute, so it is not "waiting for a seed" in any useful sense.
+
+W11="$WORK/seed-row"
+mkdir -p "$W11/.github"
+cat > "$W11/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+
+# 11a — every issue has a plan: the row still prints, and says zero. A missing row and a zero row
+# are different claims ("this survey doesn't report it" vs "nothing is waiting"), and the supervisor
+# needs the second one.
+F11A="$WORK/seed-row-all-planned.json"
+mkissues "$F11A" \
+  "1101|Planned small|small|1" \
+  "1102|Planned medium|medium|1"
+O11A="$WORK/seed-row-all-planned.out"
+run_survey "$W11" "$F11A" "$O11A"
+assert_bucket QUEUE 1101 "$O11A"
+assert_bucket QUEUE 1102 "$O11A"
+assert_seed_row "$O11A" 0 "-"
+echo "ok: seed-row — a fully-planned backlog still prints the row, as SEED 0 -"
+
+# 11b — the mixed case, one issue per rule.
+F11B="$WORK/seed-row-mixed.json"
+mkissues "$F11B" \
+  "1201|Planned small|small|1" \
+  "1202|Raw idea filed from the UI||0" \
+  "1203|No plan yet|small|0" \
+  "1204|Verify by hand before shipping|small|0"
+O11B="$WORK/seed-row-mixed.out"
+run_survey "$W11" "$F11B" "$O11B"
+assert_bucket QUEUE 1201 "$O11B"
+assert_bucket HOLD  1202 "$O11B"
+assert_bucket SKIP  1203 "$O11B"
+assert_bucket SKIP  1204 "$O11B"
+# #1202 (HOLD, unlabelled) and #1203 (SKIP) wait for a seed; #1201 has one; #1204 is manual-QA.
+# Listed by issue number, not by the tier order the rows above are sorted in.
+assert_seed_row "$O11B" 2 "waiting for a seed: #1202 #1203"
+echo "ok: seed-row — counts every plan-less issue including HOLD, and excludes manual-QA"

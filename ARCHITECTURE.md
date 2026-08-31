@@ -32,7 +32,7 @@ graph TD
         MP[merge-pr]
         TB[triage-backlog]
         RP[get-repo-profile]
-        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary"]
+        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling"]
     end
 
     PROF[("repo-profile.md<br>(committed in the target repo)")]
@@ -168,7 +168,7 @@ why no arrow leaves it.
 | `merge-pr` | adr (rec.) | superpowers (receiving-code-review) | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
-| `systematic-debugging` | — | — | — | `find-polluter.sh` (bundled in the skill) |
+| `systematic-debugging` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
 | `get-repo-profile` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
 
 **Bold = required.** The lifecycle trio — and `auto-dev` above them — additionally *reads*
@@ -188,7 +188,9 @@ frontmatter and say so. The repo profile's *ADRs* section is where each of them 
 | Prerequisites (distribution) | each SKILL.md's `compatibility` frontmatter |
 | Repo-specific facts for the lifecycle trio | `.claude/skills/repo-profile.md` (per target repo) |
 | Migration state & follow-up queue | `migration/report.json` per migrated repo (never a parallel list) |
-| Triggering contracts | `tests/skills/<name>.triggers.md`, guarded by `tests/skills/check-frontmatter.py` in CI |
+| Triggering contracts | `evals/<name>-trigger-eval.json` — one per skill; structure guarded by `tests/skills/check-frontmatter.py` in CI, trigger rate measured on demand by `evals/run_all.py` |
+| Domain language | `CONTEXT.md` (repo root; the same convention `create-issue` / `implement-issue` read in a target repo) |
+| Agent-facing conventions for working on the kit itself | [`.claude/CLAUDE.md`](.claude/CLAUDE.md) — pointers only, loaded as project memory (#325) |
 | Version | `.claude-plugin/plugin.json`, bumped by release-please — **never** a `metadata.version` in a SKILL.md |
 
 ## Caller-supplied path diagnostics
