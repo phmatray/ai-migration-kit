@@ -111,6 +111,36 @@ assert_bucket() {
   fi
 }
 
+# $1 expected deps value WITHOUT the `deps=` prefix, $2 issue number, $3 output file
+#
+# The deps column is field 6 (bucket, #n, effort, plan=, qa=, deps=, [labels], title) — asserted on
+# the RENDERED row for the same reason assert_seed_row is: the supervisor reads this off stdout, so
+# the tab-separated column IS the contract, and a test that re-derived it from the same jq program
+# could never disagree with a bug in it (skills/_shared/test-seams.md).
+assert_deps() {
+  local want="$1" num="$2" out="$3" line got
+  line=$(grep -F "$(printf '\t#%s\t' "$num")" "$out" || true)
+  [ -n "$line" ] || { echo "FAIL: issue #$num not found in output"; echo "---"; cat "$out"; exit 1; }
+  got=$(printf '%s' "$line" | cut -f6)
+  if [ "$got" != "deps=$want" ]; then
+    echo "FAIL: issue #$num expected deps=$want, got $got"
+    echo "$line"
+    exit 1
+  fi
+}
+
+# $1 issue number expected on the FIRST QUEUE row, $2 output file. Pins the sort key, which no
+# per-row assertion can: `sort_by(.t, -(blocking|length), .n)` only differs from the old
+# `sort_by(.t, .n)` when a blocking issue carries a HIGHER number than another eligible row of the
+# same tier — so the fixture below deliberately puts a plain #9 ahead of the blocking #10.
+assert_first_queue() {
+  local want="$1" out="$2" got
+  got=$(grep '^QUEUE' "$out" | head -n 1 | cut -f2 || true)
+  if [ "$got" != "#$want" ]; then
+    echo "FAIL: expected #$want on the first QUEUE row, got '$got'"; echo "---"; cat "$out"; exit 1
+  fi
+}
+
 # $1 output file, $2 expected count, $3 expected third column ("-" or "waiting for a seed: #a #b")
 #
 # Asserts the RENDERED row, not the jq expression that produces it: the supervisor reads this line
@@ -181,6 +211,15 @@ assert_bucket HOLD  104 "$O1"
 assert_bucket SKIP  105 "$O1"
 assert_bucket SKIP  106 "$O1"
 echo "ok: word-vocab — this repo's own effort: small/medium/large labels tier and queue correctly"
+
+# The dependency column (#317) against a fixture carrying NO dependency fields at all — mkissues
+# emits exactly the four fields the pre-#317 survey fetched. Every new access is `// []`-guarded, so
+# a fixture predating #317 (or an older `gh` that cannot serve blockedBy/blocking/subIssues) degrades
+# to "no edges" rather than erroring or holding the whole backlog.
+assert_deps - 101 "$O1"
+assert_deps - 104 "$O1"
+assert_deps - 105 "$O1"
+echo "ok: word-vocab — a fixture with no dependency fields at all renders deps=- and keeps its buckets"
 
 # The unplanned tail #312 exists to surface: #105 is the fixture's only plan-less, non-QA issue.
 assert_seed_row "$O1" 1 "waiting for a seed: #105"
@@ -679,3 +718,134 @@ assert_bucket SKIP  1204 "$O11B"
 # Listed by issue number, not by the tier order the rows above are sorted in.
 assert_seed_row "$O11B" 2 "waiting for a seed: #1202 #1203"
 echo "ok: seed-row — counts every plan-less issue including HOLD, and excludes manual-QA"
+
+# ------------------------------------------------------- 12. the frontier (#317): dependency edges
+#
+# Before #317 the survey bucketed from three facts (effort tier, plan presence, manual-QA title) and
+# knew nothing about dependencies, so it would QUEUE a blocked child ahead of its blocker and QUEUE a
+# tracking parent whose body is a list, not a plan. The frontier — open, no OPEN blockers, not a
+# parent, unassigned — is what the fleet may dispatch.
+#
+# The fixtures below are written as literal JSON rather than through mkissues() because the shapes
+# are the whole point. Measured against `gh issue list --json blockedBy,blocking,subIssues` on
+# gh 2.98.0, those three come back as GraphQL CONNECTIONS — `{"nodes":[…],"totalCount":N}` — not as
+# plain arrays; `assignees` is a plain array and `parent` is an object or null. A `map(.number)`
+# straight off the connection would iterate the OBJECT's values ([] and 0) and blow up, so survey.sh
+# normalizes both shapes and the fixtures pin both: the connection form here, the array form in 12c.
+
+W12="$WORK/frontier"
+mkdir -p "$W12/.github"
+cat > "$W12/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+
+# The seven issues of the spec, all small + planned so the ONLY thing that separates their buckets is
+# the dependency edge:
+#
+#   #9  plain            → QUEUE  deps=-             (the control, and the sort-order foil for #10)
+#   #10 blocks #11, #98  → QUEUE  deps=blocking=#11  (#98 is not in the open set) — sorts FIRST
+#   #11 blockedBy #10    → HOLD   deps=blocked_by=#10
+#   #12 blockedBy #99    → QUEUE  deps=-             (#99 is not open: a closed blocker does not block)
+#   #13 body-line blocked→ HOLD   deps=blocked_by=#10 (#99 filtered the same way as #12's)
+#   #14 two subIssues    → HOLD   deps=parent(2)      (a tracking list is not a plan a worker executes)
+#   #15 assigned         → HOLD   deps=assigned       (a human took it; unassign to release it)
+F12="$WORK/frontier-issues.json"
+cat > "$F12" <<JSON
+[
+ {"number":9,"title":"Plain small task","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":10,"title":"The blocker everything waits on","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[],"totalCount":0},
+  "blocking":{"nodes":[{"number":11,"state":"OPEN"},{"number":98,"state":"CLOSED"}],"totalCount":2},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":11,"title":"Blocked child","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[{"number":10,"state":"OPEN"}],"totalCount":1},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":12,"title":"Blocked only by an issue outside the open set","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[{"number":99,"state":"CLOSED"}],"totalCount":1},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":13,"title":"Blocked by a body line","labels":[{"name":"effort: small"}],"body":"## context\n**Blocked by:** #10, #99\n\n## Implementation plan\n- [ ] Step 1: do it",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":14,"title":"Tracking parent","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[{"number":20},{"number":21}],"totalCount":2},"assignees":[]},
+ {"number":15,"title":"Already taken by a human","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[{"login":"alice"}]}
+]
+JSON
+O12="$WORK/frontier.out"
+run_survey "$W12" "$F12" "$O12"
+
+assert_bucket QUEUE 9  "$O12"; assert_deps -               9  "$O12"
+assert_bucket QUEUE 10 "$O12"; assert_deps "blocking=#11"  10 "$O12"
+assert_bucket HOLD  11 "$O12"; assert_deps "blocked_by=#10" 11 "$O12"
+assert_bucket QUEUE 12 "$O12"; assert_deps -               12 "$O12"
+assert_bucket HOLD  13 "$O12"; assert_deps "blocked_by=#10" 13 "$O12"
+assert_bucket HOLD  14 "$O12"; assert_deps "parent(2)"     14 "$O12"
+assert_bucket HOLD  15 "$O12"; assert_deps "assigned"      15 "$O12"
+echo "ok: frontier — blocked, parent and assigned issues HOLD; the frontier QUEUEs, each row naming its reason"
+
+# #9 is eligible and numerically FIRST; #10 must still lead, because it unblocks #11 and every slot
+# spent elsewhere first leaves #11 waiting.
+assert_first_queue 10 "$O12"
+echo "ok: frontier — an eligible issue that unblocks others sorts first inside its tier"
+
+# Every fixture issue carries a plan, so the #312 summary row must still read zero: the frontier
+# holds are not "waiting for a seed", they are waiting for a blocker.
+assert_seed_row "$O12" 0 "-"
+echo "ok: frontier — held rows are not counted as waiting for a seed"
+
+# ------------------------------------------------------------ 12b. a dependency cycle stays visible
+#
+# A ⇄ B is a real backlog state (two issues each filed as blocking the other). The frontier rule
+# holds BOTH — neither is dispatchable — and the point of the deps= column is that this reads as a
+# cycle on sight instead of as two silently missing rows.
+F12B="$WORK/frontier-cycle.json"
+cat > "$F12B" <<JSON
+[
+ {"number":21,"title":"Half of a cycle","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[{"number":22,"state":"OPEN"}],"totalCount":1},
+  "blocking":{"nodes":[{"number":22,"state":"OPEN"}],"totalCount":1},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":22,"title":"The other half","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[{"number":21,"state":"OPEN"}],"totalCount":1},
+  "blocking":{"nodes":[{"number":21,"state":"OPEN"}],"totalCount":1},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]}
+]
+JSON
+O12B="$WORK/frontier-cycle.out"
+run_survey "$W12" "$F12B" "$O12B"
+assert_bucket HOLD 21 "$O12B"; assert_deps "blocked_by=#22" 21 "$O12B"
+assert_bucket HOLD 22 "$O12B"; assert_deps "blocked_by=#21" 22 "$O12B"
+echo "ok: frontier — a cycle holds both sides and each row names the other"
+
+# ------------------------------------------- 12c. the PLAIN-ARRAY shape of the same fields degrades
+#
+# `gh issue list --json blockedBy` serves a connection on gh 2.98.0, but the field shapes are the
+# CLI's to change and the kit's own docs sketched them as plain arrays. Reading only one shape would
+# make the other silently produce "no edges" — a blocked child dispatched, which is the whole bug.
+# So both are accepted, and both are pinned.
+F12C="$WORK/frontier-array-shape.json"
+cat > "$F12C" <<JSON
+[
+ {"number":31,"title":"Array-shaped blocker","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":[],"blocking":[{"number":32}],"parent":null,"subIssues":[],"assignees":[]},
+ {"number":32,"title":"Array-shaped blocked child","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":[{"number":31}],"blocking":[],"parent":null,"subIssues":[],"assignees":[]},
+ {"number":33,"title":"Array-shaped parent","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":[],"blocking":[],"parent":null,"subIssues":[{"number":41},{"number":42},{"number":43}],"assignees":[]}
+]
+JSON
+O12C="$WORK/frontier-array-shape.out"
+run_survey "$W12" "$F12C" "$O12C"
+assert_bucket QUEUE 31 "$O12C"; assert_deps "blocking=#32"  31 "$O12C"
+assert_bucket HOLD  32 "$O12C"; assert_deps "blocked_by=#31" 32 "$O12C"
+assert_bucket HOLD  33 "$O12C"; assert_deps "parent(3)"     33 "$O12C"
+echo "ok: frontier — the plain-array shape of the same fields is read identically to the connection"
+

@@ -9,10 +9,19 @@
 # less per-turn cache re-read, the dominant cost). The ONE judgment left to the model is
 # area-tagging for conflict-avoidance, which is fuzzy — do that on the QUEUE rows below.
 #
-# Output, one row per issue, already ordered (smallest effort tier first, then by number):
-#   QUEUE  #N  effort  plan=true  qa=false  [labels]  title   ← eligible, area-tag + dispatch
-#   HOLD   #N  ...                                            ← tier past the second, or unclassified
-#   SKIP   #N  ...                                            ← no plan, or manual-QA only
+# Output, one row per issue, already ordered (smallest effort tier first, then the issues that
+# unblock others, then by number):
+#   QUEUE  #N  effort  plan=true  qa=false  deps=-  [labels]  title   ← eligible, area-tag + dispatch
+#   HOLD   #N  ...                                                    ← tier past the second, unclassified, or held by a dependency edge
+#   SKIP   #N  ...                                                    ← no plan, or manual-QA only
+#
+# The `deps=` column is the frontier (#317). The fleet may only dispatch the frontier — open, no
+# OPEN blockers, not a tracking parent, unassigned — and every held row names which of those it
+# failed: `deps=-` (nothing) · `deps=blocked_by=#12,#15` · `deps=parent(3)` · `deps=assigned` ·
+# `deps=blocking=#20` (informational, and eligible: it sorts first inside its tier, because every
+# slot spent elsewhere first leaves its blockees waiting). Without this the survey would QUEUE a
+# blocked child ahead of its blocker — the worker builds against an interface that does not exist
+# yet — and QUEUE a tracking parent, whose body is a list of children, not a plan to execute.
 #
 # Then ONE trailing summary row — the unplanned tail (#312):
 #   SEED   <count>  waiting for a seed: #a #b            ← or `SEED  0  -` when nothing is waiting
@@ -183,11 +192,31 @@ if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ] || [ "$VOCAB_PIPE_FAILED" -e
 fi
 
 gh issue list --state open --limit 300 \
-  --json number,title,labels,body \
+  --json number,title,labels,body,blockedBy,blocking,subIssues,assignees \
   | jq -r --argjson vocab "$VOCAB_JSON" '
     def eff:       (.labels | map(.name) | map(select(startswith("effort:"))) | (.[0] // "effort: ?"));
     def haveplan:  ((.body  // "") | test("Implementation plan|### Task|- \\[ \\]"));
     def manualqa:  ((.title // "") | test("visually|verify by hand|manual QA|by hand"; "i"));
+    # Dependency edges (#317). `gh issue list --json blockedBy,blocking,subIssues` serves GraphQL
+    # CONNECTIONS — {"nodes":[…],"totalCount":N} — measured on gh 2.98.0, while this repo'"'"'s own
+    # sketch of these fields assumed plain arrays. Reading only one shape would silently degrade the
+    # other to "no edges", which IS the bug: a blocked child dispatched ahead of its blocker. So
+    # accept both, and let anything else (null, a field an older gh cannot serve, a fixture predating
+    # this change) fall through to [] rather than erroring the whole survey.
+    def numlist:
+      (if   type == "object" then (.nodes // [])
+       elif type == "array"  then .
+       else [] end)
+      | map(if type == "object" then (.number // empty) elif type == "number" then . else empty end);
+    # The prose fallback create-issue writes when the dependencies API is unavailable. Anchored to
+    # the start of a line — `(?m)` is what makes `^` mean that in jq'"'"'s Oniguruma, which anchors to
+    # the start of the whole STRING without it (measured) — so a "**Blocked by:** #5"
+    # quoted mid-sentence does not hold an issue. It can only ever ADD a blocker, never clear one —
+    # see SKILL.md Step 2: the worst a hostile body line can do is delay its own issue.
+    def bodyblockers:
+      ((.body // "")
+       | [ scan("(?m)^\\**Blocked by:\\**\\s*((?:#[0-9]+(?:,\\s*)?)+)")
+           | .[0] | scan("#([0-9]+)") | .[0] | tonumber ]);
     # Rank the effort token against the vocabulary order (index 0 = tier 1) rather than testing
     # for a bare letter. A token the vocabulary does not declare — no effort: label at all, or a
     # spelling outside it — gets a sentinel past any real tier, same as the original "else 4": a
@@ -198,17 +227,44 @@ gh issue list --state open --limit 300 \
       (eff | sub("^effort:\\s*"; "") | ascii_downcase) as $tok
       | ($vocab | index($tok)) as $idx
       | if $idx == null then 999 else $idx + 1 end;
-    map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
-         labels:(.labels|map(.name)|join(",")), t:tier})
-    | sort_by(.t, .n)
+    # Every edge is filtered against the numbers THIS call returned — the open set. A blocker that
+    # is closed does not block, and neither does one that never existed. Two known consequences,
+    # both deliberate: an edge pointing outside the --limit 300 window reads as closed (the existing
+    # window'"'"'s limitation, not a new one), and a blockee that has already been closed stops
+    # promoting its blocker, which is exactly right — there is nothing left to unblock.
+    (map(.number)) as $open
+    | def inopen: map(select(. as $b | $open | index($b)));
+      map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
+           labels:(.labels|map(.name)|join(",")), t:tier,
+           blockers: ((((.blockedBy // []) | numlist) + bodyblockers) | unique | inopen),
+           blocking: ((((.blocking  // []) | numlist)                | unique | inopen)),
+           subs:     (((.subIssues  // []) | numlist) | length),
+           assigned: (((.assignees  // []) | length) > 0)})
+    | map(. + {deps:
+        (if   (.subs > 0)              then "parent(\(.subs))"
+         elif ((.blockers|length) > 0) then "blocked_by=" + ([.blockers[] | "#\(.)"] | join(","))
+         elif .assigned                then "assigned"
+         elif ((.blocking|length) > 0) then "blocking="   + ([.blocking[] | "#\(.)"] | join(","))
+         else                               "-"
+         end)})
+    # Eligible-and-unblocking first inside a tier: dispatching a blocker early converts its blockees
+    # into frontier the next re-survey can use, where any other order leaves them — and the slots
+    # they would fill — waiting.
+    | sort_by(.t, -(.blocking|length), .n)
     | . as $rows
     | (
         $rows[]
-        | (if   (.t > 2)                      then "HOLD "
+        # The three dependency holds come FIRST, ahead of the tier test: a blocked child, a tracking
+        # parent and a claimed issue are not dispatchable at any effort tier, and the deps= column
+        # says which one it was.
+        | (if   (.subs > 0)                   then "HOLD "
+           elif ((.blockers|length) > 0)      then "HOLD "
+           elif .assigned                     then "HOLD "
+           elif (.t > 2)                      then "HOLD "
            elif (.plan and (.qa | not))       then "QUEUE"
            else                                    "SKIP "
            end) as $bucket
-        | "\($bucket)\t#\(.n)\t\(.e)\tplan=\(.plan)\tqa=\(.qa)\t[\(.labels)]\t\(.title)"
+        | "\($bucket)\t#\(.n)\t\(.e)\tplan=\(.plan)\tqa=\(.qa)\tdeps=\(.deps)\t[\(.labels)]\t\(.title)"
       ),
       # The unplanned tail, printed LAST so it reads as a summary of the rows above (and so this
       # addition stays append-only against the other in-flight changes to this program). Listed by
