@@ -49,7 +49,11 @@ from pathlib import Path
 
 # The lifecycle skills this harness reasons about; used to report WHICH skill fired
 # (so the implement-issue vs merge-pr boundary can be read off a single run).
-DEFAULT_KNOWN = ["create-issue", "implement-issue", "merge-pr", "get-repo-profile", "triage-backlog"]
+# All ten skills, so a near-miss negative records WHICH sibling took it: a specificity
+# number is only real when the `fired` histogram names the skill that should have won (#331).
+DEFAULT_KNOWN = ["auto-dev", "create-issue", "followups", "get-repo-profile", "implement-issue",
+         "legacy-upgrade", "merge-pr", "setup-repo", "systematic-debugging",
+         "triage-backlog"]
 
 
 def find_project_root(start: Path | None = None) -> Path:
