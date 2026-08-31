@@ -357,6 +357,11 @@ into another worker's commit (observed); *drive to MERGED in phase 2* — the #1
 *structured report* — your reconciliation needs a terse parseable signal, not prose; *no deploys* —
 workers must never touch a live server.
 
+**A worker never passes `--grill` to `create-issue`** — the flag makes that skill stop and interview
+the user before writing the Spec, and a background worker has nobody to interview, so the round would
+be asked to an empty room and the worker would idle out (#187) exactly where the off-scope protocol
+needs it to file and move on.
+
 ### ⛔ NEVER dispatch phase 2 while CI is still pending — YOU wait, not the worker
 
 This is the single highest-yield rule in the skill, and it is **structural, not a prompt-wording

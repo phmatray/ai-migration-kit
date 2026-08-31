@@ -47,6 +47,34 @@ wait for sign-off, **pick the most reasonable default**, state the assumption in
 "Assumptions" note), and keep going. Only stop for a genuine blocker you can't assume past (`gh` not
 authenticated, or an idea too vague to even name). Decide; don't hold up the line.
 
+**`--grill` is the single sanctioned exception, and only when the user passed it.** The contract above
+is right because nobody is usually watching — `merge-pr` Step 6 and the `auto-dev` workers file issues
+into an empty room, and a question asked there is the never-wait failure (#187). Passing the flag *is*
+the evidence that somebody is there to answer, so it buys exactly one round of questions and nothing
+more: see [`../_shared/grilling.md`](../_shared/grilling.md). Without the flag, nothing about this
+contract changes — never invent a pause because the idea felt underdetermined.
+
+## Inputs
+
+Everything below runs from one default inlet: an idea in the user's own message. Two opt-in inputs
+change **where the idea comes from** and **whether Step 5 pauses**; both are off unless the user typed
+them, so every unattended caller keeps today's behaviour byte for byte.
+
+| Input | Effect | Default |
+|---|---|---|
+| `<idea…>` | today's path — file a NEW issue from the idea in the request | — |
+| `--seed #N` | plan the **existing** issue #N in place instead of filing a new one; Steps 2, 3, 4, 7 and 8 take their seed branch | off |
+| `--grill` | one interview round on the frontier of design decisions, before Step 5 writes the Spec | off |
+| `--force` | with `--seed` only: re-seed an issue that already carries a `## 🛠️ Implementation plan` | off |
+
+Parse these from the request as prose — the skill reads its own arguments, the same way
+`triage-backlog` reads `--dry-run`; there is no argument-parser script. Anything on the line that is
+not one of these flags is idea text.
+
+The two compose: `--seed #N --grill` puts the decisions #N leaves open to the user first, then seeds
+#N with the answers fixed. `--force` is meaningless without `--seed` — say so and carry on rather than
+stopping.
+
 ## Checklist
 
 Create a task per item and complete in order. For a batch of ideas, run steps 2-8 once per idea.
@@ -154,6 +182,16 @@ See `references/issue-template.md` for a worked feature_request example and the 
 mapping. Hold this markdown for Step 7.
 
 ## Step 5 — Brainstorm & Spec (collapsible body sections)
+
+**If `--grill` was passed: apply [`../_shared/grilling.md`](../_shared/grilling.md) once, then
+continue with the answers fixed.** Compute the frontier — the decisions this brainstorm cannot make
+from the evidence Steps 3 and 4 gathered (which public surface, which default ships, whether
+compatibility may break, where the scope boundary falls) — and put the whole frontier to the user in
+**one** numbered round, every question carrying your recommended answer. Facts are never questions:
+dispatch a sub-agent for anything you could look up. Wait for one reply; answered questions become
+fixed decisions the Spec below states as design rather than options, and every unanswered one takes
+its recommended answer and is listed in the Spec's **Assumptions** note as *asked, unanswered — took
+`<recommendation>`*. There is no second round. Without `--grill`, skip this paragraph entirely.
 
 Invoke `superpowers:brainstorming`, then apply it **autonomously** (no questions, pick the recommended
 option, note assumptions). Split its output into two sections so the trail reads brainstorm → spec.
@@ -364,7 +402,10 @@ way `implement-issue`'s checkbox PATCH once did. If a label is missing, re-add (
 List every issue created with its title, URL, and applied labels (type / priority / effort / scope),
 and flag anything assumed or skipped (a label not in the live list, a duplicate you declined, a
 defaulted field). Name each idea **folded into an existing issue** and where it went (`#N`) — a fold
-is a result, not a non-event, and it's the one outcome the user can't see by listing new issues. Then
+is a result, not a non-event, and it's the one outcome the user can't see by listing new issues.
+**If `--grill` ran**, say how the round landed in one line — *"grilled: 4 asked, 3 answered, Q2 took
+its recommended answer"* — so the user can see which of their silences became an assumption without
+opening the Spec. Then
 **close the loop**: point the user at **`/implement-issue #N`** to run the plan
 (worktree → draft PR → task-by-task commits, ticking the body's checkboxes). For a batch, give the
 command per issue. Keep the report short — the issues carry the detail.
