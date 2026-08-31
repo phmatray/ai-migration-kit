@@ -366,4 +366,73 @@ if failures:
     sys.exit(1)
 print("ok   no file under skills/ re-spells the main-worktree derivation")
 PY
+
+# ---------------------------------------------------------------------------------------------
+# CONTEXT.md (#313) — the kit's own domain glossary, in Matt Pocock's format (ported from
+# mattpocock/skills, MIT). This is a structural case, not a content one: it proves the file
+# stays in shape (a term section before the ambiguities section, every term actually defined,
+# "decision" still flagged rather than quietly resolved by a rename) without pinning the prose
+# itself, which is free to grow. It runs over the real committed file for the same reason the
+# #125 scan above does — the defect this guards against is the committed file drifting out of
+# its own format, not something a fixture could stand in for.
+echo "== CONTEXT.md stays in Matt Pocock's format, with decision flagged (#313) =="
+python3 - "$KIT_ROOT" <<'PY'
+import re
+import sys
+import pathlib
+
+root = pathlib.Path(sys.argv[1])
+path = root / "CONTEXT.md"
+if not path.is_file():
+    print("FAIL: CONTEXT.md missing at the kit root")
+    sys.exit(1)
+
+lines = path.read_text(encoding="utf-8").splitlines()
+
+# At least one `## ` section heading must precede `## Flagged ambiguities`.
+amb_idx = next((i for i, l in enumerate(lines) if l.startswith("## Flagged ambiguities")), None)
+if amb_idx is None:
+    print("FAIL: CONTEXT.md has no '## Flagged ambiguities' section")
+    sys.exit(1)
+section_headings_before = [l for l in lines[:amb_idx] if l.startswith("## ")]
+if not section_headings_before:
+    print("FAIL: CONTEXT.md has no '## ' term section before '## Flagged ambiguities'")
+    sys.exit(1)
+
+# Every "**Term**:" line must be followed by a non-empty definition line.
+term_re = re.compile(r"^\*\*[^*]+\*\*:\s*$")
+for i, l in enumerate(lines):
+    if term_re.match(l):
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        if not nxt.strip():
+            print("FAIL: CONTEXT.md line %d ('%s') has no definition on the next line" % (i + 1, l))
+            sys.exit(1)
+
+# The ambiguities section must still name "decision" and its registry home, not resolve it away.
+amb_text = "\n".join(lines[amb_idx:])
+if "decision" not in amb_text:
+    print("FAIL: CONTEXT.md's '## Flagged ambiguities' section does not mention \"decision\"")
+    sys.exit(1)
+if "docs/decisions.md" not in amb_text:
+    print("FAIL: CONTEXT.md's '## Flagged ambiguities' section does not name docs/decisions.md")
+    sys.exit(1)
+
+print("ok   CONTEXT.md has term sections, defined terms, and decision flagged")
+PY
+
+# The two naming consumers must point at the target repo's CONTEXT.md, and say what they refuse.
+echo "== create-issue and implement-issue read the target repo's CONTEXT.md (#313) =="
+for consumer in skills/create-issue/SKILL.md skills/implement-issue/SKILL.md; do
+  grep -q "CONTEXT.md" "$consumer" || { echo "FAIL: $consumer does not mention CONTEXT.md"; exit 1; }
+  grep -q "_Avoid_" "$consumer" || { echo "FAIL: $consumer does not mention _Avoid_"; exit 1; }
+done
+echo "ok   create-issue and implement-issue both point at CONTEXT.md and its _Avoid_ lists"
+
+# The map must know where the language lives.
+echo "== ARCHITECTURE.md and README.md point at CONTEXT.md (#313) =="
+for doc in ARCHITECTURE.md README.md; do
+  grep -q "CONTEXT.md" "$doc" || { echo "FAIL: $doc does not mention CONTEXT.md"; exit 1; }
+done
+echo "ok   ARCHITECTURE.md and README.md both mention CONTEXT.md"
+
 echo "skills golden test: all cases behaved as specified"
