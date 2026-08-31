@@ -100,6 +100,74 @@ count) — never on which internal method built each cell (see
   formatting is the spreadsheet's job, not this service's.
 ```
 
+## Worked example — a seeded body (`--seed #N`)
+
+`--seed #N` (SKILL.md Step 7's seed variant) does not build a template-compliant body from scratch —
+it **appends** to one somebody else already wrote. The original is preserved byte for byte above a
+`---` rule; only what is below the rule is yours, and only the fields the original genuinely lacks
+appear there.
+
+Suppose #412 was filed from the GitHub UI and reads, in full:
+
+```markdown
+survey.sh miscounts when an issue has two effort labels
+
+Saw QUEUE list #388 twice yesterday. Probably the jq.
+```
+
+The seeded body keeps that intact and adds the trail beneath it:
+
+```markdown
+survey.sh miscounts when an issue has two effort labels
+
+Saw QUEUE list #388 twice yesterday. Probably the jq.
+
+---
+
+**Related:** #213 (effort tiers read from the manifest, not a hardcoded spelling)
+
+## Area
+
+area: auto-dev
+
+<details>
+<summary><b>🧠 Brainstorm</b></summary>
+
+… problem / approaches / recommendation …
+
+</details>
+
+<details>
+<summary><b>📋 Spec</b></summary>
+
+… design doc, closing with the three-heading contract above …
+
+</details>
+
+## 🛠️ Implementation plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: …
+
+### Task 1: …
+
+- [ ] **Step 1:** …
+```
+
+Three things this example is showing, all of them rules rather than style:
+
+- **No `## Problem` heading was added.** The original's first two lines already answer that field; a
+  second, better-worded copy under the form's spelling would leave the issue stating its problem
+  twice, in two voices. Only **Area** — which a UI-filed issue never carries — was synthesized.
+- **The original was not corrected.** "Probably the jq" is a guess, and the Brainstorm below is where
+  it gets confirmed or refuted. Editing the author's line to match the finding erases the fact that
+  they got there first.
+- **The plan sits at the bottom, outside every `<details>`**, exactly as on the create path — it is
+  what `implement-issue` reads and what the progress meter counts.
+
+The whole file is written to a temp path and pushed with `gh issue edit "$N" --body-file` behind a
+`[ -s … ]` guard. That flag replaces the *entire* body, so an empty file does not "fail to update"
+#412 — it erases it, along with the two lines the author wrote.
+
 ## Area dropdown values (feature_request)
 
 Pick exactly one, copied verbatim from the option list in the live `feature_request.yml`. If the

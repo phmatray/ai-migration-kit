@@ -1,0 +1,22 @@
+[
+  {"query": "implement issues small first then medium with 3 agents", "should_trigger": true, "note": "the canonical phrasing — ordering + a worker count"},
+  {"query": "keep 3 agents continuously implementing and merging issues", "should_trigger": true, "note": "steady-state fleet: N in flight, each through the whole lifecycle"},
+  {"query": "burn down the backlog", "should_trigger": true, "note": "bare canonical phrasing"},
+  {"query": "run the auto-dev loop", "should_trigger": true, "note": "names the loop"},
+  {"query": "spin up a fleet of agents to clear the open issues", "should_trigger": true, "note": "'fleet of agents'"},
+  {"query": "auto-implement and merge everything that's ready", "should_trigger": true, "note": "implement AND merge, unattended"},
+  {"query": "work through the open issues hands-off, a few in parallel", "should_trigger": true, "note": "no keyword — hands-off + parallelism over the issue queue"},
+  {"query": "clear the open issues without me babysitting it, keep four in flight", "should_trigger": true, "note": "unattended + a concurrency target"},
+  {"query": "take the backlog from twenty issues to zero, parallel workers, merge as you go", "should_trigger": true, "note": "many issues, whole lifecycle, parallel"},
+  {"query": "vide le backlog avec 3 agents", "should_trigger": true, "note": "FR — 'vide le backlog' + worker count"},
+  {"query": "lance la boucle auto-dev et previens-moi quand c'est fini", "should_trigger": true, "note": "FR — names the loop, unattended"},
+
+  {"query": "implement issue 47", "should_trigger": false, "note": "→ implement-issue (ONE issue, no fleet)"},
+  {"query": "merge PR 279", "should_trigger": false, "note": "→ merge-pr (ONE PR)"},
+  {"query": "file an issue for this idea", "should_trigger": false, "note": "→ create-issue (ONE idea)"},
+  {"query": "list the open issues", "should_trigger": false, "note": "read-only query, nothing is built"},
+  {"query": "run these three test suites in parallel", "should_trigger": false, "note": "parallelism without any issue lifecycle"},
+  {"query": "review the open PRs", "should_trigger": false, "note": "→ code-review"},
+  {"query": "triage the backlog and tell me which ones we should close", "should_trigger": false, "note": "→ triage-backlog (drains by DECIDING, not by building)"},
+  {"query": "set up the effort and priority labels this repo is missing", "should_trigger": false, "note": "→ setup-repo (the axis auto-dev sorts on, not the loop itself)"}
+]

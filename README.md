@@ -20,13 +20,16 @@
 
 ## Table of Contents
 
+- [Why this kit exists](#why-this-kit-exists)
+- [Which command?](#which-command)
 - [Proven in production](#proven-in-production)
 - [Prerequisites](#prerequisites)
 - [Install](#install)
 - [Quickstart](#quickstart)
 - [The audit product — `/migrate-audit`](#the-audit-product--migrate-audit)
 - [The pipeline](#the-pipeline)
-- [The issue/PR lifecycle skills](#the-issuepr-lifecycle-skills)
+- [Commands](#commands)
+- [Skills](#skills)
 - [Desktop launcher](#desktop-launcher)
 - [Safety rails](#safety-rails)
 - [Repository layout](#repository-layout)
@@ -46,6 +49,40 @@ A Claude Code plugin that upgrades legacy .NET applications through a seven-phas
 - **Verified** — every phase ends at a gate (build, tests, diagnostics baseline); a red gate stops the pipeline.
 - **Easy** — one command: `/migrate`. Start read-only with `/migrate-assess`.
 - **Fast** — mechanical fixes are applied in bulk with Roslyn code fixes; agent time is spent only on judgment calls.
+
+## Why this kit exists
+
+Five failure modes this kit was built to close, each with the evidence behind it:
+
+| Problem | Fix | Evidence |
+|---|---|---|
+| *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/legacy-upgrade/SKILL.md`](skills/legacy-upgrade/SKILL.md) | The case-study table in [Proven in production](#proven-in-production): 18 min / ~30 min / ~1 h, measured. |
+| *The agent reads whole C# files instead of asking Roslyn.* | The roseline gate denies `Read` on `.cs` and names the tool that replaces it — [`hooks/roseline-gate.sh`](hooks/roseline-gate.sh), [docs/roseline-gate.md](docs/roseline-gate.md) | Preflight only ever proved roseline was *connected*, never that it was *used* (#109). |
+| *Four agents, one checkout — a commit lands in another agent's PR, and every command exits 0.* | Guarded git writes that assert the branch before and after — [`skills/implement-issue/SKILL.md`](skills/implement-issue/SKILL.md) | #26 / #280: a `git commit` in the wrong checkout, silently accepted. |
+| *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/systematic-debugging/SKILL.md`](skills/systematic-debugging/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
+| *Three inlets, no outlet — the backlog only ever fills.* | One filing bar for every inlet, and a skill that re-decides what's already there — [`skills/triage-backlog/SKILL.md`](skills/triage-backlog/SKILL.md), [`skills/_shared/filing-bar.md`](skills/_shared/filing-bar.md) | [ARCHITECTURE.md](ARCHITECTURE.md)'s cycle paragraph: three writers, nothing that ever closed the loop. |
+
+Framing ported from mattpocock/skills' README ("Why These Skills Exist", problem → fix → linked
+skill — MIT), adapted to this kit's own history rather than a quote.
+
+## Which command?
+
+A situational way in, folded from a router-skill proposal declined in the v2 meta review
+(ARCHITECTURE.md's call graph is already the map — see [ARCHITECTURE.md](ARCHITECTURE.md)):
+
+| Situation | Reach for |
+|---|---|
+| An idea to track | [`create-issue`](skills/create-issue/SKILL.md) |
+| An issue with a plan | [`implement-issue`](skills/implement-issue/SKILL.md) `#N` |
+| A PR to land | [`merge-pr`](skills/merge-pr/SKILL.md) `#N` |
+| A queue that never shrinks | [`triage-backlog`](skills/triage-backlog/SKILL.md) |
+| Many issues, hands-off | [`auto-dev`](skills/auto-dev/SKILL.md) |
+| A legacy .NET app | [`/migrate-assess`](commands/migrate-assess.md), then [`/migrate`](commands/migrate.md) |
+| A migrated app to re-verify | [`/migrate-verify`](commands/migrate-verify.md) |
+| A portfolio to cost | [`/migrate-audit`](commands/migrate-audit.md) |
+| Open follow-ups across migrated repos | [`/migrate-followups`](commands/migrate-followups.md) |
+| A new repo for these skills | [`get-repo-profile`](skills/get-repo-profile/SKILL.md), then [`setup-repo`](skills/setup-repo/SKILL.md) |
+| Something is already broken | [`systematic-debugging`](skills/systematic-debugging/SKILL.md) fires on its own |
 
 ## Features
 
@@ -86,67 +123,23 @@ the target application in a git repository.
 
 ### RoselineMCP is shipped *and* enforced
 
-You do not need to `claude mcp add roseline` — the kit ships the server itself in
-[`.mcp.json`](.mcp.json) (`dnx RoselineMCP --yes`), so installing the plugin installs the dependency.
+The kit ships RoselineMCP itself ([`.mcp.json`](.mcp.json), `dnx RoselineMCP --yes` — needs the
+**.NET 10 SDK**; the pipeline itself only needs `dotnet >= 8`, so an 8/9-only host degrades loudly
+rather than silently) and **enforces** its use:
+[`hooks/roseline-gate.sh`](hooks/roseline-gate.sh) denies `Read` on a C# file, naming the roseline
+tool that replaces it. Four properties keep that safe:
 
-> `dnx` ships with the **.NET 10 SDK**. The pipeline itself only needs `dotnet >= 8`, so on a
-> .NET 8/9-only host the server does not launch — and the kit now says so instead of leaving you to
-> deduce it. [`requirements.json`](requirements.json) records the server's own floor
-> (`"requiresSdk": "10"`, higher than the pipeline's), phase 0 reports it as a **named degradation**
-> rather than a green tick, and the gate below **fails open** whenever `dnx` is absent. So you are
-> told what is missing and nothing is blocked in the meantime; install the .NET 10 SDK to get
-> roseline itself.
+- **Inert outside C# projects** — no-ops when no `*.sln`/`*.slnx`/`*.csproj` is found upward.
+- **A one-shot escape** — the identical `Read` again is let through once — consumed, not latched (a third read denies again), and it expires.
+- **Fails open, always** — no `jq`, an unparseable payload, any internal error, and the `Read`
+  proceeds; it never fails closed.
+- **It never enforces a tool that cannot be there** — no `dnx` on `PATH` means the deny message
+  would point at tools that don't exist, so the gate lets the `Read` through instead.
 
-It also **enforces** it. Preflight only ever proved roseline was *connected*; nothing made it
-*used*, and in practice `Read`/`Grep` on a `.cs` file stayed the path of least resistance. So
-[`hooks/roseline-gate.sh`](hooks/roseline-gate.sh) runs as a `PreToolUse` hook and **denies** `Read`
-on a C# file, naming the roseline tool that replaces it (`search_symbols`, `get_symbol_info`,
-`find_references`, …). An advisory reminder was tried first and does not work — the reminder arrives
-together with the file content, so the model has already been paid by the time the advice lands.
-
-Four properties keep that safe to have switched on:
-
-- **Inert outside C# projects.** The gate walks *up* from the file looking for a
-  `*.sln`/`*.slnx`/`*.csproj`, and no-ops when it finds none — so a globally-installed plugin never
-  blocks reads in a repo that has no roseline.
-- **A one-shot escape.** Issuing the *identical* `Read` again straight away is allowed through. It
-  is consumed rather than latched (a third read denies again) and it expires, so a marker left
-  behind by a deny you complied with cannot silently open the file hours later.
-- **Fails open, always.** No `jq`, an unparseable payload, an unwritable `TMPDIR`, any internal
-  error — the gate exits silently and the `Read` proceeds. It never fails closed.
-- **It never enforces a tool that cannot be there.** No `dnx` on `PATH` means the shipped launcher
-  cannot have started the server, so the `mcp__roseline__*` tools the deny message names do not
-  exist — and the gate lets the `Read` through rather than pointing you at them. That probe is a
-  proxy, and it errs in one direction only: it cannot see roseline started by any *other* route, so
-  `ROSELINE_GATE=on` is there to say "it is running, enforce anyway" (see below).
-
-`Grep` is deliberately left alone: roseline replaces whole-file reads, but `search_symbols` finds
-*symbols*, and grepping a string literal or a comment in `.cs` is a real need it cannot serve.
-
-**Editing a C# file.** `Edit` refuses a file the conversation has not `Read`, and roseline's
-`edit_member`/`rename_symbol` cover member bodies and renames but not `using` directives,
-file-scoped namespace conversion, attributes above a type, or top-level statements. For those, take
-the escape: the denied `Read`, then the identical `Read` again, then `Edit`. The deny message says
-so.
-
-**To turn the gate off**, set `ROSELINE_GATE=off` in your environment (also `0`, `false`, `no`,
-`disabled`). There is no `Read` matcher to remove from your own settings — the hook is supplied by
-the plugin in [`hooks/hooks.json`](hooks/hooks.json), so the other levers are uninstalling the
-plugin or Claude Code's global `disableAllHooks`.
-
-**To turn it *on* regardless**, set `ROSELINE_GATE=on` (also `1`, `true`, `yes`, `enabled`). This is
-for the case the `dnx` probe cannot settle: you are running roseline by some route other than the
-shipped launcher — a hand-added MCP server, a locally built binary, a wrapper script — or `dnx` is
-on your login shell's `PATH` but not on the narrower one Claude Code hands its hooks. Left alone,
-the gate would fail open for you permanently and silently; `on` is your word that the server is
-there, and enforcement resumes. `off` is still checked first and still wins, so a stale `on`
-somewhere in your environment can never override an `off` you have set. Any other value is neither
-switch and leaves the probe to decide.
-
-> **Permission prompts are a separate concern.** A Claude Code plugin cannot ship `permissions`
-> allow rules — only a settings file can. So if roseline's tool calls prompt you for Accept/Deny,
-> add them to your own `~/.claude/settings.json` (or an org `managed-settings.json`) as **per-tool**
-> entries, e.g. `mcp__roseline__search_symbols`. That is outside what this plugin can do for you.
+Full reference — the `dnx` version floor, the `Edit` escape hatch for what roseline can't reach
+(`using` directives, file-scoped namespaces, attributes, top-level statements), both env switches
+(`ROSELINE_GATE=on|off`), and the permissions caveat — lives in
+[docs/roseline-gate.md](docs/roseline-gate.md).
 
 ## Install
 
@@ -185,22 +178,40 @@ A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) ga
 
 Two properties fall out of the gate discipline. **Resume**: re-running `/migrate` on an interrupted migration never starts over — the gate commits and `migration/` artifacts locate the last green gate, and the pipeline re-enters at the phase after it. **Measured time**: the per-phase timeline in `migration/report.json` (`phases[]`, rendered by the report dashboard) is derived from the gate commits — the minutes this README advertises are a generated fact, not a stopwatch.
 
-## The issue/PR lifecycle skills
+## Commands
 
-The kit also ships six generic GitHub workflow skills — usable on any repo, not just migrations:
+User-typed entry points, each a `commands/*.md` file:
+
+| Command | Job |
+|---|---|
+| [`/migrate`](commands/migrate.md) | The full seven-phase pipeline, phase 1 through verified production. |
+| [`/migrate-assess`](commands/migrate-assess.md) | Read-only phase-1 audit only — `migration/assessment.md`, zero files touched. |
+| [`/migrate-verify`](commands/migrate-verify.md) | Re-runnable final quality gate for an already-migrated app. |
+| [`/migrate-audit`](commands/migrate-audit.md) | The read-only executive audit product — costed report, one app or a portfolio. |
+| [`/migrate-followups`](commands/migrate-followups.md) | Consolidate the open follow-up queue across migrated repos. |
+| [`/auto-dev-worker`](commands/auto-dev-worker.md) | Dispatched by `auto-dev` per issue — phase 1 of the two-phase worker (implement up to a ready PR). |
+| [`/auto-dev-merge`](commands/auto-dev-merge.md) | Dispatched by `auto-dev` per PR — phase 2 (land it, in a fresh context). |
+
+## Skills
+
+Model-invoked, each a `skills/<name>/SKILL.md` file. The issue/PR lifecycle trio and their
+supervisors are usable on any repo, not just migrations:
 
 | Skill | Job |
 |---|---|
-| `create-issue` | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
-| `implement-issue` | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
-| `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
-| `auto-dev` | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
-| `triage-backlog` | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
-| `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
-| `setup-repo` | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
+| [`legacy-upgrade`](skills/legacy-upgrade/SKILL.md) | The seven-phase pipeline orchestrator that `/migrate` drives — phase references and playbooks. |
+| [`create-issue`](skills/create-issue/SKILL.md) | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
+| [`implement-issue`](skills/implement-issue/SKILL.md) | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
+| [`merge-pr`](skills/merge-pr/SKILL.md) | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
+| [`auto-dev`](skills/auto-dev/SKILL.md) | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
+| [`triage-backlog`](skills/triage-backlog/SKILL.md) | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
+| [`get-repo-profile`](skills/get-repo-profile/SKILL.md) | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
+| [`setup-repo`](skills/setup-repo/SKILL.md) | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
+| [`followups`](skills/followups/SKILL.md) | Consolidate the migrated repos' open follow-ups (owner decisions, tasks, deferrals) and update them at the source. |
+| [`systematic-debugging`](skills/systematic-debugging/SKILL.md) | Root cause before any fix is proposed — harness-agnostic, fires on its own ahead of a patch. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
-conflict hot-spots) lives in that committed per-repo profile — the skills themselves stay portable
+conflict hot-spots) lives in the committed per-repo profile — the skills themselves stay portable
 (`skills/_shared/` holds their common procedures). They are the natural tail of a migration:
 phase 7's `followups` queue hands items that deserve a real ticket to `create-issue` (the report
 keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Their dependencies
@@ -250,7 +261,7 @@ skills/triage-backlog/  the queue's outlet: verify, cluster and re-decide open i
 skills/systematic-debugging/ root-cause-before-fix process, harness-agnostic
 skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
 skills/setup-repo/      the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
-skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary)
+skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary, test-seams, grilling)
 scripts/                preflight.sh (phase-0 gate) · run-all-tests.sh (one command for everything CI checks, exit 2 on a missing prerequisite) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release)
 templates/              ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies · bundle-gate.json.example — copy-pasteable config for the opt-in committed-bundle drift gate
 tests/                  one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired. Run them all with `./scripts/run-all-tests.sh`
