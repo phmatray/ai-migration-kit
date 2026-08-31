@@ -23,14 +23,15 @@ KIT="$PWD"
   echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$KIT"
 WORK=$(kit_scratch)
-n=0
 
 # A fresh repo whose .gitignore is exactly $1. Nothing is created on disk beyond .gitignore —
 # that absence is the fresh-checkout condition the trailing-slash rule exists for.
+#
+# mktemp -d, NOT a counter: `n=$((n+1))` inside a $(...) helper increments a subshell's copy and
+# the caller's stays 0, so every "fresh" repo would be the same directory — the trap
+# tests/_lib.sh:65-70 documents and tests/roseline/test.sh:50-54 already states and works around.
 scratch() {
-  n=$((n + 1))
-  local dir="$WORK/r$n"
-  mkdir -p "$dir"
+  local dir; dir=$(mktemp -d "$WORK/r.XXXXXX")
   git -C "$dir" init -q
   printf '%b' "$1" > "$dir/.gitignore"
   printf '%s' "$dir"
@@ -49,6 +50,9 @@ verdict() {
   fi
   echo "  ok: $name"
 }
+
+[ "$(scratch '')" != "$(scratch '')" ] || { echo "FAIL [scratch-isolation]: two scratch() calls returned the same directory"; exit 1; }
+echo "  ok: scratch-isolation — each call returns a genuinely distinct directory"
 
 # ---------------------------------------------------------------- refusals
 
