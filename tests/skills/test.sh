@@ -491,4 +491,117 @@ grep -q 'not a supported tracker' "$PRECONDITIONS" \
   || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
 echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
 
+# ---------------------------------------------------------------------------------------------
+# The roseline-gate essay moved to docs/roseline-gate.md (#325). Fixture-free: the defect this
+# guards is the committed essay drifting away from its own four properties, or the README's link
+# to it eroding, not something a scratch fixture could stand in for.
+echo "== docs/roseline-gate.md carries the roseline-gate essay, linked from README (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+path = root / "docs" / "roseline-gate.md"
+if not path.is_file():
+    print("FAIL: docs/roseline-gate.md missing")
+    sys.exit(1)
+
+text = path.read_text(encoding="utf-8")
+for phrase in (
+    "Inert outside C# projects",
+    "A one-shot escape",
+    "Fails open, always",
+    "never enforces a tool that cannot be there",
+):
+    if phrase not in text:
+        print("FAIL: docs/roseline-gate.md is missing the phrase %r" % phrase)
+        sys.exit(1)
+
+readme = (root / "README.md").read_text(encoding="utf-8")
+if "docs/roseline-gate.md" not in readme:
+    print("FAIL: README.md does not link docs/roseline-gate.md")
+    sys.exit(1)
+
+print("ok   docs/roseline-gate.md carries the four properties, and README links it")
+PY
+
+# ---------------------------------------------------------------------------------------------
+# README leads with the failure modes and a "Which command?" table, and links every skill and
+# command (#325). Fixture-free, same reason as the #313 CONTEXT.md case above: the defect is the
+# committed README drifting out of shape, not something a scratch fixture models better.
+echo "== README leads with failure modes, routes by situation, links every skill/command (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+readme = (root / "README.md").read_text(encoding="utf-8")
+
+for heading in ("## Why this kit exists", "## Which command?"):
+    if heading not in readme:
+        print("FAIL: README.md is missing the heading %r" % heading)
+        sys.exit(1)
+
+targets = set(re.findall(r"\]\(([^)]+)\)", readme))
+
+missing = []
+for skill_dir in sorted((root / "skills").iterdir()):
+    if not skill_dir.is_dir() or skill_dir.name == "_shared":
+        continue
+    rel = "skills/%s/SKILL.md" % skill_dir.name
+    if not (root / rel).is_file():
+        continue
+    if rel not in targets:
+        missing.append(rel)
+
+for cmd in sorted((root / "commands").glob("*.md")):
+    rel = "commands/%s" % cmd.name
+    if rel not in targets:
+        missing.append(rel)
+
+if missing:
+    print("FAIL: README.md does not link: %s" % ", ".join(missing))
+    sys.exit(1)
+
+print("ok   README.md links every skills/*/SKILL.md and commands/*.md")
+PY
+
+# ---------------------------------------------------------------------------------------------
+# A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
+# locations, a line budget so it stays pointers rather than sediment, and every relative link
+# actually resolves — a link that used to work but now 404s is worse than no pointer at all.
+echo "== exactly one pointer-only CLAUDE.md exists, <= 60 lines, links resolve (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+candidates = [root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]
+present = [p for p in candidates if p.is_file()]
+if len(present) != 1:
+    print("FAIL: expected exactly one of CLAUDE.md / .claude/CLAUDE.md, found %d" % len(present))
+    sys.exit(1)
+
+path = present[0]
+lines = path.read_text(encoding="utf-8").splitlines()
+if len(lines) > 60:
+    print("FAIL: %s has %d lines, over the 60-line budget" % (path, len(lines)))
+    sys.exit(1)
+
+text = "\n".join(lines)
+for m in re.finditer(r"\]\(([^)]+)\)", text):
+    target = m.group(1)
+    if target.startswith("http://") or target.startswith("https://") or target.startswith("#"):
+        continue
+    target_path = target.split("#", 1)[0]
+    resolved = (path.parent / target_path).resolve()
+    if not resolved.exists():
+        print("FAIL: %s links %r, which does not resolve (tried %s)" % (path, target, resolved))
+        sys.exit(1)
+
+print("ok   %s exists, is <= 60 lines, and every relative link resolves" % path.relative_to(root))
+PY
+
 echo "skills golden test: all cases behaved as specified"
