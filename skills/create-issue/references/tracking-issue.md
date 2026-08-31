@@ -110,13 +110,17 @@ Three things the map is and is not:
 One line per child that has **landed**:
 
 ```markdown
-- [Child title](https://github.com/o/r/issues/N): <one-line gist of what it settled>
+- #<child> — <the landing PR's title, trimmed of its trailing "(#issue) (#PR)"> ([#<PR>](<url>))
 ```
 
 Today `create-issue` seeds the list with `none yet`, and `triage-backlog`'s rescope seeds it with the
 **prior attempts** the rescope cites (each closed or folded issue by title, with what it got done).
-Appending as a child's PR merges is a `merge-pr` follow-on, not yet wired — until it is, the owner
-or the worker closing the child appends the line by hand.
+Appending as a child's PR merges is `merge-pr` Step 5c, via
+`skills/merge-pr/scripts/parent-decision-note.sh` (#365) — idempotent per PR number, so a resumed
+merge never duplicates the line. It fires only when the closed issue carries a **native** `parent`
+(the sub-issue relationship `wire-edges.sh` writes); the `**Blocked by:** #N` prose-fallback shape
+has nothing for it to read, so the owner still appends that line by hand on a host without the
+sub-issues API.
 
 ## Refer by name, then number
 
