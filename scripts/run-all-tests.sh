@@ -80,6 +80,9 @@ add_gate "python3 scripts/pinned-literals-check.py"
 # registered decision is single-homed, invoked by its owner, and unrestated by prose (#208). Cheap
 # and structural like its neighbours; its own golden suite runs below with the others.
 add_gate "python3 scripts/decision-check.py"
+# One more of the same family, on the kit's user-facing ending: every skill closes with the shared
+# recap, and the hand-off table agrees with ARCHITECTURE.md's dashed edges (#175).
+add_gate "python3 scripts/recap-wiring-check.py"
 
 add_suite "tests/lib/test.sh"
 add_suite "tests/py-module/test.sh"
@@ -87,6 +90,7 @@ add_suite "tests/ci-wiring/test.sh"
 add_suite "tests/parse-sweep/test.sh"
 add_suite "tests/line-endings/test.sh"
 add_suite "tests/pinned-literals/test.sh"
+add_suite "tests/recap-wiring/test.sh"
 
 # 5: the frozen fixture — must stay green AND legacy. Skipped by --quick.
 [ "$QUICK" -eq 1 ] || add_gate "$DOTNET_CMD"

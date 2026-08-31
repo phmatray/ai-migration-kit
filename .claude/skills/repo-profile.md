@@ -38,8 +38,10 @@
 - **Format/lint verify (the gate):** none as such. The structural equivalents CI fails on are
   `./scripts/parse-sweep.sh` (every suite parses under macOS bash 3.2, #131),
   `python3 scripts/ci-wiring-check.py` (every suite is wired into CI),
-  `python3 scripts/pinned-literals-check.py` (every spelling of the pinned version is marked) and
-  `python3 tests/skills/check-frontmatter.py` (skill frontmatter/compatibility tokens). All four run
+  `python3 scripts/pinned-literals-check.py` (every spelling of the pinned version is marked),
+  `python3 scripts/recap-wiring-check.py` (every skill closes with the shared recap, and its
+  hand-off table matches ARCHITECTURE.md's dashed edges) and
+  `python3 tests/skills/check-frontmatter.py` (skill frontmatter/compatibility tokens). All five run
   as part of `./scripts/run-all-tests.sh`.
 - **Prerequisites / caveats:** `python3` with `PyYAML` — declared in `requirements.json` and
   enforced by `./scripts/preflight.sh` (#170; CI also pip-installs it as a setup step), a `dotnet`
@@ -64,6 +66,7 @@ hand-copying it further.
 - `python3 scripts/ci-wiring-check.py`
 - `./scripts/parse-sweep.sh`
 - `python3 scripts/pinned-literals-check.py`
+- `python3 scripts/recap-wiring-check.py`
 - `dotnet test samples/LegacyShop --nologo`
 - `./scripts/preflight.sh` and `./scripts/preflight.sh --json | python3 -m json.tool > /dev/null`
 - `./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null`
