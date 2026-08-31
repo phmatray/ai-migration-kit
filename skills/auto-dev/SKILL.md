@@ -292,9 +292,9 @@ Persist a **state file** outside the repo (a scratch/temp dir, not a tracked pat
 survives compaction and `loop` re-fires. Keep it small and current:
 
 ```markdown
-# auto-dev state — <repo>, N=<concurrency> · merges: <total> · queue last refreshed @ <merge# of last refresh>
+# auto-dev state — <repo>, N=<concurrency> · merges: <total> · queue last refreshed @ <merge# of last refresh> · last compacted @ <merge# of last compact>
 ## In flight
-- Slot A → #<n> (<area>) — <phase: implementing / PR #<pr> ready→merging / merged>
+- Slot A → #<n> (<area>) — <phase: implementing / PARTIAL ×<k> → resumed / PR #<pr> ready→merging / merged>
 - Slot B → ...
 ## Queue — SMALL (then MEDIUM), eligible & area-tagged
 <#n (area), ...>
@@ -323,6 +323,10 @@ reaches this same guard. **It does not apply to a BLOCKED/FAILED tier-escalation
 `implement-issue` for an issue this fleet already owns, on a branch/PR `implement-issue`'s own Step 4
 resume contract expects to find and continue; running this guard there would read that worker's own
 draft PR as "already claimed" and wrongly drop the issue it was meant to retry.
+**Nor does it apply to a `PARTIAL` budget resume** (Step 4: a worker that hit its turn budget, handed
+off a green draft PR and reported `PARTIAL`) — the same reasoning, only more literally: a `PARTIAL`
+hand-off *guarantees* an open draft PR this fleet itself opened, so running the guard on that
+re-dispatch would refuse every single time, by construction.
 
 The state file's *In flight* section is not proof by itself, because recording a dispatch is a
 **separate, later step from making it**: "Dispatch each ... record each" above are two actions, in
@@ -391,7 +395,8 @@ or the un-namespaced form the runtime resolves) — and the per-dispatch facts; 
 worker needs is already in the command file.
 
 Phase 1 expands to: `implement-issue <N>` in its **own** worktree → draft PR → tasks → code-review →
-sync → **stop at ready**, emitting `PHASE1 | ISSUE: … | PR: <n> | STATUS: READY|BLOCKED|FAILED | …`.
+sync → **stop at ready**, emitting `PHASE1 | ISSUE: … | PR: <n> | STATUS: READY|PARTIAL|BLOCKED|FAILED | …`
+(`PARTIAL` = it hit its turn budget and handed off a green draft PR; see Step 4).
 Phase 2 expands to: `merge-pr <PR>` driven to MERGED (never idle at "ready") → teardown → the final
 report line:
 
@@ -562,7 +567,20 @@ instead of guessing.
   - **All checkboxes ticked but no deferral-shaped line at all — e.g. the worker went silent or was cut off** → treat it the same way. A draft PR with every task done and no `PHASE1 | …` report line ever emitted is itself the load-bearing signal; the deferral phrasing is confirmation, not a requirement. Don't leave a finished worker in the generic "still implementing" bucket below just because its last line doesn't quote-match.
   - **Mid-implementation, not all boxes ticked** → same recovery shape, but read "what's already done" off the boxes actually ticked and the latest commit — do not assume the plan is complete; the tail prompt names exactly which task is next.
   - **What it was waiting on genuinely failed** (a real CI/test failure, not merely something slow) → check the actual check/test state yourself before writing "just finish" — the tail prompt must resume investigation of the failure, not tell the next session to declare victory over a red bar.
-- **Idle with a draft PR / no PR yet** → still implementing; leave it. If long with no progress, `SendMessage` a one-line status ping (don't read its transcript).
+- **Idle with a draft PR / no PR yet** → still implementing; leave it. If long with no progress, `SendMessage` a one-line status ping (don't read its transcript). If it has been grinding for a long time and the ping confirms it is still mid-implementation, spend one more `SendMessage` to **invoke the turn budget explicitly** — *"you are past the turn budget: take on no new scope, finish the task in hand to green, push, and report `PARTIAL` naming the boxes you did not reach"*. This is the one supervisor-side cost lever the pre-2.0 `claude -p` substrate could not offer, and it costs you a single turn. It is a judgment call on elapsed time and silence, **not** a measurement: you cannot see a worker's turn count without reading its transcript, and that costs exactly the money the budget is saving.
+- **Reported PARTIAL** → the worker hit its **turn budget**
+([references/token-economics.md](references/token-economics.md) § *The two budgets*) and handed off.
+**Nothing is wrong** — this is not `BLOCKED`; the budget simply ran out. Its tree is green, its
+commits are pushed, its draft PR is open, and its `DETAIL:` names the plan checkboxes it did not
+reach. **Do not retire the slot and do not move the issue to `## Completed`.** Dispatch a **fresh**
+phase-1 sub-agent against the same issue at the same tier, in Step 3's form: `implement-issue`'s own
+Step 4 resume contract re-enters the existing branch and PR and starts again at ~30K context, which
+is the entire saving. It has to be a fresh dispatch — a `SendMessage` would resume the agent *with
+the context the budget exists to discard*, so the hand-off would have cost a turn and saved nothing
+(and the agent has returned anyway; a returned sub-agent cannot be messaged). Record the phase as
+`PARTIAL ×<k>` in the state file so a `loop` re-fire can reconstruct it, and **cap consecutive
+resumes at 3**: a fourth means the issue is genuinely stuck rather than merely long, so surface and
+retire it on the BLOCKED path below instead of resuming again.
 - **Reported BLOCKED/FAILED** → first **tier-escalate if it was on a lower model**: if the failure looks like the model wasn't strong enough (rather than a genuine hard blocker — un-mergeable conflict, missing approval, no plan), re-dispatch the *same* issue **once** on the top model. If already on top, or it fails again → record it, surface it, retire the slot (it reported, so it has returned — nothing to stop), refill the slot (don't let one blocked issue stall the fleet). This escalation is what makes cheap-by-default tiering safe.
 
 After any change, update the state file (in flight, completed, filed, queue).
@@ -578,6 +596,22 @@ workers don't hold — exactly what breaks a same-area logjam. Re-run the Step 2
 merges (or sooner if refills cluster into one area or the queue looks empty), fold newcomers in (small-
 first, area-tagged, eligibility-checked), and note what changed. Keep a **merge counter** in the state
 file (record the count at the last refresh) so a `loop` re-fire knows when the next refresh is due.
+
+**Compact on that same counter — on every wake, ask both questions.** The state file's header carries
+`last compacted @ <merge#>` beside `queue last refreshed @ <merge#>`, and your per-wake bookkeeping
+computes *is a compaction due* exactly the way it already computes *is a re-survey due*:
+`merges - lastCompacted >= <cadence>`, where the cadence integer has one home in
+[references/token-economics.md](references/token-economics.md) § *The two budgets* and is
+deliberately not restated here. When it is due, `/compact` **with the focus directive** (Token
+economics lever 5), then re-read the state file — already the standing rule after any compact /
+`/clear` / `loop` re-fire — and write the current merge count into `last compacted @`.
+*Why counted rather than eyeballed:* you are the single most expensive session in the fleet — a
+measured 33% of one run's cost, in one session that never compacted once — and the rule this
+replaces was a `/context` percentage nobody checks plus a cadence too loose to fire inside a
+19-merge run. The re-survey counter is the proof the mechanism works: it fired, twice, in the very
+run whose compaction rule never did. A compact landing mid-dispatch is not a new hazard — Step 3's
+dispatch-time guard exists precisely because a compact can land between dispatching a worker and
+recording it, so a more frequent compact only makes that guard earn its keep more often.
 
 **Re-survey at once — not at the next ~5 — when a merged issue's row carried `blocking=`.** That
 issue was holding its blockees, and they entered the frontier the moment it landed. Waiting out the

@@ -46,6 +46,50 @@ If you genuinely must wait for something, wait **inside one tool call** with a b
 `for`/`until` loop with `sleep`) so the wait happens within the turn — never by backgrounding a
 command and ending your turn to await it.
 
+## Turn budget — hand off before the tail, don't grind through it
+
+Cost is *Σ over turns of context size*, so a session's late turns cost ~10× its early ones — and the
+spend is skewed hard. Measured on a 19-merge fleet run: the **top 3 of 37 worker sessions were 32% of
+all worker cost**, and the worst of them ran **434 turns** on an `effort: medium` bug, out-spending
+all four top-tier sessions combined. Neither its label nor its model tier predicted that, so nothing
+outside this run can bound it — only you can.
+
+So you carry a **turn budget**. The integer lives in
+[`../skills/auto-dev/references/token-economics.md`](../skills/auto-dev/references/token-economics.md)
+§ *The two budgets* — read it there. It is deliberately not restated here, and a suite fails the build
+if it is.
+
+Once you are past it:
+
+1. **Take on no new task scope.** Finish only the plan task already in hand.
+2. **Finish that task to a GREEN build.** Run its suite and read the result — the usual rule.
+3. **Commit and push it** through the guards, and tick the boxes you actually completed.
+4. **Leave the PR open as a draft.** Don't flip it ready, don't start the final code-review or
+   main-sync pass.
+5. **Report `STATUS: PARTIAL`**, naming in `DETAIL:` the plan checkboxes you did *not* reach.
+
+The supervisor then dispatches a **fresh** sub-agent onto the same branch and PR — `implement-issue`'s
+Step 4 resume contract expects exactly that — and it restarts at ~30K context instead of continuing
+from ~300K. One superlinear session becomes two linear ones: the same split that Token-economics
+lever 1 measured as this fleet's one A/B-verified win, cut at a *length* seam instead of a *phase*
+seam. **`PARTIAL` is a hand-off, not a failure**, and it is not `BLOCKED`: nothing is wrong, the
+budget simply ran out.
+
+Two hard conditions:
+
+- **`PARTIAL` requires a green tree.** If you cannot get the task in hand green, report `BLOCKED`
+  instead. Never-fake-progress outranks the budget, always — a `PARTIAL` over a red build is the
+  thing this whole contract exists to prevent, dressed as a saving.
+- **The count is your own estimate, and the budget is a soft trigger.** You cannot see an exact
+  harness turn counter, so don't spend turns trying to measure one. Overshooting by a few turns costs
+  far less than being precise about it would.
+
+**This is not the forbidden wait above.** That rule is: never end your turn while something you
+dispatched is still in flight, expecting to be resumed. A budget hand-off ends the turn with work
+**committed, pushed and reported**, and nothing left in flight — the opposite shape. Finish any
+pipeline step you are already inside (a review you started, a sync you began); the budget gates *new*
+scope, not the completion of what is already running.
+
 ## Context discipline — a hard budget, not advice
 
 Cache-read is ~98% of a run's token cost, and it equals **the sum over turns of your context size**.
@@ -108,4 +152,4 @@ run anyone reads.
 1. Write ONLY the PR number (digits, nothing else) to the path the supervisor gave you, if it gave one.
 2. Then your FINAL message must be this single line and nothing else:
 
-PHASE1 | ISSUE: $1 | PR: <number|none> | STATUS: READY|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none>
+PHASE1 | ISSUE: $1 | PR: <number|none> | STATUS: READY|PARTIAL|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none>
