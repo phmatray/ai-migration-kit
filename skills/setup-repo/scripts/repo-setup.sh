@@ -160,21 +160,33 @@ refuse() {
   REFUSED=$((REFUSED + 1))
 }
 
-# Turns a failed `gh label create|edit`'s stderr into the cause it actually names, rather than
-# blaming the token for every non-zero exit (#200). Shapes MEASURED against this repository with an
-# authenticated token that has full scope:
-#   HTTP 403: ...                                       -> no scope on the token — today's sentence
+# Turns a failed `gh` call's stderr into the cause it actually names, rather than blaming the
+# token for every non-zero exit. Built for `gh label create|edit` (#200), generalized (#222) to
+# every `gh`-write-and-report site in this file — label delete, the settings PATCH, and (through a
+# custom 403 sentence, see the 4th arg) the two reads (label list, settings). Shapes MEASURED
+# against this repository with an authenticated token that has full scope:
+#   HTTP 403: ...                                       -> no scope on the token — $4, if given,
+#                                                           else the sentence below
 #   HTTP 422: Validation Failed (...)\n<field message>   -> the manifest's own value; echo the
 #                                                           field message(s) GitHub actually gave
 #   anything else                                        -> print the raw message, unrecognised
 #                                                           status included, rather than guess
-# Never retried: a 422 is the same manifest sent again, and would fail the same way (#200).
-label_refusal() {
-  local verb="$1" name="$2" err="$3" flat field
+# Never retried: a 422 is the same manifest (or the same read) sent again, and would fail the same
+# way (#200).
+gh_refusal() {
+  # $4 (optional): the exact sentence a 403 should print verbatim, for a call site whose 403
+  # already has its own established, tested wording (the settings PATCH's "admin rights", the two
+  # reads' pre-#222 sentences) — printed as-is, not wrapped in the "could not VERB 'NAME'" shape
+  # below, so existing 403 wording survives unchanged (#222 is about the OTHER statuses).
+  local verb="$1" name="$2" err="$3" msg403="${4:-}" flat field
   flat="$(printf '%s' "$err" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//')"
   case "$err" in
     *"HTTP 403"*)
-      printf "could not %s '%s' — check the token's scope on this repository" "$verb" "$name" ;;
+      if [ -n "$msg403" ]; then
+        printf '%s' "$msg403"
+      else
+        printf "could not %s '%s' — check the token's scope on this repository" "$verb" "$name"
+      fi ;;
     *"HTTP 422"*)
       # Every non-blank line other than the "HTTP 422: Validation Failed (...)" status line is
       # GitHub's own field-level detail. Anchored on CONTENT, not a fixed line number: a `sed -n
@@ -265,7 +277,7 @@ LABELS_READABLE=0
 LABEL_LIMIT=200
 if [ "$GH_OK" = 0 ]; then
   refuse "labels" "gh is unavailable or unauthenticated — the label axis was not read"
-elif gh label list --limit "$LABEL_LIMIT" --json name,color,description > "$WORKDIR/labels.json" 2>/dev/null; then
+elif list_err="$(gh label list --limit "$LABEL_LIMIT" --json name,color,description 2>&1 >"$WORKDIR/labels.json")"; then
   if jq -r '.[] | "L\t" + .name + "\t" + ((.color // "") | ascii_downcase) + "\t" + (.description // "")' \
        "$WORKDIR/labels.json" > "$LIVE_LABELS" 2>/dev/null; then
     # A full page is indistinguishable from a truncated one, and a truncated read makes every
@@ -281,17 +293,21 @@ elif gh label list --limit "$LABEL_LIMIT" --json name,color,description > "$WORK
     refuse "labels" "gh returned a label payload jq could not read"
   fi
 else
-  refuse "labels" "gh label list failed — no access to this repository's labels"
+  # Read-side sibling of #200/#222's write-side fix (#223): a rate-limit or a 5xx used to collapse
+  # to the exact same "no access" sentence as an actual 403. The 403 case keeps that sentence
+  # verbatim (still the right cause when it really is one); anything else now names what gh
+  # actually said instead of guessing "no access".
+  refuse "labels" "$(gh_refusal "list" "labels" "$list_err" "gh label list failed — no access to this repository's labels")"
 fi
 
 LIVE_SETTINGS="$WORKDIR/live-settings.json"
 SETTINGS_READABLE=0
 if [ "$GH_OK" = 0 ] || [ -z "$SLUG" ]; then
   [ "$GH_OK" = 1 ] && refuse "settings" "the repository slug is unreadable — settings were not read"
-elif gh api "repos/$SLUG" > "$LIVE_SETTINGS" 2>/dev/null; then
+elif settings_read_err="$(gh api "repos/$SLUG" 2>&1 >"$LIVE_SETTINGS")"; then
   SETTINGS_READABLE=1
 else
-  refuse "settings" "gh api repos/$SLUG failed — settings were not read"
+  refuse "settings" "$(gh_refusal "read" "repos/$SLUG" "$settings_read_err" "gh api repos/$SLUG failed — settings were not read")"
 fi
 
 # ------------------------------------------------------------------------------------- the diff
@@ -421,20 +437,20 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
     label)
       [ -n "$f1" ] || continue
       if [ "$action" = "-DEL" ]; then
-        if gh label delete "$f1" --yes >/dev/null 2>&1; then
+        if del_err="$(gh label delete "$f1" --yes 2>&1 >/dev/null)"; then
           APPLIED=$((APPLIED + 1))
         else
-          refuse "labels" "could not delete '$f1'"
+          refuse "labels" "$(gh_refusal "delete" "$f1" "$del_err")"
         fi
       else
         # +ADD and ~EDIT differ only in which `gh label` subcommand applies — and that word is
-        # also exactly the verb label_refusal() wants, so one variable carries both.
+        # also exactly the verb gh_refusal() wants, so one variable carries both.
         verb=create
         [ "$action" = "+ADD" ] || verb=edit
         if label_err="$(gh label "$verb" "$f1" --color "$f2" --description "$f3" 2>&1 >/dev/null)"; then
           APPLIED=$((APPLIED + 1))
         else
-          refuse "labels" "$(label_refusal "$verb" "$f1" "$label_err")"
+          refuse "labels" "$(gh_refusal "$verb" "$f1" "$label_err")"
         fi
       fi
       ;;
@@ -442,7 +458,12 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
       [ -n "$f1" ] || continue
       # Only ever reached for +ADD: an existing form was already classified !SKIP by the diff, and
       # !SKIP is not in the action filter above. The never-clobber rule lives in one place.
-      if mkdir -p "$FORMS_TARGET" 2>/dev/null && cp "$FORMS_DIR/$f1" "$FORMS_TARGET/$f1" 2>/dev/null; then
+      #
+      # Not a `gh` call, so there is no HTTP status to classify — just capture whatever the OS
+      # actually said (permission denied, disk full, a read-only target) instead of the bare path
+      # the old message gave with no cause at all (#222's smaller, OS-level companion to
+      # gh_refusal()). Grouped so one `2>&1 >/dev/null` captures either command's stderr.
+      if form_err="$( { mkdir -p "$FORMS_TARGET" && cp "$FORMS_DIR/$f1" "$FORMS_TARGET/$f1"; } 2>&1 >/dev/null )"; then
         APPLIED=$((APPLIED + 1))
         # Project the manifest's own areas into the just-copied form, so its dropdown and this
         # repo's labels agree by construction. A placeholder-only manifest leaves the shipped
@@ -456,7 +477,7 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
           # file's own rule is to use the guarded form regardless, so a later refactor that loosens
           # the guard can't reopen the "unbound variable" abort this idiom exists to prevent.
           proj_err=$(python3 "$PROJECTOR" "$FORMS_TARGET/$f1" ${AREA_ARGS[@]+"${AREA_ARGS[@]}"} 2>&1 >/dev/null) || proj_rc=$?
-          # Flattened exactly like label_refusal()'s $flat above: a PyYAML error is routinely
+          # Flattened exactly like gh_refusal()'s $flat above: a PyYAML error is routinely
           # multi-line, and every report row is a single line by contract — an embedded newline
           # would split a status row in two and could spuriously satisfy an unrelated `has_line`
           # check reading the report.
@@ -473,7 +494,12 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
           esac
         fi
       else
-        refuse "forms" "could not write $FORMS_TARGET/$f1"
+        form_err_flat="$(printf '%s' "$form_err" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//')"
+        if [ -n "$form_err_flat" ]; then
+          refuse "forms" "could not write $FORMS_TARGET/$f1 — $form_err_flat"
+        else
+          refuse "forms" "could not write $FORMS_TARGET/$f1"
+        fi
       fi
       ;;
     setting)
@@ -491,10 +517,10 @@ if [ "$SET_COUNT" -gt 0 ]; then
   # `${arr[@]+"${arr[@]}"}` and not a bare "${arr[@]}": under `set -u`, bash 3.2 treats an empty
   # array expansion as an unbound variable and aborts. SET_COUNT > 0 means it is not empty here,
   # but the idiom is the one this file has to use everywhere, so it is used consistently.
-  elif gh api -X PATCH "repos/$SLUG" ${SET_ARGS[@]+"${SET_ARGS[@]}"} >/dev/null 2>&1; then
+  elif patch_err="$(gh api -X PATCH "repos/$SLUG" ${SET_ARGS[@]+"${SET_ARGS[@]}"} 2>&1 >/dev/null)"; then
     APPLIED=$((APPLIED + SET_COUNT))
   else
-    refuse "settings" "gh api -X PATCH repos/$SLUG was refused — the token needs admin rights on it"
+    refuse "settings" "$(gh_refusal "update" "repos/$SLUG" "$patch_err" "gh api -X PATCH repos/$SLUG was refused — the token needs admin rights on it")"
   fi
 fi
 
