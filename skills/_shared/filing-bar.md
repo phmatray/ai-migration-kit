@@ -38,6 +38,33 @@ has already been taken; the issue is just where it now lives.
 
 Pass one gate and the finding earns an issue. Pass none and it is an observation.
 
+## 4. Already declined — the one clause that overrules the other three
+
+The three gates above are **gates**: pass any one and file. This clause is a **veto**: an idea that
+matches a prior rejection fails the bar **however many of the three it passed**.
+
+It has to work that way, because gate 2 is exactly what a declined idea passes. *"A named instance
+already in the tree"* is satisfied every time the idea returns — the instance is real, the argument is
+sound, and the decision not to do it was taken anyway. Three gates alone cannot tell "nobody has
+looked at this" from "this was looked at and declined", so they file both.
+
+A prior rejection is an ADR with `status: rejected` under the profile's *ADRs* root. Look it up before
+applying the gates, by **concept and not keyword** — the recurring idea arrives under new vocabulary
+every time, which is why the lookup is semantic and the fallback matches on word overlap rather than
+on the title. The recipe, both modes, and the recap line each inlet owes are in
+[`prior-rejections.md`](./prior-rejections.md).
+
+**The one exception is written into the ADR itself.** Its *Consequences* section names the condition
+that reopens it. If that condition **now holds** — and you can say in one sentence what changed and
+where to see it — the veto lifts and the finding faces gates 1–3 normally; cite the ADR either way.
+"This still seems like a good idea" is not that condition, and neither is a new name for the same
+mechanism.
+
+**A direct request from the user still outranks everything, this clause included.** Someone asking for
+the issue is gate 3, and it is not a skill's place to tell them their own decision was already made.
+File it, cite the ADR in the body, and append the new number to the ADR's *Prior requests* — the veto
+governs what the pipeline files **on its own initiative**, which is the only channel that can run away.
+
 ## Where a finding goes when it fails the bar
 
 Record it — retrievable later, costing nothing to ignore in the meantime:
@@ -71,6 +98,14 @@ Apply the bar **after** clustering by root cause, never before. A cluster of thr
 finding, and it is the *cluster* that faces the bar — judging symptoms individually is how three
 weak items get filed separately when the one root behind them would have passed on its own merits.
 
-Report what the bar did, in the skill's closing recap: *"7 observations · 2 filed · 5 recorded"*.
-The count is what tells the owner whether the inlet is calibrated — all-filed means the bar isn't
-being applied, all-recorded means it is being used to avoid work.
+Run the prior-rejection lookup **before** the gates, on the cluster, for the same reason: a symptom
+carries the vocabulary the reporter used, and the root carries the concept the ADR was written about.
+
+Report what the bar did, in the skill's closing recap: *"7 observations · 2 filed · 4 recorded · 1
+already declined (ADR-0008)"*. The count is what tells the owner whether the inlet is calibrated —
+all-filed means the bar isn't being applied, all-recorded means it is being used to avoid work — and
+the declined column is named separately because it is the one refusal the owner has already ruled on:
+seeing it is how they notice a concept being re-proposed every week, and decide whether the ADR still
+holds. The lookup states its own mode on its own line
+([`prior-rejections.md`](./prior-rejections.md)) — a `0 hits` from the grep fallback is weaker
+evidence than a `0 hits` from semantic search, and the recap has to let the owner tell them apart.

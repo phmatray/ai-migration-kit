@@ -236,6 +236,8 @@ add_gate "python3 tests/adr/check-adrs.py"
 
 add_suite "tests/adr/test.sh"
 
+add_suite "tests/rejected-adrs/test.sh"
+
 # 16: the contrast checker itself, pass AND fail paths.
 add_gate "$(cat <<'EOF'
 python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
@@ -244,6 +246,8 @@ if python3 scripts/contrast-check.py "#777777:#888888" >/dev/null 2>&1; then
 fi
 EOF
 )"
+
+add_suite "tests/decision-tally/test.sh"
 
 add_suite "tests/run-all-tests/test.sh"
 

@@ -44,6 +44,7 @@
     "scripts/run-all-tests.sh": "the test-suite orchestrator; it runs gates and suites in sequence, it does not itself decide anything",
     "scripts/worktrees-ignored.sh": "a structural guard (worktree homes are ignored), not a control-flow choice with a verdict vocabulary",
     "skills/auto-dev/scripts/analyze_cache.py": "an offline token-usage analysis report, not a control-flow choice",
+    "skills/auto-dev/scripts/decision-tally.sh": "a read-only tally over decide.sh's own event log (counts, ratios and two printed threshold flags); it reports on decisions already made, it does not make one of its own",
     "skills/auto-dev/scripts/measure_phase2.py": "an offline cost-measurement report, not a control-flow choice",
     "skills/auto-dev/scripts/reconcile.sh": "a deterministic GitHub ground-truth query for the supervisor loop; it reports state, the supervisor decides",
     "skills/auto-dev/scripts/survey.sh": "a deterministic issue-queue query; it orders and reports, the supervisor decides",
@@ -65,6 +66,7 @@
     "skills/setup-repo/scripts/project-area-options.py": "rewrites a copied issue form's Area dropdown from the manifest; a mechanical rewrite, not a control-flow choice",
     "skills/setup-repo/scripts/repo-setup.sh": "converges a repo to the expected configuration (plan/apply); it does not itself emit a registered verdict",
     "skills/systematic-debugging/find-polluter.sh": "a bisection utility a developer runs by hand to find which test creates unwanted state \u2014 it reports the polluter it bisected to, the debugger decides what to do about it; not a control-flow choice the methodology makes",
-    "skills/systematic-debugging/scripts/hitl-loop.template.sh": "a TEMPLATE a debugger copies and edits \u2014 it prompts a human and prints their answers as KEY=VALUE; it has no verdict of its own to register"
+    "skills/systematic-debugging/scripts/hitl-loop.template.sh": "a TEMPLATE a debugger copies and edits \u2014 it prompts a human and prints their answers as KEY=VALUE; it has no verdict of its own to register",
+    "skills/triage-backlog/scripts/rejected-adrs.sh": "a read-only keyword lookup over rejected ADRs; it reports rows and distinguishes 'found none' from 'could not look', the calling skill decides whether a hit blocks a filing"
   }
 }

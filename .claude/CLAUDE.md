@@ -11,7 +11,7 @@ first.
   `scripts/preflight.sh` reads it.
 - Control-flow decisions → [`decisions/registry.json`](../decisions/registry.json) +
   [`docs/decisions.md`](../docs/decisions.md) — one id, one program, one home.
-- Architectural decisions → the profile's `## ADRs` section (`.claude/skills/repo-profile.md`) — `docs/adr/` once #316 lands.
+- Architectural decisions → the profile's `## ADRs` section (`.claude/skills/repo-profile.md`) — `docs/adr/`.
 - Domain language → [`CONTEXT.md`](../CONTEXT.md).
 - Trigger contracts → `evals/<skill>-trigger-eval.json`, the one home (#331); structure checked by `tests/skills/check-frontmatter.py`.
 - Shared test preamble → `tests/_lib.sh` (`local rc=$?` must be the first statement in its trap).

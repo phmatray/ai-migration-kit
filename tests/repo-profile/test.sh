@@ -348,6 +348,28 @@ sec=$(section_of "$out" "Out-of-scope records")
 grep -qF "docs/out-of-scope/ (1 files)" <<<"$sec" \
   || fail "detect: Out-of-scope records count wrong:
 $sec"
+# The fixture's one ADR is NOT rejected, so the rejected-ADR branch must stay silent here — a probe
+# that reported every ADR root as an out-of-scope store would make the section meaningless.
+grep -qF 'status: rejected' <<<"$sec" \
+  && fail "detect: Out-of-scope records claimed rejected ADRs over a root that has none:
+$sec"
+
+# 7c. The same root, now holding a REJECTED ADR (#319). This is the branch `create-issue` Step 3
+# and `triage-backlog` Step 4 read to decide whether the prior-rejection lookup has anywhere to
+# look, so a root with records reported as `none` silently disables the lookup in exactly the
+# repository that needs it. Both stores are reported when both exist — they are not exclusive.
+printf -- '---\nid: 2\ntitle: Y\nstatus: rejected\ndate: 2026-01-01\ntags:\n- out-of-scope\n---\n# Y\n' \
+  > "$fx/docs/adr/0002-y.md"
+out="$(cd "$fx" && "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" detect 2>/dev/null)" \
+  || fail "detect: exited non-zero over the rejected-ADR fixture"
+sec=$(section_of "$out" "Out-of-scope records")
+grep -qF 'docs/adr/ `status: rejected` (1 records)' <<<"$sec" \
+  || fail "detect: the rejected ADR was not reported as an out-of-scope record:
+$sec"
+grep -qF "docs/out-of-scope/ (1 files)" <<<"$sec" \
+  || fail "detect: the rejected-ADR branch swallowed the docs/out-of-scope/ store:
+$sec"
+rm -f "$fx/docs/adr/0002-y.md"
 sec=$(section_of "$out" "Coding standards")
 grep -qF ".editorconfig" <<<"$sec" || fail "detect: Coding standards lost .editorconfig:
 $sec"

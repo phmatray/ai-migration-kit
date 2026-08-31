@@ -1,5 +1,5 @@
 ---
-id: 8
+id: 11
 title: Hook gates are recorded rather than registered decisions
 status: accepted
 date: 2026-08-31

@@ -115,7 +115,7 @@ Stated here rather than left to be rediscovered.
   sitting outside the four globs #252 measured with, so `hooks/roseline-gate.sh` needed neither a
   row nor a record — is **closed** (#307): `E` now reads `scripts/tracked-exec-globs.txt`, and both
   files it was hiding are recorded. Where a hook lands once enumerated is
-  [ADR 0008](adr/0008-hook-gates-are-recorded-rather-than-registered-decisions.md): **recorded, not
+  [ADR 0011](adr/0011-hook-gates-are-recorded-rather-than-registered-decisions.md): **recorded, not
   registered**, because a hook's deny is a PreToolUse `permissionDecision` rather than a verdict
   `decide.sh` dispatches, and there is no owner document for R7 to check.
 - **An unanswerable question aborts the run.** An unknown `program.kind` or a `verdict.source` no
