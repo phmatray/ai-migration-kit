@@ -80,7 +80,8 @@ def load_repo(repo):
         return {'repo': name, 'error': f'{path} introuvable{hint}', 'next_steps': [], 'deferred': []}
     r = json.loads(path.read_text(encoding='utf-8'))
     steps = [{'repo': name, 'text': s.get('text', ''), 'effort': s.get('effort'),
-              'owner': bool(s.get('owner')), 'effortMinutes': parse_effort_minutes(s.get('effort'))}
+              'owner': bool(s.get('owner')), 'effortMinutes': parse_effort_minutes(s.get('effort')),
+              'answer': s.get('answer'), 'answered': s.get('answered')}
              for s in r.get('next_steps', [])]
     deferred = [{'repo': name, 'title': d.get('strong', ''), 'text': d.get('text', '')}
                 for d in r.get('deferred', [])]
@@ -173,6 +174,13 @@ def render_questionnaire(repos, profile_todo_paths, to, frm, deadline):
             effort = s.get('effort') or 'no effort estimate'
             lines.append(f'_Why this matters: {effort}._')
             lines.append('')
+            if s.get('answer'):
+                # « later » garde la décision ouverte À DESSEIN (voir "How to answer") — mais sans
+                # ce rappel, un futur rendu repose la même question sans jamais montrer que le
+                # propriétaire y a déjà répondu une fois.
+                lines.append(f'_Previously answered ({s.get("answered") or "date unknown"}): '
+                             f'"{s["answer"]}"._')
+                lines.append('')
             lines.append(f'<!-- followup: {repo} | {eid} -->')
             lines.append('>')
             lines.append('')
@@ -180,9 +188,15 @@ def render_questionnaire(repos, profile_todo_paths, to, frm, deadline):
     if profile_todo_paths:
         lines.append('## Repo profile')
         lines.append('')
+        seen_todo_ids = set()
         for path in profile_todo_paths:
             for todo in read_profile_todos(path):
                 pid = entry_id(str(path), todo)
+                if pid in seen_todo_ids:
+                    warnings.append(
+                        f'collision: duplicate id {pid} in {path} (identical TODO text) — only '
+                        'the first is answerable')
+                seen_todo_ids.add(pid)
                 lines.append(f'### {todo}')
                 lines.append('')
                 lines.append(f'<!-- profile-todo: {path} | {pid} -->')
@@ -248,6 +262,22 @@ def parse_answers(md_text):
     return followups, profile_todos
 
 
+def tick_report_md_line(report_md, old_line, new_line):
+    """Remplace la PREMIÈRE ligne dont le contenu (indentation mise à part) égale exactement
+    `old_line`, par `new_line` (indentation conservée). Un test par SOUS-CHAÎNE tickerait la
+    première ligne qui ne fait que COMMENCER par le même texte qu'une autre plus longue
+    (« - [ ] Update SDK » à l'intérieur de « - [ ] Update SDK version pin in csproj ») — ce test
+    par LIGNE ENTIÈRE ne peut matcher que la ligne qui EST la case à cocher, jamais un préfixe
+    d'une autre. Renvoie (texte, apparié)."""
+    lines = report_md.split('\n')
+    for i, line in enumerate(lines):
+        if line.strip() == old_line:
+            indent = line[:len(line) - len(line.lstrip())]
+            lines[i] = indent + new_line
+            return '\n'.join(lines), True
+    return report_md, False
+
+
 def apply_answer(report, report_md, entry, answer, today):
     """Applique une réponse à une entrée `next_steps` (mutée en place dans `report`), selon le
     premier mot de la réponse : `done` (supprimée), `wont`/`no`/`never` (déplacée vers `deferred`),
@@ -264,10 +294,8 @@ def apply_answer(report, report_md, entry, answer, today):
         report['next_steps'] = [s for s in report['next_steps'] if s is not entry]
         outcome = 'done'
         if report_md is not None:
-            old, new = f'- [ ] {text}', f'- [x] {text}'
-            if old in report_md:
-                report_md = report_md.replace(old, new, 1)
-                md_matched = True
+            report_md, md_matched = tick_report_md_line(
+                report_md, f'- [ ] {text}', f'- [x] {text}')
     elif first in ('wont', 'no', 'never'):
         report['next_steps'] = [s for s in report['next_steps'] if s is not entry]
         rest = stripped[len(m.group(1)):].strip(' ,.-—:') if m else ''
@@ -276,11 +304,8 @@ def apply_answer(report, report_md, entry, answer, today):
             {'strong': f'Not pursued by decision ({today})', 'text': new_text})
         outcome = 'wont'
         if report_md is not None:
-            old = f'- [ ] {text}'
-            new = f'- [x] ~~{text}~~ — not pursued by decision'
-            if old in report_md:
-                report_md = report_md.replace(old, new, 1)
-                md_matched = True
+            report_md, md_matched = tick_report_md_line(
+                report_md, f'- [ ] {text}', f'- [x] ~~{text}~~ — not pursued by decision')
     else:
         entry['answer'] = stripped
         entry['answered'] = today
@@ -339,6 +364,7 @@ def run_ingest(repo_args, answered_path, dry_run):
 
         answers_for_repo = by_repo.get(name, {})
         counts = {'done': 0, 'wont': 0, 'recorded': 0, 'unanswered': 0, 'stale': 0}
+        any_applied = False
 
         for eid, matches in id_to_entries.items():
             if eid not in answers_for_repo:
@@ -351,6 +377,7 @@ def run_ingest(repo_args, answered_path, dry_run):
             outcome, report_md_text, md_matched = apply_answer(
                 report, report_md_text, matches[0], answers_for_repo[eid], today)
             counts[outcome] += 1
+            any_applied = True
             if md_matched is False:
                 md_misses.append(
                     f"{name}: report.md has no matching checkbox line for {matches[0].get('text', '')!r}")
@@ -362,7 +389,10 @@ def run_ingest(repo_args, answered_path, dry_run):
                     'the questionnaire?)')
                 counts['stale'] += 1
 
-        if not dry_run:
+        # Rien à appliquer cette fois -> AUCUNE écriture, même pas un round-trip JSON/report.md
+        # inoffensif en apparence : ça produirait un diff (indentation, fin de ligne normalisée)
+        # sur un repo que cette ingestion n'a, en réalité, pas touché.
+        if not dry_run and any_applied:
             report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
             if report_md_text is not None:
                 md_path.write_text(report_md_text, encoding='utf-8')
@@ -370,7 +400,7 @@ def run_ingest(repo_args, answered_path, dry_run):
         print(f"{name}: {counts['done']} done · {counts['wont']} not pursued · "
               f"{counts['recorded']} recorded · {counts['unanswered']} unanswered · "
               f"{counts['stale']} stale")
-        if not dry_run:
+        if not dry_run and any_applied:
             print(f'  python3 "{kit_root}/scripts/report-dashboard.py" {report_path}')
             print(f'  git -C "{root}" commit -am "chore: follow-up closed — see report.md"')
 
@@ -448,7 +478,8 @@ def main():
         print("| Repo | Décision | Effort |")
         print("|---|---|---|")
         for s in owner:
-            print(f"| {s['repo']} | {s['text']} | {s['effort'] or '—'} |")
+            note = f" _(noté {s['answered']})_" if s.get('answer') else ''
+            print(f"| {s['repo']} | {s['text']}{note} | {s['effort'] or '—'} |")
         print()
 
     if tasks:

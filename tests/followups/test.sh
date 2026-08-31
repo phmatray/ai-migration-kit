@@ -233,6 +233,62 @@ grep -qF -- '- [x] ~~Décision propriétaire B sans effort~~ — not pursued by 
 # L'id fabriqué reste signalé périmé sur l'ingestion réelle aussi (jamais planté, jamais appliqué).
 grep -qF "stale id $id_stale in fixture-a" <<<"$ingest_out" || { echo "ÉCHEC : id fabriqué non signalé périmé (réel)"; exit 1; }
 
+# Un re-rendu APRÈS ingestion rappelle la réponse « later » déjà donnée — sinon le propriétaire
+# se voit reposer la même question sans jamais voir sa propre note précédente.
+q_after="$scratch/questionnaire-after.md"
+python3 scripts/followups.py "$ingest_dir/fixture-a" "$ingest_dir/fixture-b" \
+  --questionnaire "$q_after" > /dev/null
+grep -qF 'Previously answered' "$q_after" || {
+  echo "ÉCHEC : le re-rendu ne rappelle pas la réponse « later » déjà donnée"; exit 1; }
+grep -qF 'later, ask me in Q4' "$q_after" || {
+  echo "ÉCHEC : le re-rendu ne cite pas la réponse exacte déjà donnée"; exit 1; }
+
+# --profile-todos collision : le même profil passé deux fois -> mêmes ids -> avertissement, comme
+# pour une décision propriétaire dupliquée (même mécanisme, même message).
+q_dup_todo="$scratch/questionnaire-dup-todo.md"
+dup_todo_out="$(python3 scripts/followups.py tests/followups/fixture-a tests/followups/fixture-b \
+  --questionnaire "$q_dup_todo" \
+  --profile-todos tests/followups/fixture-profile.md tests/followups/fixture-profile.md)"
+grep -qF 'collision:' <<<"$dup_todo_out" || {
+  echo "ÉCHEC : un profil TODO dupliqué doit être signalé en collision : $dup_todo_out"; exit 1; }
+
+# Régression report.md : une entrée dont le texte est un PRÉFIXE littéral d'une autre ne doit
+# jamais faire cocher/barrer la MAUVAISE ligne (un test par sous-chaîne le ferait).
+prefix_dir="$scratch/prefix-regression"
+mkdir -p "$prefix_dir/migration"
+cat > "$prefix_dir/migration/report.json" <<'EOF'
+{
+  "next_steps": [
+    {"text": "Update SDK", "effort": "~10 min", "owner": false},
+    {"text": "Update SDK version pin in csproj", "effort": "~10 min", "owner": true}
+  ],
+  "deferred": []
+}
+EOF
+cat > "$prefix_dir/migration/report.md" <<'EOF'
+## Prochaines étapes
+- [ ] Update SDK
+- [ ] Update SDK version pin in csproj
+EOF
+prefix_answered="$scratch/prefix-answered.md"
+python3 scripts/followups.py "$prefix_dir" --questionnaire "$prefix_answered" > /dev/null
+id_prefix=$(python3 -B -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('prefix-regression','Update SDK version pin in csproj'))")
+python3 - "$prefix_answered" "$id_prefix" <<'PY'
+import sys
+path, eid = sys.argv[1:3]
+text = open(path, encoding='utf-8').read()
+text = text.replace(f"<!-- followup: prefix-regression | {eid} -->\n>",
+                     f"<!-- followup: prefix-regression | {eid} -->\n> done")
+open(path, 'w', encoding='utf-8').write(text)
+PY
+python3 scripts/followups.py "$prefix_dir" --ingest "$prefix_answered" > /dev/null
+grep -qxF -- '- [ ] Update SDK' "$prefix_dir/migration/report.md" || {
+  echo "ÉCHEC (régression préfixe) : « Update SDK » (tâche non répondue) a été touché à tort :"
+  cat "$prefix_dir/migration/report.md"; exit 1; }
+grep -qxF -- '- [x] Update SDK version pin in csproj' "$prefix_dir/migration/report.md" || {
+  echo "ÉCHEC (régression préfixe) : la vraie décision répondue n'a pas été cochée :"
+  cat "$prefix_dir/migration/report.md"; exit 1; }
+
 # Idempotence : une seconde ingestion sur les MÊMES fichiers ne refait rien pour les ids déjà traités.
 ingest_out2="$(python3 scripts/followups.py "$ingest_dir/fixture-a" "$ingest_dir/fixture-b" --ingest "$ingest_answered")"
 grep -qF '0 done · 0 not pursued' <<<"$ingest_out2" || { echo "ÉCHEC : la seconde ingestion n'est pas un no-op : $ingest_out2"; exit 1; }
