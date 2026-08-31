@@ -140,4 +140,86 @@ grep -qF '## Repo profile' <<<"$q2" || { echo "ÉCHEC : thème « Repo profile �
 grep -qF 'confirm the commit author identity' <<<"$q2" || { echo "ÉCHEC : premier TODO du profil absent"; exit 1; }
 grep -qF 'link CONTEXT.md once the owner writes one' <<<"$q2" || { echo "ÉCHEC : second TODO du profil absent"; exit 1; }
 
+# --ingest : applique les réponses SUR UNE COPIE SCRATCH des fixtures (#160, jamais les vraies).
+ingest_dir="$scratch/ingest"
+mkdir -p "$ingest_dir"
+cp -R tests/followups/fixture-a "$ingest_dir/fixture-a"
+cp -R tests/followups/fixture-b "$ingest_dir/fixture-b"
+
+# Le fichier de réponses est GÉNÉRÉ par un rendu réel (les ids ne peuvent pas dériver du schéma) :
+# on rend depuis la copie scratch elle-même, puis on complète les stubs.
+ingest_answered="$scratch/answered.md"
+python3 scripts/followups.py "$ingest_dir/fixture-a" "$ingest_dir/fixture-b" \
+  --questionnaire "$ingest_answered" > /dev/null
+id_a=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire A'))")
+id_b=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-b','Décision propriétaire B sans effort'))")
+id_stale="deadbeef"
+
+python3 - "$ingest_answered" "$id_a" "$id_b" "$id_stale" <<'PY'
+import sys
+path, id_a, id_b, id_stale = sys.argv[1:5]
+text = open(path, encoding='utf-8').read()
+text = text.replace(f"<!-- followup: fixture-a | {id_a} -->\n>",
+                     f"<!-- followup: fixture-a | {id_a} -->\n> done")
+text = text.replace(f"<!-- followup: fixture-b | {id_b} -->\n>",
+                     f"<!-- followup: fixture-b | {id_b} -->\n> wont — too costly")
+# Un id fabriqué, sur un repo réellement passé : doit être signalé PÉRIMÉ, jamais planté.
+text += f"\n### Fabricated stale question\n<!-- followup: fixture-a | {id_stale} -->\n> later, ask me in Q4\n"
+open(path, 'w', encoding='utf-8').write(text)
+PY
+
+# --dry-run : ne doit RIEN écrire (byte-identique avant/après).
+before_json_a=$(cat "$ingest_dir/fixture-a/migration/report.json")
+before_md_a=$(cat "$ingest_dir/fixture-a/migration/report.md")
+ingest_out_dry="$(python3 scripts/followups.py "$ingest_dir/fixture-a" "$ingest_dir/fixture-b" --ingest "$ingest_answered" --dry-run)"
+after_json_a=$(cat "$ingest_dir/fixture-a/migration/report.json")
+after_md_a=$(cat "$ingest_dir/fixture-a/migration/report.md")
+[ "$before_json_a" = "$after_json_a" ] || { echo "ÉCHEC : --dry-run a modifié report.json"; exit 1; }
+[ "$before_md_a" = "$after_md_a" ] || { echo "ÉCHEC : --dry-run a modifié report.md"; exit 1; }
+grep -qF '1 done · 0 not pursued' <<<"$ingest_out_dry" || { echo "ÉCHEC (dry-run) : compte fixture-a inattendu : $ingest_out_dry"; exit 1; }
+grep -qF "stale id $id_stale in fixture-a" <<<"$ingest_out_dry" || { echo "ÉCHEC (dry-run) : id fabriqué non signalé périmé"; exit 1; }
+
+# Ingestion réelle.
+ingest_out="$(python3 scripts/followups.py "$ingest_dir/fixture-a" "$ingest_dir/fixture-b" --ingest "$ingest_answered")"
+grep -qF '1 done · 0 not pursued' <<<"$ingest_out" || { echo "ÉCHEC (ingest) : compte fixture-a inattendu : $ingest_out"; exit 1; }
+grep -qF '0 done · 1 not pursued' <<<"$ingest_out" || { echo "ÉCHEC (ingest) : compte fixture-b inattendu : $ingest_out"; exit 1; }
+
+# report.json : "done" retiré de next_steps ; "wont" déplacé vers deferred avec la raison, et
+# strike la ligne de report.md ; "done" coche la ligne de report.md.
+python3 -c "
+import json
+r = json.load(open('$ingest_dir/fixture-a/migration/report.json', encoding='utf-8'))
+assert not any(s.get('text') == 'Décision propriétaire A' for s in r['next_steps']), r['next_steps']
+assert len(r['next_steps']) == 2, r['next_steps']
+"
+python3 -c "
+import json
+r = json.load(open('$ingest_dir/fixture-b/migration/report.json', encoding='utf-8'))
+assert not any(s.get('text') == 'Décision propriétaire B sans effort' for s in r['next_steps']), r['next_steps']
+deferred_texts = [d['text'] for d in r['deferred']]
+assert any('Décision propriétaire B sans effort' in t and 'too costly' in t for t in deferred_texts), deferred_texts
+assert any(d['strong'].startswith('Not pursued by decision (') for d in r['deferred']), r['deferred']
+"
+grep -qF -- '- [x] Décision propriétaire A' "$ingest_dir/fixture-a/migration/report.md" || {
+  echo "ÉCHEC : report.md de fixture-a n'a pas coché la décision « done »"; exit 1; }
+grep -qF -- '- [x] ~~Décision propriétaire B sans effort~~ — not pursued by decision' "$ingest_dir/fixture-b/migration/report.md" || {
+  echo "ÉCHEC : report.md de fixture-b n'a pas barré la décision « wont »"; exit 1; }
+
+# L'id fabriqué reste signalé périmé sur l'ingestion réelle aussi (jamais planté, jamais appliqué).
+grep -qF "stale id $id_stale in fixture-a" <<<"$ingest_out" || { echo "ÉCHEC : id fabriqué non signalé périmé (réel)"; exit 1; }
+
+# Idempotence : une seconde ingestion sur les MÊMES fichiers ne refait rien pour les ids déjà traités.
+ingest_out2="$(python3 scripts/followups.py "$ingest_dir/fixture-a" "$ingest_dir/fixture-b" --ingest "$ingest_answered")"
+grep -qF '0 done · 0 not pursued' <<<"$ingest_out2" || { echo "ÉCHEC : la seconde ingestion n'est pas un no-op : $ingest_out2"; exit 1; }
+
+# Un fichier de réponses vide/introuvable est un fichier MALFORMÉ (exit 2), pas une erreur repo.
+empty_answered="$scratch/empty-answered.md"
+: > "$empty_answered"
+if python3 scripts/followups.py "$ingest_dir/fixture-a" --ingest "$empty_answered" > "$scratch/empty.out" 2>&1; then
+  rc=0
+else
+  rc=$?
+fi
+[ "$rc" -eq 2 ] || { echo "ÉCHEC : un answered.md vide doit sortir en code 2, a rendu $rc : $(cat "$scratch/empty.out")"; exit 1; }
+
 echo "OK test golden followups"

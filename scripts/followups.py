@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Agrège les suivis ouverts des migrations, et donne aux décisions propriétaire une sortie
-questionnaire.
+questionnaire (rendu) + un chemin de réponse (ingestion).
 
 Sources de vérité : le `migration/report.json` de chaque repo migré (clés `next_steps`
 et `deferred`) et, en option, le backlog du kit (`--backlog docs/backlog.md`). Le mode
-d'agrégation par défaut (aucun flag `--questionnaire`) reste en lecture seule ; les mises à jour se
-font dans les rapports eux-mêmes, à la source, via les protocoles du skill `followups`.
+d'agrégation par défaut (aucun flag `--questionnaire`/`--ingest`) reste en lecture seule ; les
+mises à jour se font dans les rapports eux-mêmes, à la source, via les protocoles du skill
+`followups` — ce que `--ingest` applique désormais mécaniquement pour les décisions propriétaire.
 
 Usage :
   followups.py <repo> [<repo>…] [--backlog <fichier.md>] [--json]
   followups.py <repo> [<repo>…] --questionnaire <out.md> [--profile-todos <profil.md>…]
                        [--to "<nom>"] [--from "<nom>"] [--deadline "<texte>"]
+  followups.py <repo> [<repo>…] --ingest <answered.md> [--dry-run]
 
 Tri (mode agrégation) : décisions propriétaire d'abord, puis tâches par effort croissant
 (« ~10 min » < « ~1 h » < sans effort), avec provenance (repo) partout.
@@ -58,7 +60,7 @@ def repo_name(p):
 
 def resolve_repo_root(repo):
     """(nom rapporté, racine résolue) pour un argument `repo` — même règle de résolution que
-    `load_repo`, factorisée pour être réutilisée par le mode ingestion (I-332 tâche 2)."""
+    `load_repo`, factorisée pour être réutilisée par le mode ingestion."""
     p = Path(repo)
     base = Path.cwd()
     root = p if p.is_absolute() else base / p
@@ -99,8 +101,8 @@ def load_backlog(path):
 def entry_id(repo, text):
     """Identifiant stable d'une entrée (décision propriétaire ou TODO de profil) : un hash court de
     son repo/fichier d'origine et de son texte exact. Change si l'entrée est reformulée — c'est
-    voulu : un futur `--ingest` (I-332 tâche 2) doit alors la signaler comme périmée plutôt que
-    d'apparier au hasard une réponse à une question qui n'est plus celle posée."""
+    voulu : `--ingest` doit alors la signaler comme périmée plutôt que d'apparier au hasard une
+    réponse à une question qui n'est plus celle posée."""
     return hashlib.sha1(f'{repo}\n{text}'.encode('utf-8')).hexdigest()[:8]
 
 
@@ -210,6 +212,188 @@ def run_questionnaire(repo_args, profile_todo_paths, to, frm, deadline, out_path
     return 1 if errors else 0
 
 
+# ------------------------------------------------------------------------------------------ ingest
+
+MARKER_RE = re.compile(r'<!--\s*(followup|profile-todo):\s*(.+?)\s*\|\s*([0-9a-f]{8})\s*-->')
+
+
+def parse_answers(md_text):
+    """Lit un fichier de réponses : pour chaque marqueur `<!-- followup: … -->` /
+    `<!-- profile-todo: … -->`, capture le bloc `>` qui suit, trimmé. Un stub resté vide (pas de
+    texte après `>`) n'est pas une réponse. Renvoie (followups, profile_todos), chacun
+    id -> (origine, texte_réponse)."""
+    lines = md_text.splitlines()
+    followups = {}
+    profile_todos = {}
+    i = 0
+    n = len(lines)
+    while i < n:
+        m = MARKER_RE.search(lines[i])
+        if not m:
+            i += 1
+            continue
+        kind, origin, eid = m.group(1), m.group(2), m.group(3)
+        j = i + 1
+        answer_parts = []
+        while j < n and lines[j].startswith('>'):
+            content = lines[j][1:].strip()
+            if content:
+                answer_parts.append(content)
+            j += 1
+        answer = ' '.join(answer_parts).strip()
+        if answer:
+            target = followups if kind == 'followup' else profile_todos
+            target[eid] = (origin, answer)
+        i = j
+    return followups, profile_todos
+
+
+def apply_answer(report, report_md, entry, answer, today):
+    """Applique une réponse à une entrée `next_steps` (mutée en place dans `report`), selon le
+    premier mot de la réponse : `done` (supprimée), `wont`/`no`/`never` (déplacée vers `deferred`),
+    tout le reste (`later` inclus) — conservée, annotée `answer`/`answered`. Renvoie
+    (outcome, report_md_mis_à_jour, md_apparié) — `md_apparié` est None quand `report_md` est
+    absent, sinon True/False selon que la ligne à cocher a été trouvée."""
+    text = entry.get('text', '')
+    stripped = answer.strip()
+    m = re.match(r'(\S+)', stripped)
+    first = m.group(1).lower().rstrip('.,;:') if m else ''
+    md_matched = None if report_md is None else False
+
+    if first == 'done':
+        report['next_steps'] = [s for s in report['next_steps'] if s is not entry]
+        outcome = 'done'
+        if report_md is not None:
+            old, new = f'- [ ] {text}', f'- [x] {text}'
+            if old in report_md:
+                report_md = report_md.replace(old, new, 1)
+                md_matched = True
+    elif first in ('wont', 'no', 'never'):
+        report['next_steps'] = [s for s in report['next_steps'] if s is not entry]
+        rest = stripped[len(m.group(1)):].strip(' ,.-—:') if m else ''
+        new_text = f'{text} — {rest}' if rest else text
+        report.setdefault('deferred', []).append(
+            {'strong': f'Not pursued by decision ({today})', 'text': new_text})
+        outcome = 'wont'
+        if report_md is not None:
+            old = f'- [ ] {text}'
+            new = f'- [x] ~~{text}~~ — not pursued by decision'
+            if old in report_md:
+                report_md = report_md.replace(old, new, 1)
+                md_matched = True
+    else:
+        entry['answer'] = stripped
+        entry['answered'] = today
+        outcome = 'recorded'
+
+    return outcome, report_md, md_matched
+
+
+def run_ingest(repo_args, answered_path, dry_run):
+    try:
+        md_text = Path(answered_path).read_text(encoding='utf-8')
+    except OSError as e:
+        print(f'malformed answered file: cannot read {answered_path}: {e}', file=sys.stderr)
+        return 2
+    if not md_text.strip():
+        print(f'malformed answered file: {answered_path} is empty', file=sys.stderr)
+        return 2
+
+    followups, profile_todos = parse_answers(md_text)
+    today = date.today().isoformat()
+    kit_root = Path(__file__).resolve().parent.parent
+
+    passed = {}
+    errors = []
+    for r in repo_args:
+        name, root, base, is_absolute = resolve_repo_root(r)
+        report_path = root / 'migration' / 'report.json'
+        if not report_path.is_file():
+            hint = '' if is_absolute else f' (chemin relatif résolu depuis {base})'
+            errors.append(f'{report_path} introuvable{hint}')
+            continue
+        passed[name] = root
+    for e in errors:
+        print(f'⚠ {e}')
+
+    by_repo = {}
+    for eid, (origin, answer) in followups.items():
+        by_repo.setdefault(origin, {})[eid] = answer
+
+    stale = []
+    collisions = []
+    md_misses = []
+
+    for name, root in passed.items():
+        report_path = root / 'migration' / 'report.json'
+        md_path = root / 'migration' / 'report.md'
+        report = json.loads(report_path.read_text(encoding='utf-8'))
+        report.setdefault('deferred', [])
+        report_md_text = md_path.read_text(encoding='utf-8') if md_path.is_file() else None
+
+        id_to_entries = {}
+        for s in report.get('next_steps', []):
+            if not s.get('owner'):
+                continue
+            id_to_entries.setdefault(entry_id(name, s.get('text', '')), []).append(s)
+
+        answers_for_repo = by_repo.get(name, {})
+        counts = {'done': 0, 'wont': 0, 'recorded': 0, 'unanswered': 0, 'stale': 0}
+
+        for eid, matches in id_to_entries.items():
+            if eid not in answers_for_repo:
+                counts['unanswered'] += len(matches)
+                continue
+            if len(matches) > 1:
+                collisions.append(
+                    f'collision: id {eid} in {name} matches {len(matches)} entries with '
+                    'identical text — answer applied to the first only')
+            outcome, report_md_text, md_matched = apply_answer(
+                report, report_md_text, matches[0], answers_for_repo[eid], today)
+            counts[outcome] += 1
+            if md_matched is False:
+                md_misses.append(
+                    f"{name}: report.md has no matching checkbox line for {matches[0].get('text', '')!r}")
+
+        for eid in answers_for_repo:
+            if eid not in id_to_entries:
+                stale.append(
+                    f'stale id {eid} in {name}: no matching next_steps entry (reworded since '
+                    'the questionnaire?)')
+                counts['stale'] += 1
+
+        if not dry_run:
+            report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            if report_md_text is not None:
+                md_path.write_text(report_md_text, encoding='utf-8')
+
+        print(f"{name}: {counts['done']} done · {counts['wont']} not pursued · "
+              f"{counts['recorded']} recorded · {counts['unanswered']} unanswered · "
+              f"{counts['stale']} stale")
+        if not dry_run:
+            print(f'  python3 "{kit_root}/scripts/report-dashboard.py" {report_path}')
+            print(f'  git -C "{root}" commit -am "chore: follow-up closed — see report.md"')
+
+    for origin, answers in by_repo.items():
+        if origin not in passed:
+            for eid in answers:
+                stale.append(f'stale id {eid} in {origin}: repo not passed to --ingest')
+
+    for s in stale:
+        print(s)
+    for c in collisions:
+        print(c)
+    for m in md_misses:
+        print(m)
+
+    if profile_todos:
+        print('Repo profile answers (not written — edit the profile):')
+        for path, answer in profile_todos.values():
+            print(f'  {path}: {answer}')
+
+    return 1 if errors else 0
+
+
 def main():
     sys.stdout.reconfigure(encoding='utf-8', newline='\n')
 
@@ -223,7 +407,16 @@ def main():
     ap.add_argument('--to', default='the repository owner')
     ap.add_argument('--from', dest='frm', default='ai-migration-kit followups')
     ap.add_argument('--deadline', default=None)
+    ap.add_argument('--ingest', help='fichier de réponses à appliquer à la source')
+    ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()
+
+    if args.questionnaire and args.ingest:
+        print('--questionnaire and --ingest are mutually exclusive', file=sys.stderr)
+        return 1
+
+    if args.ingest:
+        return run_ingest(args.repos, args.ingest, args.dry_run)
 
     if args.questionnaire:
         return run_questionnaire(args.repos, args.profile_todos, args.to, args.frm,
