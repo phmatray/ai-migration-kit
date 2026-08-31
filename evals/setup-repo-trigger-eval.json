@@ -18,7 +18,7 @@
   {"query": "add the label 'priority: high' to issue 42", "should_trigger": false, "note": "labelling ONE issue, not declaring the taxonomy"},
   {"query": "create an issue for the CSV export", "should_trigger": false, "note": "→ create-issue"},
   {"query": "merge PR 279 and delete the branch", "should_trigger": false, "note": "→ merge-pr; deleting ONE branch, not the repository setting"},
-  {"query": "set up branch protection rules", "should_trigger": false, "note": "explicitly out of scope — needs org policy decisions"},
+  {"query": "set up branch protection rules", "should_trigger": false, "note": "not in the manifest — it declares labels, issue forms and merge settings, never branch protection, which needs org policy and admin rights; a close near-miss"},
   {"query": "configure my git user.name", "should_trigger": false, "note": "local git config, not the repository's GitHub configuration"},
   {"query": "install the plugin", "should_trigger": false, "note": "kit installation, not repo configuration"}
 ]

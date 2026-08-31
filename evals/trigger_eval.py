@@ -52,8 +52,19 @@ from pathlib import Path
 # All ten skills, so a near-miss negative records WHICH sibling took it: a specificity
 # number is only real when the `fired` histogram names the skill that should have won (#331).
 DEFAULT_KNOWN = ["auto-dev", "create-issue", "followups", "get-repo-profile", "implement-issue",
-         "legacy-upgrade", "merge-pr", "setup-repo", "systematic-debugging",
-         "triage-backlog"]
+                 "legacy-upgrade", "merge-pr", "setup-repo", "systematic-debugging",
+                 "triage-backlog"]
+
+# A slash command is a skill's other front door, and its file is NOT named after the skill:
+# `/migrate` expands to commands/migrate.md, which contains no "legacy-upgrade". Without this map
+# a slash-command query could never be scored as a trigger — it would read 0/N forever and depress
+# recall for a reason that has nothing to do with the description (#331). Keyed by skill, so a
+# command file that names no skill simply never matches.
+SKILL_COMMANDS = {
+    "legacy-upgrade": ("migrate", "migrate-assess", "migrate-verify", "migrate-audit"),
+    "followups": ("migrate-followups",),
+    "auto-dev": ("auto-dev-worker", "auto-dev-merge"),
+}
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -132,13 +143,18 @@ def _names_match(target: str, tool: str, name: str) -> bool:
     """Does a Skill/Read `target` name/path invoke the skill `name`?
 
     Skill: the arg equals the name (allowing a `plugin:name` prefix). Read: the
-    path is under that skill's own dir (or the synthetic command file)."""
+    path is under that skill's own dir (or the synthetic command file). Either way,
+    a command file this skill owns (SKILL_COMMANDS) counts as the skill firing."""
     if not target:
         return False
+    commands = SKILL_COMMANDS.get(name, ())
     if tool == "Skill":
-        return target == name or target.split(":")[-1] == name
+        bare = target.split(":")[-1]
+        return target == name or bare == name or bare in commands
     if tool == "Read":
-        return (f"/skills/{name}/" in target) or (f"/commands/{name}." in target) or target.endswith(f"/{name}.md")
+        if (f"/skills/{name}/" in target) or (f"/commands/{name}." in target) or target.endswith(f"/{name}.md"):
+            return True
+        return any(f"/commands/{command}." in target for command in commands)
     return False
 
 

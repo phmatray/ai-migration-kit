@@ -110,14 +110,26 @@ for every `skills/<name>/SKILL.md`, `evals/<name>-trigger-eval.json`:
   boundary set's `expect` is a copy-paste the runner would silently ignore);
 - gives every entry a non-empty string `query` and a boolean `should_trigger`;
 - repeats no `query` — a duplicated one inflates recall for free;
+- gives every `note` that is present a string value;
 - carries **both** polarities: at least one `should_trigger: true` and at least one `false`.
+
+It also pins the roster itself: `run_all.py`'s `SKILLS` and `trigger_eval.py`'s `DEFAULT_KNOWN`
+must each list **exactly** the `skills/*/` folders. Without that, a skill added with a valid set
+passes every rule above while `run_all.py` never runs it — the same "CI reports every contract
+present, half the kit unmeasured" failure, one edit away.
 
 That is the whole of what CI checks, and it is deliberate. **The bench itself stays manual**: each
 query spawns a real `claude -p` (× `--runs-per-query` × ten skills), it needs an authenticated CLI
 on the runner, it costs tokens, and by design it kills real skills mid-stream (§Safety above).
 Structural in CI, measured on demand. A skill added later without a set fails CI by name, with the
-path to create — [`tests/skills/test.sh`](../tests/skills/test.sh) cases `T1`–`T7` are the witness
+path to create — [`tests/skills/test.sh`](../tests/skills/test.sh) cases `T1`–`T11` are the witness
 that each of those refusals still fires.
+
+**Slash-command queries.** A skill's command file is not named after the skill (`/migrate` opens
+`commands/migrate.md`, which contains no "legacy-upgrade"), so `trigger_eval.py` carries a
+`SKILL_COMMANDS` map and counts a command file this skill owns as the skill firing. Without it a
+slash-command entry would read 0/N forever and depress recall for a reason unrelated to the
+description.
 
 ## Baseline
 

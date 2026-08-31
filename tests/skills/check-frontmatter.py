@@ -23,6 +23,12 @@ hard-requires (`requiredBy`) must be declared in that skill's `compatibility`
 frontmatter via the entry's `token` — so the manifest and the distributed
 metadata can never drift apart silently.
 
+Cross-check against the bench's own rosters: `evals/run_all.py`'s SKILLS and
+`evals/trigger_eval.py`'s DEFAULT_KNOWN must each list exactly the skills/*/
+folders (#331). Without this, a skill added with a valid eval set passes the
+rule above while `run_all.py` never runs it — which is precisely the "half the
+kit unmeasured while CI reports every contract present" failure #331 closed.
+
 The frontmatter is PARSED as YAML rather than pattern-matched. Key presence is
 not a text question: `version:`, `"version":`, `'version':`, `version :` and the
 flow form `metadata: {version: 1}` are all the same key, and a substring test
@@ -32,6 +38,7 @@ before (#16 review) — parsing removes the whole class.
 Self-test: tests/skills/test.sh drives this file over fixtures that must FAIL,
 so a guard that silently stops matching cannot pass CI.
 """
+import ast
 import json
 import re
 import sys
@@ -95,14 +102,22 @@ def check_trigger_eval_set(skill: str) -> list:
             found.append(f"{skill}: {where} has unexpected key "
                          f"{', '.join(repr(k) for k in stray)} "
                          f"(allowed: query, should_trigger, note)")
+        note = entry.get("note")
+        if note is not None and not isinstance(note, str):
+            found.append(f"{skill}: {where} has a non-string 'note' "
+                         f"(got {type(note).__name__})")
         query = entry.get("query")
         if not isinstance(query, str) or not query.strip():
             found.append(f"{skill}: {where} has a missing or empty 'query'")
-        elif query in seen:
-            found.append(f"{skill}: {where} is a duplicate query of {rel}[{seen[query]}] "
-                         f"— a duplicated query inflates recall for free")
         else:
-            seen[query] = i
+            # Keyed on the NORMALIZED form: to the bench, "File an issue" and "file an issue "
+            # are one query asked twice, however differently they are spelled here.
+            key = " ".join(query.split()).casefold()
+            if key in seen:
+                found.append(f"{skill}: {where} is a duplicate query of {rel}[{seen[key]}] "
+                             f"— a duplicated query inflates recall for free")
+            else:
+                seen[key] = i
         should_trigger = entry.get("should_trigger")
         if not isinstance(should_trigger, bool):
             found.append(f"{skill}: {where} has a missing or non-boolean 'should_trigger'")
@@ -117,6 +132,31 @@ def check_trigger_eval_set(skill: str) -> list:
 
 
 compat_by_skill = {}
+
+
+def read_name_list(rel_path: str, var: str):
+    """A module-level list literal, read WITHOUT importing the module.
+
+    Importing `evals/trigger_eval.py` would drag in the runner's dependencies and
+    argparse surface for the sake of one literal, so this parses instead.
+    Returns (names, error); exactly one is None.
+    """
+    path = ROOT / rel_path
+    if not path.exists():
+        return None, f"{rel_path}: missing — it declares {var}, the roster the bench runs"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError as exc:
+        return None, f"{rel_path}: is not valid Python ({exc})"
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(tgt, ast.Name) and tgt.id == var for tgt in node.targets):
+            try:
+                return list(ast.literal_eval(node.value)), None
+            except (ValueError, TypeError):
+                return None, f"{rel_path}: {var} is not a literal list of skill names"
+    return None, f"{rel_path}: {var} is not declared at module level"
+
 
 for f in skill_files:
     skill = f.parent.name
@@ -171,6 +211,23 @@ for f in skill_files:
                 f"is a claim nothing maintains")
 
     errors.extend(check_trigger_eval_set(skill))
+
+# The ten-skill roster ↔ the bench's own lists (#331).
+skill_names = {f.parent.name for f in skill_files}
+for rel_path, var in (("evals/run_all.py", "SKILLS"), ("evals/trigger_eval.py", "DEFAULT_KNOWN")):
+    listed, err = read_name_list(rel_path, var)
+    if err:
+        errors.append(err)
+        continue
+    missing = sorted(skill_names - set(listed))
+    unknown = sorted(set(listed) - skill_names)
+    if missing:
+        errors.append(f"{rel_path}: {var} must list every skill — missing "
+                      f"{', '.join(missing)}; a skill absent here keeps an eval set CI accepts "
+                      f"and a bench that never runs it")
+    if unknown:
+        errors.append(f"{rel_path}: {var} must list every skill — {', '.join(unknown)} "
+                      f"names no skills/*/ folder")
 
 # requirements.json ↔ compatibility cross-check.
 req = json.loads((ROOT / "requirements.json").read_text(encoding="utf-8"))

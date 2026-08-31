@@ -179,8 +179,12 @@ echo "== the trigger contract in evals/*.json must be well-formed (#331) =="
 # The mutator receives the scratch root as argv[1] and edits evals/ in place.
 run_eval_case() {
   local label="$1" expect="$2" marker="$3" mutator="$4"
-  rm -rf "$ROOT/evals"
-  cp -R "$PRISTINE/evals" "$ROOT/"
+  # BOTH trees, every case. evals/ is what these cases mutate, but skills/ carries whatever the
+  # last run_case left behind — so an N4 labelled "untouched baseline" would be running against a
+  # rewritten description, and inserting one more failing run_case above this block would turn
+  # every T case into a coin flip.
+  rm -rf "$ROOT/evals" "$ROOT/skills"
+  cp -R "$PRISTINE/evals" "$PRISTINE/skills" "$ROOT/"
   python3 -c "$mutator" "$ROOT"
   local out rc
   set +e
@@ -270,6 +274,43 @@ run_eval_case "T7 the set is an empty list       " fail "non-empty JSON list" '
 import pathlib, sys
 p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
 p.write_text("[]\n", encoding="utf-8")
+'
+
+run_eval_case "T8 a skill drops out of SKILLS     " fail "must list every skill" '
+import pathlib, sys
+# A skill with a valid set that run_all.py never runs: CI reports the contract present, the bench
+# silently measures nine of ten. That is the exact failure #331 closed, one edit away from coming back.
+p = pathlib.Path(sys.argv[1]) / "evals/run_all.py"
+t = p.read_text(encoding="utf-8")
+p.write_text(t.replace("\"setup-repo\", ", "", 1), encoding="utf-8")
+'
+
+run_eval_case "T9 DEFAULT_KNOWN names a non-skill" fail "must list every skill" '
+import pathlib, sys
+# A stale name in DEFAULT_KNOWN cannot be attributed to any sibling, so a near-miss histogram
+# would report a skill that does not exist.
+p = pathlib.Path(sys.argv[1]) / "evals/trigger_eval.py"
+t = p.read_text(encoding="utf-8")
+p.write_text(t.replace("\"triage-backlog\"]", "\"triage-backlog\", \"revise-claude-md\"]", 1), encoding="utf-8")
+'
+
+run_eval_case "T10 an entry has a non-string note" fail "non-string .note." '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+entries[0]["note"] = 42
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T11 a duplicate differs only in case" fail "duplicate query" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# One query asked twice, spelled differently: the bench cannot tell them apart, nor may the guard.
+dup = dict(entries[0])
+dup["query"] = "  " + dup["query"].upper() + " "
+entries.append(dup)
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
 '
 
 run_eval_case "N4 untouched baseline             " pass "" 'import sys'
@@ -533,7 +574,13 @@ echo "skills golden test: all cases behaved as specified"
 # Pinned against the real tree (no scratch fixture): the defect IS the committed prose.
 echo "== the trigger contract has one home, and the records name it (#331) =="
 
-if compgen -G "$KIT_ROOT/tests/skills/*.triggers.md" > /dev/null 2>&1; then
+# Not `compgen -G`: it answers 1 for "no matches" AND for "not a builtin / progcomp disabled",
+# so a guard whose whole job is anti-recurrence would print ok when it never ran at all.
+r1_found=0
+for f in "$KIT_ROOT"/tests/skills/*.triggers.md; do
+  [ -e "$f" ] && r1_found=1
+done
+if [ "$r1_found" -ne 0 ]; then
   echo "FAIL: [R1 no tests/skills/*.triggers.md         ] a retired trigger list is back — the"
   echo "      contract lives in evals/<skill>-trigger-eval.json, guarded by check-frontmatter.py"
   fails=$((fails + 1))
@@ -548,13 +595,22 @@ fi
 #   tests/skills/*.py|sh    — this suite and the checker, explaining the rule they replaced.
 # Anything else naming the path is a live pointer at a home that no longer exists.
 R2_ALLOWED="CHANGELOG.md docs/backlog.md tests/skills/check-frontmatter.py tests/skills/test.sh"
+r2_hits=$(git -C "$KIT_ROOT" grep -l -F "triggers.md" -- . 2>/dev/null || true)
 r2_unexpected=""
+# THIS file always matches (its own R1 glob is spelled below), so an empty or sentinel-less result
+# means `git grep` failed rather than that the tree is clean — the one way this guard could pass
+# while never having looked.
+if ! grep -qx "tests/skills/test.sh" <<<"$r2_hits"; then
+  echo "FAIL: [R2 no live pointer at the retired path  ] the git-grep sweep did not even find this"
+  echo "      file, which always matches — the search failed; the verdict below would be vacuous"
+  fails=$((fails + 1))
+else
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   case "$f" in reviews/*) continue ;; esac
   case " $R2_ALLOWED " in *" $f "*) continue ;; esac
   r2_unexpected="$r2_unexpected $f"
-done <<< "$(git -C "$KIT_ROOT" grep -l -F "triggers.md" -- . 2>/dev/null)"
+done <<< "$r2_hits"
 if [ -n "$r2_unexpected" ]; then
   echo "FAIL: [R2 no live pointer at the retired path  ]$r2_unexpected"
   echo "      still names tests/skills/<name>.triggers.md — point it at evals/<skill>-trigger-eval.json"
@@ -562,8 +618,12 @@ if [ -n "$r2_unexpected" ]; then
 else
   echo "ok   [R2 no live pointer at the retired path  ]"
 fi
+fi
 
-if grep -qF 'trigger-eval.json' "$KIT_ROOT/ARCHITECTURE.md" 2>/dev/null; then
+# C: pin the ROW, not the filename. `grep -qF trigger-eval.json` over the whole file passes even if
+#    the "Where each concern lives" row is deleted and the path appears in unrelated prose — which
+#    is the very thing R3's own failure message claims to be checking.
+if grep -qE '^\| Triggering contracts \|[^|]*evals/<name>-trigger-eval\.json' "$KIT_ROOT/ARCHITECTURE.md" 2>/dev/null; then
   echo "ok   [R3 ARCHITECTURE.md names the new home   ]"
 else
   echo "FAIL: [R3 ARCHITECTURE.md names the new home   ] its \"Where each concern lives\" row must"
