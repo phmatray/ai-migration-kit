@@ -20,13 +20,16 @@
 
 ## Table of Contents
 
+- [Why this kit exists](#why-this-kit-exists)
+- [Which command?](#which-command)
 - [Proven in production](#proven-in-production)
 - [Prerequisites](#prerequisites)
 - [Install](#install)
 - [Quickstart](#quickstart)
 - [The audit product — `/migrate-audit`](#the-audit-product--migrate-audit)
 - [The pipeline](#the-pipeline)
-- [The issue/PR lifecycle skills](#the-issuepr-lifecycle-skills)
+- [Commands](#commands)
+- [Skills](#skills)
 - [Desktop launcher](#desktop-launcher)
 - [Safety rails](#safety-rails)
 - [Repository layout](#repository-layout)
@@ -46,6 +49,40 @@ A Claude Code plugin that upgrades legacy .NET applications through a seven-phas
 - **Verified** — every phase ends at a gate (build, tests, diagnostics baseline); a red gate stops the pipeline.
 - **Easy** — one command: `/migrate`. Start read-only with `/migrate-assess`.
 - **Fast** — mechanical fixes are applied in bulk with Roslyn code fixes; agent time is spent only on judgment calls.
+
+## Why this kit exists
+
+Five failure modes this kit was built to close, each with the evidence behind it:
+
+| Problem | Fix | Evidence |
+|---|---|---|
+| *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/legacy-upgrade/SKILL.md`](skills/legacy-upgrade/SKILL.md) | The case-study table above: 18 min / ~30 min / ~1 h, measured. |
+| *The agent reads whole C# files instead of asking Roslyn.* | The roseline gate denies `Read` on `.cs` and names the tool that replaces it — [`hooks/roseline-gate.sh`](hooks/roseline-gate.sh), [docs/roseline-gate.md](docs/roseline-gate.md) | Preflight only ever proved roseline was *connected*, never that it was *used* (#109). |
+| *Four agents, one checkout — a commit lands in another agent's PR, and every command exits 0.* | Guarded git writes that assert the branch before and after — [`skills/implement-issue/SKILL.md`](skills/implement-issue/SKILL.md) | #26 / #280: a `git commit` in the wrong checkout, silently accepted. |
+| *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/systematic-debugging/SKILL.md`](skills/systematic-debugging/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
+| *Three inlets, no outlet — the backlog only ever fills.* | One filing bar for every inlet, and a skill that re-decides what's already there — [`skills/triage-backlog/SKILL.md`](skills/triage-backlog/SKILL.md), [`skills/_shared/filing-bar.md`](skills/_shared/filing-bar.md) | [ARCHITECTURE.md](ARCHITECTURE.md)'s cycle paragraph: three writers, nothing that ever closed the loop. |
+
+Framing ported from mattpocock/skills' README ("Why These Skills Exist", problem → fix → linked
+skill — MIT), adapted to this kit's own history rather than a quote.
+
+## Which command?
+
+A situational way in, folded from a router-skill proposal declined in the v2 meta review
+(ARCHITECTURE.md's call graph is already the map — see [ARCHITECTURE.md](ARCHITECTURE.md)):
+
+| Situation | Reach for |
+|---|---|
+| An idea to track | [`create-issue`](skills/create-issue/SKILL.md) |
+| An issue with a plan | [`implement-issue`](skills/implement-issue/SKILL.md) `#N` |
+| A PR to land | [`merge-pr`](skills/merge-pr/SKILL.md) `#N` |
+| A queue that never shrinks | [`triage-backlog`](skills/triage-backlog/SKILL.md) |
+| Many issues, hands-off | [`auto-dev`](skills/auto-dev/SKILL.md) |
+| A legacy .NET app | [`/migrate-assess`](commands/migrate-assess.md), then [`/migrate`](commands/migrate.md) |
+| A migrated app to re-verify | [`/migrate-verify`](commands/migrate-verify.md) |
+| A portfolio to cost | [`/migrate-audit`](commands/migrate-audit.md) |
+| Open follow-ups across migrated repos | [`/migrate-followups`](commands/migrate-followups.md) |
+| A new repo for these skills | [`get-repo-profile`](skills/get-repo-profile/SKILL.md), then [`setup-repo`](skills/setup-repo/SKILL.md) |
+| Something is already broken | [`systematic-debugging`](skills/systematic-debugging/SKILL.md) fires on its own |
 
 ## Features
 
@@ -141,22 +178,40 @@ A **phase 0 preflight** (`scripts/preflight.sh`, `--json` for machine output) ga
 
 Two properties fall out of the gate discipline. **Resume**: re-running `/migrate` on an interrupted migration never starts over — the gate commits and `migration/` artifacts locate the last green gate, and the pipeline re-enters at the phase after it. **Measured time**: the per-phase timeline in `migration/report.json` (`phases[]`, rendered by the report dashboard) is derived from the gate commits — the minutes this README advertises are a generated fact, not a stopwatch.
 
-## The issue/PR lifecycle skills
+## Commands
 
-The kit also ships six generic GitHub workflow skills — usable on any repo, not just migrations:
+User-typed entry points, each a `commands/*.md` file:
+
+| Command | Job |
+|---|---|
+| [`/migrate`](commands/migrate.md) | The full seven-phase pipeline, phase 1 through verified production. |
+| [`/migrate-assess`](commands/migrate-assess.md) | Read-only phase-1 audit only — `migration/assessment.md`, zero files touched. |
+| [`/migrate-verify`](commands/migrate-verify.md) | Re-runnable final quality gate for an already-migrated app. |
+| [`/migrate-audit`](commands/migrate-audit.md) | The read-only executive audit product — costed report, one app or a portfolio. |
+| [`/migrate-followups`](commands/migrate-followups.md) | Consolidate the open follow-up queue across migrated repos. |
+| [`/auto-dev-worker`](commands/auto-dev-worker.md) | Dispatched by `auto-dev` per issue — phase 1 of the two-phase worker (implement up to a ready PR). |
+| [`/auto-dev-merge`](commands/auto-dev-merge.md) | Dispatched by `auto-dev` per PR — phase 2 (land it, in a fresh context). |
+
+## Skills
+
+Model-invoked, each a `skills/<name>/SKILL.md` file. The issue/PR lifecycle trio and their
+supervisors are usable on any repo, not just migrations:
 
 | Skill | Job |
 |---|---|
-| `create-issue` | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
-| `implement-issue` | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
-| `merge-pr` | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
-| `auto-dev` | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
-| `triage-backlog` | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
-| `get-repo-profile` | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
-| `setup-repo` | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
+| [`legacy-upgrade`](skills/legacy-upgrade/SKILL.md) | The seven-phase pipeline orchestrator that `/migrate` drives — phase references and playbooks. |
+| [`create-issue`](skills/create-issue/SKILL.md) | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
+| [`implement-issue`](skills/implement-issue/SKILL.md) | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
+| [`merge-pr`](skills/merge-pr/SKILL.md) | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
+| [`auto-dev`](skills/auto-dev/SKILL.md) | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
+| [`triage-backlog`](skills/triage-backlog/SKILL.md) | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
+| [`get-repo-profile`](skills/get-repo-profile/SKILL.md) | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
+| [`setup-repo`](skills/setup-repo/SKILL.md) | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
+| [`followups`](skills/followups/SKILL.md) | Consolidate the migrated repos' open follow-ups (owner decisions, tasks, deferrals) and update them at the source. |
+| [`systematic-debugging`](skills/systematic-debugging/SKILL.md) | Root cause before any fix is proposed — harness-agnostic, fires on its own ahead of a patch. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
-conflict hot-spots) lives in that committed per-repo profile — the skills themselves stay portable
+conflict hot-spots) lives in the committed per-repo profile — the skills themselves stay portable
 (`skills/_shared/` holds their common procedures). They are the natural tail of a migration:
 phase 7's `followups` queue hands items that deserve a real ticket to `create-issue` (the report
 keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Their dependencies
