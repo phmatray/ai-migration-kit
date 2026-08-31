@@ -23,10 +23,14 @@
 #      decision events" is reported and this exits 0. A run outside the decision engine, or one
 #      that made no decisions yet, is a valid state, not an error.
 #
-# MALFORMED LINES. A line that is not a JSON object, or is an object missing `decision`, `verdict`
-# or `program`, cannot be tallied. It is counted in the footer's `malformed lines:` figure and
-# otherwise ignored — never fatal, matching decide.sh's own "logging fails open" posture. A log with
-# ONLY malformed lines (or none at all) is reported as "no decision events", same as an empty file.
+# MALFORMED LINES. A line that is not a JSON object, or is an object whose `decision`, `verdict` or
+# `program` is missing, null, or not a string, cannot be tallied. It is counted in the footer's
+# `malformed lines:` figure and otherwise ignored — never fatal, matching decide.sh's own "logging
+# fails open" posture. A log with ONLY malformed lines (or none at all) is reported as "no decision
+# events", same as an empty file. Every line is parsed and validated in ONE `jq` process rather than
+# one subprocess per line — measured at ~9.6s for a 5,000-line log with a `jq`-per-line design,
+# against a low-single-digit-millisecond single pass; a log this script exists to make cheap to read
+# must not itself become the slow step in a retro.
 #
 # OUTPUT. One markdown table row per (decision, verdict) pair, in the order each pair first appears
 # in the log — not alphabetical, so a chronological read (which combination showed up, and when)
@@ -35,6 +39,10 @@
 # means the program was edited mid-run). A footer line follows: malformed-line count, the log path
 # used, and "events since program change" — how many of the log's events carry the SAME `program`
 # hash as its most recent entry, i.e. how much history exists under the program's current text.
+# `decision` and `verdict` cells are sanitized before they reach the table (a literal `|` would
+# otherwise split a row into a bogus extra column, and a newline would split it across lines) — both
+# are free-text as far as this script is concerned, since neither is restricted to a safe character
+# set the way a decision *id* is by decide.sh's own `ID_RE`.
 #
 # FLAGS (printed thresholds, not verdicts — tune here, not in prose elsewhere):
 #   repeat-poll  events >= 5  AND  distinct inputs <= events / 5
@@ -46,7 +54,10 @@
 #                  asks for another look; that pattern recurring across many distinct situations is
 #                  a candidate defect upstream of the decision, not noise in any one of them.
 #   Both are mutually exclusive by construction (repeat-poll needs a LOW distinct count, systematic
-#   a HIGH one) and neither is a verdict — see decide.sh's own header on that distinction.
+#   a HIGH one) and neither is a verdict — see decide.sh's own header on that distinction. The
+#   non-terminal word list is the issue's own Spec, verbatim; `decisions/registry.json` has no
+#   terminal/non-terminal axis on its verdict vocabularies to derive it from instead (a real
+#   candidate for that registry's own `steering` category, filed separately rather than grown here).
 #
 # Exit codes:
 #   0  a table (or "no decision events") was printed, always — an unanswerable question about
@@ -95,91 +106,96 @@ if [ -z "$LOG" ] || [ ! -f "$LOG" ] || [ ! -s "$LOG" ]; then
   exit 0
 fi
 
-# Read the log line by line rather than handing it whole to `jq -s`: a single malformed line would
-# otherwise abort the WHOLE parse, exactly the "must never be fatal" case this script exists to
-# avoid. Each line is validated on its own; only the survivors are slurped for the tally below.
-malformed=0
-valid_lines=()
-while IFS= read -r line || [ -n "$line" ]; do
-  [ -z "$line" ] && continue
-  if printf '%s' "$line" \
-    | jq -e 'type == "object" and (.decision|type) == "string" and (.verdict|type) == "string" and has("program")' \
-    > /dev/null 2>&1
-  then
-    valid_lines+=("$line")
-  else
-    malformed=$((malformed + 1))
-  fi
-done < "$LOG"
-
-if [ "${#valid_lines[@]}" -eq 0 ]; then
-  echo "no decision events"
-  exit 0
-fi
-
+# ONE jq process reads and validates the whole file (`-R` raw-input mode makes each line its own
+# input; `-n` so `inputs` yields every one of them, including the first). Parsing, malformed-line
+# counting, grouping and table rendering all happen in this single pass — no bash loop spawning a
+# `jq -e` per line, and no second `jq -s` slurp over the survivors.
 JQPROG=$(mktemp)
 trap 'rm -f "$JQPROG"' EXIT
 cat > "$JQPROG" <<'JQ'
+def sanitize: gsub("\r?\n"; " ") | gsub("\\|"; "\\|");
 def padr(w): tostring as $s | $s + (" " * ([w - ($s|length), 0] | max));
 def padl(w): tostring as $s | (" " * ([w - ($s|length), 0] | max)) + $s;
+def try_parse: try fromjson catch null;
+def is_str($v): ($v|type) == "string";
 
-. as $events
-| (reduce $events[] as $x ({order: [], map: {}};
-      ($x.decision + " " + $x.verdict) as $k
-      | if (.map | has($k))
-        then .map[$k] += [$x]
-        else (.order += [$k]) | (.map[$k] = [$x])
-        end
-    )) as $g
-| ($g.order | map($g.map[.])) as $groups
-| ($groups | map({
-      decision: .[0].decision,
-      verdict:  .[0].verdict,
-      events:   length,
-      distinct: (map(.input_sha256 // null) | unique | length),
-      programs: (map(.program // null) | unique | length)
-    } | . + {
-      flag: (
-        if (.events >= 5 and .distinct <= (.events / 5)) then "repeat-poll"
-        elif (.events >= 5 and .distinct >= (.events * 0.8)
-              and (.verdict as $v | ["sync","wait","pending","fix-check"] | index($v) != null))
-        then "systematic"
-        else "" end
-      )
-    })
-  ) as $rows
-| ["decision","verdict","events","distinct inputs","programs","flag"] as $headers
-| [false,false,true,true,true,false] as $rightalign
-| ($rows | map([.decision, .verdict, (.events|tostring), (.distinct|tostring), (.programs|tostring), .flag]))
-    as $cellrows
-| ([ range(0;6) | . as $i
-     | (([$headers[$i]] + ($cellrows | map(.[$i]))) | map(length) | max) + 2
-   ]) as $widths
-| ([ range(0;6) | . as $i
-     | if $rightalign[$i] then ("-" * ($widths[$i] - 1)) + ":" else ("-" * $widths[$i]) end
-   ]) as $divcells
-| ("|" + ($divcells | join("|")) + "|") as $dividerline
-| ([ range(0;6) | . as $i
-     | ($headers[$i]) as $c
-     | if $rightalign[$i] then ($c | padl($widths[$i] - 2)) else ($c | padr($widths[$i] - 2)) end
-   ]) as $headcells
-| ("| " + ($headcells | join(" | ")) + " |") as $headerline
-| ($cellrows | map(
-      . as $row
-      | ([ range(0;6) | . as $i
-            | $row[$i]
-            | if $rightalign[$i] then padl($widths[$i] - 2) else padr($widths[$i] - 2) end
-         ])
-      | "| " + join(" | ") + " |"
-    )
-  ) as $datalines
-| (if ($events|length) > 0 then ($events[-1].program // null) else null end) as $lastprog
-| ($events | map(select((.program // null) == $lastprog)) | length) as $sincechange
-| ("malformed lines: " + ($malformed|tostring)
-   + " · log: " + $logpath
-   + " · events since program change: " + ($sincechange|tostring)) as $footer
-| ([$headerline, $dividerline] + $datalines + [$footer]) | join("\n")
+reduce inputs as $raw (
+  {malformed: 0, events: []};
+  if ($raw | length) == 0 then
+    .
+  else
+    ($raw | try_parse) as $obj
+    | if ($obj|type) == "object"
+         and is_str($obj.decision // null)
+         and is_str($obj.verdict // null)
+         and is_str($obj.program // null)
+      then .events += [$obj]
+      else .malformed += 1
+      end
+  end
+) as $parsed
+| $parsed.events as $events
+| $parsed.malformed as $malformed
+| if ($events|length) == 0 then
+    "no decision events"
+  else
+    (reduce $events[] as $x ({order: [], map: {}};
+        ($x.decision + " " + $x.verdict) as $k
+        | if (.map | has($k))
+          then .map[$k] += [$x]
+          else (.order += [$k]) | (.map[$k] = [$x])
+          end
+      )) as $g
+    | ($g.order | map($g.map[.])) as $groups
+    | ($groups | map({
+          decision: .[0].decision,
+          verdict:  .[0].verdict,
+          events:   length,
+          distinct: (map(.input_sha256 // null) | unique | length),
+          programs: (map(.program // null) | unique | length)
+        } | . + {
+          flag: (
+            if (.events >= 5 and .distinct <= (.events / 5)) then "repeat-poll"
+            elif (.events >= 5 and .distinct >= (.events * 0.8)
+                  and (.verdict as $v | ["sync","wait","pending","fix-check"] | index($v) != null))
+            then "systematic"
+            else "" end
+          )
+        })
+      ) as $rows
+    | ["decision","verdict","events","distinct inputs","programs","flag"] as $headers
+    | [false,false,true,true,true,false] as $rightalign
+    | ($rows | map([(.decision|sanitize), (.verdict|sanitize), (.events|tostring), (.distinct|tostring),
+                    (.programs|tostring), .flag]))
+        as $cellrows
+    | ([ range(0;6) | . as $i
+         | (([$headers[$i]] + ($cellrows | map(.[$i]))) | map(length) | max) + 2
+       ]) as $widths
+    | ([ range(0;6) | . as $i
+         | if $rightalign[$i] then ("-" * ($widths[$i] - 1)) + ":" else ("-" * $widths[$i]) end
+       ]) as $divcells
+    | ("|" + ($divcells | join("|")) + "|") as $dividerline
+    | ([ range(0;6) | . as $i
+         | ($headers[$i]) as $c
+         | if $rightalign[$i] then ($c | padl($widths[$i] - 2)) else ($c | padr($widths[$i] - 2)) end
+       ]) as $headcells
+    | ("| " + ($headcells | join(" | ")) + " |") as $headerline
+    | ($cellrows | map(
+          . as $row
+          | ([ range(0;6) | . as $i
+                | $row[$i]
+                | if $rightalign[$i] then padl($widths[$i] - 2) else padr($widths[$i] - 2) end
+             ])
+          | "| " + join(" | ") + " |"
+        )
+      ) as $datalines
+    | ($events[-1].program // null) as $lastprog
+    | ($events | map(select((.program // null) == $lastprog)) | length) as $sincechange
+    | ("malformed lines: " + ($malformed|tostring)
+       + " · log: " + $logpath
+       + " · events since program change: " + ($sincechange|tostring)) as $footer
+    | ([$headerline, $dividerline] + $datalines + [$footer]) | join("\n")
+  end
 JQ
 
-printf '%s\n' "${valid_lines[@]}" \
-  | jq -s -r --argjson malformed "$malformed" --arg logpath "$LOG" -f "$JQPROG"
+jq -Rn -r --arg logpath "$LOG" -f "$JQPROG" "$LOG"
