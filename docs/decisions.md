@@ -95,10 +95,12 @@ Stated here rather than left to be rediscovered.
   knows the rule can trivially evade it. The claim is "this specific, already-observed restatement
   shape becomes impossible", not "restatement becomes impossible".
 - **R10 proves everything real is registered — for one shape.** R1 proves every row in the registry
-  is real; R10 (#252) is the converse: every tracked executable matching `scripts/*.sh`,
-  `scripts/*.py`, `skills/*/scripts/*.sh` or `skills/*/scripts/*.py` must be either some decision's
-  `program.path` (**registered**) or a key of the registry's `not_decisions` map with a one-line
-  reason (**recorded**) — anything in neither set is refused by name. Delete the `merge.step4` row
+  is real; R10 (#252) is the converse: every tracked executable matching a pathspec in
+  `scripts/tracked-exec-globs.txt` — `scripts/`, `skills/` and `hooks/`, bash and python — must be
+  either some decision's `program.path` (**registered**) or a key of the registry's `not_decisions`
+  map with a one-line reason (**recorded**) — anything in neither set is refused by name. That
+  pathspec list is a FILE rather than a literal inside the guard because `scripts/parse-sweep.sh`
+  needs the same answer and kept its own copy of it (#307, for #144). Delete the `merge.step4` row
   and paste the `mergeStateStatus` table back, and R10 now catches exactly what R7 and R8 miss:
   `merge-verdict.sh` drops out of both sets the instant its row is gone, and R10 names the file and
   both remedies. `tests/decisions/test.sh` drives this end to end — deleting a decision's row while
@@ -109,14 +111,13 @@ Stated here rather than left to be rediscovered.
   executables; a `block` program nobody ever registers in the first place is invisible to it, the
   same way it always was. R10 closes the *exit* (a row deleted out from under a surviving file); it
   does not give a decision-shaped `block` a way to be discovered if it was never entered at all.
-  A second, narrower gap: `TRACKED_EXEC_GLOBS` covers only `scripts/*.sh`, `scripts/*.py`,
-  `skills/*/scripts/*.sh` and `skills/*/scripts/*.py` — the four patterns the issue's own
-  reproduction measured "32 executables" with. A tracked, executable, decision-shaped script
-  outside those four shapes (code review on #252 found `hooks/roseline-gate.sh`, which branches on
-  `ROSELINE_GATE` and a live-server probe to allow or deny a Read) is invisible to R10 the same way
-  a `block` is: it is not enumerated, so it needs neither a row nor a `not_decisions` entry, and the
-  guard never notices it exists. Widening `E` to cover `hooks/` and skill-root scripts is tracked
-  as a follow-up, not folded into this slice.
+  The second, narrower gap that used to be listed here — `hooks/` and a script at a skill's ROOT
+  sitting outside the four globs #252 measured with, so `hooks/roseline-gate.sh` needed neither a
+  row nor a record — is **closed** (#307): `E` now reads `scripts/tracked-exec-globs.txt`, and both
+  files it was hiding are recorded. Where a hook lands once enumerated is
+  [ADR 0011](adr/0011-hook-gates-are-recorded-rather-than-registered-decisions.md): **recorded, not
+  registered**, because a hook's deny is a PreToolUse `permissionDecision` rather than a verdict
+  `decide.sh` dispatches, and there is no owner document for R7 to check.
 - **An unanswerable question aborts the run.** An unknown `program.kind` or a `verdict.source` no
   dispatcher implements is refused by `decide.sh` during extraction, so the check exits 2 before
   other rows are evaluated — the build goes red and the cause is named, but the report's usual

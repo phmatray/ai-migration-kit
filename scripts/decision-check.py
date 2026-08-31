@@ -54,9 +54,12 @@ impossible", not "restatement becomes impossible".
 And the counter-guard, closed by R10 (#252):
 
 R1 proves everything IN the registry is real. R10 is the converse: every tracked executable
-matching `scripts/*.sh`, `scripts/*.py`, `skills/*/scripts/*.sh` or `skills/*/scripts/*.py` must be
-either some decision's `program.path` (registered), or a key of the registry's `not_decisions` map
-with a one-line reason (recorded). Anything in neither set is refused BY NAME. Delete the
+matching a pathspec in `scripts/tracked-exec-globs.txt` — `scripts/`, `skills/` and `hooks/`, bash
+and python — must be either some decision's `program.path` (registered), or a key of the registry's
+`not_decisions` map with a one-line reason (recorded). Anything in neither set is refused BY NAME.
+That list is a file rather than a literal here because `scripts/parse-sweep.sh` needs the same
+answer and had its own copy of it (#307, for #144); the four globs it replaces left `hooks/` and a
+script at a skill's ROOT outside `E` entirely, which is how a live PreToolUse gate went unnoticed. Delete the
 `merge.step4` row and paste the `mergeStateStatus` table back — the #252 escape this whole file
 documented as its own known hole — and `merge-verdict.sh` drops out of both sets: R10 now refuses
 it, naming the file and both remedies (register it, or record it).
@@ -570,36 +573,58 @@ def invocation_re(did):
 
 # ------------------------------------------------------------------------------- R10: completeness
 
-# The four globs the spec derives R10's enumeration `E` from — copied verbatim from the `git
-# ls-files` invocation the issue's own Problem section measured "32 executables" with. That
-# invocation IS the spec: `E` is whatever this exact pathspec set matches, not a plain-English
-# paraphrase of it.
+# `E` — the enumeration R10 holds complete — is whatever this pathspec set matches, and the set is
+# DATA rather than a literal here (#307): `scripts/tracked-exec-globs.txt` is the ONE list, so
+# `scripts/parse-sweep.sh` (#144's half, which has the identical gap for the identical reason) can
+# read the same answer instead of keeping a second copy that drifts. See that file's header for the
+# full reasoning, the format, and what git's pathspec globbing actually covers — its `*` crosses a
+# `/`, unlike a shell glob's, which is why `skills/*.sh` needs no `**` to reach a skill's root, its
+# `scripts/` subdirectory and any deeper nesting alike.
 #
-# ⚠️ Unlike a shell glob, git's pathspec `*` DOES cross a `/` here: `git ls-files -- 'scripts/*.sh'`
-# matches `scripts/sub/nested.sh` too (verified — git's fnmatch-style pathspec glob is not anchored
-# to one path segment the way FNM_PATHNAME shell globbing is). So `TRACKED_EXEC_GLOBS` is not
-# "direct children only" — it is "anywhere under `scripts/`, and anywhere under `skills/*/scripts/`
-# specifically" (a script nested under `skills/x/y/scripts/z.sh` is out of that second pattern's
-# reach only because the singleton `*` between `skills/` and `/scripts/` must still match exactly
-# one segment, not because `*.sh` stops at the first `/`). No script in this repo is nested today,
-# so E's membership is unaffected by this correction; it matters for the NEXT script someone drops
-# into a `scripts/` subdirectory expecting it to sit outside R10's reach.
-TRACKED_EXEC_GLOBS = ("scripts/*.sh", "scripts/*.py", "skills/*/scripts/*.sh", "skills/*/scripts/*.py")
+# What #252's four globs missed, and why it mattered: they were copied verbatim from the `git
+# ls-files` invocation its own Problem section measured "32 executables" with, and that measurement
+# never claimed to cover `hooks/`. A Claude Code gate that branches on `ROSELINE_GATE` and a
+# launcher probe to allow or deny a Read was therefore outside `E` by construction — it needed
+# neither a registry row nor a `not_decisions` record, and the guard never noticed it existed.
+TRACKED_EXEC_GLOBS_FILE = pathlib.Path(__file__).resolve().parent / "tracked-exec-globs.txt"
+
+
+def tracked_exec_globs(path=TRACKED_EXEC_GLOBS_FILE):
+    """The pathspecs of `E`, read from the one list. Missing or empty is UNANSWERABLE, not empty.
+
+    Resolved against THIS script, never against `--repo`: `E`'s shape is a property of the guard,
+    exactly as the four literal globs it replaces were, and the scratch kits
+    `tests/decisions/test.sh` builds carry no copy of the list to read.
+
+    A missing or comment-only list would otherwise make R10 enumerate NOTHING and report every
+    executable in the repo as covered — the #45 shape, a guard serving "all clean" over an empty
+    set. So it raises instead: a guard that cannot answer has to say so.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise Unanswerable(f"could not read R10's pathspec list at {path}: {exc}")
+    globs = tuple(s for s in (line.split("#", 1)[0].strip() for line in lines) if s)
+    if not globs:
+        raise Unanswerable(
+            f"{path} declares no pathspecs — R10 would enumerate nothing and pass everything"
+        )
+    return globs
 
 
 def tracked_executables(repo):
-    """Every tracked path matching TRACKED_EXEC_GLOBS — the enumeration `E` R10 holds complete.
+    """Every tracked path matching `tracked_exec_globs()` — the enumeration `E` R10 holds complete.
 
     `git ls-files`, not a filesystem walk: a walk would also see whatever this kit's OWN worktree
     convention plants under `.claude/worktrees/` (an agent's linked worktree, a full second
     checkout) and a path staged for deletion but still present on disk. `-z` so a spaced path
-    round-trips intact; git's pathspec globbing does the matching itself (see TRACKED_EXEC_GLOBS'
-    own comment on what that globbing actually covers), so the patterns above are handed through
-    verbatim rather than re-implemented.
+    round-trips intact; git's pathspec globbing does the matching itself (see
+    `scripts/tracked-exec-globs.txt`'s own header on what that globbing actually covers), so the
+    pathspecs are handed through verbatim rather than re-implemented.
     """
     try:
         proc = subprocess.run(
-            ["git", "-C", str(repo), "ls-files", "-z", "--", *TRACKED_EXEC_GLOBS],
+            ["git", "-C", str(repo), "ls-files", "-z", "--", *tracked_exec_globs()],
             capture_output=True,
             text=True,
         )
