@@ -309,10 +309,12 @@ echo "ok: the gate's hardcoded probe is pinned to requirements.json's launcher (
 
 grep -qF 'roseline-gate' "$KIT/README.md" \
   || { echo "FAIL: README does not document the roseline gate"; exit 1; }
-grep -qF 'managed-settings.json' "$KIT/README.md" \
-  || { echo "FAIL: README does not say where permission rules must live instead"; exit 1; }
-grep -qF 'ROSELINE_GATE=off' "$KIT/README.md" \
-  || { echo "FAIL: README does not document the real off-switch"; exit 1; }
-echo "ok: README documents the gate, the off-switch and the out-of-scope permission rules"
+# The full essay (env switches, permissions caveat) moved to docs/roseline-gate.md (#325); README
+# keeps only the four-bullet summary and a link, so these two facts are checked at their new home.
+grep -qF 'managed-settings.json' "$KIT/docs/roseline-gate.md" \
+  || { echo "FAIL: docs/roseline-gate.md does not say where permission rules must live instead"; exit 1; }
+grep -qF 'ROSELINE_GATE=off' "$KIT/docs/roseline-gate.md" \
+  || { echo "FAIL: docs/roseline-gate.md does not document the real off-switch"; exit 1; }
+echo "ok: README documents the gate; docs/roseline-gate.md documents the off-switch and the permission rules"
 
 echo "roseline golden test OK"
