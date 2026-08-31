@@ -382,6 +382,62 @@ fi
 echo "grilling link golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# The decompose branch (#315) hangs off two references — the parent's tracking-body shape and
+# the slicing rules — and create-issue must link both. The parent-body invariant they carry (no
+# `Implementation plan`, no `### Task`, no `- [ ]`) is what keeps survey.sh's `haveplan` false so
+# a tracking parent is never dispatched; a SKILL.md that stops linking the file stating it is a
+# branch whose contract nothing states. Pinned against the real tree, same as the blocks above.
+echo "== create-issue must link its decomposition references (#315) =="
+
+for ref in tracking-issue decomposition; do
+  if [ -f "$KIT_ROOT/skills/create-issue/references/$ref.md" ]; then
+    echo "ok   [D1 references/$ref.md exists]"
+  else
+    echo "FAIL: [D1 references/$ref.md exists] file is missing"
+    fails=$((fails + 1))
+  fi
+  if grep -qF "](references/$ref.md)" "$KIT_ROOT/skills/create-issue/SKILL.md" 2>/dev/null; then
+    echo "ok   [D2 create-issue/SKILL.md links references/$ref.md]"
+  else
+    echo "FAIL: [D2 create-issue/SKILL.md links references/$ref.md] missing the literal '](references/$ref.md)'"
+    fails=$((fails + 1))
+  fi
+  # The port is MIT-licensed work by someone else; the credit line is part of each file's contract.
+  if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/create-issue/references/$ref.md" 2>/dev/null; then
+    echo "ok   [D3 references/$ref.md credits its source]"
+  else
+    echo "FAIL: [D3 references/$ref.md credits its source] missing the 'mattpocock/skills' attribution"
+    fails=$((fails + 1))
+  fi
+done
+
+# triage-backlog's rescope emits the same parent + children shape, so it links the parent shape too.
+if grep -qF '](../create-issue/references/tracking-issue.md)' "$KIT_ROOT/skills/triage-backlog/SKILL.md" 2>/dev/null; then
+  echo "ok   [D4 triage-backlog/SKILL.md links tracking-issue.md]"
+else
+  echo "FAIL: [D4 triage-backlog/SKILL.md links tracking-issue.md] missing the literal '](../create-issue/references/tracking-issue.md)'"
+  fails=$((fails + 1))
+fi
+
+# The shape the reference documents is the one survey.sh reads: its example parent body must
+# itself carry none of the three plan tokens, or the reference teaches the wrong invariant.
+if [ -f "$KIT_ROOT/skills/create-issue/references/tracking-issue.md" ]; then
+  if sed -n '/^```markdown$/,/^```$/p' "$KIT_ROOT/skills/create-issue/references/tracking-issue.md" \
+       | grep -qE 'Implementation plan|^### Task|- \[ \]'; then
+    echo "FAIL: [D5 tracking-issue.md's example body carries a plan token] a fenced example contains 'Implementation plan', '### Task' or '- [ ]'"
+    fails=$((fails + 1))
+  else
+    echo "ok   [D5 tracking-issue.md's example bodies carry no plan token]"
+  fi
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "decomposition references golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # The main-worktree derivation has one home now (#125): scripts/main-worktree.sh. Two broken
 # spellings kept getting re-introduced before that — a caller resolving `-C` from
 # `git rev-parse --show-toplevel` right next to a worktrees-ignored.sh call (fails OPEN from a
