@@ -601,6 +601,73 @@ fi
 echo "grilling link golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# The brainstorm, plan and TDD doctrines the lifecycle skills used to invoke from the superpowers
+# plugin live under skills/_shared/ now (#324) — one home each, ported from obra/superpowers (MIT)
+# and narrowed to this kit's hands-off autonomy contract. A doctrine file nobody links is exactly
+# as good as a plugin nobody installed, so each is pinned three ways: it exists, its consumers link
+# it (the same literal-link shape as the test-seams and grilling blocks above), and the credit line
+# survives — the port is someone else's MIT-licensed work and the attribution is part of the file's
+# contract. The header note every filed plan carries is read out of plan-shape.md rather than
+# re-spelled here, and the fixture the SP2 case below locates must carry that exact note.
+echo "== the ported doctrine references exist, are linked, and credit their source (#324) =="
+
+for ref in brainstorm-and-spec plan-shape; do
+  if [ -f "$KIT_ROOT/skills/_shared/$ref.md" ]; then
+    echo "ok   [R1 skills/_shared/$ref.md exists]"
+  else
+    echo "FAIL: [R1 skills/_shared/$ref.md exists] file is missing"
+    fails=$((fails + 1))
+  fi
+  if grep -qF 'obra/superpowers' "$KIT_ROOT/skills/_shared/$ref.md" 2>/dev/null; then
+    echo "ok   [R2 _shared/$ref.md credits its source]"
+  else
+    echo "FAIL: [R2 _shared/$ref.md credits its source] missing the 'obra/superpowers' attribution"
+    fails=$((fails + 1))
+  fi
+done
+
+for pair in "create-issue:brainstorm-and-spec" "create-issue:plan-shape" "implement-issue:plan-shape"; do
+  skill="${pair%%:*}"; ref="${pair##*:}"
+  if grep -qF "](../_shared/$ref.md)" "$KIT_ROOT/skills/$skill/SKILL.md" 2>/dev/null; then
+    echo "ok   [R3 $skill/SKILL.md links _shared/$ref.md]"
+  else
+    echo "FAIL: [R3 $skill/SKILL.md links _shared/$ref.md] missing the literal '](../_shared/$ref.md)'"
+    fails=$((fails + 1))
+  fi
+done
+
+# The header note has one home. plan-shape.md states it; create-issue cites it rather than carrying
+# a second copy that can drift; and the new-note fixture SP2 locates is that exact line.
+PLAN_NOTE=$(grep -m1 '^> \*\*For agentic workers:\*\*' "$KIT_ROOT/skills/_shared/plan-shape.md" 2>/dev/null || true)
+if [ -z "$PLAN_NOTE" ]; then
+  echo "FAIL: [R4 plan-shape.md states the header note] no '> **For agentic workers:**' line"
+  fails=$((fails + 1))
+elif printf '%s' "$PLAN_NOTE" | grep -q 'superpowers\|SUB-SKILL'; then
+  echo "FAIL: [R4 plan-shape.md states the header note] the note still prescribes the plugin: $PLAN_NOTE"
+  fails=$((fails + 1))
+elif ! printf '%s' "$PLAN_NOTE" | grep -qF 'implement-issue'; then
+  echo "FAIL: [R4 plan-shape.md states the header note] the note does not name implement-issue as the executor: $PLAN_NOTE"
+  fails=$((fails + 1))
+elif ! grep -qFx -- "$PLAN_NOTE" "$KIT_ROOT/tests/skills/fixtures/plan-new-header-note.md"; then
+  echo "FAIL: [R4 plan-shape.md states the header note] fixtures/plan-new-header-note.md does not carry plan-shape.md's exact note"
+  fails=$((fails + 1))
+else
+  echo "ok   [R4 plan-shape.md states the header note, and the new-note fixture carries it]"
+fi
+if grep -q 'REQUIRED SUB-SKILL' "$KIT_ROOT/skills/create-issue/SKILL.md" "$KIT_ROOT/skills/create-issue/references/issue-template.md" 2>/dev/null; then
+  echo "FAIL: [R5 create-issue no longer writes the old header note] 'REQUIRED SUB-SKILL' still appears in create-issue"
+  fails=$((fails + 1))
+else
+  echo "ok   [R5 create-issue no longer writes the old header note]"
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "doctrine references golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # The decompose branch (#315) hangs off two references — the parent's tracking-body shape and
 # the slicing rules — and create-issue must link both. The parent-body invariant they carry (no
 # `Implementation plan`, no `### Task`, no `- [ ]`) is what keeps survey.sh's `haveplan` false so
