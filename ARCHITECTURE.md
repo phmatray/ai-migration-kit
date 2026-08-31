@@ -179,7 +179,7 @@ committed, then consumed with a plain `cat`.
 | Prerequisites (distribution) | each SKILL.md's `compatibility` frontmatter |
 | Repo-specific facts for the lifecycle trio | `.claude/skills/repo-profile.md` (per target repo) |
 | Migration state & follow-up queue | `migration/report.json` per migrated repo (never a parallel list) |
-| Triggering contracts | `tests/skills/<name>.triggers.md`, guarded by `tests/skills/check-frontmatter.py` in CI |
+| Triggering contracts | `evals/<name>-trigger-eval.json` — one per skill; structure guarded by `tests/skills/check-frontmatter.py` in CI, trigger rate measured on demand by `evals/run_all.py` |
 | Domain language | `CONTEXT.md` (repo root; the same convention `create-issue` / `implement-issue` read in a target repo) |
 | Version | `.claude-plugin/plugin.json`, bumped by release-please — **never** a `metadata.version` in a SKILL.md |
 

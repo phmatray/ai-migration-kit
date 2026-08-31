@@ -14,7 +14,12 @@ from pathlib import Path
 
 import trigger_eval as te
 
-SKILLS = ["create-issue", "implement-issue", "merge-pr", "get-repo-profile", "triage-backlog"]
+# Every skill under skills/ — the trigger contract has one home per skill now
+# (evals/<skill>-trigger-eval.json), and tests/skills/check-frontmatter.py fails CI if
+# one is missing, so the "! skipping" branch below can no longer fire for a real skill (#331).
+SKILLS = ["auto-dev", "create-issue", "followups", "get-repo-profile", "implement-issue",
+          "legacy-upgrade", "merge-pr", "setup-repo", "systematic-debugging",
+          "triage-backlog"]
 EVALS_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EVALS_DIR / "results"
 

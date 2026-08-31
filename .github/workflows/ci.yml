@@ -366,7 +366,7 @@ jobs:
             echo "make-worktree.sh accepted a path that is not a git repository"; exit 1
           fi
 
-      - name: Skill frontmatter conforms to the guide (limits, fields, trigger lists, requirements cross-check)
+      - name: Skill frontmatter conforms to the guide (limits, fields, trigger eval sets, requirements cross-check)
         run: python3 tests/skills/check-frontmatter.py
 
       # #266. The boundary itself is prose and cannot go red; its REACH can. This asserts both

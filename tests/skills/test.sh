@@ -36,11 +36,16 @@ mkdir -p "$WORK/root"
 # the untrusted-input boundary (it is what a dispatched worker actually reads), so a root without it
 # answers NO SUCH CONSUMER for every boundary case below. It is never mutated — only skills/ is
 # restored between cases — so one copy at setup is enough.
-cp -R skills tests commands requirements.json "$WORK/root/"
+# evals/ joins the scratch world for #331: the trigger contract is now
+# evals/<skill>-trigger-eval.json, so a root without evals/ answers "trigger eval set missing"
+# for every skill. Unlike commands/ it IS mutated — by run_eval_case below, which restores it
+# from $PRISTINE the same way run_case restores skills/.
+cp -R skills tests commands evals requirements.json "$WORK/root/"
 ROOT="$WORK/root"
 PRISTINE="$WORK/pristine"
 mkdir -p "$PRISTINE"
 cp -R "$ROOT/skills" "$PRISTINE/"
+cp -R "$ROOT/evals" "$PRISTINE/"
 
 fails=0
 
@@ -157,6 +162,158 @@ t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
            t, count=1, flags=re.M)
 p.write_text(t, encoding="utf-8")
 '
+
+# ---------------------------------------------------------------------------------------------
+# The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
+# used to guard tests/skills/<skill>.triggers.md — a bullet list no tool ever read, whose presence CI
+# certified while the eval sets it duplicated drifted away from it. The rule moved to the file
+# `evals/run_all.py` actually runs, and these cases are the witness that it really refuses, BY NAME,
+# each way a set can be malformed. Without them the block could narrow to "the file exists" and every
+# run would stay green.
+#
+# Only evals/ is mutated here — run_case restores skills/, run_eval_case restores evals/ — so the two
+# families never disturb each other, and the real tree is never touched either way.
+echo "== the trigger contract in evals/*.json must be well-formed (#331) =="
+
+# run_eval_case <label> <expect: pass|fail> <expected marker> <python mutator>
+# The mutator receives the scratch root as argv[1] and edits evals/ in place.
+run_eval_case() {
+  local label="$1" expect="$2" marker="$3" mutator="$4"
+  # BOTH trees, every case. evals/ is what these cases mutate, but skills/ carries whatever the
+  # last run_case left behind — so an N4 labelled "untouched baseline" would be running against a
+  # rewritten description, and inserting one more failing run_case above this block would turn
+  # every T case into a coin flip.
+  rm -rf "$ROOT/evals" "$ROOT/skills"
+  cp -R "$PRISTINE/evals" "$PRISTINE/skills" "$ROOT/"
+  python3 -c "$mutator" "$ROOT"
+  local out rc
+  set +e
+  out=$(python3 "$ROOT/tests/skills/check-frontmatter.py" 2>&1)
+  rc=$?
+  set -e
+  if [ "$expect" = fail ]; then
+    if [ "$rc" -eq 0 ]; then
+      echo "FAIL: [$label] expected a rejection, got exit 0"
+      echo "      $out"
+      fails=$((fails + 1))
+    elif ! grep -q "$marker" <<<"$out"; then
+      echo "FAIL: [$label] rejected, but not with '$marker'"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] rejected"
+    fi
+  else
+    if [ "$rc" -ne 0 ]; then
+      echo "FAIL: [$label] expected acceptance, got exit $rc"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] accepted"
+    fi
+  fi
+}
+
+run_eval_case "T1 the set is missing entirely    " fail "trigger eval set missing" '
+import pathlib, sys
+(pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json").unlink()
+'
+
+run_eval_case "T2 the set is not valid JSON      " fail "not valid JSON" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+# A trailing comma: the single most common hand-edit typo, and one a bare existence check accepts.
+p.write_text("[\n  {\"query\": \"file an issue\", \"should_trigger\": true},\n]\n", encoding="utf-8")
+'
+
+run_eval_case "T3 every entry is a positive      " fail "no should_trigger: false entry" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+for e in entries:
+    e["should_trigger"] = True
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T3b every entry is a negative     " fail "no should_trigger: true entry" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+for e in entries:
+    e["should_trigger"] = False
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T4 an entry has no query          " fail "missing or empty .query." '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+entries[0].pop("query")
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T5 a query is duplicated          " fail "duplicate query" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# A duplicated positive inflates recall for free — the set scores better for saying less.
+entries.append(dict(entries[0]))
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T6 an entry carries a stray key   " fail "unexpected key" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# "expect" is the boundary set schema, not this one: a copy-paste the runner would silently ignore.
+entries[0]["expect"] = {"create-issue": True}
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T7 the set is an empty list       " fail "non-empty JSON list" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+p.write_text("[]\n", encoding="utf-8")
+'
+
+run_eval_case "T8 a skill drops out of SKILLS     " fail "must list every skill" '
+import pathlib, sys
+# A skill with a valid set that run_all.py never runs: CI reports the contract present, the bench
+# silently measures nine of ten. That is the exact failure #331 closed, one edit away from coming back.
+p = pathlib.Path(sys.argv[1]) / "evals/run_all.py"
+t = p.read_text(encoding="utf-8")
+p.write_text(t.replace("\"setup-repo\", ", "", 1), encoding="utf-8")
+'
+
+run_eval_case "T9 DEFAULT_KNOWN names a non-skill" fail "must list every skill" '
+import pathlib, sys
+# A stale name in DEFAULT_KNOWN cannot be attributed to any sibling, so a near-miss histogram
+# would report a skill that does not exist.
+p = pathlib.Path(sys.argv[1]) / "evals/trigger_eval.py"
+t = p.read_text(encoding="utf-8")
+p.write_text(t.replace("\"triage-backlog\"]", "\"triage-backlog\", \"revise-claude-md\"]", 1), encoding="utf-8")
+'
+
+run_eval_case "T10 an entry has a non-string note" fail "non-string .note." '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+entries[0]["note"] = 42
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T11 a duplicate differs only in case" fail "duplicate query" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# One query asked twice, spelled differently: the bench cannot tell them apart, nor may the guard.
+dup = dict(entries[0])
+dup["query"] = "  " + dup["query"].upper() + " "
+entries.append(dup)
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "N4 untouched baseline             " pass "" 'import sys'
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
@@ -531,3 +688,76 @@ grep -q 'not a supported tracker' "$PRECONDITIONS" \
 echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
 
 echo "skills golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
+# The trigger contract has ONE home, and the records say so (#331). The ten
+# tests/skills/<name>.triggers.md lists were a CACHE of the eval sets — a second copy of a contract
+# nothing ran, which CI certified while the sets it duplicated drifted away from it. Deleting them
+# is only half the fix: as long as a live document still points a reader at that path, the cache is
+# rebuilt the first time someone follows the pointer. So this pins the pointer, not just the files.
+#
+# Pinned against the real tree (no scratch fixture): the defect IS the committed prose.
+echo "== the trigger contract has one home, and the records name it (#331) =="
+
+# Not `compgen -G`: it answers 1 for "no matches" AND for "not a builtin / progcomp disabled",
+# so a guard whose whole job is anti-recurrence would print ok when it never ran at all.
+r1_found=0
+for f in "$KIT_ROOT"/tests/skills/*.triggers.md; do
+  [ -e "$f" ] && r1_found=1
+done
+if [ "$r1_found" -ne 0 ]; then
+  echo "FAIL: [R1 no tests/skills/*.triggers.md         ] a retired trigger list is back — the"
+  echo "      contract lives in evals/<skill>-trigger-eval.json, guarded by check-frontmatter.py"
+  fails=$((fails + 1))
+else
+  echo "ok   [R1 no tests/skills/*.triggers.md         ]"
+fi
+
+# Only these may still say "triggers.md", and each for a reason that is not a pointer:
+#   CHANGELOG.md, reviews/  — dated, immutable records of what the kit did on a given day;
+#                             rewriting them would falsify history (CHANGELOG.md is release-please's).
+#   docs/backlog.md         — the entry rewritten as a CLOSED item, which has to name what closed.
+#   tests/skills/*.py|sh    — this suite and the checker, explaining the rule they replaced.
+# Anything else naming the path is a live pointer at a home that no longer exists.
+R2_ALLOWED="CHANGELOG.md docs/backlog.md tests/skills/check-frontmatter.py tests/skills/test.sh"
+r2_hits=$(git -C "$KIT_ROOT" grep -l -F "triggers.md" -- . 2>/dev/null || true)
+r2_unexpected=""
+# THIS file always matches (its own R1 glob is spelled below), so an empty or sentinel-less result
+# means `git grep` failed rather than that the tree is clean — the one way this guard could pass
+# while never having looked.
+if ! grep -qx "tests/skills/test.sh" <<<"$r2_hits"; then
+  echo "FAIL: [R2 no live pointer at the retired path  ] the git-grep sweep did not even find this"
+  echo "      file, which always matches — the search failed; the verdict below would be vacuous"
+  fails=$((fails + 1))
+else
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  case "$f" in reviews/*) continue ;; esac
+  case " $R2_ALLOWED " in *" $f "*) continue ;; esac
+  r2_unexpected="$r2_unexpected $f"
+done <<< "$r2_hits"
+if [ -n "$r2_unexpected" ]; then
+  echo "FAIL: [R2 no live pointer at the retired path  ]$r2_unexpected"
+  echo "      still names tests/skills/<name>.triggers.md — point it at evals/<skill>-trigger-eval.json"
+  fails=$((fails + 1))
+else
+  echo "ok   [R2 no live pointer at the retired path  ]"
+fi
+fi
+
+# C: pin the ROW, not the filename. `grep -qF trigger-eval.json` over the whole file passes even if
+#    the "Where each concern lives" row is deleted and the path appears in unrelated prose — which
+#    is the very thing R3's own failure message claims to be checking.
+if grep -qE '^\| Triggering contracts \|[^|]*evals/<name>-trigger-eval\.json' "$KIT_ROOT/ARCHITECTURE.md" 2>/dev/null; then
+  echo "ok   [R3 ARCHITECTURE.md names the new home   ]"
+else
+  echo "FAIL: [R3 ARCHITECTURE.md names the new home   ] its \"Where each concern lives\" row must"
+  echo "      point Triggering contracts at evals/<name>-trigger-eval.json"
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "one-trigger-home golden test: all cases behaved as specified"
