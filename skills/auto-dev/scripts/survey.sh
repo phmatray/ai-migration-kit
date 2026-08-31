@@ -14,6 +14,16 @@
 #   HOLD   #N  ...                                            ← tier past the second, or unclassified
 #   SKIP   #N  ...                                            ← no plan, or manual-QA only
 #
+# Then ONE trailing summary row — the unplanned tail (#312):
+#   SEED   <count>  waiting for a seed: #a #b            ← or `SEED  0  -` when nothing is waiting
+# An unplanned backlog and a drained one are indistinguishable from the rows above alone: both just
+# produce a short QUEUE. The count is every issue with plan=false and qa=false, in ANY bucket — a
+# raw issue filed from the GitHub UI carries no effort: label either, so it tiers to 999 and lands
+# in HOLD rather than SKIP, and a SKIP-only count would miss exactly the issues `create-issue
+# --seed #N` was added to plan. Manual-QA issues are excluded: seeding one yields a plan no headless
+# worker may execute. The supervisor REPORTS this line and never seeds on its own — seeding is a
+# plan somebody has to own.
+#
 # Usage: scripts/survey.sh — the manifest lookup below resolves the repo's git toplevel itself
 # (same convention as skills/setup-repo/scripts/repo-setup.sh), so it is correct from any
 # subdirectory, not only the repo root.
@@ -191,10 +201,24 @@ gh issue list --state open --limit 300 \
     map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
          labels:(.labels|map(.name)|join(",")), t:tier})
     | sort_by(.t, .n)
-    | .[]
-    | (if   (.t > 2)                      then "HOLD "
-       elif (.plan and (.qa | not))       then "QUEUE"
-       else                                    "SKIP "
-       end) as $bucket
-    | "\($bucket)\t#\(.n)\t\(.e)\tplan=\(.plan)\tqa=\(.qa)\t[\(.labels)]\t\(.title)"
+    | . as $rows
+    | (
+        $rows[]
+        | (if   (.t > 2)                      then "HOLD "
+           elif (.plan and (.qa | not))       then "QUEUE"
+           else                                    "SKIP "
+           end) as $bucket
+        | "\($bucket)\t#\(.n)\t\(.e)\tplan=\(.plan)\tqa=\(.qa)\t[\(.labels)]\t\(.title)"
+      ),
+      # The unplanned tail, printed LAST so it reads as a summary of the rows above (and so this
+      # addition stays append-only against the other in-flight changes to this program). Listed by
+      # issue number rather than in the tier order above: a HOLD row sorts to the end by tier, and
+      # the supervisor pastes these straight into `/create-issue --seed #N`.
+      (
+        [ $rows[] | select((.plan | not) and (.qa | not)) ] | sort_by(.n) as $seed
+        | if ($seed | length) == 0
+          then "SEED\t0\t-"
+          else "SEED\t\($seed | length)\twaiting for a seed: " + ([ $seed[] | "#\(.n)" ] | join(" "))
+          end
+      )
   '
