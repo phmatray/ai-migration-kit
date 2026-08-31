@@ -53,6 +53,7 @@
     "skills/implement-issue/scripts/guarded-push.sh": "a guarded git-write wrapper, same shape as guarded-commit.sh",
     "skills/implement-issue/scripts/make-worktree.sh": "a guarded worktree-creation wrapper; it enforces the ignore-proof precondition before creating or reusing a worktree, not a registered verdict vocabulary",
     "skills/implement-issue/scripts/tick-plan.sh": "writes a checkbox-flipped plan back to GitHub, fail-closed; a mechanical write helper, not a control-flow choice",
+    "skills/merge-pr/scripts/base-run-verdict.sh": "resolves the base branch's check-runs for one sha and maps the registered `ci.verdict` answer onto a post-merge green/red/unverified report; it delegates every CI rule to that decision rather than restating one",
     "skills/merge-pr/scripts/guarded-pr-merge.sh": "merges a PR and reads the outcome back from `gh pr view`'s state; a guarded write plus read-back, not a registered verdict vocabulary",
     "skills/merge-pr/scripts/remote-branch-teardown.sh": "finishes a remote-branch delete `gh pr merge` left undone; a mechanical cleanup step, not a control-flow choice",
     "skills/setup-repo/scripts/parse-manifest.py": "reads a repo-setup manifest and emits flat records; a data-shape translator, not a control-flow choice",

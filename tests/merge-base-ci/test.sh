@@ -252,4 +252,107 @@ printf '%s' "$v" | jq -e '.reason == "no-ci"' > /dev/null || {
   echo "FAIL [no-run]: expected reason 'no-ci', got '$(printf '%s' "$v" | jq -r .reason)'"; exit 1; }
 echo "  ok: no-run — a sha with no check-runs is unverified, never green"
 
+
+# ---------------------------------------------------------------- 4. a cancelled run is a NON-verdict
+#
+# `dce7d5b`, exactly. `cancel-in-progress` (#27/#29) cancels the previous `main` run the moment the
+# next merge lands, so under a fleet this is the ROUTINE outcome of a merge train — and it is the
+# shape that made the incident invisible. `ci.verdict` files a cancelled job under `.failed`,
+# because pre-merge a cancelled check is a reason not to merge; post-merge the merge has already
+# landed and the run recorded nothing about it. Reporting that as `red` would file a bug against a
+# merge nobody has evidence about; reporting it as `green` is the silence #355 exists to end.
+reset_case cancelled-only
+SHA=e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5
+arm "$SHA" "$(page "$(run_obj kit 901 cancelled)")"
+v=$(verdict_of "$SHA" --timeout 0 --poll-seconds 0)
+expect_verdict cancelled-only unverified "$v"
+printf '%s' "$v" | jq -e '.reason == "cancelled"' > /dev/null || {
+  echo "FAIL [cancelled-only]: expected reason 'cancelled', got '$(printf '%s' "$v" | jq -r .reason)'"; exit 1; }
+echo "  ok: cancelled-only — a sha whose only run was cancelled is unverified, not red and not green"
+
+# ---------------------------------------------------------------- 5. a SUPERSEDED cancellation is noise
+#
+# The other half of the same rule, and the one that keeps case 4 from becoming "ignore cancelled
+# runs": a cancelled run with a NEWER run of the same job behind it was superseded, and the newer
+# run is the verdict. That reduction is `ci.verdict`'s (#91), not this helper's — this case proves
+# the helper still delegates to it rather than short-circuiting on the word `cancelled`.
+reset_case superseded-cancel
+SHA=f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6
+arm "$SHA" "$(page "$(run_obj kit 910 cancelled)" "$(run_obj kit 911 success)")"
+v=$(verdict_of "$SHA" --timeout 0 --poll-seconds 0)
+expect_verdict superseded-cancel green "$v"
+printf '%s' "$v" | jq -e '.runs | length == 1' > /dev/null || {
+  echo "FAIL [superseded-cancel]: .runs is the raw history, not the reduced one-run-per-job set:"
+  printf '%s\n' "$v" | jq . | sed 's/^/      /'; exit 1; }
+echo "  ok: superseded-cancel — a cancelled run behind a newer success is green, via ci.verdict's reduction"
+
+# ---------------------------------------------------------------- 6. cancelled must not swallow a real red
+#
+# One job cancelled beside another job that genuinely FAILED. `red` is the answer: there is real
+# evidence of a breakage, and case 4's carve-out must not launder it into a non-verdict.
+reset_case cancelled-plus-failure
+SHA=0707070707070707070707070707070707070707
+arm "$SHA" "$(page "$(run_obj kit 920 cancelled)" "$(run_obj title-gate 921 failure)")"
+v=$(verdict_of "$SHA" --timeout 0 --poll-seconds 0)
+expect_verdict cancelled-plus-failure red "$v"
+echo "  ok: cancelled-plus-failure — a cancelled job beside a real failure still reports red"
+
+# ---------------------------------------------------------------- 7. pending polls, then answers
+#
+# The run is still going when the merge returns — the normal case, since the push run starts the
+# half-second after. Two pending polls, then the verdict.
+reset_case pending-then-green
+SHA=1818181818181818181818181818181818181818
+arm "$SHA" \
+  "$(page "$(run_obj kit 930 in_progress)")" \
+  "$(page "$(run_obj kit 930 in_progress)")" \
+  "$(page "$(run_obj kit 930 success)")"
+v=$(verdict_of "$SHA" --timeout 60 --poll-seconds 0)
+expect_verdict pending-then-green green "$v"
+[ "$(cat "$GH_RESPONSES/$SHA/count")" -ge 3 ] || {
+  echo "FAIL [pending-then-green]: the helper stopped polling before the run finished"; exit 1; }
+echo "  ok: pending-then-green — a still-running base run is polled until it is final"
+
+# ---------------------------------------------------------------- 8. the bound expires → unverified
+#
+# A run that never finishes inside the bound. `unverified`, NEVER `red`: a helper that reported a
+# slow run as a breakage would file bugs against healthy merges, which is a worse failure than the
+# silence it replaces.
+reset_case pending-forever
+SHA=2929292929292929292929292929292929292929
+arm "$SHA" "$(page "$(run_obj kit 940 queued)")"
+v=$(verdict_of "$SHA" --timeout 0 --poll-seconds 0)
+expect_verdict pending-forever unverified "$v"
+printf '%s' "$v" | jq -e '.reason == "timeout"' > /dev/null || {
+  echo "FAIL [pending-forever]: expected reason 'timeout', got '$(printf '%s' "$v" | jq -r .reason)'"; exit 1; }
+echo "  ok: pending-forever — an expired bound is a stated non-verdict, never a breakage"
+
+# ---------------------------------------------------------------- 9. a transient gh failure is not an answer
+#
+# `gh` failing says nothing about the base branch, so it must not read as `no-ci` (case 3's green-
+# adjacent silence) on the first attempt. Two failures, then the real answer.
+reset_case transient-error
+SHA=3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a
+arm "$SHA" \
+  'ERR:API rate limit exceeded' \
+  'ERR:context deadline exceeded' \
+  "$(page "$(run_obj kit 950 success)")"
+v=$(verdict_of "$SHA" --timeout 60 --poll-seconds 0)
+expect_verdict transient-error green "$v"
+echo "  ok: transient-error — a failing gh call is retried, not reported as 'no CI on the base'"
+
+# ---------------------------------------------------------------- 10. a query that never answers
+#
+# The same failure, past the bound. It is a non-verdict with its own reason, so a report can say
+# WHY there is no answer — "the base was never verified because the query failed" and "…because
+# the run never finished" send a reader to different places.
+reset_case query-failed
+SHA=4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b
+arm "$SHA" 'ERR:API rate limit exceeded'
+v=$(verdict_of "$SHA" --timeout 0 --poll-seconds 0)
+expect_verdict query-failed unverified "$v"
+printf '%s' "$v" | jq -e '.reason == "query-failed"' > /dev/null || {
+  echo "FAIL [query-failed]: expected reason 'query-failed', got '$(printf '%s' "$v" | jq -r .reason)'"; exit 1; }
+echo "  ok: query-failed — a gh call that never answers is its own named non-verdict"
+
 echo "merge-base-ci golden test OK"
