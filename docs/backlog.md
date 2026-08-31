@@ -51,8 +51,11 @@ rendra rentable (YAGNI sinon).
   même risque — un `$( … )` avec un heredoc dont les quotes ne s'apparient pas, invisible pour la
   CI en bash 5. Le balayage est déjà paramétré par fichier (`parse-sweep.sh <fichier>…`), donc
   c'est une ligne de plus dans la cible par défaut. Non fait ici pour rester dans le périmètre de
-  l'issue. Déclencheur : premier script hors `tests/` qui ne parse pas sous bash 3.2 — ou la
-  prochaine retouche de `parse-sweep.sh`.
+  l'issue. **La liste de chemins existe désormais** : `scripts/tracked-exec-globs.txt` (#307), une
+  ligne par pathspec git, déjà consommée par `scripts/decision-check.py` (R10) ; #144 n'a qu'à en
+  lire les lignes `*.sh` — `bash -n` n'a rien à dire d'un `.py` — en plus de sa cible
+  `tests/*/test.sh`. Déclencheur : premier script hors `tests/` qui ne parse pas sous bash 3.2 — ou
+  la prochaine retouche de `parse-sweep.sh`.
 > **Implémentés en v1.9.0 (2026-07-23) — sortis du backlog.** La **porte de verdict de fin de phase 1**
 > (`verdict: ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL`) couvre les deux items dont le déclencheur a
 > sauté ce jour-là : « déjà moderne → stop » (dogfood `Atypical-Consulting/StaticWGen`) et « le
