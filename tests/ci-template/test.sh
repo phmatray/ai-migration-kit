@@ -887,12 +887,29 @@ while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
   [ "$got" = "$r_want" ] || containment_fail "guard body" "$r_src" "$r_dist" \
       "$r_want" "$got" "$scratch/out-guard-row.txt"
   # A refusal must be ACTIONABLE, not merely non-zero: the reader needs to know which variable
-  # to fix. The old hand-written mismatch/equality cases asserted exactly this
-  # (`grep -q "BUNDLE_SRC" …`); the shared table dropped it on the way in.
+  # to fix, with the RIGHT value attached to it. A bare `grep -q "BUNDLE_SRC"` (this check's
+  # predecessor) passes identically whether the message reads `BUNDLE_SRC ('web')` or mislabels
+  # it `BUNDLE_DIST ('web')` while the literal word "BUNDLE_SRC" still shows up unattached
+  # elsewhere in the same refusal — #293 shipped exactly that swap, caught only by code review,
+  # not by this suite (#302). So assert the labelled fragment, not the bare word, for every row
+  # whose refusal actually pairs BUNDLE_SRC with a value: the "not under src", ".." traversal and
+  # "dist empty" refusals all print `BUNDLE_SRC ('<value>')` verbatim. The one shape that can't
+  # carry that fragment is the equality refusal (normalised src == normalised dist): only ONE
+  # path value exists there, printed once, with no second value nearby to confuse it with — for
+  # that shape the bare substring is the whole promise the message makes.
+  exp_src=$(containment_normalise "$r_src"); [ -n "$exp_src" ] || exp_src=.
+  exp_dist=$(containment_normalise "$r_dist")
   if [ "$r_want" = refuse ]; then
-    grep -q "BUNDLE_SRC" "$scratch/out-guard-row.txt" || {
-      echo "FAIL: src='$r_src' dist='$r_dist' — the guard refused but never named BUNDLE_SRC:"
-      cat "$scratch/out-guard-row.txt"; exit 1; }
+    if [ "$exp_dist" = "$exp_src" ]; then
+      grep -q "BUNDLE_SRC" "$scratch/out-guard-row.txt" || {
+        echo "FAIL: src='$r_src' dist='$r_dist' — the guard refused but never named BUNDLE_SRC:"
+        cat "$scratch/out-guard-row.txt"; exit 1; }
+    else
+      grep -qF "BUNDLE_SRC ('$exp_src')" "$scratch/out-guard-row.txt" || {
+        echo "FAIL: src='$r_src' dist='$r_dist' — the guard refused but did not name BUNDLE_SRC"
+        echo "      ('$exp_src') exactly — a bare 'BUNDLE_SRC' substring is not enough here:"
+        cat "$scratch/out-guard-row.txt"; exit 1; }
+    fi
   fi
 done <<EOF
 $CONTAINMENT_ROWS
