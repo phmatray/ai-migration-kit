@@ -5,7 +5,7 @@ A **safe, repeatable** regression check for **every** skill's *description* — 
 [`followups`](../skills/followups), [`profile-repo`](../skills/profile-repo),
 [`implement-issue`](../skills/implement-issue), [`legacy-upgrade`](../skills/legacy-upgrade),
 [`merge-pr`](../skills/merge-pr), [`setup-repo`](../skills/setup-repo),
-[`systematic-debugging`](../skills/systematic-debugging) and
+[`debug-issue`](../skills/debug-issue) and
 [`triage-backlog`](../skills/triage-backlog).
 
 `<skill>-trigger-eval.json` here is a skill's **triggering contract**, and its only home (#331).
@@ -18,7 +18,7 @@ the sets absorbed every bullet they were missing, near-miss annotations included
 
 Each skill's close boundaries are carried as negatives **inside its own set** — `setup-repo` vs
 `profile-repo` (write vs read), `auto-dev` vs its own children (many issues vs one),
-`followups` vs `triage-backlog` (report.json queues vs GitHub issues), `systematic-debugging` vs
+`followups` vs `triage-backlog` (report.json queues vs GitHub issues), `debug-issue` vs
 new-code work. `boundary-trigger-eval.json` stays what it always was: specifically the
 `implement-issue` ↔ `merge-pr` pair, with a runner written around exactly those two.
 
@@ -148,7 +148,7 @@ signal to look at.
 | `followups`             | 19 | — ‡ | — ‡ | — ‡ |
 | `legacy-upgrade`        | 20 | — ‡ | — ‡ | — ‡ |
 | `setup-repo`            | 21 | — ‡ | — ‡ | — ‡ |
-| `systematic-debugging`  | 19 | — ‡ | — ‡ | — ‡ |
+| `debug-issue`  | 19 | — ‡ | — ‡ | — ‡ |
 
 † Last measured over the **18** queries these sets held before #331 grew them; the ported negatives
 are not in that number, so re-run the skill before quoting it as current.
@@ -203,7 +203,7 @@ MIT — ported from mattpocock/skills):
 | Largest single description | 1,018 (`auto-dev`) | 745 (`triage-backlog`) |
 | Over the 750 soft ceiling | 7 | 0 |
 
-`systematic-debugging` is the one that **grew** (513 → 593): it was the only skill with no French
+`debug-issue` is the one that **grew** (513 → 593): it was the only skill with no French
 trigger form, though its eval set carries two French positives, so it gained them here.
 
 **What the cut removed, precisely.** Not "nothing" — the honest list is: identity the body already

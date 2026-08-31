@@ -888,7 +888,7 @@ echo "ok   no auto-dev file names claude -p or --strict-mcp-config"
 # `Invoke superpowers:X` line on a machine without the plugin degrades silently — the Skill tool
 # has no such name, and the agent improvises whatever shape it likes. So the colon-invocation form
 # is refused anywhere a session actually reads: skills/ and commands/. The bare word is still
-# allowed — systematic-debugging's compatibility credit ("ported from the superpowers skill") and
+# allowed — debug-issue's compatibility credit ("ported from the superpowers skill") and
 # docs/superpowers/ (historical plans, a directory name) are attribution and history, not
 # invocations. Scans the real tree, not a scratch copy: the defect IS the committed prose.
 echo "== no shipped skill or command invokes a superpowers: skill (#324) =="

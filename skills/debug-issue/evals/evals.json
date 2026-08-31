@@ -1,5 +1,5 @@
 {
-  "skill_name": "systematic-debugging",
+  "skill_name": "debug-issue",
   "notes": "Baseline = superpowers original (skill-snapshot). Comparison is a regression check: does the reworded/de-fabricated/decoupled version resist rationalization under pressure as well as the original, and apply the root-cause technique on a concrete bug? Pressure prompts are deliberately neutral (no line pre-labeling the 'systematic' option as correct) so the loaded skill drives behavior, not the prompt.",
   "evals": [
     {

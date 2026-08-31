@@ -5,7 +5,7 @@
 #
 # WHY THIS EXISTS. Some bugs only appear when a human clicks: an SSO flow, a hardware dialog, a
 # device you cannot automate. The temptation there is to give up on a feedback loop and start
-# hypothesising from the code — the exact failure `systematic-debugging` prevents. So don't drop the
+# hypothesising from the code — the exact failure `debug-issue` prevents. So don't drop the
 # loop; drive the human with it. The script asks for one action at a time, captures what they saw,
 # and prints the answers as KEY=VALUE lines the agent parses — a slow, structured loop instead of a
 # fast, unstructured guess.
@@ -16,7 +16,7 @@
 # instead of about the template.
 #
 # Usage:
-#   cp skills/systematic-debugging/scripts/hitl-loop.template.sh /tmp/repro.sh
+#   cp skills/debug-issue/scripts/hitl-loop.template.sh /tmp/repro.sh
 #   $EDITOR /tmp/repro.sh    # edit between the markers
 #   bash /tmp/repro.sh
 #

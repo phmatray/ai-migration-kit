@@ -76,7 +76,7 @@ checked against it; they are not a second copy to hand-sync.
 | `triage-backlog` | every open issue re-decided | `/implement-issue #<kept-issue>` |
 | `followups` | the open tail presented | `/create-issue <entry>` to convert an entry |
 | `legacy-upgrade` | phase 7 delivered | `/migrate-followups` |
-| `systematic-debugging` | the root cause identified | `—` (it returns to whatever called it) |
+| `debug-issue` | the root cause identified | `—` (it returns to whatever called it) |
 
 **How the guard reads this table.** Backticked `/<name>` spans in the *Next command* cell are the
 hand-offs; a cell with none is terminal. `<name>` resolves to `skills/<name>/` when that directory

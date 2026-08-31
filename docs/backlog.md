@@ -28,7 +28,7 @@ rendra rentable (YAGNI sinon).
 - **Mesure du banc après la coupe des descriptions (#323) — dû.** Le déclencheur permanent de
   l'entrée ci-dessus (« une modification de `description` → `run_all.py --skills <skill>` ») a été
   armé le 2026-08-31 : **neuf** descriptions sur dix ont été raccourcies et la dixième
-  (`systematic-debugging`, 513 → 593) a *gagné* les deux formes FR que son jeu d'évals réclamait —
+  (`debug-issue`, 513 → 593) a *gagné* les deux formes FR que son jeu d'évals réclamait —
   8 518 → 6 645 caractères normalisés au total, plus aucune au-dessus du plafond souple de 750 posé
   dans `tests/skills/check-frontmatter.py`. La coupe est **conservatrice** — aucune forme FR, aucune
   clause « Does NOT apply », aucune formulation reprise mot pour mot par une requête d'éval n'a été

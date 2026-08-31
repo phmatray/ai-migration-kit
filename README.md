@@ -59,7 +59,7 @@ Five failure modes this kit was built to close, each with the evidence behind it
 | *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/legacy-upgrade/SKILL.md`](skills/legacy-upgrade/SKILL.md) | The case-study table in [Proven in production](#proven-in-production): 18 min / ~30 min / ~1 h, measured. |
 | *The agent reads whole C# files instead of asking Roslyn.* | The roseline gate denies `Read` on `.cs` and names the tool that replaces it — [`hooks/roseline-gate.sh`](hooks/roseline-gate.sh), [docs/roseline-gate.md](docs/roseline-gate.md) | Preflight only ever proved roseline was *connected*, never that it was *used* (#109). |
 | *Four agents, one checkout — a commit lands in another agent's PR, and every command exits 0.* | Guarded git writes that assert the branch before and after — [`skills/implement-issue/SKILL.md`](skills/implement-issue/SKILL.md) — and the git write-gate that denies the raw command at the tool call, [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh) | #26 / #280: a `git commit` in the wrong checkout, silently accepted. |
-| *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/systematic-debugging/SKILL.md`](skills/systematic-debugging/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
+| *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/debug-issue/SKILL.md`](skills/debug-issue/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
 | *Three inlets, no outlet — the backlog only ever fills.* | One filing bar for every inlet, and a skill that re-decides what's already there — [`skills/triage-backlog/SKILL.md`](skills/triage-backlog/SKILL.md), [`skills/_shared/filing-bar.md`](skills/_shared/filing-bar.md) | [ARCHITECTURE.md](ARCHITECTURE.md)'s cycle paragraph: three writers, nothing that ever closed the loop. |
 
 Framing ported from mattpocock/skills' README ("Why These Skills Exist", problem → fix → linked
@@ -82,7 +82,7 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 | A portfolio to cost | [`/migrate-audit`](commands/migrate-audit.md) |
 | Open follow-ups across migrated repos | [`/migrate-followups`](commands/migrate-followups.md) |
 | A new repo for these skills | [`profile-repo`](skills/profile-repo/SKILL.md), then [`setup-repo`](skills/setup-repo/SKILL.md) |
-| Something is already broken | [`systematic-debugging`](skills/systematic-debugging/SKILL.md) fires on its own |
+| Something is already broken | [`debug-issue`](skills/debug-issue/SKILL.md) fires on its own |
 
 ## Features
 
@@ -93,7 +93,7 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 - **Generated executive dashboard** — phase 6 emits `migration/report.html` and `report.json` with measured per-phase timings derived from gate commits, not a manual stopwatch.
 - **Issue/PR lifecycle skills** — portable `create-issue`, `implement-issue`, `merge-pr` and `profile-repo` skills usable on any repo, driven by a committed per-repo profile.
 - **Backlog burn-down at scale** — `auto-dev` supervises a fleet of N parallel workers, each taking one issue from plan to merged PR, with conflict-avoiding area isolation and a measured token budget.
-- **Root-cause debugging** — `systematic-debugging` fires before any fix is proposed, so a failure is explained before it is patched.
+- **Root-cause debugging** — `debug-issue` fires before any fix is proposed, so a failure is explained before it is patched.
 - **Preflight safety gate** — `scripts/preflight.sh` verifies required/recommended tools, MCP servers and session skills declared in `requirements.json` before phase 1 starts.
 - **CI/deployment templates** — `templates/ci-dotnet.yml` and `templates/deploy-pages-blazor.yml` wire a migrated app straight into GitHub Actions and Pages. A repo that commits its front-end bundle can also arm the drift gate — see [docs/bundle-gate.md](docs/bundle-gate.md).
 
@@ -248,7 +248,7 @@ supervisors are usable on any repo, not just migrations:
 | [`profile-repo`](skills/profile-repo/SKILL.md) | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
 | [`setup-repo`](skills/setup-repo/SKILL.md) | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
 | [`followups`](skills/followups/SKILL.md) | Consolidate the migrated repos' open follow-ups (owner decisions, tasks, deferrals) and update them at the source. |
-| [`systematic-debugging`](skills/systematic-debugging/SKILL.md) | Root cause before any fix is proposed — harness-agnostic, fires on its own ahead of a patch. |
+| [`debug-issue`](skills/debug-issue/SKILL.md) | Root cause before any fix is proposed — harness-agnostic, fires on its own ahead of a patch. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
 conflict hot-spots) lives in the committed per-repo profile — the skills themselves stay portable
@@ -308,7 +308,7 @@ skills/implement-issue/ generic issue/PR lifecycle: plan → draft PR → ready
 skills/merge-pr/        generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
 skills/auto-dev/        fleet supervisor above the lifecycle skills: N parallel workers burning down the backlog
 skills/triage-backlog/  the queue's outlet: verify, cluster and re-decide open issues — owner confirms every close
-skills/systematic-debugging/ root-cause-before-fix process, harness-agnostic
+skills/debug-issue/ root-cause-before-fix process, harness-agnostic
 skills/profile-repo/ the per-repo profile generator the lifecycle skills consume
 skills/setup-repo/      the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
 skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary, test-seams, grilling, brainstorm-and-spec, plan-shape, tdd-loop, recap)

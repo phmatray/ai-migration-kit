@@ -110,7 +110,7 @@ graph LR
         TB[triage-backlog]
         RP[profile-repo]
         SR[setup-repo]
-        SD[systematic-debugging]
+        SD[debug-issue]
     end
 
     subgraph mcp ["MCP servers"]
@@ -173,7 +173,7 @@ graph LR
     AD --> PY
 ```
 
-`systematic-debugging` (SD) has no external dependency at all — it is a pure process skill, which is
+`debug-issue` (SD) has no external dependency at all — it is a pure process skill, which is
 why no arrow leaves it.
 
 ## Dependency matrix
@@ -187,7 +187,7 @@ why no arrow leaves it.
 | `merge-pr` | adr (rec.) | — | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
-| `systematic-debugging` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
+| `debug-issue` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
 | `profile-repo` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
 | `setup-repo` | — | — | **git**, **python3** (PyYAML), **jq**, **gh** (admin rights on the settings surface; refused by name without it) | `repo-setup.sh`, `parse-manifest.py`, `project-area-options.py` (bundled in the skill) |
 

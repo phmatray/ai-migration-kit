@@ -22,5 +22,5 @@
   {"query": "comment on issue 42 that the fix landed", "should_trigger": false, "note": "managing an existing issue"},
   {"query": "list the open issues", "should_trigger": false, "note": "read-only — nothing to file"},
   {"query": "let's brainstorm the design for the new emitter", "should_trigger": false, "note": "standalone brainstorm, no issue to file"},
-  {"query": "I have an issue with my build, it keeps failing", "should_trigger": false, "note": "'issue' = problem, not a GitHub ticket → systematic-debugging"}
+  {"query": "I have an issue with my build, it keeps failing", "should_trigger": false, "note": "'issue' = problem, not a GitHub ticket → debug-issue"}
 ]

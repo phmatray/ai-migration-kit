@@ -52,7 +52,7 @@ from pathlib import Path
 # All ten skills, so a near-miss negative records WHICH sibling took it: a specificity
 # number is only real when the `fired` histogram names the skill that should have won (#331).
 DEFAULT_KNOWN = ["auto-dev", "create-issue", "followups", "profile-repo", "implement-issue",
-                 "legacy-upgrade", "merge-pr", "setup-repo", "systematic-debugging",
+                 "legacy-upgrade", "merge-pr", "setup-repo", "debug-issue",
                  "triage-backlog"]
 
 # A slash command is a skill's other front door, and its file is NOT named after the skill:
