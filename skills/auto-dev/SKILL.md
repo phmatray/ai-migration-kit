@@ -69,6 +69,15 @@ turns*, not for thinking. Apply these rules; full rationale + measurement in
 > turn**. Cache-read was 98.3% of tokens. Cost = **Σ over turns of context size**, so late turns cost
 > ~10× early ones and *turn count is superlinear* — it drives both factors at once. Rank levers by
 > that, not by intuition.
+>
+> **That headline counts *worker* sessions — and the orchestrator was a third of the bill.** Folding
+> the supervisor's own transcript into the same rollup: one session, 551 assistant messages, **~210K
+> average context per message, 33% of the run's list-equivalent cost** — more than every top-tier
+> worker session combined — and it **never compacted once** across all 19 merges. Worker spend is
+> skewed the same way: **the top 3 of 37 worker sessions were 32% of all worker cost**, and the worst
+> was an `effort: medium` issue on the mid tier, so neither label nor tier predicted it. Both
+> measurements, and the two counted budgets that bound them, are in
+> [references/token-economics.md](references/token-economics.md) § *Session length*.
 
 **1. Split each worker into two sub-agents: implement, then merge** — **the one lever that measurably
 worked. A/B verified, ~11% of all worker tokens.** Phase 1 (`/auto-dev-worker <N>`) stops at a ready
@@ -121,7 +130,15 @@ The orchestrator (you) stays on the top model, but keep its *per-turn context* s
 **5. Shrink what's re-read every turn.**
 - **Trim the fixed preamble** — it is paid on *every* turn of *every* worker. `CLAUDE.md` at 44KB (~11K tok) cost **52M tokens in one run from a single file**; move deploy/secrets/kubectl reference material into linked docs and leave a pointer.
 - **No per-issue TaskList** — it grows unboundedly and re-injects every turn. The **state file is your only working memory.**
-- **Compact deliberately** at ~40–50% (`/context`) or every ~20 merges, with a focus directive — e.g. `/compact keep the slot→issue/PR map, merge counter, queue order, filed follow-ups`. First action after any compact / `/clear` / `loop` re-fire: **re-read the state file.**
+- **Compact deliberately, on a counted cadence — not on a feeling.** The cadence integer has one home,
+  [references/token-economics.md](references/token-economics.md) § *The two budgets*; Step 4 fires it off
+  the state file's merge counter, the same counted field the re-survey cadence already uses. Do not restate
+  the number here — `tests/auto-dev-cost-budgets/test.sh` fails the build if you do. *Why counted:* cost is
+  Σ(context × turns), so a run's tail is superlinear, and the rule this replaces — a `/context` percentage
+  **or** a cadence loose enough that it never fired inside a 19-merge run — bounded nothing and cost $213 in
+  a single session. Always compact **with a focus directive**, e.g. `/compact keep the slot→issue/PR map,
+  merge counter, queue order, filed follow-ups`. First action after any compact / `/clear` / `loop` re-fire:
+  **re-read the state file.**
 - **Keep worker FINAL REPORTs terse** — they're re-read on every later reconcile turn.
 - **Delegate heavy reads to throwaway `Explore` sub-agents** — the file-dump dies with the sub-agent instead of riding your context.
 - **Launch the SUPERVISOR session lean** — sub-agents inherit the supervisor's MCP set, so every
@@ -132,6 +149,14 @@ The orchestrator (you) stays on the top model, but keep its *per-turn context* s
 - **Batch independent tool calls** into one turn (parallel reads/greps/`gh`).
 - **Let scripts collapse query+classify** — `scripts/survey.sh`, `scripts/reconcile.sh`.
 - **Don't poll on a short cadence** unless a merge is imminent — a needless wake re-reads everything, and one past the ~5-min cache TTL pays a full cache *write* (1.25×), not a read (0.1×).
+- **Bound the session, not just the turn.** Batching was A/B'd and did not move (lever 2), so per-turn
+  optimisation is close to exhausted and **session length is the variable that is left** — the top 3 of 37
+  worker sessions were 32% of all worker cost, and neither the effort label nor the tier predicted which
+  three. Phase-1 workers therefore carry a **turn budget** (the integer lives in
+  [references/token-economics.md](references/token-economics.md) § *The two budgets*, not here) and hand off
+  at it with `STATUS: PARTIAL`; Step 4 resumes them in a **fresh** sub-agent, which is where the saving is —
+  a `SendMessage` resume keeps the context the budget exists to discard. This is lever 1's mechanism, the
+  section's one verified win, applied at a *length* seam instead of a *phase* seam.
 
 **Measure it** — never claim a lever works without an A/B. Three scripts, all taking a directory of
 session `.jsonl` transcripts:
@@ -570,7 +595,9 @@ finds breaks the guarantee that makes the backlog truthful, and trades a visible
 invisible one.
 
 **Keep your own context lean** (Token economics lever 2): the state file is your only working memory
-(**no per-issue TaskList**), worker reports stay terse, and **compact or `/clear` ~every 20 merges**.
+(**no per-issue TaskList**), worker reports stay terse, and you **compact on the counted cadence** — the
+merge-counter check in this step's per-wake bookkeeping above, whose integer lives in
+[references/token-economics.md](references/token-economics.md) and is deliberately not restated here.
 
 ## Step 5 — Heartbeat
 
