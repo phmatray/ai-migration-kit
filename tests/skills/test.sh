@@ -601,6 +601,25 @@ if failures:
     sys.exit(1)
 print("ok   no file under skills/ re-spells the main-worktree derivation")
 PY
+# ---------------------------------------------------------------------------------------------
+# The `claude -p` worker substrate is gone (#314, the v2.0 breaking change): auto-dev dispatches
+# every worker as an in-process background sub-agent through the Agent tool, and a sub-agent has
+# no `--strict-mcp-config` flag and no process to die. Any file that still names either is stale
+# doctrine a supervisor would follow — it scans the real tree, not a scratch copy, because the
+# defect IS the committed prose. `evals/` legitimately keeps `claude -p` (it drives the eval
+# harness, not a worker) and is deliberately outside the scope below.
+echo "== no auto-dev file names the claude -p worker substrate (#314) =="
+SUBSTRATE_HITS=$(grep -rn 'claude -p\|--strict-mcp-config' \
+  "$KIT_ROOT/skills/auto-dev" \
+  "$KIT_ROOT/commands/auto-dev-worker.md" \
+  "$KIT_ROOT/commands/auto-dev-merge.md" \
+  "$KIT_ROOT/skills/_shared/untrusted-input-boundary.md" || true)
+if [ -n "$SUBSTRATE_HITS" ]; then
+  echo "FAIL: the claude -p / --strict-mcp-config worker substrate is named again (#314):"
+  echo "$SUBSTRATE_HITS" | sed 's/^/  /'
+  exit 1
+fi
+echo "ok   no auto-dev file names claude -p or --strict-mcp-config"
 
 # ---------------------------------------------------------------------------------------------
 # CONTEXT.md (#313) — the kit's own domain glossary, in Matt Pocock's format (ported from
@@ -799,6 +818,49 @@ for m in re.finditer(r"\]\(([^)]+)\)", text):
 
 print("ok   %s exists, is <= 60 lines, and every relative link resolves" % path.relative_to(root))
 PY
+# create-issue consults the accepted ADRs before it brainstorms (#316). The touchpoint is prose and
+# cannot go red on its own, so this pins the three load-bearing spellings: the server tool it calls,
+# the verdict it must write when an idea contradicts a decision, and the file fallback for a host
+# with no AdrMcp.
+echo "== create-issue checks the idea against accepted ADRs (#316) =="
+CREATE_ISSUE="$KIT_ROOT/skills/create-issue/SKILL.md"
+[ -f "$CREATE_ISSUE" ] || { echo "FAIL: $CREATE_ISSUE missing"; exit 1; }
+for needle in 'search_adrs' 'contradicts ADR-' 'docs/adr'; do
+  grep -q "$needle" "$CREATE_ISSUE" \
+    || { echo "FAIL: $CREATE_ISSUE does not mention '$needle'"; exit 1; }
+done
+echo "ok   create-issue names search_adrs, the contradiction verdict and the docs/adr fallback"
+
+# ---------------------------------------------------------------------------------------------
+# A diff that touches an accepted ADR's `code_refs` proposes an ADR update rather than making one
+# (#316). Both consumers get the same paragraph, so both are pinned — and each must name
+# `suggest_adr_from_change` AND the `## Follow-ups` heading the draft lands under, because a draft
+# named without a destination is the failure mode this touchpoint exists to avoid.
+echo "== implement-issue and merge-pr propose an ADR update, never write one (#316) =="
+for f in "skills/implement-issue/SKILL.md" "skills/merge-pr/SKILL.md"; do
+  path="$KIT_ROOT/$f"
+  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+  for needle in 'suggest_adr_from_change' '## Follow-ups' 'code_refs' 'docs/adr'; do
+    grep -q -- "$needle" "$path" \
+      || { echo "FAIL: $path does not mention '$needle'"; exit 1; }
+  done
+done
+echo "ok   both consumers name suggest_adr_from_change, ## Follow-ups and the docs/adr fallback"
+
+# ---------------------------------------------------------------------------------------------
+# AdrMcp is documented as shipped, next to the RoselineMCP paragraph it mirrors, and the ADR index
+# is reachable from both entry documents (#316). A dependency the kit ships without saying so is
+# the failure this pins — the README already carries that promise for roseline.
+echo "== README and ARCHITECTURE document AdrMcp and the ADR root (#316) =="
+for f in "README.md" "ARCHITECTURE.md"; do
+  path="$KIT_ROOT/$f"
+  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+  for needle in 'AdrMcp' 'docs/adr'; do
+    grep -q -- "$needle" "$path" \
+      || { echo "FAIL: $path does not mention '$needle'"; exit 1; }
+  done
+done
+echo "ok   README and ARCHITECTURE both name AdrMcp and docs/adr"
 
 echo "skills golden test: all cases behaved as specified"
 

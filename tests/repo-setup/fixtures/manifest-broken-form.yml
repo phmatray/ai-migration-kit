@@ -1,0 +1,15 @@
+# Fixture desired state for tests/repo-setup (#240) — real area: labels (so AREA_ARGS is
+# non-empty and the projector actually runs), paired with an issueTemplates entry
+# (broken-options-form.yml) whose Area dropdown the projector's textual locator cannot find.
+# Exercises the "a projection was promised and failed" path: exit 3 must be a !REFUSED, not a
+# silent !NOTE at exit 0.
+labels:
+  - name: "area: alpha"
+    color: "c5def5"
+    description: "First area"
+
+issueTemplates:
+  - broken-options-form.yml
+
+settings:
+  delete_branch_on_merge: true

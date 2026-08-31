@@ -4,9 +4,18 @@
 cache_read per turn ~= context size at that turn, so total cost = sum over turns of
 context size. This breaks that down: turns per session, context growth, and which
 tool results are inflating the context (they get re-read every subsequent turn).
+
+Since 2.0 (#314) every worker is an Agent-tool sub-agent whose transcript sits under
+<proj>/<supervisor-session>/subagents/agent-*.jsonl, so discovery goes through
+usage_report.discover_transcripts — the one home for both layouts (#281) — rather than a
+top-level-only glob that would show the orchestrator alone and call the fleet cheap.
 """
-import json, os, sys, glob
+import json, os, sys
 from collections import defaultdict
+
+sys.dont_write_bytecode = True                      # no __pycache__ beside a kit script (#42/#51)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from usage_report import discover_transcripts       # noqa: E402
 
 d = sys.argv[1]
 sessions = {}
@@ -14,8 +23,8 @@ tool_bytes = defaultdict(int)
 tool_calls = defaultdict(int)
 tool_max = defaultdict(int)
 
-for path in glob.glob(os.path.join(d, "*.jsonl")):
-    sid = os.path.basename(path)[:8]
+for path, kind, _parent in discover_transcripts(d):
+    sid = os.path.basename(path)[:-len(".jsonl")][:14]   # 8 chars of a uuid; agent-<id> whole
     turns, cr_first, cr_last, cr_sum, out = 0, None, 0, 0, 0
     pending = {}
     for line in open(path, errors="ignore"):
@@ -57,9 +66,9 @@ tot_cr = sum(s[3] for s in sessions.values())
 print(f"sessions={len(sessions)}  turns={tot_turns}  cacheRead={tot_cr/1e6:.0f}M")
 print(f"avg turns/session={tot_turns/max(1,len(sessions)):.0f}  avg context/turn={tot_cr/max(1,tot_turns)/1000:.0f}K")
 print()
-print(f"{'sess':8} {'turns':>6} {'ctx@start':>10} {'ctx@peak':>9} {'cacheRead':>10}")
+print(f"{'sess':14} {'turns':>6} {'ctx@start':>10} {'ctx@peak':>9} {'cacheRead':>10}")
 for sid, (t, f, l, s, o) in sorted(sessions.items(), key=lambda x: -x[1][3])[:12]:
-    print(f"{sid:8} {t:6} {f/1000:9.0f}K {l/1000:8.0f}K {s/1e6:9.1f}M")
+    print(f"{sid:14} {t:6} {f/1000:9.0f}K {l/1000:8.0f}K {s/1e6:9.1f}M")
 print()
 print("=== tool_result payload volume (chars; these persist and are re-read every later turn) ===")
 print(f"{'tool':32} {'calls':>6} {'total_chars':>13} {'avg':>9} {'max':>10}")

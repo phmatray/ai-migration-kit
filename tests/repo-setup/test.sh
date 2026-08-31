@@ -582,6 +582,51 @@ case "$out" in
 esac
 echo "  ok: plan — a manifest with a fully filled-in area axis reaches a converged plan"
 
+# --------------------------------------- 9c. apply refuses a form whose Area dropdown projection
+#                                              failed, instead of silently noting it (#240)
+#
+# project-area-options.py exit 3 means "the structural check found an id: area dropdown, but the
+# textual line-range locator couldn't find its options: list to rewrite" — a projection the diff
+# pass already PROMISED ("+ADD … Area dropdown will be generated") and then didn't deliver.
+# Before #240 this routed through note(), which is exit 0 and adds nothing to REFUSED — so a form
+# shaped this way looked converged forever after the first `apply`, with nothing anywhere going
+# red. This pins the fix: exit 3 now counts as a refusal, the same way every other partial `apply`
+# result already does.
+
+BROKEN_FORM_FIXTURE="$KIT_ROOT/tests/repo-setup/fixtures/broken-options-form.yml"
+BROKEN_FORM_MANIFEST="$KIT_ROOT/tests/repo-setup/fixtures/manifest-broken-form.yml"
+[ -r "$BROKEN_FORM_FIXTURE" ] || fail "fixture $BROKEN_FORM_FIXTURE missing"
+[ -r "$BROKEN_FORM_MANIFEST" ] || fail "fixture $BROKEN_FORM_MANIFEST missing"
+
+# issueTemplates entries resolve against the kit's OWN templates/issue-forms/ — repo-setup.sh's
+# FORMS_DIR is a fixed constant, not configurable per run — so exercising this through the real
+# `apply` path means placing the broken fixture there for the one `apply` call below, never as a
+# lasting addition to the kit's shipped forms. `rc`/`out` are captured rather than asserted on the
+# spot precisely so the `rm` runs unconditionally, before any `fail` that would otherwise exit this
+# script with the fixture still sitting in a tracked directory.
+BROKEN_FORM_DEST="$KIT_ROOT/templates/issue-forms/broken-options-form.yml"
+[ -e "$BROKEN_FORM_DEST" ] && fail "$BROKEN_FORM_DEST already exists — refusing to overwrite it"
+cp "$BROKEN_FORM_FIXTURE" "$BROKEN_FORM_DEST"
+
+repo4d=$(new_repo) || { rm -f "$BROKEN_FORM_DEST"; fail "could not create a scratch git repo"; }
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":false}\n' > "$GH_SETTINGS_JSON"
+
+fresh_log brokenform
+rc=0; out=$(bash "$SCRIPT" apply "$repo4d" --manifest "$BROKEN_FORM_MANIFEST" 2>&1) || rc=$?
+rm -f "$BROKEN_FORM_DEST"
+
+[ "$rc" -eq 3 ] \
+  || fail "apply with a form the projector cannot rewrite: expected exit 3 (REFUSED), got $rc — output: $out"
+has_line "^!REFUSED .*forms.*broken-options-form.yml.*could not be generated" "$out" \
+  || fail "a failed Area-dropdown projection did not report !REFUSED — output: $out"
+case "$out" in
+  *"!NOTE"*"broken-options-form.yml"*) fail "a failed Area-dropdown projection still went through !NOTE (silent, exit 0) — output: $out" ;;
+esac
+[ -f "$repo4d/.github/ISSUE_TEMPLATE/broken-options-form.yml" ] \
+  || fail "apply did not copy the form even though its dropdown projection failed — a copied-but-unprojected form is still a form"
+echo "  ok: apply — a form whose Area dropdown projection fails (exit 3) reports !REFUSED and exits 3, not a silent !NOTE at exit 0"
+
 # A manifest can declare a placeholder-SHAPED area label that ISN'T the literal shipped
 # "area: <your-area>" — e.g. "area: parser <experimental>", a label someone is still deciding on.
 # The main diff loop's placeholder test is a SUBSTRING match (`*"<"*">"*`, a few lines above this
