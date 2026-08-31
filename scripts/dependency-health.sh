@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dependency-health.sh <repo-dir>
+# dependency-health.sh <repo-dir | solution | project>
 #
 # Examines the DELIVERED dependency graph and emits a `dependencyHealth` block, as JSON on stdout,
 # for `migration/report.json` to carry. Phase 6 runs it (see
@@ -37,7 +37,7 @@
 # the claim this layer cannot make.
 set -euo pipefail
 
-REPO="${1:?usage: dependency-health.sh <repo-dir>}"
+REPO="${1:?usage: dependency-health.sh <repo-dir | solution | project>}"
 DOTNET_BIN="${DOTNET_BIN:-dotnet}"
 
 # `dotnet list package --format json` needs SDK >= 7. The kit already requires >= 8, so this floor
@@ -80,10 +80,15 @@ PY
   exit 1
 }
 
-if [ ! -d "$REPO" ]; then
+# A DIRECTORY, a `.sln`/`.slnx`, or a `.csproj` — whatever `dotnet restore` and `dotnet list`
+# themselves accept. Directory-only would be a gate nobody can pass on a repo root holding two
+# solution files or a solution beside a root `build.proj`: MSBuild answers MSB1050 ("specify which
+# project or solution file to use"), the block comes back `unavailable`, and phase 6's exit gate
+# then refuses a migration that is in fact complete — with no way to name the intended solution.
+if [ ! -e "$REPO" ]; then
   case "$REPO" in
-    /*) emit_unavailable "no such directory: $REPO" ;;
-    *)  emit_unavailable "no such directory: $(pwd -P)/$REPO (relative path resolved from $(pwd -P))" ;;
+    /*) emit_unavailable "no such file or directory: $REPO" ;;
+    *)  emit_unavailable "no such file or directory: $(pwd -P)/$REPO (relative path resolved from $(pwd -P))" ;;
   esac
 fi
 
@@ -132,7 +137,7 @@ run_query() {
 }
 
 run_query "$TMP/vulnerable.json" --vulnerable --include-transitive --format json
-run_query "$TMP/deprecated.json" --deprecated --format json
+run_query "$TMP/deprecated.json" --deprecated --include-transitive --format json
 
 # ------------------------------------------------------------------------------ flatten and emit
 DH_VULN="$TMP/vulnerable.json" DH_DEPR="$TMP/deprecated.json" python3 - <<'PY'
@@ -173,41 +178,78 @@ def frameworks(doc):
     combinations that match nothing, so every level is defended."""
     for project in doc.get("projects") or []:
         for framework in project.get("frameworks") or []:
-            yield framework
+            yield project.get("path"), framework
 
 
-vuln_doc = load(os.environ["DH_VULN"], "--vulnerable --include-transitive")
-depr_doc = load(os.environ["DH_DEPR"], "--deprecated")
+def refuse_on_problems(doc, label):
+    """`dotnet list package` reports a project it could not examine in `problems[]` — and a project
+    entry whose examination failed carries NO `frameworks` key, so the walk above skips it in
+    SILENCE. That is the script's own invariant turned against it: without this, "a check that
+    cannot verify must not answer healthy" would rest entirely on dotnet's exit code, and any
+    problem it reports while still exiting 0 would be published as `status: "ok"` for a graph that
+    was only partly examined."""
+    problems = []
+    for scope in [doc] + list(doc.get("projects") or []):
+        for problem in scope.get("problems") or []:
+            if (problem.get("level") or "").strip().lower() == "error":
+                problems.append(problem.get("text") or json.dumps(problem, sort_keys=True))
+    if problems:
+        unavailable("'dotnet list package %s' reported %d project-level error(s), so part of the "
+                    "graph was never examined: %s"
+                    % (label, len(problems), " | ".join(problems[:3])))
+
+
+VULN_LABEL = "--vulnerable --include-transitive"
+DEPR_LABEL = "--deprecated --include-transitive"
+
+vuln_doc = load(os.environ["DH_VULN"], VULN_LABEL)
+depr_doc = load(os.environ["DH_DEPR"], DEPR_LABEL)
+refuse_on_problems(vuln_doc, VULN_LABEL)
+refuse_on_problems(depr_doc, DEPR_LABEL)
 
 # One row per (package, advisory): a package carrying two advisories is two decisions for the
-# owner, not one. Rows are de-duplicated because a package resolved identically under several
-# target frameworks is reported once per framework by `dotnet`, and that is a presentation detail
-# of the query rather than a second finding.
-vulnerable = []
-seen = set()
-for framework in frameworks(vuln_doc):
+# owner, not one.
+#
+# Two things collapse into one row, and the difference matters. A package resolved identically
+# under several TARGET FRAMEWORKS is reported once per framework by `dotnet` — a presentation
+# detail of the query, not a second finding. A package present in several PROJECTS of a solution is
+# a genuinely wider finding, so those do not silently merge either: the row carries `projects[]`,
+# naming every project it was found in. Phase 6 maps one *Prochaines étapes* row per finding, and
+# an owner told "upgrade this package" needs to know where.
+def collect(rows, key_fields, row, project):
+    fingerprint = json.dumps([row.get(field) for field in key_fields], sort_keys=True)
+    existing = rows.get(fingerprint)
+    if existing is None:
+        row["projects"] = []
+        rows[fingerprint] = existing = row
+    if project and project not in existing["projects"]:
+        existing["projects"].append(project)
+    return existing
+
+
+vulnerable_rows = {}
+for project_path, framework in frameworks(vuln_doc):
     for key, transitive in (("topLevelPackages", False), ("transitivePackages", True)):
         for package in framework.get(key) or []:
             for advisory in package.get("vulnerabilities") or []:
                 severity = (advisory.get("severity") or "").strip().lower() or None
-                row = {
-                    "id": package.get("id"),
-                    "requested": package.get("requestedVersion"),
-                    "resolved": package.get("resolvedVersion"),
-                    "transitive": transitive,
-                    "severity": severity,
-                    "advisory": advisory.get("advisoryurl"),
-                }
-                fingerprint = json.dumps(row, sort_keys=True)
-                if fingerprint in seen:
-                    continue
-                seen.add(fingerprint)
-                vulnerable.append(row)
+                collect(vulnerable_rows,
+                        ("id", "requested", "resolved", "transitive", "severity", "advisory"), {
+                            "id": package.get("id"),
+                            "requested": package.get("requestedVersion"),
+                            "resolved": package.get("resolvedVersion"),
+                            "transitive": transitive,
+                            "severity": severity,
+                            "advisory": advisory.get("advisoryurl"),
+                        }, project_path)
 
-deprecated = []
-seen = set()
-for framework in frameworks(depr_doc):
-    for key in ("topLevelPackages", "transitivePackages"):
+deprecated_rows = {}
+for project_path, framework in frameworks(depr_doc):
+    # `--include-transitive` on this leg too, for the reason it is on the vulnerable one: a
+    # deprecation the customer never chose is still a deprecation they now own. Without it this
+    # second branch would be dead code that reads as coverage the query does not provide, and the
+    # `transitive` field below is what stops a reader from having to guess which half a row is.
+    for key, transitive in (("topLevelPackages", False), ("transitivePackages", True)):
         for package in framework.get(key) or []:
             reasons = package.get("deprecationReasons") or []
             if not reasons:
@@ -215,25 +257,23 @@ for framework in frameworks(depr_doc):
             alternative = package.get("alternativePackage")
             if isinstance(alternative, dict):
                 alternative = alternative.get("id")
-            row = {
+            collect(deprecated_rows, ("id", "resolved", "transitive", "alternative"), {
                 "id": package.get("id"),
                 "resolved": package.get("resolvedVersion"),
+                "transitive": transitive,
                 "reasons": list(reasons),
                 "alternative": alternative or None,
-            }
-            fingerprint = json.dumps(row, sort_keys=True)
-            if fingerprint in seen:
-                continue
-            seen.add(fingerprint)
-            deprecated.append(row)
+            }, project_path)
 
 
 def sort_key(row):
     return tuple("" if value is None else str(value) for value in row.values())
 
 
-vulnerable.sort(key=sort_key)
-deprecated.sort(key=sort_key)
+vulnerable = sorted(vulnerable_rows.values(), key=sort_key)
+deprecated = sorted(deprecated_rows.values(), key=sort_key)
+for row in vulnerable + deprecated:
+    row["projects"].sort()
 
 # `status` is DERIVED here, from what the two queries actually returned — it is never an argument,
 # never an environment variable, and nothing upstream can assert it. That is the difference between

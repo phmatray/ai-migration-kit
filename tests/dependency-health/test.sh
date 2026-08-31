@@ -156,24 +156,30 @@ PY
 
 # ---------------------------------------------------------------------------------- 1. clean
 #
-# Both invocations succeed and report nothing. `"frameworks": []` is what `dotnet` really emits for
-# a project with no matching packages, so this is the shape of the common case, not a contrived one.
+# Both invocations succeed and report nothing. The FIRST project carries the shape `dotnet` really
+# emits for a project with no matching packages — the `frameworks` key is OMITTED ENTIRELY, not set
+# to `[]` (measured against SDK 10.0.400). That distinction matters more than it looks: it is the
+# same shape a project whose examination FAILED comes back as, which is why the script refuses on
+# `problems[]` rather than inferring anything from a missing `frameworks`. The second project
+# carries the empty-array spelling, so both are pinned and neither can regress unnoticed.
 clean=$(make_case clean)
 cat > "$clean/vulnerable.json" <<'JSON'
 {
   "version": 1,
   "parameters": "--vulnerable --include-transitive",
   "projects": [
-    { "path": "/repo/src/App/App.csproj", "frameworks": [] }
+    { "path": "/repo/src/App/App.csproj" },
+    { "path": "/repo/src/Lib/Lib.csproj", "frameworks": [] }
   ]
 }
 JSON
 cat > "$clean/deprecated.json" <<'JSON'
 {
   "version": 1,
-  "parameters": "--deprecated",
+  "parameters": "--deprecated --include-transitive",
   "projects": [
-    { "path": "/repo/src/App/App.csproj", "frameworks": [] }
+    { "path": "/repo/src/App/App.csproj" },
+    { "path": "/repo/src/Lib/Lib.csproj", "frameworks": [] }
   ]
 }
 JSON
@@ -226,6 +232,43 @@ cat > "$findings/vulnerable.json" <<'JSON'
               ]
             }
           ]
+        },
+        {
+          "framework": "net8.0",
+          "topLevelPackages": [],
+          "transitivePackages": [
+            {
+              "id": "System.Text.Encodings.Web",
+              "resolvedVersion": "4.5.0",
+              "vulnerabilities": [
+                {
+                  "severity": "High",
+                  "advisoryurl": "https://github.com/advisories/GHSA-ghhp-997w-qr28"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "/repo/src/Lib/Lib.csproj",
+      "frameworks": [
+        {
+          "framework": "net10.0",
+          "topLevelPackages": [],
+          "transitivePackages": [
+            {
+              "id": "System.Text.Encodings.Web",
+              "resolvedVersion": "4.5.0",
+              "vulnerabilities": [
+                {
+                  "severity": "High",
+                  "advisoryurl": "https://github.com/advisories/GHSA-ghhp-997w-qr28"
+                }
+              ]
+            }
+          ]
         }
       ]
     }
@@ -235,7 +278,7 @@ JSON
 cat > "$findings/deprecated.json" <<'JSON'
 {
   "version": 1,
-  "parameters": "--deprecated",
+  "parameters": "--deprecated --include-transitive",
   "projects": [
     {
       "path": "/repo/src/App/App.csproj",
@@ -252,6 +295,13 @@ cat > "$findings/deprecated.json" <<'JSON'
                 "id": "Asp.Versioning.Mvc",
                 "versionRange": ">= 0.0.0"
               }
+            }
+          ],
+          "transitivePackages": [
+            {
+              "id": "Microsoft.Azure.KeyVault",
+              "resolvedVersion": "3.0.5",
+              "deprecationReasons": ["Legacy", "Other"]
             }
           ]
         }
@@ -283,20 +333,43 @@ if v.get("severity") != "high":
          "got %r" % (v.get("severity"),))
 if v.get("advisory") != "https://github.com/advisories/GHSA-ghhp-997w-qr28":
     fail("the advisory URL was lost: %r" % (v,))
+# The same package under two target frameworks of one project is ONE finding — that repetition is
+# a presentation detail of the query. The same package in a SECOND project is a wider finding, and
+# `projects[]` is what keeps it from collapsing into silence: phase 6 maps one *Prochaines étapes*
+# row per finding, and an owner told "upgrade this package" has to know where.
+if v.get("projects") != ["/repo/src/App/App.csproj", "/repo/src/Lib/Lib.csproj"]:
+    fail("projects[] must name every project the finding was seen in, sorted, got %r"
+         % (v.get("projects"),))
 dep = block.get("deprecated") or []
-if len(dep) != 1:
-    fail("expected exactly one deprecated row, got %d: %r" % (len(dep), dep))
-d = dep[0]
-if d.get("id") != "Microsoft.AspNetCore.Mvc.Versioning":
-    fail("the deprecated package id was lost: %r" % (d,))
+if len(dep) != 2:
+    fail("expected two deprecated rows (one top-level, one transitive), got %d: %r"
+         % (len(dep), dep))
+by_id = dict((row.get("id"), row) for row in dep)
+d = by_id.get("Microsoft.AspNetCore.Mvc.Versioning")
+if d is None:
+    fail("the top-level deprecated package id was lost: %r" % (dep,))
 if d.get("reasons") != ["Legacy"]:
     fail("the deprecation reasons were lost: %r" % (d,))
+if d.get("transitive") is not False:
+    fail("a deprecated row must say which half it came from, got transitive=%r for a top-level "
+         "package: %r" % (d.get("transitive"), d))
 if d.get("alternative") != "Asp.Versioning.Mvc":
     fail("the alternative package must be carried through as a bare id, got %r — it is the one "
          "piece of the finding that tells the owner what to do about it"
          % (d.get("alternative"),))
+# `--deprecated` carries `--include-transitive` for the same reason the vulnerable leg does: a
+# deprecation the customer never chose is still one they now own. Without the flag this row would
+# never exist and the flattener's transitive branch would be dead code reading as coverage.
+t = by_id.get("Microsoft.Azure.KeyVault")
+if t is None:
+    fail("the TRANSITIVE deprecated package never reached the block: %r" % (dep,))
+if t.get("transitive") is not True:
+    fail("a transitively deprecated package must be marked transitive: %r" % (t,))
+if t.get("alternative") is not None:
+    fail("a deprecated package with no alternativePackage must report alternative=None, got %r"
+         % (t.get("alternative"),))
 ASSERT
-echo "  ok: findings — transitive vulnerability and deprecation carried through, exit still 0"
+echo "  ok: findings — transitive vulnerability and deprecations carried through, exit still 0"
 
 # ---------------------------------------------------------------------------- 3. dotnet-fails
 #
@@ -327,5 +400,47 @@ if block.get("vulnerable") != [] or block.get("deprecated") != []:
          "partial data that reads as a complete answer")
 ASSERT
 echo "  ok: dotnet-fails — status unavailable, reason names the invocation, exit 1"
+
+# ---------------------------------------------------------------- 4. project-problems
+#
+# The same lesson as section 3, one level in. `dotnet` can report a project it could not examine in
+# `problems[]` — and such a project entry carries NO `frameworks` key, so the walk skips it in
+# SILENCE, indistinguishable from a project that simply has no matching packages. Section 3's
+# protection is dotnet's EXIT CODE; this one is about the data. Without it, "the check ran" would
+# mean "the process exited 0", and a graph examined in part would be published as `ok`.
+problems=$(make_case project-problems)
+cat > "$problems/vulnerable.json" <<'JSON'
+{
+  "version": 1,
+  "parameters": "--vulnerable --include-transitive",
+  "problems": [
+    {
+      "project": "/repo/src/Broken/Broken.csproj",
+      "level": "error",
+      "text": "No assets file was found for /repo/src/Broken/Broken.csproj. Run a NuGet package restore."
+    }
+  ],
+  "projects": [
+    { "path": "/repo/src/App/App.csproj", "frameworks": [] },
+    { "path": "/repo/src/Broken/Broken.csproj" }
+  ]
+}
+JSON
+cat > "$problems/deprecated.json" <<'JSON'
+{ "version": 1, "parameters": "--deprecated --include-transitive", "projects": [] }
+JSON
+run_case "$problems"
+assert_json "$problems" <<'ASSERT'
+if block.get("status") != "unavailable":
+    fail("a project dotnet could not examine must NOT be reported as a clean graph, got %r — a "
+         "partially-examined graph is not a verified one" % (block.get("status"),))
+if rc != 1:
+    fail("a project-level error must exit 1, got %d" % rc)
+reason = block.get("reason") or ""
+if "Broken.csproj" not in reason and "assets file" not in reason:
+    fail("the reason must carry dotnet's own problem text so the operator can fix it, got %r"
+         % (reason,))
+ASSERT
+echo "  ok: project-problems — a project dotnet could not examine is not silently skipped"
 
 echo "dependency-health golden test OK"
