@@ -119,7 +119,12 @@ def padl(w): tostring as $s | (" " * ([w - ($s|length), 0] | max)) + $s;
 def try_parse: try fromjson catch null;
 def is_str($v): ($v|type) == "string";
 
-reduce inputs as $raw (
+# jq >= 1.6 floor (requirements.json): a bare `reduce … (init;update) as $x` — no wrapping
+# parens around the reduce itself before the `as` bind — parses on jq 1.7+ but is a compile
+# error on jq 1.6 ("unexpected as, expecting end of file"), measured on the CI runner's jq 1.6.
+# Every `reduce`/`foreach` in this program is wrapped in its own parens before any `as $x` that
+# follows it, for exactly that reason — don't drop them as "redundant" on a newer local jq.
+(reduce inputs as $raw (
   {malformed: 0, events: []};
   if ($raw | length) == 0 then
     .
@@ -133,7 +138,7 @@ reduce inputs as $raw (
       else .malformed += 1
       end
   end
-) as $parsed
+)) as $parsed
 | $parsed.events as $events
 | $parsed.malformed as $malformed
 | if ($events|length) == 0 then
