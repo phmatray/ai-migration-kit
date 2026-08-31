@@ -131,4 +131,45 @@ for needle in "repeat-poll" "systematic" "events / 5" "events \* 0.8"; do
 done
 echo "  ok: --help prints both flag names and their thresholds"
 
+# ------------------------------------------------------- 8. Step 6's mandatory `lessons` block
+#
+# Prose pins, not behavior: SKILL.md Step 6 must actually SAY the block is mandatory, name the
+# script that fills its table, and name the one accepted empty form — a step that merely alludes to
+# "lessons learned" without these three anchors is exactly the free-prose outcome the issue rejects.
+SKILL="skills/auto-dev/SKILL.md"
+[ -f "$SKILL" ] || { echo "FAIL [lessons]: $SKILL missing"; exit 1; }
+for needle in 'lessons:' 'decision-tally\.sh' 'lessons: none'; do
+  grep -qE -- "$needle" "$SKILL" || {
+    echo "FAIL [lessons]: $SKILL Step 6 does not contain /$needle/"; exit 1
+  }
+done
+grep -qi 'a run without a `lessons` block is a run that was not finished' "$SKILL" || {
+  echo "FAIL [lessons]: $SKILL is missing the Gotchas bullet naming an unfinished run"; exit 1
+}
+echo "  ok: SKILL.md Step 6 makes the lessons block mandatory, names decision-tally.sh, and the Gotchas bullet"
+
+# ------------------------------------------------------------------- 9. the seven retro categories
+#
+# retro-taxonomy.md must carry EXACTLY seven `## ` headings, spelled exactly as the issue maps them
+# from mattpocock/skills `retro` — a taxonomy that silently grows an eighth category or loses one
+# stops being the fixed vocabulary the issue exists to give auto-dev.
+TAXONOMY="skills/auto-dev/references/retro-taxonomy.md"
+[ -f "$TAXONOMY" ] || { echo "FAIL [taxonomy]: $TAXONOMY missing"; exit 1; }
+heading_count=$(grep -c '^## ' "$TAXONOMY")
+[ "$heading_count" -eq 7 ] || {
+  echo "FAIL [taxonomy]: $TAXONOMY has $heading_count '## ' headings, expected exactly 7"; exit 1
+}
+for cat in navigation automated-checks coding-standards steering tool-economy no-ops information-access; do
+  grep -qE "^## .*\`?$cat\`?" "$TAXONOMY" || {
+    echo "FAIL [taxonomy]: $TAXONOMY is missing the '$cat' heading"; exit 1
+  }
+done
+grep -qi 'mattpocock/skills' "$TAXONOMY" || {
+  echo "FAIL [taxonomy]: $TAXONOMY does not credit mattpocock/skills"; exit 1
+}
+grep -qi 'MIT' "$TAXONOMY" || {
+  echo "FAIL [taxonomy]: $TAXONOMY does not name the MIT license"; exit 1
+}
+echo "  ok: retro-taxonomy.md carries exactly the seven named categories, credited to mattpocock/skills (MIT)"
+
 echo "decision-tally golden test OK"
