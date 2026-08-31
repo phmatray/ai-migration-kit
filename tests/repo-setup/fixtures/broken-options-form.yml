@@ -1,0 +1,14 @@
+name: Broken options form
+description: >-
+  Fixture only (tests/repo-setup, #240) — an Area dropdown whose options: list is a flow
+  sequence on one line. find_area_field() accepts this structurally (still a dropdown with
+  id: area), but project-area-options.py's textual line-range locator requires a bare
+  "options:" line of its own and cannot locate this one — exit 3.
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: ["area: <your-area>"]
+    validations:
+      required: true

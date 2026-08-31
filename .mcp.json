@@ -5,6 +5,12 @@
       "command": "dnx",
       "args": ["RoselineMCP", "--yes"],
       "env": {}
+    },
+    "adr": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": ["AdrMcp", "--yes"],
+      "env": {}
     }
   }
 }
