@@ -11,13 +11,23 @@ Checks for each skills/*/SKILL.md:
   versioned as one unit, so the only version anyone can act on is
   .claude-plugin/plugin.json, which release-please bumps. A per-skill number is
   a claim nothing maintains (#16);
-- a trigger list tests/skills/<name>.triggers.md exists, with both
-  "Should trigger" and "Should NOT trigger" sections non-empty.
+- a trigger eval set evals/<name>-trigger-eval.json exists, is a JSON list of
+  {query, should_trigger, note?} objects with no duplicate query, and carries
+  both polarities (#331). That file is the ONE home for a skill's triggering
+  contract: `evals/trigger_eval.py` runs it against the installed description,
+  so the rule now guards the artefact a tool executes rather than the
+  tests/skills/<name>.triggers.md bullet list nothing ever read.
 
 Cross-check against requirements.json (single source): every entry a skill
 hard-requires (`requiredBy`) must be declared in that skill's `compatibility`
 frontmatter via the entry's `token` — so the manifest and the distributed
 metadata can never drift apart silently.
+
+Cross-check against the bench's own rosters: `evals/run_all.py`'s SKILLS and
+`evals/trigger_eval.py`'s DEFAULT_KNOWN must each list exactly the skills/*/
+folders (#331). Without this, a skill added with a valid eval set passes the
+rule above while `run_all.py` never runs it — which is precisely the "half the
+kit unmeasured while CI reports every contract present" failure #331 closed.
 
 The frontmatter is PARSED as YAML rather than pattern-matched. Key presence is
 not a text question: `version:`, `"version":`, `'version':`, `version :` and the
@@ -28,6 +38,7 @@ before (#16 review) — parsing removes the whole class.
 Self-test: tests/skills/test.sh drives this file over fixtures that must FAIL,
 so a guard that silently stops matching cannot pass CI.
 """
+import ast
 import json
 import re
 import sys
@@ -51,7 +62,101 @@ def text_of(value) -> str:
     return re.sub(r'\s+', ' ', str(value or "")).strip()
 
 
+EVAL_KEYS = {"query", "should_trigger", "note"}
+
+
+def check_trigger_eval_set(skill: str) -> list:
+    """The skill's triggering contract, validated where a tool can actually run it (#331).
+
+    Structural only — CI must never spend a bench run (`evals/run_all.py` spawns a real
+    `claude -p` per query). What it proves is that the set exists, parses, uses the runner's
+    key names, and pins BOTH polarities, so a typo fails here rather than after the tokens
+    are spent. Errors accumulate: one malformed entry does not hide the next.
+    """
+    path = ROOT / "evals" / f"{skill}-trigger-eval.json"
+    rel = path.relative_to(ROOT)
+    if not path.exists():
+        return [f"{skill}: trigger eval set missing ({rel}) — create it as a JSON list of "
+                f"{{query, should_trigger, note?}} objects"]
+
+    try:
+        entries = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"{skill}: {rel} is not valid JSON ({exc})"]
+
+    if not isinstance(entries, list) or not entries:
+        return [f"{skill}: {rel} must be a non-empty JSON list of "
+                f"{{query, should_trigger, note?}} objects"]
+
+    found = []
+    polarities = set()
+    seen = {}
+    for i, entry in enumerate(entries):
+        where = f"{rel}[{i}]"
+        if not isinstance(entry, dict):
+            found.append(f"{skill}: {where} is not an object "
+                         f"(got {type(entry).__name__})")
+            continue
+        stray = sorted(set(entry) - EVAL_KEYS)
+        if stray:
+            found.append(f"{skill}: {where} has unexpected key "
+                         f"{', '.join(repr(k) for k in stray)} "
+                         f"(allowed: query, should_trigger, note)")
+        note = entry.get("note")
+        if note is not None and not isinstance(note, str):
+            found.append(f"{skill}: {where} has a non-string 'note' "
+                         f"(got {type(note).__name__})")
+        query = entry.get("query")
+        if not isinstance(query, str) or not query.strip():
+            found.append(f"{skill}: {where} has a missing or empty 'query'")
+        else:
+            # Keyed on the NORMALIZED form: to the bench, "File an issue" and "file an issue "
+            # are one query asked twice, however differently they are spelled here.
+            key = " ".join(query.split()).casefold()
+            if key in seen:
+                found.append(f"{skill}: {where} is a duplicate query of {rel}[{seen[key]}] "
+                             f"— a duplicated query inflates recall for free")
+            else:
+                seen[key] = i
+        should_trigger = entry.get("should_trigger")
+        if not isinstance(should_trigger, bool):
+            found.append(f"{skill}: {where} has a missing or non-boolean 'should_trigger'")
+        else:
+            polarities.add(should_trigger)
+
+    for polarity in (True, False):
+        if polarity not in polarities:
+            found.append(f"{skill}: {rel} has no should_trigger: "
+                         f"{str(polarity).lower()} entry")
+    return found
+
+
 compat_by_skill = {}
+
+
+def read_name_list(rel_path: str, var: str):
+    """A module-level list literal, read WITHOUT importing the module.
+
+    Importing `evals/trigger_eval.py` would drag in the runner's dependencies and
+    argparse surface for the sake of one literal, so this parses instead.
+    Returns (names, error); exactly one is None.
+    """
+    path = ROOT / rel_path
+    if not path.exists():
+        return None, f"{rel_path}: missing — it declares {var}, the roster the bench runs"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError as exc:
+        return None, f"{rel_path}: is not valid Python ({exc})"
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(tgt, ast.Name) and tgt.id == var for tgt in node.targets):
+            try:
+                return list(ast.literal_eval(node.value)), None
+            except (ValueError, TypeError):
+                return None, f"{rel_path}: {var} is not a literal list of skill names"
+    return None, f"{rel_path}: {var} is not declared at module level"
+
 
 for f in skill_files:
     skill = f.parent.name
@@ -105,15 +210,24 @@ for f in skill_files:
                 f"in .claude-plugin/plugin.json, bumped by release-please; a per-skill number "
                 f"is a claim nothing maintains")
 
-    triggers = ROOT / "tests" / "skills" / f"{skill}.triggers.md"
-    if not triggers.exists():
-        errors.append(f"{skill}: trigger list missing ({triggers.relative_to(ROOT)})")
-    else:
-        t = triggers.read_text(encoding="utf-8")
-        for section in ("## Should trigger", "## Should NOT trigger"):
-            block = re.search(rf'{re.escape(section)}\n(.*?)(?=\n## |\Z)', t, re.S)
-            if not block or not re.search(r'^- ', block.group(1), re.M):
-                errors.append(f"{skill}: section \"{section}\" absent or empty in {triggers.name}")
+    errors.extend(check_trigger_eval_set(skill))
+
+# The ten-skill roster ↔ the bench's own lists (#331).
+skill_names = {f.parent.name for f in skill_files}
+for rel_path, var in (("evals/run_all.py", "SKILLS"), ("evals/trigger_eval.py", "DEFAULT_KNOWN")):
+    listed, err = read_name_list(rel_path, var)
+    if err:
+        errors.append(err)
+        continue
+    missing = sorted(skill_names - set(listed))
+    unknown = sorted(set(listed) - skill_names)
+    if missing:
+        errors.append(f"{rel_path}: {var} must list every skill — missing "
+                      f"{', '.join(missing)}; a skill absent here keeps an eval set CI accepts "
+                      f"and a bench that never runs it")
+    if unknown:
+        errors.append(f"{rel_path}: {var} must list every skill — {', '.join(unknown)} "
+                      f"names no skills/*/ folder")
 
 # requirements.json ↔ compatibility cross-check.
 req = json.loads((ROOT / "requirements.json").read_text(encoding="utf-8"))
@@ -136,4 +250,4 @@ for entry in req.get("tools", []) + req.get("mcps", []) + req.get("sessionSkills
 if errors:
     print("\n".join(errors))
     sys.exit(1)
-print(f"frontmatter OK for {len(skill_files)} skills (guide limits + trigger lists + requirements cross-check)")
+print(f"frontmatter OK for {len(skill_files)} skills (guide limits + evals/<skill>-trigger-eval.json + requirements cross-check)")

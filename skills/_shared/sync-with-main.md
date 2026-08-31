@@ -95,10 +95,80 @@ resolution *shapes* it encodes, so you can reason about a file the table doesn't
   a hand-stitched one will mismatch.
 - **take-the-higher** for a monotonic value (a version bump) — never stack both into a double increment;
   if both sides bumped to the same number, keep one.
-- **same logic edited on both sides** is a real **semantic** conflict, not a mechanical one — resolve it
-  by understanding *both* intents (a parallel PR's work is as real as yours), or, if picking a side would
-  silently drop the other's work and you can't choose with confidence, **stop and surface it** with both
-  sides shown rather than guessing (per each skill's Autonomy contract).
+- **same logic edited on both sides** is a real **semantic** conflict, not a mechanical one — see
+  *Sourcing the other side's intent* below for how to source enough confidence to resolve it, or
+  else **stop and surface it** with both sides shown rather than guessing (per each skill's
+  Autonomy contract).
+
+## Sourcing the other side's intent
+
+*Ported from mattpocock/skills (MIT), `engineering/resolving-merge-conflicts`* — same idea, spelled
+out for a squash-merging repo where the commit itself isn't where the design lives.
+
+A semantic conflict needs the other side's **intent**, and on a squash-merging repo that intent is
+two hops from the diff you're looking at: the `main`-side commit is a squash whose subject ends in
+`(#N)` — the design that produced it lives in **that PR's issue**, not in the lines that conflict.
+Your own branch's intent is simpler: it's the plan task you're implementing right now.
+
+```mermaid
+flowchart LR
+  C[conflicted file] --> L["git log --merge -- file"]
+  L --> S[main-side sha]
+  S --> P["gh api …/commits/sha/pulls"]
+  P --> I["PR body -> Closes #N -> issue Spec"]
+  I --> D{confident?}
+  D -- 3/3 --> R[resolve + Conflicts: line]
+  D -- else --> X[stop, show both sides]
+```
+
+**1. Find the primary sources**, per conflicted file:
+
+```bash
+# The commits on BOTH sides that touched this file — the main-side ones are the other intent.
+git -C "$WORKTREE" log --merge --oneline -- <file>
+
+# For each main-side sha, the PR that landed it (squash-merge means usually exactly one):
+gh api "repos/{owner}/{repo}/commits/<sha>/pulls" --jq '.[].number'
+
+# That PR's own stated intent, and the issue it closes:
+gh pr view <N> --json title,body
+```
+
+Then read the issue that PR closes for its **📋 Spec** — the acceptance criteria (once #310 lands),
+or its goal/scope on an older issue that predates the Spec section.
+
+Two fallbacks, both noted the same way in the trade-off line (step 4 below) rather than treated as a
+dead end: a `main`-side commit with **no PR** (a direct push) — `gh api` returns `[]` — falls back to
+the commit message itself as the intent; a PR whose issue has **no Spec** (pre-`create-issue` era)
+uses the PR body as the intent instead.
+
+**2. "With confidence" means all three, together** — one missing is not confidence, it's a guess:
+
+- both intents are stated, one sentence each;
+- the resolution keeps each intent's acceptance criterion, **or** names which one it drops and why;
+- the affected test filters for **both** sides go green on the merged tree.
+
+Any condition unmet → stop and surface it, both sides shown — the Autonomy contract's existing
+blocker, now with a bar to check against instead of eyeballing "with confidence."
+
+**3. Resolve** — preserve both intents where possible. Where they're genuinely incompatible, pick
+the one matching **this PR's own issue** and record what the other one loses. Never invent a third
+behaviour nobody asked for. Never `--abort` — always resolve.
+
+**4. Record the trade-off in the merge commit itself** — not a PR comment, not a chat aside: the
+commit is what `git log --merge` shows the *next* resolver, so it's the one place this survives.
+Every conflicted file gets one line — a semantic resolution in the "kept … and … ; trade-off: …"
+shape, a mechanical one (the rule-of-thumb above) just the one word that applied:
+
+```
+Merge origin/<base> into <branch>
+
+Conflicts:
+- <file> — kept <what> (main, #N) and <what> (ours); trade-off: <one sentence>
+- <file> — union
+```
+
+*Finish and verify* below writes this to a file and commits with it, rather than `--no-edit`.
 
 ## Finish and verify
 
@@ -125,7 +195,20 @@ git -C "$WORKTREE" diff --name-only --diff-filter=U -z \
 #   git -C "$WORKTREE" add <the file you regenerated>
 
 git -C "$WORKTREE" diff --cached --name-only   # read the index back — this is your only check
-"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- --no-edit
+
+# Write the Conflicts: message from *Sourcing the other side's intent* step 4 to a file — a file,
+# not an inline `-m`, so a message that already holds sentences of its own survives shell quoting.
+# mktemp, not a name keyed off an issue/PR number: this procedure is shared by both callers and
+# only implement-issue ever binds `$ISSUE` — merge-pr has no such variable (it tracks `$PR`), so a
+# name that assumes one collides on a fixed path instead of failing loudly.
+MERGE_MSG=$(mktemp /tmp/merge-msg.XXXXXX)
+cat > "$MERGE_MSG" <<'MSG'
+Merge origin/<base> into <branch>
+
+Conflicts:
+- <file> — kept <what> (main, #N) and <what> (ours); trade-off: <one sentence>
+MSG
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- -F "$MERGE_MSG"
 ```
 
 ⚠️ **Neither `git add -A` nor `git add -u` belongs here (#68).** The guards will not catch either:
