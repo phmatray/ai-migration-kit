@@ -184,5 +184,15 @@ want_in "P4 §2 spells the freshness call   " "$MECHANICS" "plan-freshness.sh"
 want_in "P5 §2 spells the re-anchor search " "$MECHANICS" "grep -n -l -F --"
 want_in "P6 §2 names the STALE record        " "$MECHANICS" "STALE:"
 
+echo "== Step 3 must explore ONCE and hand later sub-agents a pointer (#322) =="
+STEP3=$(section "$SKILL" "## Step 3 — " "## Step 4 — ")
+want_in "P7 Step 3 names the notes file    " "$STEP3" 'issue-$ISSUE-notes.md'
+want_in "P8 Step 3 says pointer, not copy  " "$STEP3" "pointer"
+
+echo "== Step 6's failing test must cross the seam the plan named (#310, #322) =="
+STEP6=$(section "$SKILL" "## Step 6 — " "## Step 7 — ")
+want_in "P9 Step 6 names the seam preamble " "$STEP6" "Seams under test"
+want_in "P10 Step 6 links the seam doctrine" "$STEP6" "_shared/test-seams.md"
+
 [ "$FAILED" -eq 0 ] || exit 1
 echo "plan-freshness golden test: all cases behaved as specified"

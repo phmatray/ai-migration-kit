@@ -172,6 +172,32 @@ When it's a toss-up, prefer subagent-per-task — fresh context per task keeps q
 plans. Either way **this skill stays the parent**: it owns the worktree, draft PR, per-task ticking,
 review, and ready-flip; a subagent implements a task and reports back.
 
+### In subagent mode: explore ONCE, then implement
+
+*Ported from mattpocock/skills `in-progress/implement-spec` (MIT), whose exploration subagent "saves
+its markdown notes in a directory outside the repo, accessible by all future subagents".*
+
+Fresh context per task is the point of this mode and also its bill: every subagent starts knowing
+nothing, so task 4's re-reads the files task 1's already mapped. That re-exploration is paid **per
+task**, and `commands/auto-dev-worker.md` measures what per-turn context costs. Pay it once instead:
+
+> **Before task 1**, dispatch **one** `Explore` sub-agent with the plan, the issue's 📋 Spec and the
+> profile's *Architecture grain*. It writes `/tmp/issue-$ISSUE-notes.md` and reports only that it
+> did — per task: the files and symbols involved, the tests that already exist at each seam named on
+> the plan preamble's `**Seams under test:**` line, and the conventions the task must follow. It
+> implements nothing and changes nothing.
+>
+> Each per-task sub-agent then receives its task block, the Global Constraints, and **that path** —
+> a **pointer, not the notes** — and is told to read it first. Pasting the notes into every dispatch
+> reintroduces the cost the single pass just removed.
+
+`/tmp` and not the worktree, deliberately: the notes are scratch for this run, they must not reach
+the diff, and every sub-agent can read them wherever their own cwd happens to be. **Inline mode skips
+this** — it explores as it goes, in the one context that is doing the work.
+
+The notes are *this run's* reading of the tree, not an authority: a sub-agent that finds them wrong
+follows the tree, and says so in its report.
+
 ## Step 4 — Create **this issue's own** worktree
 
 **This issue gets a worktree of its own, always.** Not "a worktree" — *this* one, created or reused
@@ -380,7 +406,17 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
    implement → run green). Honor the Global Constraints and the profile's *Architecture grain* (touch
    layers in order, don't break invariants). Use the per-task test filter the plan gives.
    - *Inline mode:* directly, with `superpowers:test-driven-development` discipline.
-   - *Subagent-per-task mode:* dispatch a subagent with the task block, Global Constraints, and repo grain; have it implement to a green filtered test run and report a short diff summary.
+   - *Subagent-per-task mode:* dispatch a subagent with the task block, Global Constraints, repo grain, and the **path** to Step 3's `/tmp/issue-$ISSUE-notes.md` (a pointer — it reads them itself); have it implement to a green filtered test run and report a short diff summary.
+
+   **The failing test crosses the seam the plan named for this task** — the preamble's
+   `**Seams under test:**` line, and the seam each failing-test step names in the task block itself
+   (`create-issue` Step 5 writes both). A test that instead *mocks* that seam, asserts a call count
+   across it, or recomputes its expected value the way the code under test computes it is not the
+   test the plan asked for: the first two assert the plumbing you wrote rather than the behaviour a
+   caller depends on, and the third can never disagree with a bug. Write it at the seam, and if the
+   named seam turns out to be the wrong place, say so in the report rather than quietly moving it —
+   the substitution is a finding for Step 7's Spec axis. The doctrine, with the worked example in
+   this tree, is [`../_shared/test-seams.md`](../_shared/test-seams.md).
 
 2. **Verify green before you commit.** Run the task's test filter and confirm it passes — read the
    output, don't assume. A red bar means it isn't done; fix it or stop. Never commit over failing tests.
