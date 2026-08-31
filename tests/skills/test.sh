@@ -740,6 +740,56 @@ fi
 echo "ok   no auto-dev file names claude -p or --strict-mcp-config"
 
 # ---------------------------------------------------------------------------------------------
+# The lifecycle skills no longer depend on the third-party superpowers plugin (#324): the
+# brainstorm, plan and TDD doctrines they used to invoke live under skills/_shared/, and an
+# `Invoke superpowers:X` line on a machine without the plugin degrades silently — the Skill tool
+# has no such name, and the agent improvises whatever shape it likes. So the colon-invocation form
+# is refused anywhere a session actually reads: skills/ and commands/. The bare word is still
+# allowed — systematic-debugging's compatibility credit ("ported from the superpowers skill") and
+# docs/superpowers/ (historical plans, a directory name) are attribution and history, not
+# invocations. Scans the real tree, not a scratch copy: the defect IS the committed prose.
+echo "== no shipped skill or command invokes a superpowers: skill (#324) =="
+SUPERPOWERS_HITS=$(grep -rn 'superpowers:' "$KIT_ROOT/skills" "$KIT_ROOT/commands" || true)
+if [ -n "$SUPERPOWERS_HITS" ]; then
+  echo "FAIL: [SP1 no superpowers: invocation in skills/ or commands/] the plugin is named again (#324):"
+  echo "$SUPERPOWERS_HITS" | sed 's/^/  /'
+  fails=$((fails + 1))
+else
+  echo "ok   [SP1 no superpowers: invocation in skills/ or commands/]"
+fi
+
+# The header note every filed plan carries changed with #324, and every issue filed before it still
+# carries the old one. implement-issue keeps executing both because its Step 2 locator anchors on
+# the `🛠️ Implementation plan` heading, never on the note — this case pins that: the anchor is
+# read out of the recipe itself (a re-spelling here would pass while the recipe drifted), it must
+# not name the plugin, and it must hit a fixture of each note with the same task count.
+echo "== implement-issue locates a plan under either header note (#324) =="
+MECH="$KIT_ROOT/skills/implement-issue/references/github-mechanics.md"
+PLAN_ANCHOR=$(grep -o "grep -q '[^']*' /tmp/plan-\$ISSUE.md" "$MECH" | head -1 \
+  | sed "s/^grep -q '\(.*\)' \/tmp\/plan-\$ISSUE.md$/\1/")
+if [ -z "$PLAN_ANCHOR" ]; then
+  echo "FAIL: [SP2 the §2 locator anchor is readable          ] no \"grep -q '…' /tmp/plan-\$ISSUE.md\" line in $MECH"
+  fails=$((fails + 1))
+elif printf '%s' "$PLAN_ANCHOR" | grep -qi 'superpowers\|SUB-SKILL\|agentic workers'; then
+  echo "FAIL: [SP2 the §2 locator anchor is readable          ] anchors on the header note ('$PLAN_ANCHOR'), not the heading"
+  fails=$((fails + 1))
+else
+  echo "ok   [SP2 the §2 locator anchor is readable          ] '$PLAN_ANCHOR'"
+  for note in old new; do
+    FIXTURE="$KIT_ROOT/tests/skills/fixtures/plan-$note-header-note.md"
+    if ! grep -qF -- "$PLAN_ANCHOR" "$FIXTURE"; then
+      echo "FAIL: [SP2 $note header note is located             ] anchor '$PLAN_ANCHOR' misses $FIXTURE"
+      fails=$((fails + 1))
+    elif [ "$(grep -c '^### Task ' "$FIXTURE")" -ne 2 ]; then
+      echo "FAIL: [SP2 $note header note is located             ] expected 2 '### Task' blocks in $FIXTURE, got $(grep -c '^### Task ' "$FIXTURE")"
+      fails=$((fails + 1))
+    else
+      echo "ok   [SP2 $note header note is located             ] 2 tasks under the anchor"
+    fi
+  done
+fi
+
+# ---------------------------------------------------------------------------------------------
 # CONTEXT.md (#313) — the kit's own domain glossary, in Matt Pocock's format (ported from
 # mattpocock/skills, MIT). This is a structural case, not a content one: it proves the file
 # stays in shape (a term section before the ambiguities section, every term actually defined,
