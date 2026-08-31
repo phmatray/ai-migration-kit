@@ -28,3 +28,4 @@
 | 0008 | [Idea-tree search](0008-idea-tree-search.md) | rejected | 2026-07-23 |
 | 0009 | [Interaction modes](0009-interaction-modes.md) | rejected | 2026-07-23 |
 | 0010 | [Novelty search](0010-novelty-search.md) | rejected | 2026-07-23 |
+| 0011 | [Hook gates are recorded rather than registered decisions](0011-hook-gates-are-recorded-rather-than-registered-decisions.md) | accepted | 2026-08-31 |

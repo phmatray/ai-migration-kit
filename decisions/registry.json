@@ -26,6 +26,7 @@
   ],
   "not_decisions": {
     "hooks/git-write-gate.sh": "a fail-open allow/deny wrapper on one Bash tool call \u2014 it enforces the guard convention (#26, #280), the same class as the guarded-*.sh scripts it routes to; not a control-flow choice with a registered verdict vocabulary",
+    "hooks/roseline-gate.sh": "a fail-open allow/deny gate on one Read tool call \u2014 every path that is not 'deny this .cs Read' exits 0 silently (docs/adr/0002), and the deny travels as a PreToolUse permissionDecision, which is not a verdict source decide.sh dispatches; the same class as hooks/git-write-gate.sh, which is modelled on it line for line (#307, #353)",
     "scripts/audit-inventory.sh": "a read-only structural inventory probe of a .NET repo, not a control-flow choice",
     "scripts/ci-wiring-check.py": "a structural completeness guard (every suite is CI-wired); it has no verdict vocabulary of its own to register",
     "scripts/contrast-check.py": "a WCAG contrast-ratio calculator, not a control-flow choice",
@@ -65,6 +66,7 @@
     "skills/setup-repo/scripts/parse-manifest.py": "reads a repo-setup manifest and emits flat records; a data-shape translator, not a control-flow choice",
     "skills/setup-repo/scripts/project-area-options.py": "rewrites a copied issue form's Area dropdown from the manifest; a mechanical rewrite, not a control-flow choice",
     "skills/setup-repo/scripts/repo-setup.sh": "converges a repo to the expected configuration (plan/apply); it does not itself emit a registered verdict",
+    "skills/systematic-debugging/find-polluter.sh": "a bisection utility a developer runs by hand to find which test creates unwanted state \u2014 it reports the polluter it bisected to, the debugger decides what to do about it; not a control-flow choice the methodology makes",
     "skills/systematic-debugging/scripts/hitl-loop.template.sh": "a TEMPLATE a debugger copies and edits \u2014 it prompts a human and prints their answers as KEY=VALUE; it has no verdict of its own to register",
     "skills/triage-backlog/scripts/rejected-adrs.sh": "a read-only keyword lookup over rejected ADRs; it reports rows and distinguishes 'found none' from 'could not look', the calling skill decides whether a hit blocks a filing"
   }
