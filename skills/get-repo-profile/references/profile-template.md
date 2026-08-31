@@ -53,6 +53,28 @@ them exactly as the repo uses them.
 - **Forms:** <feature_request.yml, bug_report.yml, …>
 - **Default for ideas:** <feature_request> · **for defects:** <bug_report>
 
+## Tracker
+- **Tracker:** <github (<host>) | other: <host> | TODO: no origin remote> — the lifecycle skills
+  drive GitHub semantics through `gh`; any other value is refused at preconditions.
+
+## Domain language
+- <path of CONTEXT.md / CONTEXT-MAP.md / docs/CONTEXT.md, or "none"> — `create-issue` /
+  `implement-issue` name things by it when present.
+
+## ADRs
+- **Root:** <docs/adr/ (N files) | none> — MADR files; `create-issue`'s brainstorm flags
+  "contradicts ADR-NNNN".
+- **Server:** <via AdrMcp | files only> (as `detect` measured on the generating machine — a
+  session fact, not a repo fact).
+
+## Out-of-scope records
+- <docs/out-of-scope/ (N files) | none> — prior rejections; read before filing (create-issue,
+  merge-pr) and before proposing (triage-backlog).
+
+## Coding standards
+- <the markers found (CONTRIBUTING.md, .editorconfig, analyzers, …), or "none" — the review pass
+  falls back to the Fowler smell baseline>
+
 ## Conflict hot-spots (merge-with-main resolutions)
 | File | Why it collides | Resolution |
 |------|-----------------|------------|
@@ -131,6 +153,26 @@ for the grain each field wants:
 - **Location:** `.github/ISSUE_TEMPLATE/`
 - **Forms:** feature_request.yml, bug_report.yml, config.yml
 - **Default for ideas:** feature_request · **for defects:** bug_report
+
+## Tracker
+- **Tracker:** github (github.com) — the lifecycle skills drive GitHub semantics through `gh`; any
+  other value is refused at preconditions.
+
+## Domain language
+- none — `create-issue` / `implement-issue` fall back to house terminology.
+
+## ADRs
+- **Root:** docs/adr/ (6 files) — MADR files; `create-issue`'s brainstorm flags "contradicts
+  ADR-NNNN".
+- **Server:** via AdrMcp (as `detect` measured on the generating machine — a session fact, not a
+  repo fact).
+
+## Out-of-scope records
+- none — nothing rejected yet; `triage-backlog` and `create-issue` skip this read.
+
+## Coding standards
+- CONTRIBUTING.md
+- Directory.Build.props: EnforceCodeStyleInBuild
 
 ## Conflict hot-spots
 | File | Why it collides | Resolution |

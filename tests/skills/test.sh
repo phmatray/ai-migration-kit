@@ -304,6 +304,45 @@ fi
 echo "check-untrusted-boundary golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# skills/_shared/test-seams.md must exist and create-issue must link it (#310). The Spec
+# contract's Testing decisions heading points a reader at this file for the seam doctrine
+# (what a seam is, choosing seams before tests, mocking at boundaries only, the three
+# anti-patterns) — if the file goes missing or the link erodes, the doctrine and the contract
+# silently diverge. Pinned directly against the real tree (no scratch fixture): the defect this
+# guards is the committed prose losing its link, not a checker's behavior under mutation.
+echo "== create-issue must link skills/_shared/test-seams.md (#310) =="
+
+if [ -f "$KIT_ROOT/skills/_shared/test-seams.md" ]; then
+  echo "ok   [S1 skills/_shared/test-seams.md exists     ]"
+else
+  echo "FAIL: [S1 skills/_shared/test-seams.md exists     ] file is missing"
+  fails=$((fails + 1))
+fi
+
+if grep -qF '](../_shared/test-seams.md)' "$KIT_ROOT/skills/create-issue/SKILL.md" 2>/dev/null; then
+  echo "ok   [S2 create-issue/SKILL.md links it          ]"
+else
+  echo "FAIL: [S2 create-issue/SKILL.md links it          ] missing the literal '](../_shared/test-seams.md)'"
+  fails=$((fails + 1))
+fi
+
+# issue-template.md lives one directory deeper than SKILL.md (skills/create-issue/references/,
+# not skills/create-issue/), so its correct link climbs two levels, not one — this is exactly the
+# shape of link a copy-paste from SKILL.md gets wrong.
+if grep -qF '](../../_shared/test-seams.md)' "$KIT_ROOT/skills/create-issue/references/issue-template.md" 2>/dev/null; then
+  echo "ok   [S3 issue-template.md links it (../../)     ]"
+else
+  echo "FAIL: [S3 issue-template.md links it (../../)     ] missing the literal '](../../_shared/test-seams.md)'"
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "test-seams link golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # The main-worktree derivation has one home now (#125): scripts/main-worktree.sh. Two broken
 # spellings kept getting re-introduced before that — a caller resolving `-C` from
 # `git rev-parse --show-toplevel` right next to a worktrees-ignored.sh call (fails OPEN from a
@@ -438,5 +477,18 @@ for doc in ARCHITECTURE.md README.md; do
   grep -q "CONTEXT.md" "$doc" || { echo "FAIL: $doc does not mention CONTEXT.md"; exit 1; }
 done
 echo "ok   ARCHITECTURE.md and README.md both mention CONTEXT.md"
+
+# ---------------------------------------------------------------------------------------------
+# preconditions.md refuses a non-GitHub tracker in one sentence (#311). Fixture-free: this is a
+# grep against the committed reference itself, not a probe run against a scratch repo — the
+# probe/profile side of the Tracker line is pinned by tests/repo-profile/test.sh.
+echo "== preconditions refuse a non-GitHub tracker (#311) =="
+PRECONDITIONS="$KIT_ROOT/skills/_shared/preconditions.md"
+[ -f "$PRECONDITIONS" ] || { echo "FAIL: $PRECONDITIONS missing"; exit 1; }
+grep -q 'Tracker' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not mention the profile's Tracker line"; exit 1; }
+grep -q 'not a supported tracker' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
+echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
 
 echo "skills golden test: all cases behaved as specified"

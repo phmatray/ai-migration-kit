@@ -34,6 +34,7 @@ grain each field wants. Most fields map straight from `detect`'s output; these n
 | **Labels** | Classify the live strings detect listed into *type* (bug/enhancement), *priority* tiers, *effort* sizes, and *scope/area*. Record the **exact** strings — the skills apply them verbatim. If an axis has **no** live labels, record "none" and **name the remedy**: `setup-repo` creates the taxonomy (see below). Never invent one here. |
 | **Conflict hot-spots** | From the candidates + the build system: version file (**take-higher**), changelog/docs (**union**), lockfiles & generated/snapshot files (**regenerate**, never hand-merge). State the rule per file. |
 | **Architecture grain** | Distil the `CLAUDE.md`/`README` hits into the few "keep X agnostic / touch layers in order / never do Y" rules that should shape a plan. Blank-with-TODO is fine if the repo states none. |
+| **Tracker / Domain language / ADRs / Out-of-scope records / Coding standards** | Record what `detect` proved, verbatim — `none` stays `none` (it is a verdict, not a gap to chase); only the Tracker line ever carries a `TODO:` (no origin remote at all). The ADRs *server* line is a fact about the machine `detect` ran on, not the repo — keep `detect`'s own "on this machine only, not a fact about the repo" wording rather than dropping it. |
 
 **Build-system → canonical commands** (the stack is in detect's marker-files section):
 

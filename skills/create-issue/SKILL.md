@@ -172,6 +172,35 @@ Where the design has *shape* — a state machine, a
 context map, an aggregate — embed a **mermaid diagram**; GitHub renders it inline. Use it where it
 clarifies; don't decorate.
 
+**The Spec ends with a contract.** After the design prose, close with exactly these three headings,
+in this order:
+
+```markdown
+### Acceptance criteria
+
+1. AC1 — <behavioural, independently verifiable: "running X prints Y", "the suite fails when Z">
+2. AC2 — …
+
+### Testing decisions
+
+**Seams under test:** <the public boundary each test observes through — a script's exit code + stdout, a stubbed `gh`, a rendered file>. Existing seams first; new ones at the highest point possible; the ideal number is one.
+**Prior art:** <a test in the tree that already crosses this seam, e.g. `tests/survey/test.sh`'s gh stub>.
+**A good test here:** <one line, in the terms of [`../_shared/test-seams.md`](../_shared/test-seams.md)>.
+
+### Out of scope
+
+- <a thing a reviewer might expect and must not find in the PR>
+```
+
+Criteria are a **numbered list, never `- [ ]`** — Step 7's readback and `implement-issue`'s
+`tick-plan.sh` both count every `- [ ]` checkbox in the body, so a checkbox here would inflate the
+plan's checkbox count and could be ticked by a plan step that never satisfied it. Each criterion must
+be checkable without reading the diff. "Out of scope" names at least one item, or says
+`nothing adjacent` explicitly — a reviewer needs something quotable, not an empty heading. For a
+docs-only issue the seams line reads `none — no executable surface changes` and Prior art is omitted.
+See [`../_shared/test-seams.md`](../_shared/test-seams.md) for what a seam is and the anti-patterns
+a bad seam choice produces.
+
 Render both as **collapsible sections** so the description stays scannable. GitHub needs a blank line
 after `</summary>` (and before `</details>`) or the Markdown won't render:
 
@@ -208,8 +237,11 @@ The plan MUST carry all three:
 
 1. The writing-plans **header note, verbatim**:
    `> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.`
-2. A short **Goal / Architecture / Tech Stack** preamble and a **Global Constraints** list (version floors, architecture invariants from *Architecture grain*, commit identity from *Commit identity*, build constraints) — exact values from the spec and profile.
-3. One `### Task N: <name>` per task, each with **Files** + **Interfaces** lines, then **every step as its own `- [ ]` checkbox** (write the failing test → run red → implement → run green → commit). The final step is a `- [ ]` checkbox with the commit message.
+2. A short **Goal / Architecture / Tech Stack** preamble, then a `**Seams under test:**` line
+   copied verbatim from the Spec's `### Testing decisions` heading, immediately before **Global
+   Constraints** (version floors, architecture invariants from *Architecture grain*, commit identity
+   from *Commit identity*, build constraints) — exact values from the spec and profile.
+3. One `### Task N: <name>` per task, each with **Files** + **Interfaces** lines, then **every step as its own `- [ ]` checkbox** (write the failing test → run red → implement → run green → commit). The final step is a `- [ ]` checkbox with the commit message. **Every failing-test step names the seam it crosses** — *"Write the failing case in `tests/skills/test.sh` (seam: check-frontmatter.py exit code + message)"* — drawn from the preamble's `Seams under test:` line; see [`../_shared/test-seams.md`](../_shared/test-seams.md) for the doctrine behind that choice.
 
 **Pick one Conventional Commits type and use it consistently in both the Global Constraints
 preamble's example (point 2 above) and every task's final commit-message step (point 3 above) —
@@ -230,13 +262,16 @@ Shape (abbreviated — keep the checkboxes, never flatten to prose):
 
 > **For agentic workers:** REQUIRED SUB-SKILL: …
 
+**Seams under test:** the exporter's public `Export(ReportModel)` method — asserted through its
+returned file content, never through a private formatting helper.
+
 ### Task 1: Export service + skeleton endpoint wired into the API
 
 **Files:** create `Services/CsvExportService.cs`; modify `Program.cs` (DI registration); test `…/CsvExportServiceTests.cs`.
 
 **Interfaces:** `CsvExportService : IExportService`, `Format => "csv"`, `Export(ReportModel)` returning the generated file.
 
-- [ ] **Step 1:** Write the failing test in `CsvExportServiceTests.cs` — assert `Format == "csv"` and `Export` yields a header row.
+- [ ] **Step 1:** Write the failing test in `CsvExportServiceTests.cs` (seam: `Export(ReportModel)`'s returned file content) — assert `Format == "csv"` and `Export` yields a header row.
 - [ ] **Step 2:** Run that suite via the profile's *Build & test* single-suite filter → FAIL (types not found).
 - [ ] **Step 3:** Implement `CsvExportService` — modeled on the existing `JsonExportService`, stdlib-only.
 - [ ] **Step 4:** Re-run the suite filter → PASS.
@@ -258,14 +293,18 @@ effort too — **all** labels go on at creation.
 
 1. The template fields from Step 4 (Problem / Proposed solution / Area …) — visible.
 2. The `**Related:** #N, #M` line from Step 3, if any.
-3. The collapsible 🧠 **Brainstorm** and 📋 **Spec** from Step 5.
+3. The collapsible 🧠 **Brainstorm** and 📋 **Spec** from Step 5 — the Spec carries its
+   `### Acceptance criteria` / `### Testing decisions` / `### Out of scope` contract.
 4. The 🛠️ **Implementation plan** from Step 6 — **visible, never inside a `<details>`**.
 
 **Verify the plan survived** before filing — zero checkboxes means it got mangled; reformat into the
-Step 6 task/checkbox structure:
+Step 6 task/checkbox structure. Also verify the Spec's contract survived — exactly one
+`### Acceptance criteria` heading, since a mangled `<details>` block can silently swallow it same as
+the checkboxes:
 
 ```bash
-grep -c '^- \[ \]' /tmp/issue-<slug>.md   # must be > 0; expect one per actionable step
+grep -c '^- \[ \]' /tmp/issue-<slug>.md               # must be > 0; expect one per actionable step
+grep -c '^### Acceptance criteria' /tmp/issue-<slug>.md   # must be exactly 1
 ```
 
 **Choose labels.** The taxonomy (exact strings, priority tiers and meanings, effort sizes, scope) lives
@@ -342,3 +381,4 @@ command per issue. Keep the report short — the issues carry the detail.
 - **Ground content in the repo** — reference real files, the actual architecture, and the roadmap; generic boilerplate is worthless.
 - **Respect the architecture invariant** — shape specs/plans to the profile's *Architecture grain* so a plan reads like it belongs here.
 - **The plan is a tracked checklist, not an essay** — preserve `writing-plans`' `- [ ]` checkboxes into the body and keep the section visible; flattened-to-prose or hidden-in-`<details>` loses its job and its place in the progress meter.
+- **The Spec's contract is a promise, not decoration** — acceptance criteria are numbered (never `- [ ]`, which the checkbox readback and `tick-plan.sh` would count), each is checkable without reading the diff, and "Out of scope" names something quotable rather than staying empty. See [`../_shared/test-seams.md`](../_shared/test-seams.md) for the seam doctrine the `Testing decisions` heading and the plan's `Seams under test:` line both draw on.

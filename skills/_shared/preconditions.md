@@ -65,6 +65,10 @@ If the auth check fails with a 401 error, stop and tell the user to run this in 
 The `!` prefix runs the command in the current session, so the token lands in your environment. Then
 re-check the `gh api user` command before continuing.
 
+If the profile's **Tracker** line (or, with no profile, the host of `git remote get-url origin`) is
+not GitHub, stop with one sentence — *the lifecycle skills drive GitHub semantics through `gh`;
+`<host>` is not a supported tracker* — and do not infer a substitute.
+
 ## Commit identity shorthand
 
 Throughout the skill's commands, **`git <commit-identity>`** is a shorthand that expands to the
