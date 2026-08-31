@@ -746,7 +746,12 @@ YML
 # the dependency edge:
 #
 #   #9  plain            → QUEUE  deps=-             (the control, and the sort-order foil for #10)
-#   #10 blocks #11, #98  → QUEUE  deps=blocking=#11  (#98 is not in the open set) — sorts FIRST
+#   #10 blocks #11, #98  → QUEUE  deps=blocking=#11,#13 — sorts FIRST. #98 is CLOSED so it drops;
+#                              #13 is there because the reverse edge is DERIVED from every row'"'"'s
+#                              forward blockers, not read from 'blocking' alone — otherwise a
+#                              backlog wired only by body lines could never produce a `blocking=`
+#                              row, and both the sort below and SKILL.md Step 4'"'"'s immediate
+#                              re-survey trigger would be dead code exactly where they are needed.
 #   #11 blockedBy #10    → HOLD   deps=blocked_by=#10
 #   #12 blockedBy #99    → QUEUE  deps=-             (#99 is not open: a closed blocker does not block)
 #   #13 body-line blocked→ HOLD   deps=blocked_by=#10 (#99 filtered the same way as #12's)
@@ -783,7 +788,7 @@ O12="$WORK/frontier.out"
 run_survey "$W12" "$F12" "$O12"
 
 assert_bucket QUEUE 9  "$O12"; assert_deps -               9  "$O12"
-assert_bucket QUEUE 10 "$O12"; assert_deps "blocking=#11"  10 "$O12"
+assert_bucket QUEUE 10 "$O12"; assert_deps "blocking=#11,#13" 10 "$O12"
 assert_bucket HOLD  11 "$O12"; assert_deps "blocked_by=#10" 11 "$O12"
 assert_bucket QUEUE 12 "$O12"; assert_deps -               12 "$O12"
 assert_bucket HOLD  13 "$O12"; assert_deps "blocked_by=#10" 13 "$O12"
@@ -849,6 +854,127 @@ assert_bucket HOLD  32 "$O12C"; assert_deps "blocked_by=#31" 32 "$O12C"
 assert_bucket HOLD  33 "$O12C"; assert_deps "parent(3)"     33 "$O12C"
 echo "ok: frontier — the plain-array shape of the same fields is read identically to the connection"
 
+
+# ------------------------------------ 12e. the edges that must NOT fail open (review of PR #360)
+#
+# Three ways the frontier could silently let a blocked issue through, each of which reads as "no
+# edges" if you only look at the numbers you can see:
+#
+#   * a blocker OUTSIDE the `--limit 300` window. Open-set membership alone cannot tell it from a
+#     closed one, and guessing "closed" dispatches its blockee. The connection nodes carry each
+#     linked issue's own `state`, so that is read first and membership is only the fallback.
+#   * a TRUNCATED connection — `totalCount` larger than the `nodes` actually listed. The withheld
+#     rows are exactly the ones that would hold the issue, so an unknown count holds too, and says
+#     so with a `?`.
+#   * a body line in the shapes a person actually types: a markdown list item, and refs separated
+#     by spaces rather than commas.
+F12E="$WORK/frontier-fail-open.json"
+cat > "$F12E" <<JSON
+[
+ {"number":16,"title":"Blocked by an OPEN issue outside the window","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[{"number":900,"state":"OPEN"}],"totalCount":1},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":17,"title":"Blocked by a truncated connection","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[],"totalCount":2},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":18,"title":"Parent whose children were truncated away","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":3},"assignees":[]},
+ {"number":19,"title":"Plain eligible issue","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]},
+ {"number":20,"title":"Blocked by a hand-typed list item","labels":[{"name":"effort: small"}],"body":"## context\n- **Blocked by:** #19 #900\n\n## Implementation plan\n- [ ] Step 1: do it",
+  "blockedBy":{"nodes":[],"totalCount":0},"blocking":{"nodes":[],"totalCount":0},
+  "parent":null,"subIssues":{"nodes":[],"totalCount":0},"assignees":[]}
+]
+JSON
+O12E="$WORK/frontier-fail-open.out"
+run_survey "$W12" "$F12E" "$O12E"
+assert_bucket HOLD  16 "$O12E"; assert_deps "blocked_by=#900" 16 "$O12E"
+assert_bucket HOLD  17 "$O12E"; assert_deps "blocked_by=?"    17 "$O12E"
+assert_bucket HOLD  18 "$O12E"; assert_deps "parent(0+)"      18 "$O12E"
+assert_bucket HOLD  20 "$O12E"; assert_deps "blocked_by=#19"  20 "$O12E"
+# #19 holds nothing itself and, via #20's body line, unblocks something — so it is the frontier and
+# leads the tier. #900 is a bare number in that line with no state to read, so membership decides it.
+assert_bucket QUEUE 19 "$O12E"; assert_deps "blocking=#20"    19 "$O12E"
+assert_first_queue 19 "$O12E"
+echo "ok: frontier — an out-of-window OPEN blocker, a truncated connection and a hand-typed list item all HOLD"
+
+# --------------------------------------- 13. a gh that cannot serve the dependency fields at all
+#
+# `gh` validates --json field names itself and exits 1 with `Unknown JSON field: "blockedBy"` before
+# jq ever runs, so on any build predating issue-dependencies support the whole survey would print
+# ZERO rows under `set -euo pipefail`. That is #213's failure mode exactly: SKILL.md Step 2 reads an
+# empty queue as "backlog drained", so the fleet would report success over a full backlog. The
+# script must degrade to the pre-#317 field list, keep every bucket it can still compute, and say on
+# stderr that the frontier rule is now holding nothing.
+W13="$WORK/gh-no-dep-fields"
+mkdir -p "$W13/.github" "$W13/bin"
+cat > "$W13/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+cat > "$W13/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+# An older gh: it knows `issue list` but not the dependency fields, and rejects the whole call.
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "list" ]; then
+  fields=""; prev=""
+  for a in "$@"; do
+    if [ "$prev" = "--json" ]; then fields="$a"; fi
+    prev="$a"
+  done
+  case "$fields" in
+    *blockedBy*) printf 'Unknown JSON field: "blockedBy"\nAvailable fields:\n  assignees\n' >&2; exit 1 ;;
+  esac
+  [ -n "${GH_ISSUES_FIXTURE:-}" ] || { echo "GH_ISSUES_FIXTURE not set" >&2; exit 1; }
+  cat "$GH_ISSUES_FIXTURE"
+  exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+STUB
+chmod +x "$W13/bin/gh"
+
+F13="$WORK/gh-no-dep-fields-issues.json"
+mkissues "$F13" \
+  "1301|Small task|small|1" \
+  "1302|Large task|large|1" \
+  "1303|No plan yet|small|0"
+O13="$WORK/gh-no-dep-fields.out"
+( cd "$W13" && env PATH="$W13/bin:$PATH" GH_ISSUES_FIXTURE="$F13" bash "$SURVEY" ) \
+  > "$O13" 2>"$O13.err" || { echo "FAIL: survey.sh exited $? when gh cannot serve the dependency fields"; cat "$O13.err"; exit 1; }
+
+assert_bucket QUEUE 1301 "$O13"; assert_deps - 1301 "$O13"
+assert_bucket HOLD  1302 "$O13"; assert_deps - 1302 "$O13"
+assert_bucket SKIP  1303 "$O13"; assert_deps - 1303 "$O13"
+assert_seed_row "$O13" 1 "waiting for a seed: #1303"
+grep -q 'cannot serve the dependency fields' "$O13.err" || {
+  echo "FAIL: the dependency-field fallback is silent — an operator has no way to know the frontier rule is holding nothing"
+  cat "$O13.err"; exit 1; }
+echo "ok: gh-no-dep-fields — an older gh degrades to deps=- with a loud warning, never to an empty survey"
+
+# 13b — the fallback is ONLY for an unknown-field rejection. Any other gh failure (not authenticated,
+# no network, no repo) must surface as that failure: retrying it into the same error and then
+# blaming the dependency fields would send an operator to upgrade gh over an expired token.
+cat > "$W13/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable." >&2
+exit 4
+STUB
+chmod +x "$W13/bin/gh"
+O13B="$WORK/gh-broken.out"
+rc13b=0
+( cd "$W13" && env PATH="$W13/bin:$PATH" GH_ISSUES_FIXTURE="$F13" bash "$SURVEY" ) \
+  > "$O13B" 2>"$O13B.err" || rc13b=$?
+[ "$rc13b" -ne 0 ] || { echo "FAIL: survey.sh exited 0 with a gh that never returned any issues"; exit 1; }
+if grep -q 'cannot serve the dependency fields' "$O13B.err"; then
+  echo "FAIL: an unrelated gh failure was misreported as a missing dependency field"; cat "$O13B.err"; exit 1
+fi
+grep -q 'GH_TOKEN' "$O13B.err" || {
+  echo "FAIL: gh's own error was swallowed instead of surfaced"; cat "$O13B.err"; exit 1; }
+echo "ok: gh-no-dep-fields — an unrelated gh failure surfaces as itself, not as a missing field"
 
 # ------------------------------------------------- 12d. SKILL.md documents the column it now prints
 #

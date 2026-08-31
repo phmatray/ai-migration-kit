@@ -225,12 +225,18 @@ SEED   <count>  waiting for a seed: #a #b                                       
 ```
 
 **Dispatch only the frontier** (#317): open, no *open* blocker, not a tracking parent, unassigned —
-the `deps=` column is that verdict, and it names the reason on every row it holds. Dependency edges
-come from GitHub's own `blockedBy`/`blocking`/`subIssues`/`assignees`, plus the `**Blocked by:** #n`
-body line `create-issue` writes when the dependencies API is unavailable; a blocker that is already
-closed does not hold anything. A held row is **not** a stalled issue and needs no action from you —
-it re-enters the queue by itself at the next survey, once whatever holds it lands, closes or is
-unassigned.
+the `deps=` column is that verdict, and it names the reason on every row it holds. Edges come from
+GitHub's own `blockedBy`/`blocking`/`subIssues`/`assignees`, plus a hand-written `**Blocked by:** #n`
+line in the body (no tool writes that line today; it is there so a person can declare an edge on a
+repo whose dependencies API is unavailable). A blocker that is already closed holds nothing.
+
+Two variants you will meet, both erring toward holding: `blocked_by=?` means the edge list came back
+truncated, so the blockers cannot be named and the row is held rather than guessed; `parent(N+)` is
+the same for a tracking issue's children. And two things a held row does **not** mean: it is not a
+stalled issue needing a nudge from you — `blocked_by=` and `assigned` clear themselves and the row
+returns at the next survey (to `QUEUE`, or to `SKIP` if it never had a plan) — and `parent(N)` never
+clears at all, because a tracking issue's body is a list of children, not a plan any worker can
+execute. Closing or rescoping a parent is a person's decision, not a dispatch you can force.
 
 **Report the `SEED` count in your Step 2 summary, and never act on it.** Say
 *"N waiting for a seed → `/create-issue --seed #N`"* and move on to dispatch. It is there because an
@@ -541,10 +547,10 @@ first, area-tagged, eligibility-checked), and note what changed. Keep a **merge 
 file (record the count at the last refresh) so a `loop` re-fire knows when the next refresh is due.
 
 **Re-survey at once — not at the next ~5 — when a merged issue's row carried `blocking=`.** That
-issue was the only thing holding its blockees, and they entered the frontier the moment it landed.
-Waiting out the usual counter leaves them held and up to N-1 slots idle, which on a small backlog is
-the whole fleet. Same for an issue you see get unassigned or a parent whose last child closes: the
-column tells you which merges are worth an immediate refresh and which are not.
+issue was holding its blockees, and they entered the frontier the moment it landed. Waiting out the
+usual counter leaves them held and up to N-1 slots idle, which on a small backlog is the whole
+fleet. Same for an issue you see get unassigned. The `deps=` column is what tells you which merges
+are worth an immediate refresh and which are not.
 
 **Report the pressure, don't act on it.** At each re-survey, note two numbers since the run started:
 issues **closed by merges** and issues **filed by the fleet**. When filings meet or exceed closes, the
@@ -618,6 +624,6 @@ that frees. Hold the line at N unless told otherwise.
 - **`mergeable=UNKNOWN` is normal right after `main` moves** — GitHub recomputes; it resolves to CLEAN once the branch syncs. Not a blocker.
 - **Retire finished slots** once their PR merges — stop the sub-agent only if it is still running; a returned one is already gone. The fresh replacement starts clean.
 - **File, don't fix, off-scope work** — a filed follow-up keeps both the diff and the issue's scope clean.
-- **A held `deps=` row is not a stalled issue.** `parent(N)`, `blocked_by=#n` and `assigned` are the frontier rule doing its job, not a survey that failed to classify something. Don't dispatch one to "unstick" it: a parent's body is a tracking list no worker can execute, a blocked child would build against an interface that has not landed, and an assigned issue belongs to a human. They return to the queue on their own once the edge clears.
+- **A held `deps=` row is not a stalled issue.** `parent(N)`, `blocked_by=#n` and `assigned` are the frontier rule doing its job, not a survey that failed to classify something. Don't dispatch one to "unstick" it: a parent's body is a tracking list no worker can execute, a blocked child would build against an interface that has not landed, and an assigned issue belongs to a human. The first two clear themselves — the row comes back as `QUEUE`, or as `SKIP` if it never had a plan — but a parent stays held for as long as it is a parent.
 - **Plans drive eligibility, effort labels drive ordering** — no plan → not eligible (seed one with `create-issue` if the user insists); manual-QA → skip with a noted reason.
 - **The state file's *In flight* list is not proof an issue is unclaimed** — a `/compact`, a session restart, or a non-resuming `loop` re-fire can land between "dispatch" and "record," losing the record while the worker keeps running (#248). Run Step 3's dispatch-time guard before *every* dispatch (first batch or refill), not just when the state file looks stale.
