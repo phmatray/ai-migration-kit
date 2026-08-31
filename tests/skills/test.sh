@@ -326,6 +326,16 @@ else
   fails=$((fails + 1))
 fi
 
+# issue-template.md lives one directory deeper than SKILL.md (skills/create-issue/references/,
+# not skills/create-issue/), so its correct link climbs two levels, not one — this is exactly the
+# shape of link a copy-paste from SKILL.md gets wrong.
+if grep -qF '](../../_shared/test-seams.md)' "$KIT_ROOT/skills/create-issue/references/issue-template.md" 2>/dev/null; then
+  echo "ok   [S3 issue-template.md links it (../../)     ]"
+else
+  echo "FAIL: [S3 issue-template.md links it (../../)     ] missing the literal '](../../_shared/test-seams.md)'"
+  fails=$((fails + 1))
+fi
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1

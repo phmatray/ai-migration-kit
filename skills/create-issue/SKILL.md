@@ -233,7 +233,7 @@ The plan MUST carry all three:
 
 1. The writing-plans **header note, verbatim**:
    `> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.`
-2. A short **Goal / Architecture / Tech Stack** preamble, then a **`**Seams under test:**` line
+2. A short **Goal / Architecture / Tech Stack** preamble, then a `**Seams under test:**` line
    copied verbatim from the Spec's `### Testing decisions` heading, immediately before **Global
    Constraints** (version floors, architecture invariants from *Architecture grain*, commit identity
    from *Commit identity*, build constraints) — exact values from the spec and profile.

@@ -91,7 +91,7 @@ public boundary the existing JSON exporter is tested through, not a private form
 same way; the CSV tests mirror its shape.
 **A good test here:** assert on the returned CSV text (header row, a formatted numeric cell, row
 count) — never on which internal method built each cell (see
-[`../_shared/test-seams.md`](../_shared/test-seams.md)).
+[`../../_shared/test-seams.md`](../../_shared/test-seams.md)).
 
 ### Out of scope
 
