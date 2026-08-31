@@ -202,6 +202,14 @@ jobs:
       - name: Parse sweep golden test (the #131 construct, driven to red)
         run: ./tests/parse-sweep/test.sh
 
+      # The premise the sweep above depends on. Its terminator compare — and ci-wiring-check.py's
+      # path match — are against raw lines, so a CRLF working copy makes both refuse a tree that is
+      # fine (#174). This suite asserts the committed .gitattributes that removes that premise, and
+      # demonstrates the failure on a CRLF fixture so the reason cannot rot into folklore. It
+      # sources tests/_lib.sh, so it sits with the golden tests rather than with the cheap gates.
+      - name: Line endings are pinned (a CRLF checkout makes the raw-line gates refuse a clean tree)
+        run: ./tests/line-endings/test.sh
+
       # The pinned-literals guard's own refusal paths (#90). A guard is worth exactly what its
       # refusal path is worth, and this one's refusals are the whole design: an unmarked new copy
       # must FAIL rather than be swept into agreement, and the deliberately-historical spellings
@@ -390,6 +398,13 @@ jobs:
       - name: Inventory golden test — vendoredAssets (reported, covered, empty, nested)
         run: ./tests/audit-inventory/test.sh
 
+      # The case that matters here is the one where `dotnet` FAILS: a script that swallows that and
+      # prints an empty vulnerable[] is byte-identical to a clean graph, and phase 6 would pass on
+      # it. The suite drives every case through the DOTNET_BIN seam over recorded JSON, so it needs
+      # no SDK and no network (#267).
+      - name: Dependency-health golden test (a check that cannot verify must not answer healthy)
+        run: ./tests/dependency-health/test.sh
+
       # Recursive since #192: the issue forms repo-setup copies into a consumer's repository live
       # in templates/issue-forms/, and the old non-recursive glob did not reach them — they would
       # have shipped unvalidated, which is the "wired in but enforcing nothing" shape
@@ -420,6 +435,9 @@ jobs:
 
       - name: Merge-gate golden test (the latest run per job decides, over fixtures)
         run: ./tests/merge-gate/test.sh
+
+      - name: Merge base-CI golden test (the base verdict is resolved by sha, never by recency)
+        run: ./tests/merge-base-ci/test.sh
 
       - name: PR-existence guard golden test (an issue-scoped search finds a closer under any branch name)
         run: ./tests/pr-existence-guard/test.sh
@@ -460,6 +478,9 @@ jobs:
 
       - name: Implement-issue worktree-step golden test (Step 4 as one call, never a re-spelling, #280)
         run: ./tests/implement-issue-worktree-step/test.sh
+
+      - name: Plan-freshness golden test (every modify path verified against main before a task runs, #322)
+        run: ./tests/plan-freshness/test.sh
 
       - name: Roseline golden test (shipped MCP config + the gate, driven to red)
         run: ./tests/roseline/test.sh

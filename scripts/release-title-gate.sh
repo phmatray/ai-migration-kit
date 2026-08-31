@@ -112,6 +112,14 @@ NON_SHIPPED=(
 #       <kit> as the plugin root — the install cache, not this checkout.
 #
 # Checked BEFORE the deny-list, so they stay gated.
+#
+# The mirror case exists too (#58): a shipped directory can hold development-only content of its
+# own, e.g. a per-skill evals/ fixture — trigger-eval cases for that skill's own SKILL.md, never
+# read by a consumer's installed plugin. SHIPPED_ANYWAY above is "excluded directory, shipped
+# file"; the nested-evals rule in is_shipped() below is "shipped directory, non-shipped file" —
+# same asymmetry, opposite direction. It is a RULE (any path segment literally named `evals`
+# anywhere under skills/**), not a second literal list here, because a list would have to be kept
+# in step with every skill that ever adds one.
 SHIPPED_ANYWAY=(
   tests/xunit-v3/apply-transform.py
   docs/backlog.md
@@ -149,6 +157,14 @@ is_shipped() {
   for entry in "${SHIPPED_ANYWAY[@]}"; do
     if [ "$path" = "$entry" ]; then return 0; fi
   done
+  # The mirror case to SHIPPED_ANYWAY above (#58): a shipped directory can hold a development-only
+  # `evals/` fixture at any depth beneath it. Matched as a path SEGMENT — anchored on `skills/` so
+  # docs/skills/… and .claude/skills/… stay untouched, and on the `/evals/` boundary so a sibling
+  # merely named evals-runner (a different segment) is not swept in — never as a bare substring,
+  # which `*evals*` would have been.
+  case "$path" in
+    skills/evals/*|skills/*/evals/*) return 1 ;;
+  esac
   for entry in "${NON_SHIPPED[@]}"; do
     case "$entry" in
       */) if [ "${path#"$entry"}" != "$path" ]; then return 1; fi ;;

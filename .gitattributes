@@ -1,0 +1,17 @@
+# The gates read their own repository line by line — parse-sweep.sh compares a heredoc terminator
+# against the delimiter it captured, ci-wiring-check.py compares a suite path against the string a
+# workflow spells. A CRLF working copy puts a trailing CR on one side of every such comparison, and
+# the gates then refuse a tree that is fine: measured at ce23b73 on Windows with core.autocrlf=true,
+# 11 suites REFUSED by the sweep and 19 by the wiring check, on a tree CI was green on (#174).
+#
+# Every blob in this repo is already LF (`git ls-files --eol` shows no `i/crlf`), so this rule
+# governs CHECKOUTS, not content — the frozen samples/LegacyShop fixture included.
+#
+# `* text=auto eol=lf` rather than an extension list: the hazard is "a gate compares a raw line",
+# and the gates read .sh, .py, .yml, .json and .md alike. `text=auto` detects binary, so the PNGs
+# under .github/ and docs/ are unaffected.
+#
+# An EXISTING Windows clone keeps the CRLF files already on disk until
+# `git add --renormalize . && git checkout -- .`, because attributes govern checkout rather than
+# files that are already there.
+* text=auto eol=lf
