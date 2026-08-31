@@ -343,6 +343,45 @@ fi
 echo "test-seams link golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# skills/_shared/grilling.md must exist and create-issue must link it (#312). `--grill` is the one
+# sanctioned exception to create-issue's hands-off autonomy contract, and the doctrine that makes it
+# safe — one round, the frontier only, facts are the agent's job, unanswered takes the recommended
+# answer — lives in the shared file rather than in the skill, because triage-backlog's confirmation
+# pass is the second consumer. A `--grill` branch in SKILL.md with no link to that file is a flag
+# whose contract nothing states, which is precisely how the two would drift apart. Pinned against
+# the real tree for the same reason as the test-seams block above.
+echo "== create-issue must link skills/_shared/grilling.md (#312) =="
+
+if [ -f "$KIT_ROOT/skills/_shared/grilling.md" ]; then
+  echo "ok   [G1 skills/_shared/grilling.md exists       ]"
+else
+  echo "FAIL: [G1 skills/_shared/grilling.md exists       ] file is missing"
+  fails=$((fails + 1))
+fi
+
+if grep -qF '](../_shared/grilling.md)' "$KIT_ROOT/skills/create-issue/SKILL.md" 2>/dev/null; then
+  echo "ok   [G2 create-issue/SKILL.md links it          ]"
+else
+  echo "FAIL: [G2 create-issue/SKILL.md links it          ] missing the literal '](../_shared/grilling.md)'"
+  fails=$((fails + 1))
+fi
+
+# The port is MIT-licensed work by someone else; the credit line is part of the file's contract,
+# not a courtesy that may erode in a later edit.
+if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/_shared/grilling.md" 2>/dev/null; then
+  echo "ok   [G3 grilling.md credits its source          ]"
+else
+  echo "FAIL: [G3 grilling.md credits its source          ] missing the 'mattpocock/skills' attribution"
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "grilling link golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # The main-worktree derivation has one home now (#125): scripts/main-worktree.sh. Two broken
 # spellings kept getting re-introduced before that — a caller resolving `-C` from
 # `git rev-parse --show-toplevel` right next to a worktrees-ignored.sh call (fails OPEN from a

@@ -15,7 +15,8 @@ code-review and apply the fixes, sync the default branch, format, and flip the P
 OFF-SCOPE PROTOCOL: if you hit a problem NOT part of #$1 — an unrelated/flaky failure, a pre-existing
 bug, a design smell, missing/broken tests, tech debt — do NOT fix it inline (scope-creep) and do NOT
 silently ignore it. FILE it as a new issue via `create-issue`, then continue your task. List anything
-filed in your report.
+filed in your report. **Never pass `--grill`** — it makes `create-issue` stop and interview the user,
+and you have nobody to interview.
 
 ## Never wait — you are a one-shot process
 

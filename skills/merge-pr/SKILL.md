@@ -567,6 +567,10 @@ spec → plan trail and labels it). Mention the just-merged PR for traceability,
 #279: add Rust snapshot tests."* Batch several in one `create-issue` run. No follow-ups → skip and
 say so.
 
+**Never pass `--grill`** — that flag makes `create-issue` stop and interview the user, and this step
+runs at the end of a merge nobody is necessarily watching, so the question would be asked to an empty
+room (#187).
+
 ## Step 7 — Delete the local branch & worktree
 
 Clean up the throwaway workspace — the right cleanup depends on **where** the branch is checked out
