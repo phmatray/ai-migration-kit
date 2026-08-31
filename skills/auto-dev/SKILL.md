@@ -661,7 +661,25 @@ finding nobody ever sees.
 
 **Cost accounting.** Run `scripts/usage_report.py <project-transcript-dir> --main <orchestrator-session-id>`
 to aggregate tokens + $-equivalent across the orchestrator and every worker, broken down by model.
-Report **tokens/merge** and **$/merge**. (Auto-detects the transcript dir from `$PWD`; dollar figures
+Report **tokens/merge**, **$/merge**, and **orchestrator share of total**.
+
+⚠️ **A supervisor running in a git worktree writes its transcript to a *different* project directory
+than its workers.** The transcript dir is keyed off the working directory, so a fleet whose workers
+run from the main checkout while the supervisor sits in `…/.claude/worktrees/<branch>` is split
+across two of them — and the naive single-directory invocation then reports **worker cost only**,
+silently, with the orchestrator's share simply absent from a total that looks complete. This skill
+already warns that a worker's transcript dir differs from the checkout; the supervisor's own does
+too, and that is the half that goes missing. Point the script at **both** (symlink the supervisor
+session's `<sid>.jsonl` *and* its `<sid>/subagents/` directory into the one temp dir, keeping the
+layout — the ⚠️ under *Measure it* in Token economics has the recipe), then read the header's
+`SESSIONS: N … (X top-level, Y sub-agent)` line back and check it against the fleet you actually
+ran.
+
+**Orchestrator share is a first-class number, not a curiosity.** It was **33% in one measured run,
+from a single session** — the largest single cost centre in the fleet, more than every top-tier
+worker combined. Report it explicitly; when it comes in materially above that, the finding is that
+Step 4's counted compaction cadence did not fire often enough, and the cadence in
+[references/token-economics.md](references/token-economics.md) is what to re-measure and move. (Auto-detects the transcript dir from `$PWD`; dollar figures
 are API list-price equivalents — on a subscription they're rate-limit budget, not cash; the
 authoritative cash figure is `/cost`.) It classifies transcripts by layout: `top`
 (`<proj>/<session-id>.jsonl`) is the orchestrator only — or a pre-2.0 run's process workers; every
