@@ -388,11 +388,10 @@ echo "  ok: recipe — a path containing a space survives (the awk spelling trun
 #     a rule_source() that returned nothing at all produces, so 24b requires the source to be NAMED
 #     under the same shim.
 #
-#     These two build their own repositories rather than calling scratch(): scratch() increments its
-#     counter inside a command substitution, so every case shares $WORK/r1 and inherits whatever the
-#     previous one committed or appended to .git/info/exclude. Harmless for the cases above, which
-#     only ever overwrite .gitignore — but 24a needs a repo where the commit is real and 24b needs
-#     one where .gitignore is genuinely empty, and neither can get that from a shared directory.
+#     These two build their own repositories rather than calling scratch(): scratch() sets up no
+#     commit identity, and 24a needs to `git commit` with no `-c user.email=…` override of its own
+#     — unlike case 21, which passes that override inline. revless_repo() exists to pre-set
+#     user.email/user.name once instead of repeating that override at every commit-needing call.
 revless_repo() {                                 # $1 = directory, $2 = .gitignore body (printf %b)
   mkdir -p "$1"
   git -C "$1" init -q -b main
