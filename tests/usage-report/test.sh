@@ -76,7 +76,9 @@ MODEL="claude-sonnet-4-5-20250929"
 #
 # top session "sess-main": input 1500 | output 300 | cacheWrite 50  | cacheRead 15 → 1,865 tok
 # sub session "agent-a1" (parent sess-main): input 2000 | output 400 | cacheWrite 100 | cacheRead 20 → 2,520 tok
-# grand total: 4,385 tok, across 2 sessions (1 top-level, 1 sub-agent).
+# sub session "agent-w1" — workflow-nested, at sess-main/subagents/workflows/wf_test1/ (#309):
+#     input 1000 | output 200 | cacheWrite 50 | cacheRead 10 → 1,260 tok
+# grand total: 5,645 tok, across 3 sessions (1 top-level, 2 sub-agent).
 PROJ1=$(kit_scratch)
 write_usage_line "$PROJ1/sess-main.jsonl" "$MODEL" 1000 200 50 10
 write_usage_line "$PROJ1/sess-main.jsonl" "$MODEL" 500  100 0  5
@@ -88,21 +90,32 @@ cat > "$PROJ1/sess-main/subagents/agent-a1.meta.json" <<'JSON'
 {"agentType": "general-purpose", "description": "measure sub-agent token share"}
 JSON
 
+# A sub-agent dispatched through the `Workflow` tool nests one level deeper, under
+# `subagents/workflows/wf_<id>/` (#309). Same `.jsonl` + sibling `.meta.json` shape, and its
+# `parent` is still the TOP-LEVEL session two directories above `workflows/`, not the `wf_*` id.
+mkdir -p "$PROJ1/sess-main/subagents/workflows/wf_test1"
+write_user_line  "$PROJ1/sess-main/subagents/workflows/wf_test1/agent-w1.jsonl" "raw workflow-nested first-user text — must lose to its meta.json description"
+write_usage_line "$PROJ1/sess-main/subagents/workflows/wf_test1/agent-w1.jsonl" "$MODEL" 1000 200 50 10
+cat > "$PROJ1/sess-main/subagents/workflows/wf_test1/agent-w1.meta.json" <<'JSON'
+{"agentType": "general-purpose", "description": "workflow-nested sub-agent"}
+JSON
+
 OUT1=$(kit_scratch)/out.txt
 python3 "$SCRIPT" "$PROJ1" --main sess-main > "$OUT1" 2>&1 || {
   echo "FAIL: usage_report.py exited non-zero on the two-kind fixture"; cat "$OUT1"; exit 1; }
 
 # The grand total is the SUM of both files, not the top-level file alone (the original bug).
-grep -q "total tokens 4,385" "$OUT1" || {
-  echo "FAIL: grand total is not the sum of the top-level AND sub-agent transcripts (expected 4,385)"
+grep -q "total tokens 5,645" "$OUT1" || {
+  echo "FAIL: grand total is not the sum of the top-level AND every sub-agent transcript, workflow-nested included (expected 5,645)"
   cat "$OUT1"; exit 1; }
 
 # Session count is 2 (both files counted), and the header states the top/sub-agent split rather
 # than leaving it to be inferred from the row count.
-grep -q "SESSIONS: 2 in $PROJ1" "$OUT1" || {
-  echo "FAIL: header does not report 2 sessions"; cat "$OUT1"; exit 1; }
-grep -q "(1 top-level, 1 sub-agent)" "$OUT1" || {
-  echo "FAIL: header does not state the top-level/sub-agent split"; cat "$OUT1"; exit 1; }
+grep -q "SESSIONS: 3 in $PROJ1" "$OUT1" || {
+  echo "FAIL: header does not report 3 sessions"; cat "$OUT1"; exit 1; }
+grep -q "(1 top-level, 2 sub-agent)" "$OUT1" || {
+  echo "FAIL: header does not count the workflow-nested sub-agent in the top-level/sub-agent split"
+  cat "$OUT1"; exit 1; }
 
 # Every row is labelled with its kind, so the two are distinguishable in the listing. The
 # session column truncates to 8 chars (usage_report.py's `r['sid'][:8]`), hence "sess-mai".
@@ -110,6 +123,9 @@ grep -qE '\btop\b.*sess-mai' "$OUT1" || {
   echo "FAIL: the top-level row is not marked with its kind"; cat "$OUT1"; exit 1; }
 grep -qE '\bsub\b.*agent-a1' "$OUT1" || {
   echo "FAIL: the sub-agent row is not marked with its kind"; cat "$OUT1"; exit 1; }
+grep -qE '\bsub\b.*agent-w1' "$OUT1" || {
+  echo "FAIL: the workflow-nested sub-agent has no row (discover_transcripts() did not reach it)"
+  cat "$OUT1"; exit 1; }
 
 # The sub-agent row prefers its sibling .meta.json description over first_user_label()'s text.
 grep -q "measure sub-agent token share" "$OUT1" || {
@@ -119,6 +135,10 @@ if grep -q "must lose to the meta.json description" "$OUT1"; then
   echo "FAIL: sub-agent row fell back to first_user_label() despite a sibling .meta.json existing"
   cat "$OUT1"; exit 1
 fi
+# row_label() is unchanged by #309 — the .meta.json sibling works at the deeper depth too.
+grep -q "workflow-nested sub-agent" "$OUT1" || {
+  echo "FAIL: workflow-nested row does not use its sibling .meta.json description as its label"
+  cat "$OUT1"; exit 1; }
 
 # ORCHESTRATOR vs WORKERS: the sub-agent's tokens land on the WORKER side even though its parent
 # session ("sess-main") IS the orchestrator named by --main — attributing them to the parent would
@@ -133,14 +153,17 @@ orch, work = float(m.group(1)), float(w.group(1))
 # Sonnet rates: (3.0, 15.0, 3.75, 0.30) $/1M tok, applied per session.
 top_cost = (1500*3.0 + 300*15.0 + 50*3.75 + 15*0.30) / 1e6
 sub_cost = (2000*3.0 + 400*15.0 + 100*3.75 + 20*0.30) / 1e6
+# The workflow-nested sub-agent's parent is sess-main (the orchestrator) too, and its tokens
+# belong to the worker side just the same (#309).
+wf_cost  = (1000*3.0 + 200*15.0 + 50*3.75 + 10*0.30) / 1e6
 assert abs(orch - top_cost) < 0.01, f"orchestrator cost {orch} != top-level-only {top_cost}"
-assert abs(work - sub_cost) < 0.01, f"workers cost {work} != sub-agent-only {sub_cost} (parent-of-sub is the orchestrator, but its tokens are a worker's)"
+assert abs(work - (sub_cost + wf_cost)) < 0.01, f"workers cost {work} != sub-agent total {sub_cost + wf_cost} (parent-of-sub is the orchestrator, but its tokens are a worker's \u2014 and the workflow-nested one counts)"
 PY
 then
   echo "FAIL: ORCHESTRATOR vs WORKERS split did not attribute the sub-agent's tokens to the worker side"
   cat "$OUT1"; exit 1
 fi
-echo "ok: two-kind — top-level + Agent-tool sub-agent transcripts both counted, summed, labelled, and split correctly"
+echo "ok: two-kind — top-level + Agent-tool sub-agents (flat AND workflow-nested) all counted, summed, labelled, and split correctly"
 
 # --------------------------------------------------------------- top-only (no subagents/ dir)
 #

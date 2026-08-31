@@ -118,11 +118,25 @@ def discover_transcripts(proj):
                                                             parent=<session-id> of the dir it sits
                                                             under (its dispatcher — may or may not
                                                             be the orchestrator).
+    kind='sub'  <proj>/<session-id>/subagents/workflows/wf_<id>/*.jsonl
+                                                          — the same worker, one level deeper:
+                                                            a sub-agent dispatched by the Workflow
+                                                            tool's agent() calls. parent is still
+                                                            the top-level <session-id>, NOT wf_<id>
+                                                            — a workflow run is a grouping inside a
+                                                            session, not a dispatchable session of
+                                                            its own (#309).
     """
     for p in sorted(glob.glob(os.path.join(proj, "*.jsonl"))):
         yield p, "top", None
     for p in sorted(glob.glob(os.path.join(proj, "*", "subagents", "*.jsonl"))):
         parent = os.path.basename(os.path.dirname(os.path.dirname(p)))
+        yield p, "sub", parent
+    # One level deeper than the pattern above: <session-id>/subagents/workflows/wf_<id>/*.jsonl.
+    # Walk four directories up (wf_<id> → workflows → subagents → <session-id>) so the parent is
+    # the dispatching top-level session, matching the shallower case (#309).
+    for p in sorted(glob.glob(os.path.join(proj, "*", "subagents", "workflows", "wf_*", "*.jsonl"))):
+        parent = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(p)))))
         yield p, "sub", parent
 
 def scan(path):
