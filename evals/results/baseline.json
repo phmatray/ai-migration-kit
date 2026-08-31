@@ -20,7 +20,7 @@
       "recall": 1.0,
       "specificity": 1.0
     },
-    "get-repo-profile": {
+    "profile-repo": {
       "passed": 18,
       "total": 18,
       "recall": 1.0,

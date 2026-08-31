@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 KIT="$PWD"
-SCRIPT="skills/get-repo-profile/scripts/repo-profile.sh"
+SCRIPT="skills/profile-repo/scripts/repo-profile.sh"
 
 . "$KIT/tests/_lib.sh" || {
   echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
@@ -91,7 +91,7 @@ $sec"
 #     Scoped to the schema fence (between "## The schema" and "## Worked example"): the worked
 #     example repeats "## Identity" etc. for a DIFFERENT repo, and a whole-file grep would let a
 #     header that only ever appears there pass as if it were part of the contract.
-TEMPLATE="$KIT/skills/get-repo-profile/references/profile-template.md"
+TEMPLATE="$KIT/skills/profile-repo/references/profile-template.md"
 schema_block=$(awk '/^## The schema/{f=1} f{print} /^## Worked example/{exit}' "$TEMPLATE")
 for s in "## Tracker" "## Domain language" "## ADRs" "## Out-of-scope records" "## Coding standards"; do
   grep -qF "$s" <<<"$schema_block" \
@@ -221,7 +221,7 @@ $sec"
 #    exactly one checkout and reached no clone, no CI job and — the common case — no linked worktree,
 #    where a lifecycle skill then read empty output and inferred the repo's facts instead.
 #
-#    The kit tells consumer repos to version it (get-repo-profile: "Run once per repo, commit the
+#    The kit tells consumer repos to version it (profile-repo: "Run once per repo, commit the
 #    profile"), .gitignore says so in its own comment, and scripts/worktrees-ignored.sh reserves this
 #    exact path as MUST_STAY_VISIBLE — a guard with a dedicated exit code for "your ignore rule is
 #    too broad to carry a committed profile", shipped by a repo that never committed one.
@@ -239,17 +239,17 @@ git -C "$KIT" rev-parse --git-dir >/dev/null 2>&1 \
       measured from here. That is a missing precondition, not a passing case"
 
 git -C "$KIT" ls-files --error-unmatch -- "$PROFILE" >/dev/null 2>&1 \
-  || fail "the kit's own $PROFILE is not tracked. get-repo-profile tells consumer repos to commit
+  || fail "the kit's own $PROFILE is not tracked. profile-repo tells consumer repos to commit
       it and worktrees-ignored.sh keeps the path visible for exactly that; generate it with
-      \`skills/get-repo-profile/scripts/repo-profile.sh detect\` FROM THE MAIN WORKING TREE (#125:
+      \`skills/profile-repo/scripts/repo-profile.sh detect\` FROM THE MAIN WORKING TREE (#125:
       a linked worktree records a false ignore verdict) and commit the result"
 
 # Tracked but empty would satisfy the line above and still leave every skill inferring, so assert the
 # content the lifecycle skills actually open the file for. One section, named in the template's
-# schema — enough to prove a filled profile, few enough not to re-test get-repo-profile's own output.
+# schema — enough to prove a filled profile, few enough not to re-test profile-repo's own output.
 grep -qF '## Commit identity' "$KIT/$PROFILE" \
   || fail "$PROFILE is tracked but carries no '## Commit identity' section — the lifecycle skills
-      read it there; fill the schema in skills/get-repo-profile/references/profile-template.md"
+      read it there; fill the schema in skills/profile-repo/references/profile-template.md"
 
 # The five v2.0 sections (#311) must be present in the KIT'S OWN committed profile too, the same
 # way '## Commit identity' is pinned above — a schema that only ever shows up in the template and
@@ -257,7 +257,7 @@ grep -qF '## Commit identity' "$KIT/$PROFILE" \
 for s in "## Tracker" "## Domain language" "## ADRs" "## Out-of-scope records" "## Coding standards"; do
   grep -qF "$s" "$KIT/$PROFILE" \
     || fail "$PROFILE is tracked but carries no '$s' section — regenerate it with
-      \`skills/get-repo-profile/scripts/repo-profile.sh detect\` FROM THE MAIN WORKING TREE (#125)
+      \`skills/profile-repo/scripts/repo-profile.sh detect\` FROM THE MAIN WORKING TREE (#125)
       and fill in the five v2.0 sections (#311)"
 done
 
@@ -285,7 +285,7 @@ offenders=$(grep -rnE "$PROFILE_CAT_RE" --include='*.md' "$KIT/skills") || grep_
 [ "$grep_rc" -le 1 ] || fail "the bare-cat scan could not run (grep exit $grep_rc) — that is not a
       verdict, and must not be read as one"
 [ -z "$offenders" ] || fail "a skill still reads the profile with a bare cat — use
-      \`<kit>/skills/get-repo-profile/scripts/repo-profile.sh show\`, which reports NO_PROFILE/exit 3
+      \`<kit>/skills/profile-repo/scripts/repo-profile.sh show\`, which reports NO_PROFILE/exit 3
       instead of empty output:
 $offenders"
 
@@ -360,7 +360,7 @@ $sec"
 # repository that needs it. Both stores are reported when both exist — they are not exclusive.
 printf -- '---\nid: 2\ntitle: Y\nstatus: rejected\ndate: 2026-01-01\ntags:\n- out-of-scope\n---\n# Y\n' \
   > "$fx/docs/adr/0002-y.md"
-out="$(cd "$fx" && "$KIT/skills/get-repo-profile/scripts/repo-profile.sh" detect 2>/dev/null)" \
+out="$(cd "$fx" && "$KIT/skills/profile-repo/scripts/repo-profile.sh" detect 2>/dev/null)" \
   || fail "detect: exited non-zero over the rejected-ADR fixture"
 sec=$(section_of "$out" "Out-of-scope records")
 grep -qF 'docs/adr/ `status: rejected` (1 records)' <<<"$sec" \

@@ -11,7 +11,7 @@ saying the same thing, which is the drift signature this repo has already paid f
 Worse, the one line the user actually acts on next — `/implement-issue #N` after `create-issue` —
 existed as prose in exactly two of them, while [`ARCHITECTURE.md`](../../ARCHITECTURE.md) drew the
 same hand-offs as dashed mermaid edges. **Two documentations, zero checks.** `merge-pr` landed a PR
-and said nothing about what to do next even though the graph knew the answer; `get-repo-profile`
+and said nothing about what to do next even though the graph knew the answer; `profile-repo`
 exists to bootstrap `create-issue` and never said so.
 
 So the shape lives here, the hand-off lives here, and
@@ -67,8 +67,8 @@ checked against it; they are not a second copy to hand-sync.
 
 | Skill | Ends with | Next command |
 |---|---|---|
-| `get-repo-profile` | the profile written, or read back | `/setup-repo` when it named a missing label axis or issue-form dir, then `/create-issue <idea>` |
-| `setup-repo` | the repo converged on its manifest | `/get-repo-profile --refresh` |
+| `profile-repo` | the profile written, or read back | `/setup-repo` when it named a missing label axis or issue-form dir, then `/create-issue <idea>` |
+| `setup-repo` | the repo converged on its manifest | `/profile-repo --refresh` |
 | `create-issue` | issue(s) filed, each with a plan | `/implement-issue #<issue>` |
 | `implement-issue` | PR **ready**, not landed | `/merge-pr #<pr>` |
 | `merge-pr` | PR merged, follow-ups filed | `/implement-issue #<next-issue>` |

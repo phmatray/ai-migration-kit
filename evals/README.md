@@ -2,7 +2,7 @@
 
 A **safe, repeatable** regression check for **every** skill's *description* — all ten of
 [`auto-dev`](../skills/auto-dev), [`create-issue`](../skills/create-issue),
-[`followups`](../skills/followups), [`get-repo-profile`](../skills/get-repo-profile),
+[`followups`](../skills/followups), [`profile-repo`](../skills/profile-repo),
 [`implement-issue`](../skills/implement-issue), [`legacy-upgrade`](../skills/legacy-upgrade),
 [`merge-pr`](../skills/merge-pr), [`setup-repo`](../skills/setup-repo),
 [`systematic-debugging`](../skills/systematic-debugging) and
@@ -17,7 +17,7 @@ the sets absorbed every bullet they were missing, near-miss annotations included
 `note` field is for).
 
 Each skill's close boundaries are carried as negatives **inside its own set** — `setup-repo` vs
-`get-repo-profile` (write vs read), `auto-dev` vs its own children (many issues vs one),
+`profile-repo` (write vs read), `auto-dev` vs its own children (many issues vs one),
 `followups` vs `triage-backlog` (report.json queues vs GitHub issues), `systematic-debugging` vs
 new-code work. `boundary-trigger-eval.json` stays what it always was: specifically the
 `implement-issue` ↔ `merge-pr` pair, with a runner written around exactly those two.
@@ -47,8 +47,8 @@ weak description.
 
 **Root cause:** where the diagnosis was made (Koine), all four lifecycle skills were *already
 installed* under `.claude/skills/`.
-So a should-trigger query makes the model invoke the **canonical** skill — `Skill(skill="get-repo-profile")` —
-never the uuid-suffixed `get-repo-profile-skill-<uuid>` the matcher waits for. The substring test
+So a should-trigger query makes the model invoke the **canonical** skill — `Skill(skill="profile-repo")` —
+never the uuid-suffixed `profile-repo-skill-<uuid>` the matcher waits for. The substring test
 `clean_name in accumulated_json` therefore never matches → 0 triggers, regardless of description
 quality. (Confirmed three ways: a raw `claude -p` capture of the real-skill query, a faithful
 synthetic-command reproduction, and running the real `run_eval.py` — all fire the canonical name; the
@@ -81,9 +81,9 @@ Requires the `claude` CLI on `PATH` and run from inside the repo (the runner str
 
 ```bash
 # one skill
-python3 evals/trigger_eval.py --skill get-repo-profile \
-  --eval-set evals/get-repo-profile-trigger-eval.json \
-  --runs-per-query 3 --out evals/results/get-repo-profile.json
+python3 evals/trigger_eval.py --skill profile-repo \
+  --eval-set evals/profile-repo-trigger-eval.json \
+  --runs-per-query 3 --out evals/results/profile-repo.json
 
 # all ten + the boundary, refreshing the committed baseline
 python3 evals/run_all.py --runs-per-query 3
@@ -142,7 +142,7 @@ signal to look at.
 | `create-issue`          | 23 | 18/18 † | 1.0 † | 1.0 † |
 | `implement-issue`       | 21 | 18/18 † | 1.0 † | 1.0 † |
 | `merge-pr`              | 20 | 18/18 † | 1.0 † | 1.0 † |
-| `get-repo-profile`      | 22 | 18/18 † | 1.0 † | 1.0 † |
+| `profile-repo`      | 22 | 18/18 † | 1.0 † | 1.0 † |
 | `triage-backlog`        | 20 | — ‡ | — ‡ | — ‡ |
 | `auto-dev`              | 19 | — ‡ | — ‡ | — ‡ |
 | `followups`             | 19 | — ‡ | — ‡ | — ‡ |
@@ -164,7 +164,7 @@ zero over-triggering across its near-miss negatives.
 
 Specificity is *real*, not just "nothing fired": each near-miss negative fires the **expected sibling**
 skill (e.g. `implement issue 47` → `implement-issue`, `file an issue …` → `create-issue`,
-`set up the repo profile` → `get-repo-profile`), recorded in each result's `fired` histogram.
+`set up the repo profile` → `profile-repo`), recorded in each result's `fired` histogram.
 
 ## The description budget (#323)
 
@@ -209,7 +209,7 @@ trigger form, though its eval set carries two French positives, so it gained the
 **What the cut removed, precisely.** Not "nothing" — the honest list is: identity the body already
 carries (*"the 'ship it' counterpart to `implement-issue`"*), per-step mechanism the body already
 carries, and synonyms restating a branch named in the same sentence (`create-issue`'s seven verbs
-for *file an issue* became five; `get-repo-profile` stopped enumerating every section of the profile
+for *file an issue* became five; `profile-repo` stopped enumerating every section of the profile
 it writes). No French form, no *"Does NOT apply"* clause and no verbatim eval-query phrase was
 dropped — four that had been were restored in review (`« suivis »`, `"next steps"`,
 `"turn on auto-delete merged branches"`, `"regenerate the profile"`, `"clean up the open issues"`).

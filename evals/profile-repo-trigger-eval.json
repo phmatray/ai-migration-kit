@@ -15,7 +15,7 @@
   {"query": "merge PR 281", "should_trigger": false, "note": "→ merge-pr"},
   {"query": "review PR 281 without merging", "should_trigger": false, "note": "→ review/code-review"},
   {"query": "what build system and test framework does Koine use?", "should_trigger": false, "note": "doc question — answerable, no profile generation"},
-  {"query": "update CLAUDE.md with what we learned this session", "should_trigger": false, "note": "→ revise-claude-md, not get-repo-profile"},
+  {"query": "update CLAUDE.md with what we learned this session", "should_trigger": false, "note": "→ revise-claude-md, not profile-repo"},
   {"query": "what's the difference between value objects and entities in DDD?", "should_trigger": false, "note": "doc question — no lifecycle skill"},
   {"query": "run the test suite and tell me what fails", "should_trigger": false, "note": "no lifecycle skill"},
   {"query": "what's my GitHub profile?", "should_trigger": false, "note": "the user's profile, not the repo config — shares the word only"},

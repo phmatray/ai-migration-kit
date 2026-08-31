@@ -185,13 +185,13 @@
     },
     {
       "query": "set up the repo profile for this repo",
-      "note": "\u2192 get-repo-profile",
+      "note": "\u2192 profile-repo",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "get-repo-profile": 3
+        "profile-repo": 3
       },
       "pass": true
     },

@@ -81,7 +81,7 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 | A migrated app to re-verify | [`/migrate-verify`](commands/migrate-verify.md) |
 | A portfolio to cost | [`/migrate-audit`](commands/migrate-audit.md) |
 | Open follow-ups across migrated repos | [`/migrate-followups`](commands/migrate-followups.md) |
-| A new repo for these skills | [`get-repo-profile`](skills/get-repo-profile/SKILL.md), then [`setup-repo`](skills/setup-repo/SKILL.md) |
+| A new repo for these skills | [`profile-repo`](skills/profile-repo/SKILL.md), then [`setup-repo`](skills/setup-repo/SKILL.md) |
 | Something is already broken | [`systematic-debugging`](skills/systematic-debugging/SKILL.md) fires on its own |
 
 ## Features
@@ -91,7 +91,7 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 - **Read-only executive audit** — `/migrate-audit` produces a costed report (effort in days, risk register, recommended target) per app, plus a portfolio value/effort synthesis across several apps.
 - **Resumable migrations** — gate commits and `migration/` artifacts let an interrupted `/migrate` re-enter at the last green phase instead of starting over.
 - **Generated executive dashboard** — phase 6 emits `migration/report.html` and `report.json` with measured per-phase timings derived from gate commits, not a manual stopwatch.
-- **Issue/PR lifecycle skills** — portable `create-issue`, `implement-issue`, `merge-pr` and `get-repo-profile` skills usable on any repo, driven by a committed per-repo profile.
+- **Issue/PR lifecycle skills** — portable `create-issue`, `implement-issue`, `merge-pr` and `profile-repo` skills usable on any repo, driven by a committed per-repo profile.
 - **Backlog burn-down at scale** — `auto-dev` supervises a fleet of N parallel workers, each taking one issue from plan to merged PR, with conflict-avoiding area isolation and a measured token budget.
 - **Root-cause debugging** — `systematic-debugging` fires before any fix is proposed, so a failure is explained before it is patched.
 - **Preflight safety gate** — `scripts/preflight.sh` verifies required/recommended tools, MCP servers and session skills declared in `requirements.json` before phase 1 starts.
@@ -245,7 +245,7 @@ supervisors are usable on any repo, not just migrations:
 | [`merge-pr`](skills/merge-pr/SKILL.md) | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
 | [`auto-dev`](skills/auto-dev/SKILL.md) | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
 | [`triage-backlog`](skills/triage-backlog/SKILL.md) | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
-| [`get-repo-profile`](skills/get-repo-profile/SKILL.md) | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
+| [`profile-repo`](skills/profile-repo/SKILL.md) | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
 | [`setup-repo`](skills/setup-repo/SKILL.md) | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
 | [`followups`](skills/followups/SKILL.md) | Consolidate the migrated repos' open follow-ups (owner decisions, tasks, deferrals) and update them at the source. |
 | [`systematic-debugging`](skills/systematic-debugging/SKILL.md) | Root cause before any fix is proposed — harness-agnostic, fires on its own ahead of a patch. |
@@ -309,7 +309,7 @@ skills/merge-pr/        generic issue/PR lifecycle: CI wait, corrections loop, s
 skills/auto-dev/        fleet supervisor above the lifecycle skills: N parallel workers burning down the backlog
 skills/triage-backlog/  the queue's outlet: verify, cluster and re-decide open issues — owner confirms every close
 skills/systematic-debugging/ root-cause-before-fix process, harness-agnostic
-skills/get-repo-profile/ the per-repo profile generator the lifecycle skills consume
+skills/profile-repo/ the per-repo profile generator the lifecycle skills consume
 skills/setup-repo/      the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
 skills/_shared/         procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary, test-seams, grilling, brainstorm-and-spec, plan-shape, tdd-loop, recap)
 scripts/                preflight.sh (phase-0 gate) · run-all-tests.sh (one command for everything CI checks, exit 2 on a missing prerequisite) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release) · recap-wiring-check.py (every skill closes with the shared recap, and its hand-off table matches ARCHITECTURE.md's dashed edges)

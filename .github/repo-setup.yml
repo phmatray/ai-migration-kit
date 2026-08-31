@@ -86,7 +86,7 @@ labels:
     description: "skills/legacy-upgrade/, skills/followups/ and commands/migrate-*.md"
   - name: "area: repo-setup"
     color: "c5def5"
-    description: "skills/setup-repo/, skills/get-repo-profile/ and .claude/skills/repo-profile.md"
+    description: "skills/setup-repo/, skills/profile-repo/ and .claude/skills/repo-profile.md"
   - name: "area: skills"
     color: "c5def5"
     description: "skills/_shared/, skills/systematic-debugging/ and cross-skill conventions"

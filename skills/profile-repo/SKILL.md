@@ -1,5 +1,5 @@
 ---
-name: get-repo-profile
+name: profile-repo
 description: >-
   Generate or load the per-repo profile (`.claude/skills/repo-profile.md`) that `create-issue`,
   `implement-issue` and `merge-pr` READ for the repo facts they would otherwise hardcode — commit
@@ -73,7 +73,7 @@ Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.m
 blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
 `None` is a required answer rather than an omission) and the **Next** line, which is read off this
 skill's row in that file's hand-off table instead of being decided again here. Everything below is
-only what **get-repo-profile** adds on top of them.
+only what **profile-repo** adds on top of them.
 
 - Say which path ran — `show` read a committed profile back, or the generation path wrote one. They
   produce very different confidence, and the caller cannot tell them apart from the file alone.

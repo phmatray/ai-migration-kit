@@ -1,7 +1,7 @@
 # Architecture
 
 One plugin, two cooperating suites — the **migration pipeline** (legacy-upgrade, followups) and the
-**issue/PR lifecycle** (create-issue, implement-issue, merge-pr, get-repo-profile, setup-repo, and the
+**issue/PR lifecycle** (create-issue, implement-issue, merge-pr, profile-repo, setup-repo, and the
 `auto-dev` fleet supervisor above them) — bridged where a
 migration's deferred work becomes tracked GitHub issues. Every skill carries
 `metadata.suite: ai-migration-kit` in its frontmatter; in Claude Code the plugin namespaces them as
@@ -32,7 +32,7 @@ graph TD
         II[implement-issue]
         MP[merge-pr]
         TB[triage-backlog]
-        RP[get-repo-profile]
+        RP[profile-repo]
         SR[setup-repo]
         SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling · prior-rejections<br>brainstorm-and-spec · plan-shape · tdd-loop · recap"]
     end
@@ -57,7 +57,7 @@ graph TD
     RP -- "generates (run once per repo)" --> PROF
     RP -. "names as the remedy for a missing label axis or issue-form dir" .-> SR
     RP -. "then: /create-issue <idea>" .-> CI
-    SR -. "afterwards: re-run get-repo-profile --refresh" .-> RP
+    SR -. "afterwards: re-run profile-repo --refresh" .-> RP
     CI -- "reads at step 1" --> PROF
     II -- "reads at step 1" --> PROF
     MP -- "reads at step 1" --> PROF
@@ -72,7 +72,7 @@ graph TD
 
 **The dashed edges above are checked, not hand-synced.** They must match the hand-off table in
 [`skills/_shared/recap.md`](skills/_shared/recap.md) exactly — one row per skill, and one edge per
-`/command` a row names (`get-repo-profile` names two, so it draws two) — and `scripts/recap-wiring-check.py` refuses in CI when either side gains or loses
+`/command` a row names (`profile-repo` names two, so it draws two) — and `scripts/recap-wiring-check.py` refuses in CI when either side gains or loses
 one (#175). Edit the table; the graph follows. Labels are free text: only the `(from, to)` pair is
 compared.
 
@@ -108,7 +108,7 @@ graph LR
         II[implement-issue]
         MP[merge-pr]
         TB[triage-backlog]
-        RP[get-repo-profile]
+        RP[profile-repo]
         SR[setup-repo]
         SD[systematic-debugging]
     end
@@ -188,11 +188,11 @@ why no arrow leaves it.
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
 | `systematic-debugging` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
-| `get-repo-profile` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
+| `profile-repo` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
 | `setup-repo` | — | — | **git**, **python3** (PyYAML), **jq**, **gh** (admin rights on the settings surface; refused by name without it) | `repo-setup.sh`, `parse-manifest.py`, `project-area-options.py` (bundled in the skill) |
 
 **Bold = required.** The lifecycle trio — and `auto-dev` above them — additionally *reads*
-`.claude/skills/repo-profile.md` in the target repo — generated once by `get-repo-profile`,
+`.claude/skills/repo-profile.md` in the target repo — generated once by `profile-repo`,
 committed, then consumed with a plain `cat`.
 
 **The dashed `adr` arrows are the degrading ones.** `create-issue` consults the accepted ADRs before

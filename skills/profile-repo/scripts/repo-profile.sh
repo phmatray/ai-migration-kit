@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# repo-profile.sh — deterministic helper for the get-repo-profile skill.
+# repo-profile.sh — deterministic helper for the profile-repo skill.
 #
 # Two subcommands cover the skill's two paths so the model spends tokens on
 # synthesis, not on issuing a dozen probe commands and reasoning over each:
@@ -21,7 +21,7 @@ set -uo pipefail
 
 PROFILE_REL=".claude/skills/repo-profile.md"
 # Resolved BEFORE the cd below: $0 can be relative, and cd-ing into the target repo would break it.
-# Kit root = three levels up from skills/get-repo-profile/scripts.
+# Kit root = three levels up from skills/profile-repo/scripts.
 KIT_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd -P)"
 CMD="${1:-show}"
 # Anchor to the repo root so the profile path resolves from any subdir/worktree.

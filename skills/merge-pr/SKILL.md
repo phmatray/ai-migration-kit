@@ -13,7 +13,7 @@ license: MIT
 compatibility: >-
   Requires an authenticated gh CLI with merge/push rights, and git. Files follow-ups via the
   create-issue skill. Reads the committed repo profile (.claude/skills/repo-profile.md) generated
-  by get-repo-profile.
+  by profile-repo.
 metadata:
   author: Philippe Matray
   suite: ai-migration-kit
