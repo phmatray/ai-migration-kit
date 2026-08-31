@@ -79,8 +79,14 @@ chmod +x "$WORK/bin/gh"
 # enough to satisfy survey.sh's haveplan regex; no emoji needed.
 PLAN_BODY='## context\n\n## Implementation plan\n- [ ] Step 1: do it'
 NO_PLAN_BODY='## context only, nothing to execute'
+# A tracking PARENT of a decomposed job (#315, skills/create-issue/references/tracking-issue.md):
+# the map body — Destination / Notes / Decisions so far / Not yet ticketed / Out of scope — and,
+# by construction, none of the three tokens haveplan reads ("Implementation plan", "### Task",
+# "- [ ]"). Its children carry the plans; the parent is the one issue that must NEVER be handed
+# to a worker, and this body shape is the whole mechanism that keeps it out.
+PARENT_BODY='## Problem\n\nthe whole job\n\n## Destination\n\nwhat done looks like\n\n## Notes\n\ninvariants every child obeys\n\n## Decisions so far\n\n- none yet\n\n## Not yet ticketed\n\nnone\n\n## Out of scope\n\n- nothing adjacent'
 
-# $1 output path, remaining args "number|title|effort-or-empty|plan(0/1)" quads
+# $1 output path, remaining args "number|title|effort-or-empty|plan(0/1/parent)" quads
 mkissues() {
   local out="$1"; shift
   {
@@ -90,7 +96,11 @@ mkissues() {
       IFS='|' read -r num title eff plan <<<"$rec"
       [ "$first" = 1 ] || printf ','
       first=0
-      if [ "$plan" = "1" ]; then body="$PLAN_BODY"; else body="$NO_PLAN_BODY"; fi
+      case "$plan" in
+        1)      body="$PLAN_BODY" ;;
+        parent) body="$PARENT_BODY" ;;
+        *)      body="$NO_PLAN_BODY" ;;
+      esac
       if [ -n "$eff" ]; then labels="[{\"name\":\"effort: $eff\"}]"; else labels="[]"; fi
       printf '{"number":%s,"title":"%s","labels":%s,"body":"%s"}' "$num" "$title" "$labels" "$body"
     done
@@ -185,6 +195,38 @@ echo "ok: word-vocab — this repo's own effort: small/medium/large labels tier 
 # The unplanned tail #312 exists to surface: #105 is the fixture's only plan-less, non-QA issue.
 assert_seed_row "$O1" 1 "waiting for a seed: #105"
 echo "ok: word-vocab — the SEED summary row names the one issue waiting for a seed"
+
+# --------------------------------------------------------- 1b. tracking-parent is never dispatched
+#
+# Witness for an invariant that already holds (#315): a decomposed job's PARENT carries no plan
+# token, so `haveplan` is false and the parent lands in SKIP — even at a dispatchable tier. The
+# medium-labelled parent is the load-bearing row: a large one is held by the tier check anyway,
+# so only the medium one proves the BODY alone keeps a parent out of QUEUE. survey.sh is not
+# changed by #315; this case exists so #317 (survey reads the edges and dispatches only the
+# frontier) cannot loosen the jq without this row going red. The parent's child is an ordinary
+# planned issue and queues as before.
+#
+# Not asserted here: the SEED row. A plan-less parent reads as "waiting for a seed" to today's
+# survey (plan=false, not manual-QA), which is wrong for a tracking parent — the parent is
+# plan-less on purpose. create-issue's `--seed` refuses a body with a `## Destination` heading;
+# teaching the survey the shape is #317's, folded there rather than pinned here as if intended.
+
+F1b="$WORK/tracking-parent-issues.json"
+mkissues "$F1b" \
+  "107|Tracking parent labelled medium|medium|parent" \
+  "108|Tracking parent labelled large|large|parent" \
+  "109|Child slice with its own plan|small|1"
+O1b="$WORK/tracking-parent.out"
+run_survey "$W1" "$F1b" "$O1b"
+
+assert_bucket SKIP  107 "$O1b"
+assert_bucket HOLD  108 "$O1b"
+assert_bucket QUEUE 109 "$O1b"
+if grep -F "$(printf '\t#107\t')" "$O1b" | grep -q 'plan=false'; then
+  echo "ok: tracking-parent — a Destination/Notes/Decisions body reads plan=false and is SKIP at a dispatchable tier; its planned child queues"
+else
+  echo "FAIL: the tracking parent's row does not read plan=false"; cat "$O1b"; exit 1
+fi
 
 # ------------------------------------------------------------------- 2. letter-vocab (no regress)
 
