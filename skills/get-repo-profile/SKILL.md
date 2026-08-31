@@ -1,17 +1,14 @@
 ---
 name: get-repo-profile
 description: >-
-  Generate or load the per-repo profile (`.claude/skills/repo-profile.md`) that the issue/PR
-  lifecycle skills — `create-issue`, `implement-issue`, `merge-pr` — read for the repo-specific
-  facts they would otherwise hardcode: commit identity, build/test/format commands, label taxonomy,
-  merge style, conflict hot-spots, issue templates, architecture grain, the issue tracker, domain
-  language glossary, ADRs, out-of-scope records and coding standards. Use when no profile exists
-  yet, to PORT the lifecycle skills to a new repository, or to refresh after the toolchain, labels
-  or CI changed — "set up the repo profile", "make these skills work in my other repo", "regenerate
-  the profile", « configure le profil du repo », « fais marcher create-issue dans ce repo ». First
-  call inspects the repo (build system, CI, labels, templates, merge style) and writes the profile;
-  later calls just read it back. Does NOT file issues, implement code, or merge PRs — it only
-  produces the config those skills consume.
+  Generate or load the per-repo profile (`.claude/skills/repo-profile.md`) that `create-issue`,
+  `implement-issue` and `merge-pr` READ for the repo facts they would otherwise hardcode — commit
+  identity, build/test/format commands, labels, merge style, conflict hot-spots. Use when no profile
+  exists, to PORT those skills to another repository, or to refresh after the toolchain, labels or
+  CI changed: "set up the repo profile", "configure this repo for the issue skills", "make these
+  skills work in my other repo", « configure le profil du repo », « fais marcher create-issue dans
+  ce repo ». Does NOT file issues, implement code, merge PRs, or WRITE labels/templates/settings
+  (setup-repo).
 license: MIT
 compatibility: >-
   Requires git and bash. An authenticated gh CLI is needed for the label / branch-protection /
