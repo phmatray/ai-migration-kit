@@ -1,6 +1,13 @@
 ---
 name: systematic-debugging
-description: Use BEFORE proposing or applying any fix when something is already broken or behaving unexpectedly — a bug, failing or flaky test, crash, exception, stack trace, regression, build break, or integration failure — i.e. any time guessing at a fix is tempting. Enforces finding the root cause first so the fix addresses the real problem instead of masking a symptom. Not for writing new code, adding features or error handling, refactoring code that works, setting up CI/tooling, or reviewing code that already works.
+description: >-
+  Use BEFORE proposing or applying any fix when something is already broken or behaving unexpectedly
+  — a bug, failing or flaky test, crash, exception, stack trace, regression, build break, or
+  integration failure, i.e. any time guessing at a fix is tempting; « ce test est flaky, corrige-le
+  », « ça marchait avant, maintenant ça plante ». Enforces finding the root cause first, so the fix
+  addresses the real problem instead of masking a symptom. Not for writing new code, adding features
+  or error handling, refactoring code that works, setting up CI/tooling, or reviewing code that
+  already works.
 license: MIT
 compatibility: >-
   Harness-agnostic: no tools, MCP servers or repo state required. Ported from the superpowers skill

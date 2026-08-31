@@ -1,17 +1,14 @@
 ---
 name: merge-pr
 description: >-
-  Land an open GitHub pull request the way a careful maintainer would — the "ship it" counterpart
-  to `implement-issue`. Use whenever the user wants to MERGE, land, ship, or close out an open PR:
-  waits for CI, then applies corrections until mergeable — fixes red checks, merges the latest
-  `main` and resolves conflicts, addresses unresolved review — squash-merges, triages follow-up work
-  (inline `--follow-up "…"` args plus ones discovered in the PR) by folding symptoms into the root
-  issue that owns them and filing the rest via `create-issue`, and tears down the branch and
-  worktree. Triggers: "merge PR 279", "land #281", "ship this PR", "get that PR merged once CI's
-  green", "wrap up 279 and open follow-ups", « merge la PR 279 », « fais
-  atterrir la 281 », or a bare PR link with "merge it". Does NOT apply to opening or implementing a
-  PR, to syncing one still being built (implement-issue), to reviewing without merging
-  (code-review), or to filing a standalone issue (create-issue).
+  Land an open GitHub pull request. Use whenever the user wants to MERGE, land, ship, or close out
+  an open PR: waits for CI, applies corrections until mergeable (red checks, conflicts with the
+  latest `main`, unresolved review), squash-merges, triages follow-ups, and tears down the branch
+  and worktree. Triggers: "merge PR 279", "land #281", "ship this PR", "get that PR merged once CI's
+  green", "wrap up 279 and open follow-ups", « merge la PR 279 », « fais atterrir la 281 », a bare
+  PR link with "merge it". Does NOT apply to opening or implementing a PR, to syncing one STILL
+  BEING BUILT (implement-issue), to reviewing without merging (code-review), or to filing an issue
+  (create-issue).
 license: MIT
 compatibility: >-
   Requires an authenticated gh CLI with merge/push rights, and git. Files follow-ups via the
@@ -69,11 +66,13 @@ Create a task per item and work them in order. Step 4 is a loop — repeat until
 3. **Wait for CI** — let the checks finish; read the rollup.
 4. **Apply corrections (loop)** — clear each blocker the merge state reports (red CI · behind/dirty vs `main` · unresolved review · draft), push, re-wait until the PR is `CLEAN`.
 5. **Merge (squash)** — `skills/merge-pr/scripts/guarded-pr-merge.sh` once green and mergeable; it runs the merge and decides the outcome from GitHub's `state`, never from the raw `gh pr merge` exit code.
+5b. **Read the base's CI run** — the merge just triggered one on `main`; resolve it **by the squash sha**, wait (bounded), and carry the answer into Step 8. Green, red, or an honest non-verdict — never silence.
 6. **Triage follow-ups** — gather inline `--follow-up` args + ones discovered in the PR, cluster them by root cause, fold instances into the issue that already owns them, and file at most 3 new issues via `create-issue`.
 7. **Delete the local branch & worktree** — from the main checkout, remove the PR's worktree and local branch.
 8. **Report** — merged PR URL, corrections applied, follow-ups filed, cleanup done.
 
-Resume-safe: re-running mid-flight is fine. If the PR is already merged, skip to Steps 6–7. If the
+Resume-safe: re-running mid-flight is fine. If the PR is already merged, skip to Step 5b (recover
+the sha from `gh pr view --json mergeCommit`) and then Steps 6–7. If the
 **local** worktree/branch is already gone, skip Step 7's local cleanup — but still run its remote
 check (`remote-branch-teardown.sh`): the local branch being gone says nothing about whether
 `origin/<headRefName>` survived (#185), and skipping Step 7 outright on a resume is exactly how
@@ -102,7 +101,7 @@ gh pr view "$PR" --json number,title,state,isDraft,mergeable,mergeStateStatus,re
   --jq '{number,title,state,isDraft,mergeable,mergeStateStatus,reviewDecision,head:.headRefName,base:.baseRefName,url}'
 ```
 
-- `state != OPEN` → if `MERGED`, skip to Steps 6–7 (follow-ups + cleanup); if `CLOSED` (not merged), stop and ask — merging a deliberately closed PR is not a safe default.
+- `state != OPEN` → if `MERGED`, skip to Step 5b and then Steps 6–7 (follow-ups + cleanup). There is no `$MERGE_OUT` on this path, so take the sha from `gh pr view "$PR" --json mergeCommit --jq .mergeCommit.oid`; if that is empty, or the run has aged out of the check-runs history, the answer is `base unverified at <sha> — resumed after the merge`. Report that rather than omitting the line: Step 8 requires one, and `auto-dev` reads it off the report line as `BASE:`, where a blank is indistinguishable from the silence Step 5b exists to end. If `CLOSED` (not merged), stop and ask — merging a deliberately closed PR is not a safe default.
 - `isDraft == true` → the user asked to *merge* it, so the flag is almost always stale. Mark ready (`gh pr ready "$PR"`), note the assumption, continue. (If genuinely unfinished, the CI/corrections loop surfaces it.)
 - Capture **`headRefName`** (branch) and **`baseRefName`** (normally `main`) — Steps 2, 4, 7 key off the branch name.
 
@@ -512,6 +511,78 @@ one Conventional Commit line per distinct change, e.g.:
 Verify the resulting release PR lists an entry per line. If the release tooling does not split the
 body, prefer not bundling unrelated issues into one squash in the first place.
 
+## Step 5b — Read the CI run your own merge triggered on the base
+
+Step 5 ended at *the PR is MERGED*. That is one run too early. A green PR check-run only ever proved
+the branch was green **against the base it was tested with** — §3's whole reduction is about the head
+sha — and #171 already established that a base which moves *before* the merge invalidates that proof.
+This is the other half: two PRs each green against their own base can still break `main` when both
+land, and the only artifact that records it is the push run on `main`.
+
+Measured here on 2026-08-30: `dce7d5b` (#338) had its `main` run **cancelled**, superseded 2m39s
+later by the next merge; `f17c85c` (#342) had run `33346395704` record the failure. Both PRs had
+already reported MERGED and torn down, so nobody read either. `main` was red ~40 minutes, every
+in-flight PR in the fleet inherited the red bar, and PR #340's own CI failed on a diff that had
+nothing to do with it. A human noticed; #352 was filed by hand.
+
+**This step runs only on `guarded-pr-merge.sh` exit `0`.** Exits `1`–`4` route elsewhere and none of
+them means a merge commit exists on the base — there is no sha to resolve. Take the sha from that
+call's own stdout, which is `MERGED <sha>`:
+
+```bash
+BASE_SHA=$(printf '%s' "$MERGE_OUT" | awk '$1 == "MERGED" { print $2 }')
+
+# The guard reads the sha back itself when it can't, and prints the literal `<unknown-sha>` rather
+# than nothing — a null `mergeCommit.oid` on a readback taken seconds after the merge. That string
+# is not a sha, so recover it before spending a poll on it; the helper would refuse it (exit 64),
+# which is the one case where it does NOT answer.
+case "$BASE_SHA" in
+  *[!0-9a-fA-F]*|"") BASE_SHA=$(gh pr view "$PR" --json mergeCommit --jq '.mergeCommit.oid // ""') ;;
+esac
+[ -n "$BASE_SHA" ] || echo "report: base unverified — the merge landed but no merge sha could be read"
+
+base=$(skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" --timeout 240)
+base_verdict=$(printf '%s' "$base" | jq -r .verdict)              # green | red | unverified
+base_reason=$(printf '%s' "$base" | jq -r .reason)
+```
+
+**Give the call room, and treat a killed call as a non-verdict.** The helper waits for a run that
+takes minutes, so run this Bash call with a timeout comfortably above the `--timeout` you pass
+(300000 ms for the 240 s above) — the tool's own 120 s default would kill it mid-poll, and an empty
+`$base` satisfies none of the three branches below. If it *is* cut short, that is
+`base unverified at <sha> — the wait was cut short`, not a missing line and not a green.
+
+
+**By the sha, never by recency.** `gh run list --branch main` answers "the newest run on the branch",
+which under a merge train — the ordinary `auto-dev` shape — is routinely a *sibling* merge's run
+landing seconds later. That would blame this merge for someone else's red, and hide this merge's red
+behind someone else's green. The helper asks the check-runs endpoint, which is keyed on the sha by
+construction, and delegates the rules to the registered `ci.verdict` decision rather than growing a
+second CI reader. The resolution recipe lives beside §3's in `references/merge-mechanics.md`; the
+`gh run list` trap is pinned red by `tests/merge-base-ci/test.sh`.
+
+Then act on `$base_verdict` — three outcomes, and all three are reported:
+
+- **`green`** → nothing to do. Continue to Step 6 unchanged.
+- **`red`** → the merge is done and **is not being reverted**. File it once, as a `bug`, through the
+  same `create-issue` inlet Step 6 already uses, carrying the base sha, the run URL, this PR and its
+  issue, and the failing job names from `.runs`. **Fold on the breakage, not on the sha.** A sibling
+  merge in the train produces a *different* squash sha and inherits the same red, so a sha-keyed
+  search never matches and three workers file three bugs for one root cause: look instead for an
+  open bug about the base branch failing **the same job(s)**, and if one exists add your sha, run
+  URL and PR to it as a comment. Then continue to Step 6; the merge itself is not in question.
+- **`unverified`** → say so, in those words. `$base_reason` names which silence it was: the run was
+  cancelled by the next merge in the train, the base runs no CI on push, the bound expired, or the
+  query never answered. **This is the step working, not failing** — a non-verdict reported is exactly
+  what nobody had on 2026-08-30.
+
+⛔ **Never revert.** The red may be *inherited* from a merge seconds earlier, and an autonomous revert
+of somebody else's change is a strictly worse failure than a filed bug. Report and file.
+
+⛔ **Never stop here either.** This step cannot block the merge — the merge already happened — and
+adding a post-merge stop would hand an autonomous fleet a brand-new way to strand a slot on work that
+succeeded. Its worst case is a stated non-verdict, which is why the helper exits `0` on every outcome.
+
 ## Step 6 — Triage follow-ups, then file what earns an issue
 
 Landing a PR often leaves a tail of "not now, but worth doing" work. Gather it from three sources
@@ -638,6 +709,7 @@ failure exits 1 with the API error on stderr; report that, don't swallow it (ref
 Short and concrete:
 - The merged PR — URL and confirmation it's `MERGED` (with the squash commit sha); the branch it closed.
 - **Corrections applied** — one line each: red checks fixed, conflicts resolved (clean, or the merge commit's `Conflicts:` block verbatim), review addressed. "None needed — merged clean" is a fine report. A non-zero `gh pr merge` exit whose readback said `MERGED` is **not** a correction and not a failed merge — it is local cleanup gh couldn't do and Step 7 then did, so it belongs in the Cleanup bullet, not reported as an outstanding deferral.
+- **The base after your merge** — exactly one of `base green at <sha>` · `base RED at <sha> — filed #N` · `base unverified at <sha> — <why>`. Never omit it: an unqualified "MERGED ✅" with no base line is the regression Step 5b exists to prevent, and the third outcome is the step working rather than a failure of it.
 - **Deviation, if the Step 4 fallback ran** — the branch couldn't be pushed, so the merge verdict came from a local build/test against the merged tree rather than from CI. Name what was run and that the verdict is the agent's, not GitHub's.
 - **Follow-ups** — lead with the tally the filing bar produced (*"7 observations · 2 filed · 1 folded · 1 reopened · 3 recorded"*), then the detail: each new issue's title + URL, each one **folded** into an existing issue (`#N`), each **reopened** ancestor (`#N`), each recorded as a PR comment, or "none." If the 6d budget capped anything, say so and name the overflow issue. The tally is what lets the owner see whether the bar is calibrated — all-filed means it isn't being applied.
 - **Scope** — say plainly that the PR's own scope is complete. Findings are discovery, not unfinished business: a merge whose plan is ticked and whose CI is green is *done*, and the follow-up tally above is a separate fact about what was noticed along the way.

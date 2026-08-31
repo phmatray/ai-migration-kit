@@ -116,14 +116,30 @@ MUST_STAY_VISIBLE=".claude/skills/repo-profile.md"
 #
 # `-v` is used ONLY to name the source, never to decide — see the -q/-v note in the header. Its exit
 # status is not consulted here; `-q` has already ruled.
+#
+# `sed` rather than the `rev | cut -d: -f3- | rev` sandwich this used to spell — PORTABILITY, not
+# style, so do not reinstate it (#174). `rev` is util-linux and Git Bash does not ship it: the
+# pipeline produced nothing there, durability_note() took its "" branch, and a rule committed at
+# .gitignore:25 was reported as "rule source unknown", which is the caveat for the case this one is
+# meant to be distinguished FROM. `check-ignore -v` prints `<source>:<line>:<pattern>\t<path>`, so
+# `cut -f1` already isolates those three fields and the `sed` drops the trailing `:<line>:<pattern>`
+# — exactly what the sandwich removed, including for a source path that itself contains colons (a
+# Windows `C:/…/excludesFile`), since only the LAST two are anchored off.
 rule_source() {
-  git -C "$REPO" check-ignore -v "$1" 2>/dev/null | head -1 | cut -f1 | rev | cut -d: -f3- | rev
+  git -C "$REPO" check-ignore -v "$1" 2>/dev/null | head -1 | cut -f1 | sed 's/:[^:]*:[^:]*$//'
 }
 durability_note() {
   local src="$1"
   case "$src" in
     "")   printf '  note: rule source unknown — treat "ignored" as unverified beyond this checkout.\n' ;;
-    /*)   printf '  note: the rule lives in %s (a global excludes file), not in this repo — it\n' "$src"
+    # A Windows absolute path — `C:/Users/…/.config/git/ignore`, or the backslash spelling — is
+    # the same answer as `/*`: an excludes file outside the repository. It gets its own arm because
+    # it does not start with `/`, so before #174 it fell through to the `*)` branch below and the
+    # guard told a Git Bash user to `commit` their global excludes file — on the one host this
+    # whole change exists to fix. Unreachable until rule_source() started returning anything there
+    # at all, which is exactly why it lands with the rev fix rather than after it.
+    /*|[A-Za-z]:/*|[A-Za-z]:\\*)
+          printf '  note: the rule lives in %s (a global excludes file), not in this repo — it\n' "$src"
           printf '        protects this machine only; teammates and CI still stage the worktree.\n' ;;
     .git/*) printf '  note: the rule lives in %s, which is NOT committed — it protects this\n' "$src"
           printf '        checkout only; teammates and CI still stage the worktree.\n' ;;

@@ -279,6 +279,54 @@ branches to be up to date before merging. Without that rule a stale branch repor
 check-runs recipe above still calls the head SHA green — correctly, and misleadingly, since the base
 it was green against no longer exists.
 
+### The base's own run, after the merge (SKILL.md Step 5b, #355)
+
+Everything above points **backwards**, at the branch. The half-second after the merge is the other
+direction: the merge commit is on the base, CI starts on it, and the only agent that still knows
+which change to blame is this one. `dce7d5b` and `f17c85c` (2026-08-30) are what happens when it
+walks away first — see SKILL.md Step 5b for the incident.
+
+The recipe is the **same check-runs query as above**, asked about the squash sha instead of the head
+sha, and fed to the same registered decision. It is not restated here — it is packaged, because a
+post-merge caller also has to poll and has to map four pre-merge words onto a post-merge report:
+
+```bash
+# guarded-pr-merge.sh prints `MERGED <sha>` on exit 0; that sha is the whole input.
+skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" \
+  [--timeout <s>] [--poll-seconds <s>] [--settle <s>] [-R <owner/repo>]
+# -> {"verdict":"green|red|unverified","reason":"<slug>","sha":"<sha>","runs":[{name,html_url,state}]}
+#    exit 0 on every outcome; exit 64 only for a usage error
+```
+
+Three things about it are load-bearing, and each is pinned by `tests/merge-base-ci/test.sh`:
+
+- **It resolves by sha.** `gh run list --branch "$BASE"` would answer with whatever ran most
+  recently, and under a merge train that is a sibling merge's run seconds later. The check-runs
+  endpoint is keyed on the sha by construction, which is why §3's query is the one reused rather
+  than a new `run list` call. The suite arms a deliberately wrong `gh run list` answer, so a rewrite
+  that reaches for one goes red instead of quietly attributing the wrong change.
+- **It reuses `ci.verdict`, and adds no second rule set.** The per-job reduction (#91) is precisely
+  what the merge-train case needs: three `kit` runs on one sha, only the newest votes. `decide.sh`
+  extracts that program from the marked block above, so there is one home for it and no drift (#208).
+- **A cancelled latest run is a non-verdict, not a pass and not a breakage.** `ci.verdict` files
+  `cancelled` under `.failed` because pre-merge it is a reason not to merge; post-merge the merge has
+  already landed and a cancelled run recorded nothing about it. The helper is where those two
+  meanings are separated — the shared decision is not taught a caller-specific one. `cancel-in-progress`
+  (#27/#29) makes this the *routine* outcome under a fleet, not an edge case, which is why an
+  `unverified` has to reach the report rather than being smoothed into a success.
+
+- **Neither `clear` nor `no-ci` is answered on the first reading.** This runs seconds after
+  `gh pr merge` returned, and GitHub posts check-runs on its own schedule, so the first reading of a
+  healthy merge is routinely *nothing yet* (`no-ci`, indistinguishable from a base with no CI) or
+  *only the fast jobs* (`clear`, indistinguishable from a green graph). `no-ci` is retried until
+  `--settle` expires (default 90 s, clamped to `--timeout`); `clear` is taken only once the reduced
+  job set matches the previous poll's — the same "wait one poll interval and re-derive" argument §3
+  makes for the pre-merge gate, where the window is narrower than it is here. `failed` is answered
+  at once: a job that failed does not become un-failed when a later job posts.
+
+A timeout is `unverified`, never `red`: reporting a slow run as a breakage would file bugs against
+healthy merges. And nothing in this path writes anything — no revert, no re-run, no branch touched.
+
 ---
 
 ## 4. The merge-state decision (SKILL.md Step 4)

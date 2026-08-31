@@ -1,17 +1,13 @@
 ---
 name: create-issue
 description: >-
-  Create a fully-seeded GitHub issue — don't settle for a bare `gh issue create`. Files a
-  template-compliant issue whose DESCRIPTION carries a brainstorm → spec → implementation-plan
-  trail (via the superpowers skills), turning a one-line idea into something a contributor can pick
-  up cold. ALWAYS reach for this whenever the user wants to open, file, add, raise, create, log, or
-  track a NEW issue / feature request / idea / ticket / backlog item — including loose phrasings
-  like "track this idea", "add an issue for X", "make a ticket", « ouvre une issue pour X »,
-  « crée un ticket pour ça », and batches of several ideas at once. Use it even though you could
-  file the issue yourself with `gh` — the whole point is the seeded brainstorm/spec/plan. Also
-  PLANS AN EXISTING raw issue in place via `--seed #N` ("give issue 42 a plan", "seed #42"). Does
-  NOT apply to otherwise managing existing issues (commenting, closing, listing), or to standalone
-  brainstorming/planning when there's no issue to file.
+  Create a fully-seeded GitHub issue — not a bare `gh issue create`: template-compliant, carrying a
+  brainstorm → spec → implementation-plan trail so a contributor can pick it up cold. ALWAYS reach
+  for this whenever the user wants to open, file, add, raise, log, or track a NEW issue / feature
+  request / idea / ticket / backlog item — "track this idea", "make a ticket", « ouvre une issue
+  pour X », « crée un ticket pour ça », or batches of several ideas at once. Also PLANS AN EXISTING
+  raw issue via `--seed #N` ("give issue 42 a plan"). Does NOT apply to otherwise managing existing
+  issues (commenting, closing, listing), or to standalone brainstorming with no issue to file.
 license: MIT
 compatibility: >-
   Requires an authenticated gh CLI and the superpowers skills (brainstorming, writing-plans).

@@ -166,7 +166,68 @@ Specificity is *real*, not just "nothing fired": each near-miss negative fires t
 skill (e.g. `implement issue 47` → `implement-issue`, `file an issue …` → `create-issue`,
 `set up the repo profile` → `get-repo-profile`), recorded in each result's `fired` histogram.
 
+## The description budget (#323)
+
+A `description` is **always-loaded** context: every session with the plugin installed pays for all
+ten on every turn, whether or not a skill fires. That makes it the one piece of a skill that earns
+harder pruning than its body — and the reason `tests/skills/check-frontmatter.py` prints
+
+```
+WARN <skill>: description is N characters — over the 700-char soft ceiling (#323)
+```
+
+above **750** characters, exit code unchanged. The guide's 1024 stays the hard error; 750 is the
+tripwire far enough below it that accretion is visible while it is still a sentence.
+
+**Cut rules** (the pointer-writing discipline of `mattpocock/skills` `productivity/writing-for-agents`,
+MIT — ported from mattpocock/skills):
+
+1. Lead with the trigger, not the identity — *"Land an open GitHub pull request …"*, not *"the
+   'ship it' counterpart to implement-issue"*. The body already carries the identity, and the body
+   is not loaded until the skill fires.
+2. **One trigger phrase per branch**, one FR form per branch. Seven synonyms for *file an issue* are
+   one branch written seven times.
+3. Cut examples that restate a branch already named in the same sentence.
+4. Keep, always: every distinct trigger branch, every `« … »` French form, the *"Does NOT apply"*
+   clause — that clause is what the eval sets' **negatives** lean on, so shortening it is how
+   specificity silently reopens — and every phrase an eval query pins **verbatim** with no other
+   anchor in the text. Rule 2 folds *synonyms*; a phrase a query names exactly is not a synonym.
+   `setup-repo`'s `"turn on auto-delete merged branches"` is the worked example: the settings
+   parenthetical says `delete-branch-on-merge`, which is the API's name for it and not the user's.
+
+**Measured on 2026-08-31** (#323), whitespace-normalised, the same count the checker uses:
+
+| | before | after |
+|---|---:|---:|
+| Total across the ten skills | 8,518 | 6,645 |
+| Largest single description | 1,018 (`auto-dev`) | 745 (`triage-backlog`) |
+| Over the 750 soft ceiling | 7 | 0 |
+
+`systematic-debugging` is the one that **grew** (513 → 593): it was the only skill with no French
+trigger form, though its eval set carries two French positives, so it gained them here.
+
+**What the cut removed, precisely.** Not "nothing" — the honest list is: identity the body already
+carries (*"the 'ship it' counterpart to `implement-issue`"*), per-step mechanism the body already
+carries, and synonyms restating a branch named in the same sentence (`create-issue`'s seven verbs
+for *file an issue* became five; `get-repo-profile` stopped enumerating every section of the profile
+it writes). No French form, no *"Does NOT apply"* clause and no verbatim eval-query phrase was
+dropped — four that had been were restored in review (`« suivis »`, `"next steps"`,
+`"turn on auto-delete merged branches"`, `"regenerate the profile"`, `"clean up the open issues"`).
+
+⚠️ **The cuts are NOT bench-proven.** Conservative is an argument, not a measurement. Before the next
+release, run `python3 evals/run_all.py --runs-per-query 3` and compare every skill against
+[`results/baseline.json`](results/baseline.json); the `implement-issue` ↔ `merge-pr` boundary run
+must stay 6/6 each. Only once that passes is the ceiling worth tightening toward the ~450 #323 aimed
+at — a limit below what the bench has cleared teaches a reader to ignore a standing warning.
+
 ## The `implement-issue` ↔ `merge-pr` boundary (#370)
+
+> ⚠️ **Measured against the pre-#323 descriptions.** Both `implement-issue` and `merge-pr` were
+> rewritten by #323, which could not re-run the bench. The 3/3 figures and the "no follow-up needed"
+> verdict below therefore describe the *previous* text; the in-flight/land-now wording they turn on
+> was kept deliberately (`IN-FLIGHT … while it is still being built` vs `STILL BEING BUILT
+> (implement-issue)`), but that is an argument, not a re-measurement. Re-run the boundary set before
+> quoting these numbers as current.
 
 The deliberately-close boundary #370's description edits targeted — sync an **in-flight** PR
 (→ `implement-issue`) vs sync **as part of landing** (→ `merge-pr`) — is measured by
