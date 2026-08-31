@@ -170,6 +170,16 @@ jobs:
       - name: Every registered decision is single-homed, invoked, and unrestated by prose
         run: python3 scripts/decision-check.py
 
+      # The same family again, applied to the kit's user-facing ending (#175). Every skill closes
+      # with the shared recap shape in skills/_shared/recap.md, and the "what do I run next" line
+      # comes from that file's hand-off table — which ARCHITECTURE.md's dashed edges must match
+      # exactly. Before this, the chain was documented twice (prose in the skills, dashed edges in
+      # the graph) and checked zero times, so a skill with no hand-off looked exactly like a skill
+      # that has none. Cheap, structural, pure stdlib Python — it sits with the other fast gates;
+      # its golden test runs below with the suites.
+      - name: Every skill closes with the shared recap, and the hand-off table matches the graph
+        run: python3 scripts/recap-wiring-check.py
+
       # Ten suites now get their EXIT trap from tests/_lib.sh (#72), so a bug in that handler would
       # silently weaken all of them at once — the `local rc=$?`-first invariant is the difference
       # between a failing suite reporting failure and reporting success. It sits AHEAD of every
@@ -218,6 +228,13 @@ jobs:
       # so it sits after that helper's own test, like the two golden tests above it.
       - name: Pinned-literals golden test (an unmarked copy refuses; a historical one is left alone)
         run: ./tests/pinned-literals/test.sh
+
+      # …and the recap-wiring guard gets what it enforces: a golden test over every refusal path,
+      # including the two that must come back as exit 2 rather than 1 (a missing reference, an empty
+      # table) — an absent verdict is neither a pass nor a refusal. Sources tests/_lib.sh, so it
+      # sits with the golden tests rather than beside its gate above.
+      - name: Recap-wiring guard golden test (refusal paths, and 'no verdict' kept distinct)
+        run: ./tests/recap-wiring/test.sh
 
       - name: Fixture LegacyShop — build + tests (must stay green AND legacy)
         run: dotnet test samples/LegacyShop --nologo

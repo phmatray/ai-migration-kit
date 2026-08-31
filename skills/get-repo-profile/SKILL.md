@@ -66,3 +66,19 @@ blank. Stop only for a real blocker: not inside a git repo (nothing to profile �
   TODO answers you can still see in the current file).
 - A path argument — profile a repo other than the current directory (pass it as the `[dir]` arg to the
   script: `repo-profile.sh show /path/to/repo`).
+
+## Recap
+
+Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
+blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
+`None` is a required answer rather than an omission) and the **Next** line, which is read off this
+skill's row in that file's hand-off table instead of being decided again here. Everything below is
+only what **get-repo-profile** adds on top of them.
+
+- Say which path ran — `show` read a committed profile back, or the generation path wrote one. They
+  produce very different confidence, and the caller cannot tell them apart from the file alone.
+- Every `<!-- TODO: … -->` placeholder you left goes in **Assumed · skipped · unverified**, by name.
+  An honest TODO is the whole point of the degraded generation path; an unmentioned one is a wrong
+  value waiting to be trusted.
+- Relay the headline facts (default branch, build/test commands, commit identity) in **What
+  happened** — the lifecycle skills act on those, and a wrong one is worse than a flagged blank.

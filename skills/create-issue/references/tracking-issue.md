@@ -125,7 +125,7 @@ sub-issues API.
 ## Refer by name, then number
 
 Every parent and child is an issue, so it has a **name**: its title. In everything a human reads —
-the Step 8 report, *Decisions so far*, the `**Blocked by:**` line of a child — refer to it by that
+the Step 8 recap, *Decisions so far*, the `**Blocked by:**` line of a child — refer to it by that
 name **with the number in parentheses** or as the link text's target: **Wire-edges script** (#412),
 never a bare `#412`. A wall of `#410, #411, #412` is illegible; names read at a glance, and the number
 rides inside so the link still works. The one place the bare number is the point is a command

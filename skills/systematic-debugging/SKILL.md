@@ -193,3 +193,20 @@ Be honest with yourself here, though: most "there's no root cause" conclusions a
 ## Why this pays off
 
 Guessing feels faster because the first edit is quick. But each unconfirmed change adds a variable instead of removing the broken one, so failed guesses compound — and a symptom patch leaves the real bug to resurface later, usually at a worse time. Finding the cause first is what makes a fix stick, keeps it from spawning new bugs, and leaves the code better understood than before. Done right, the bug doesn't come back and similar bugs get easier to spot.
+
+## Recap
+
+Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
+blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
+`None` is a required answer rather than an omission) and the **Next** line, which is read off this
+skill's row in that file's hand-off table instead of being decided again here. Everything below is
+only what **systematic-debugging** adds on top of them.
+
+- **What happened** names the root cause and the *red-capable command you already ran* that proves
+  it — phase 1's own "done when". A recap that describes the symptom instead has not finished
+  phase 1.
+- Hypotheses you refuted belong in **What happened** too, not in **Assumed · skipped ·
+  unverified**: a refuted hypothesis is a result that narrows the next search. What goes in the
+  third block is what you could not test and why.
+- This skill is terminal — its **Next** is `—`. It returns to whatever called it, carrying the cause
+  rather than a fix decision.
