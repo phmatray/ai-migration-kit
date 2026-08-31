@@ -2084,12 +2084,22 @@ PY
 #     So volume is replaced with an explicit handshake: the writer emits one matching line, waits
 #     for PROOF the reader has already exited (a filesystem marker — not a pid or a second pipe;
 #     the reader's pid isn't knowable from inside a plain pipeline, and a second pipe used to
-#     signal would have the same EPIPE problem this test is about), and only then writes again.
-#     That second write is strictly after the reader is gone, so it cannot do anything but hit a
-#     closed pipe — deterministic on every host and load. Same harness, same fixture, after this
-#     change: 0/500 idle, 0/500 saturated. tests/_lib.sh (first_match/any_match) is untouched by
-#     any of this — this is the negative control only, and _lib.sh is a documented conflict
-#     hot-spot.
+#     signal would have the same EPIPE problem this test is about), and only then writes once
+#     more. Same harness, same fixture, after this change: 0/500 idle, 0/500 saturated, and a
+#     12-run loop of the whole suite under concurrent load also came back 0/12. Two more
+#     ordering gaps surfaced past that measurement and are closed here too (#335, code review):
+#     (1) the reader used to remove the marker BEFORE closing its own copy of the pipe's read
+#     end, so "marker gone" briefly meant "about to be closed", not "closed" — the writer could
+#     occasionally win that race and land its write in the pipe buffer instead of hitting EPIPE
+#     (reproduced 74/300 with a tight poll); the reader now closes its fd (`exec 0<&-`) BEFORE
+#     removing the marker, so "gone" is never observed early. (2) a broken-pipe write from a
+#     bash builtin does not reliably kill the process the way it kills an external program like
+#     `find` — measured true on this repo's own aarch64 host, measured FALSE on GitHub Actions'
+#     ubuntu runner, which reports "write error: Broken pipe" per attempt and keeps going; the
+#     writer now explicitly ignores SIGPIPE (`trap '' PIPE`) and checks printf's own exit status,
+#     so every host takes the same code path instead of one host's default masking the failure.
+#     tests/_lib.sh (first_match/any_match) is untouched by any of this — this is the negative
+#     control only, and _lib.sh is a documented conflict hot-spot.
 # ---------------------------------------------------------------------------
 sigpipe_dir="$scratch/sigpipe-probe"
 mkdir -p "$sigpipe_dir"
@@ -2109,60 +2119,79 @@ if [ "$created" -lt 2000 ]; then
   exit 1
 fi
 
-# kit_wait_gone <marker-path> [timeout-seconds] — polls until <marker-path> no longer exists;
-# returns 0 once gone, non-zero on timeout. Bounded so a hang in the harness (the reader somehow
-# never exiting) cannot spin forever (#135's shape: an unbounded read-back turns a bug into a
-# hang). Defined here, not in tests/_lib.sh: this is section 10's only caller, and _lib.sh is a
-# documented conflict hot-spot. bash 3.2-safe: no `[[ ]]`, no arrays, no `wait -n`.
+# kit_wait_gone <marker-path> <timeout-seconds> — polls (every $alive_poll_ms) until
+# <marker-path> no longer exists; returns 0 once gone, non-zero on timeout. Bounded so a hang in
+# the harness (the reader somehow never exiting) cannot spin forever (#135's shape: an unbounded
+# read-back turns a bug into a hang). Defined here, not in tests/_lib.sh: this is section 10's
+# only caller, and _lib.sh is a documented conflict hot-spot. bash 3.2-safe: no `[[ ]]`, no
+# arrays, no `wait -n`. The timeout is REQUIRED (no default) so the one caller and its FAIL
+# message can share a single literal instead of three copies drifting apart.
 kit_wait_gone() {
   local marker_path="$1"
-  local marker_timeout="${2:-5}"
+  local marker_timeout_s="$2"
+  local poll_ms="$alive_poll_ms"
   local elapsed_ms=0
-  local timeout_ms=$((marker_timeout * 1000))
+  local timeout_ms=$((marker_timeout_s * 1000))
   while [ -e "$marker_path" ]; do
     if [ "$elapsed_ms" -ge "$timeout_ms" ]; then
       return 1
     fi
-    sleep 0.05
-    elapsed_ms=$((elapsed_ms + 50))
+    sleep "$(printf '0.%03d' "$poll_ms")"
+    elapsed_ms=$((elapsed_ms + poll_ms))
   done
   return 0
 }
 
-# The negative control itself: order the reader's exit before the writer's remaining writes
-# instead of hoping volume makes it likely (measured rates in the comment block above). The reader
-# stage keeps `grep -q .` verbatim and preserves ITS OWN status via `exit "$_rc"`, so pipefail still
-# promotes the reader's 0 against the writer's non-zero — #48's exact shape. The writer signals a
-# timeout with a sentinel status (99) distinct from both the reader's 0 and a real SIGPIPE/EPIPE, so
-# the two failure modes below get two different diagnoses instead of sharing one.
+# The negative control itself: order the reader's exit before the writer's remaining write
+# instead of hoping volume makes it likely (measured rates in the comment block above). The
+# ordering guarantee is the READER CLOSING ITS PIPE FD BEFORE removing the marker — closing first
+# (#335 review finding): the marker is the writer's only signal, so if it were removed BEFORE the
+# fd is closed, the writer could observe "gone" and still write into a pipe whose read end remains
+# technically open for the instant between the two, occasionally landing in the buffer instead of
+# hitting a closed pipe (measured: 74/300 under load with a tight poll). Closing first makes
+# "marker gone" imply "fd already closed", not just "probably about to be". The reader stage keeps
+# `grep -q .` verbatim and preserves ITS OWN status via `exit "$_rc"`, so pipefail still promotes
+# the reader's 0 against the writer's non-zero — #48's exact shape. The writer signals a timeout
+# with a sentinel status (99) distinct from both the reader's 0 and a real SIGPIPE/EPIPE, so the
+# two failure modes below get two different diagnoses instead of sharing one.
 alive="$scratch/sigpipe-reader-alive"
+alive_poll_ms=50
+alive_timeout_s=5
 : > "$alive"
 set +e
 {
+  # SIGPIPE is ignored HERE, deliberately: whether a broken-pipe write terminates a bash builtin
+  # via the signal, or merely fails and returns, is a host-dependent default (measured, #335: a
+  # local aarch64 bash kills this subshell outright on the first bad write; GitHub Actions' ubuntu
+  # runner does NOT — printf reports "write error: Broken pipe" to stderr and the shell keeps
+  # going, so a design that assumed death-by-signal everywhere never went non-zero there and
+  # reported "fixture broken" on every CI run). Ignoring the signal makes every host take the SAME
+  # path: printf's own exit status, checked explicitly below, is what decides this — never process
+  # death, and never a multi-thousand-line retry loop papering over the difference.
+  trap '' PIPE
   printf '%s\n' "$sigpipe_dir/padded-so-the-listing-overruns-the-pipe-buffer-1.cobertura.xml"
-  if ! kit_wait_gone "$alive" 5; then
+  if ! kit_wait_gone "$alive" "$alive_timeout_s"; then
     exit 99
   fi
-  # Strictly after the reader has exited and closed its end — this write cannot succeed.
-  i=0
-  while [ "$i" -lt 5000 ]; do
-    printf 'line-%s\n' "$i"
-    i=$((i + 1))
-  done
-} | { grep -q .; _rc=$?; rm -f "$alive"; exit "$_rc"; }   # sigpipe-repro
+  # Strictly after the reader has closed its end — one write is enough (no volume needed once the
+  # order is real) and it cannot succeed; with SIGPIPE ignored above, "cannot succeed" always means
+  # "printf returns non-zero", not "bash dies".
+  printf 'line-after-reader-gone\n' 2>/dev/null || exit 1
+} | { grep -q .; _rc=$?; exec 0<&-; rm -f "$alive"; exit "$_rc"; }   # sigpipe-repro
 naive_rc=$?
 set -e
 if [ "$naive_rc" -eq 99 ]; then
   echo "FAIL: kit_wait_gone timed out waiting for the reader to exit (marker still present:"
-  echo "      $alive, 5s after the writer's first line). This is a hang in the harness, not the"
-  echo "      inversion #48 describes — the two diagnoses must not be confused."
+  echo "      $alive, ${alive_timeout_s}s after the writer's first line). This is a hang in the"
+  echo "      harness, not the inversion #48 describes — the two diagnoses must not be confused."
   exit 1
 fi
 if [ "$naive_rc" -eq 0 ]; then
   echo "FAIL: fixture broken — the ordered pipeline succeeded on a write issued strictly after the"
-  echo "      reader had already exited. It must report FAILURE there (141 for a shell writer"
-  echo "      killed by SIGPIPE, 1 for a stdio writer that catches EPIPE): that inversion is the"
-  echo "      whole defect of #48, and section 10 is not reproducing it."
+  echo "      reader had already closed its end. With SIGPIPE ignored and printf's own status"
+  echo "      checked explicitly, that write must report failure (naive_rc == 1, an EPIPE the"
+  echo "      writer itself caught): that inversion is the whole defect of #48, and section 10 is"
+  echo "      not reproducing it."
   exit 1
 fi
 
