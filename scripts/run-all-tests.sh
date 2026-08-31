@@ -85,6 +85,7 @@ add_suite "tests/lib/test.sh"
 add_suite "tests/py-module/test.sh"
 add_suite "tests/ci-wiring/test.sh"
 add_suite "tests/parse-sweep/test.sh"
+add_suite "tests/line-endings/test.sh"
 add_suite "tests/pinned-literals/test.sh"
 
 # 5: the frozen fixture — must stay green AND legacy. Skipped by --quick.

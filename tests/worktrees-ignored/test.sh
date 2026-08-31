@@ -369,4 +369,96 @@ spaced_phys=$(cd "$spaced" && pwd -P)
   echo "FAIL [recipe-space]: got '$(main_worktree "$spaced")', expected '$spaced_phys'"; exit 1; }
 echo "  ok: recipe — a path containing a space survives (the awk spelling truncates it)"
 
+# ------------------------------------------------- a host without `rev` (#174)
+
+# 24. rule_source() used to end `… | cut -f1 | rev | cut -d: -f3- | rev`, and `rev` is util-linux:
+#     Git Bash does not ship it. The pipeline then produced NOTHING, durability_note() took its ""
+#     branch, and a rule committed at .gitignore:25 was reported as "rule source unknown — treat
+#     'ignored' as unverified beyond this checkout" — the caveat meant for "we could not tell where
+#     the rule lives", on the one case it exists to distinguish from a global excludes file. It
+#     matters more than a cosmetic note because get-repo-profile WRITES that verdict down as a
+#     durable fact about the repository.
+#
+#     Reproduced on any host with a PATH-front shim whose `rev` exits 127, which is what the missing
+#     binary looks like from inside the script. Asserted as a PAIR: silence alone would also be what
+#     a rule_source() that returned nothing at all produces, so 24b requires the source to be NAMED
+#     under the same shim.
+#
+#     These two build their own repositories rather than calling scratch(): scratch() increments its
+#     counter inside a command substitution, so every case shares $WORK/r1 and inherits whatever the
+#     previous one committed or appended to .git/info/exclude. Harmless for the cases above, which
+#     only ever overwrite .gitignore — but 24a needs a repo where the commit is real and 24b needs
+#     one where .gitignore is genuinely empty, and neither can get that from a shared directory.
+revless_repo() {                                 # $1 = directory, $2 = .gitignore body (printf %b)
+  mkdir -p "$1"
+  git -C "$1" init -q -b main
+  git -C "$1" config user.email t@example.com
+  git -C "$1" config user.name "Golden Test"
+  printf '%b' "$2" > "$1/.gitignore"
+}
+
+shim="$WORK/rev-less"
+mkdir -p "$shim"
+# The shim prints on stderr as well as exiting 127: on a real rev-less host the message comes from
+# bash ("line 120: rev: command not found"), not from rev, and 24a asserts that it is gone.
+printf '%s\n' '#!/bin/sh' 'echo "rev: command not found" >&2' 'exit 127' > "$shim/rev"
+chmod +x "$shim/rev"
+rc=0; ( PATH="$shim:$PATH"; rev </dev/null >/dev/null 2>&1 ) || rc=$?
+[ "$rc" -eq 127 ] || { echo "FAIL [rev-less]: the shim does not simulate a missing rev (exit $rc)"; exit 1; }
+
+# 24a. The committed case, which is this repo's own and the one #174 measured wrong. A tracked
+#      .gitignore must carry NO durability note at all — case 21's assertion, under the shim.
+dir="$WORK/revless-committed"
+revless_repo "$dir" '.claude/worktrees/\n.worktrees/\n'
+git -C "$dir" add .gitignore
+git -C "$dir" commit -qm "ignore worktree homes"
+git -C "$dir" ls-files --error-unmatch .gitignore >/dev/null 2>&1 \
+  || { echo "FAIL [rev-less-committed]: fixture bug — .gitignore is not tracked"; exit 1; }
+# `|| rc=$?`, like verdict() does, and for the reason verdict() does it: under this file's
+# `set -euo pipefail` an unexpected non-zero exit here would abort the suite AT this line — no
+# FAIL line, no case 24b, and a reader left to work out from a bare exit code which case died.
+rc=0; out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [rev-less-committed]: the guard exited $rc on a correctly configured repo:"; echo "$out"; exit 1; }
+grep -qF 'rule source unknown' <<<"$out" \
+  && { echo "FAIL [rev-less-committed]: a committed rule was reported as unverified on a rev-less host:"; echo "$out"; exit 1; }
+grep -qF 'command not found' <<<"$out" \
+  && { echo "FAIL [rev-less-committed]: the guard still shells out to rev:"; echo "$out"; exit 1; }
+echo "  ok: rev-less-committed — a tracked rule carries no false 'unverified' caveat without rev"
+
+# 24b. The positive control. A machine-local rule must still be NAMED — if rule_source() merely
+#      returned empty more quietly, 24a would pass and the guard would have lost the distinction
+#      between "committed" and "this machine only" that callers write down.
+dir="$WORK/revless-local"
+revless_repo "$dir" ''
+printf '.claude/worktrees/\n.worktrees/\n' >> "$dir/.git/info/exclude"
+rc=0; out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [rev-less-local-exclude]: the guard exited $rc on an ignored repo:"; echo "$out"; exit 1; }
+grep -qF '.git/info/exclude' <<<"$out" \
+  || { echo "FAIL [rev-less-local-exclude]: the rule source is not named on a rev-less host:"; echo "$out"; exit 1; }
+echo "  ok: rev-less-local-exclude — the rule source is still named without rev"
+
+# 24c. The Windows spelling of 24b. `check-ignore -v` names a global excludes file exactly as
+#      core.excludesFile spells it, so on Git Bash the source comes back as `C:/Users/…/ignore` —
+#      no leading `/`, which is what durability_note()'s global-excludes arm used to match on. It
+#      fell through to the "not tracked by git … commit it" branch, telling the user to commit
+#      their global excludes file on the one host this change is for.
+#
+#      Reproducible here because git prints the configured path verbatim and a directory may be
+#      called `C:` on Linux — so the drive-letter SHAPE is testable without a Windows host, which
+#      is the whole trick this suite needs.
+dir="$WORK/revless-drive"
+revless_repo "$dir" ''
+mkdir -p "$dir/C:/fake"
+printf '.claude/worktrees/\n.worktrees/\n' > "$dir/C:/fake/ignore"
+git -C "$dir" config core.excludesFile "C:/fake/ignore"
+git -C "$dir" check-ignore -v .claude/worktrees/ | grep -q '^C:/fake/ignore:' \
+  || { echo "FAIL [drive-letter]: fixture bug — git did not report a drive-letter source"; exit 1; }
+rc=0; out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [drive-letter]: the guard exited $rc on an ignored repo:"; echo "$out"; exit 1; }
+grep -qF 'a global excludes file' <<<"$out" \
+  || { echo "FAIL [drive-letter]: a C:/ excludes file is not classified as a global one:"; echo "$out"; exit 1; }
+grep -qF 'commit it' <<<"$out" \
+  && { echo "FAIL [drive-letter]: the guard told the user to commit their global excludes file:"; echo "$out"; exit 1; }
+echo "  ok: drive-letter — a C:/ excludes file reads as global, not as an uncommitted repo file"
+
 echo "worktrees-ignored golden test OK"
