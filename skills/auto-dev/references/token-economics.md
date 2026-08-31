@@ -92,7 +92,7 @@ whose per-tier rows sum to exactly the worker line below:
 ⚠️ *This does not reconcile with the `19-merge run … 21 worker sessions, 863M tokens` headline
 quoted in `SKILL.md`'s Token economics.* That figure is a different scan of the same run and has
 never been reconciled with the 37-session per-tier rollup here — an inherited discrepancy, not one
-introduced by these numbers. Nothing below depends on which scan you take: the **33%** is a *dollar*
+introduced by these numbers, and tracked as #386. Nothing below depends on which scan you take: the **33%** is a *dollar*
 share ($212.65 of $639.85), and both sides of it come from the one scan tabulated here.
 
 One session, **33% of the run's list-equivalent cost** — more than the four top-tier worker sessions
