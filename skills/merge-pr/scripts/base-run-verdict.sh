@@ -50,6 +50,13 @@
 #                                               reporting it green is the regression #355 exists
 #                                               to prevent.
 #
+# NEITHER `clear` NOR `no-ci` IS ANSWERED ON THE FIRST READING, because this runs seconds after the
+# merge and GitHub posts check-runs on its own schedule. `no-ci` is indistinguishable from "nothing
+# posted yet", so it is retried until `--settle` (default 90s, clamped to `--timeout`) expires;
+# `clear` is indistinguishable from "only the fast jobs have posted", so it is accepted only once
+# the reduced JOB SET matches the previous poll's. §4 has the full argument. `failed` IS answered
+# immediately: a job that failed does not become un-failed when a later job posts.
+#
 # A TIMEOUT IS NOT A BREAKAGE. On expiry the answer is `unverified`, never `red`: a skill that
 # reported a slow run as a failure would file bugs against healthy merges. And an `unverified` is
 # not this script failing — it is this script working, and saying so.
@@ -72,7 +79,7 @@ set -euo pipefail
 TOOL="base-run-verdict"
 
 usage() {
-  echo "usage: $TOOL.sh [-R <owner/repo>] <base-sha> [--timeout <seconds>] [--poll-seconds <seconds>]" >&2
+  echo "usage: $TOOL.sh [-R <owner/repo>] <base-sha> [--timeout <s>] [--poll-seconds <s>] [--settle <s>]" >&2
 }
 refuse() { echo "$TOOL: $1" >&2; usage; exit 64; }
 
@@ -98,6 +105,7 @@ SHA=""
 REPO=""
 TIMEOUT=600
 POLL_SECONDS=15
+SETTLE=90
 
 is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
@@ -107,6 +115,7 @@ while [ $# -gt 0 ]; do
     -R|--repo)      REPO="${2:-}"; [ -n "$REPO" ] || refuse "-R needs an <owner/repo>"; shift 2 ;;
     --timeout)      TIMEOUT="${2:-}"; is_uint "$TIMEOUT" || refuse "--timeout needs a whole number of seconds, got '${2:-}'"; shift 2 ;;
     --poll-seconds) POLL_SECONDS="${2:-}"; is_uint "$POLL_SECONDS" || refuse "--poll-seconds needs a whole number of seconds, got '${2:-}'"; shift 2 ;;
+    --settle)       SETTLE="${2:-}"; is_uint "$SETTLE" || refuse "--settle needs a whole number of seconds, got '${2:-}'"; shift 2 ;;
     --)             shift ;;
     -*)             refuse "unexpected option: $1" ;;
     *)
@@ -144,15 +153,40 @@ answer() {
 
 # ------------------------------------------------------------------------------ 4. the poll loop
 #
-# `pending` is the only state worth waiting on. Everything else — a verdict, no CI at all, or a
-# query that will not answer — is settled by the deadline the same way: what is true at the
-# deadline is what gets reported.
+# This runs SECONDS after `gh pr merge` returned, which is the whole point and also the whole
+# difficulty: GitHub has not necessarily posted the push run's check-runs yet. Two races follow
+# from that, and both read as a clean answer if the first reading is trusted:
 #
-# SECONDS is bash's own monotonic-ish counter of elapsed seconds since the shell started, so the
-# deadline needs no `date` subprocess per poll and cannot be moved by a clock adjustment mid-run.
-deadline=$(( SECONDS + TIMEOUT ))
+#   * NOTHING POSTED YET looks exactly like A BASE WITH NO CI. `ci.verdict` answers `no-ci` to both,
+#     and answering on the first poll would make `unverified` the near-universal outcome — the
+#     600-second budget unused, and the step reporting a non-verdict for every healthy merge. So
+#     `no-ci` is RETRIED until the settle window expires; only then is it an answer. The window is
+#     what a base that genuinely runs no CI on push costs, once, and it is bounded.
+#   * A PARTIALLY-POSTED JOB GRAPH looks exactly like a green one. A fast job's check-run can exist
+#     and be `success` while a job behind a `needs:` chain has not posted at all, and the reduction
+#     — correctly — calls that set clear. SKILL.md §3 already makes this argument pre-merge ("wait
+#     one poll interval and re-derive"); post-merge the window is at its widest. So `clear` is
+#     accepted only once the reduced JOB SET is the same as the previous poll's. That costs one
+#     extra poll interval on a green base, not a settle window.
+#
+# `failed` is acted on immediately: a job that has genuinely failed does not become un-failed by a
+# later job posting, and making a red base wait would delay the one outcome that needs filing.
+#
+# SECONDS is bash's own count of elapsed seconds since the shell started, so the deadline needs no
+# `date` subprocess per poll and cannot be moved by a clock adjustment mid-run.
+# An `if`, not `[ … ] && …`: under `set -e` that AND-list exits the script whenever the test is
+# false, which is the ordinary case.
+if [ "$SETTLE" -gt "$TIMEOUT" ]; then SETTLE="$TIMEOUT"; fi
+start=$SECONDS
+deadline=$(( start + TIMEOUT ))
+settle_deadline=$(( start + SETTLE ))
 last_reason="timeout"
 verdict_json=""
+ci=""
+# Deliberately unmatchable: a first poll can never "agree" with a reading that does not exist, and
+# a failed poll resets to it so a gap in the readings cannot be read as two agreeing ones.
+NO_READING=$'\001none'
+prev_sig="$NO_READING"
 
 while :; do
   raw=""
@@ -163,6 +197,7 @@ while :; do
   raw=$(gh api "repos/$OWNER_REPO/commits/$SHA/check-runs" --paginate --slurp 2>/dev/null) || rc=$?
   if [ "$rc" -ne 0 ] || [ -z "$raw" ]; then
     last_reason="query-failed"
+    prev_sig="$NO_READING"
   else
     dec_rc=0
     # `decide.sh` extracts and runs the marked `ci.verdict` block from
@@ -174,12 +209,30 @@ while :; do
       # The decision refusing is not the base branch's fault either — same treatment as a failed
       # query: retry, and if the deadline arrives first, say which of the two it was.
       last_reason="decision-failed"
+      prev_sig="$NO_READING"
     else
       ci=$(printf '%s' "$verdict_json" | jq -r '.verdict // ""')
-      [ "$ci" = "pending" ] || break
-      last_reason="timeout"
+      # The reduced job set, order-independent: which jobs have posted, not what they say. That is
+      # the question "has the graph finished appearing?" and it is the only thing compared.
+      sig=$(printf '%s' "$verdict_json" | jq -r '[ .latest[].name ] | sort | join("\u0000")')
+      case "$ci" in
+        pending)
+          last_reason="timeout" ;;
+        no-ci)
+          if [ "$SECONDS" -ge "$settle_deadline" ]; then break; fi
+          last_reason="no-ci" ;;
+        clear)
+          if [ "$sig" = "$prev_sig" ]; then break; fi
+          last_reason="timeout" ;;
+        *)
+          break ;;
+      esac
+      prev_sig="$sig"
     fi
   fi
+  # Reached only while the answer is still "not yet". Every branch that HAS an answer has broken
+  # out above, so a clear or no-ci reading can never be lost to the deadline: SETTLE is clamped to
+  # TIMEOUT, so the settle window always expires first.
   [ "$SECONDS" -lt "$deadline" ] || answer unverified "$last_reason"
   # A zero poll interval is legitimate (the suites use it); `sleep 0` returns immediately.
   sleep "$POLL_SECONDS"

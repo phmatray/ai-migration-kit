@@ -948,6 +948,21 @@ mech="$KIT_ROOT/skills/merge-pr/references/merge-mechanics.md"
 grep -q -F -- 'base-run-verdict.sh' "$mech" \
   || { echo "FAIL: $mech carries no base-run resolution recipe"; exit 1; }
 echo "ok   merge-pr names Step 5b, the helper, and all three base outcomes in its report"
+# Three ways Step 5b could be written and still pass every check above, each found by review and
+# each producing a WRONG report rather than a missing one — so each gets its own witness:
+#   * `guarded-pr-merge.sh` prints the literal `<unknown-sha>` when its readback finds no
+#     mergeCommit.oid. That is not a hex sha, the helper refuses it (exit 64 — its one non-answer),
+#     and the snippet's three branches all fall through to nothing.
+#   * a merge train inherits one red across several DIFFERENT squash shas, so a sha-keyed
+#     de-duplication never matches and N workers file N bugs for one root cause.
+#   * the resume path (`state == MERGED` on entry) has no $MERGE_OUT to read a sha from, and
+#     `auto-dev` now reads a BASE: field off exactly the report line that path produces.
+for needle in 'mergeCommit' 'the same job(s)' 'resumed after the merge'; do
+  grep -q -F -- "$needle" "$skill" \
+    || { echo "FAIL: $skill Step 5b lost its guard for '$needle'"; exit 1; }
+done
+echo "ok   Step 5b guards the unknown-sha sentinel, folds on the breakage, and survives a resume"
+
 
 # The fleet inherits Step 5b through its workers, so the answer has to survive the report boundary:
 # a phase-2 worker that folds "the base went red" into free-text DETAIL is indistinguishable, on the

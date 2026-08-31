@@ -292,7 +292,8 @@ post-merge caller also has to poll and has to map four pre-merge words onto a po
 
 ```bash
 # guarded-pr-merge.sh prints `MERGED <sha>` on exit 0; that sha is the whole input.
-skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" [--timeout <seconds>] [-R <owner/repo>]
+skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" \
+  [--timeout <s>] [--poll-seconds <s>] [--settle <s>] [-R <owner/repo>]
 # -> {"verdict":"green|red|unverified","reason":"<slug>","sha":"<sha>","runs":[{name,html_url,state}]}
 #    exit 0 on every outcome; exit 64 only for a usage error
 ```
@@ -313,6 +314,15 @@ Three things about it are load-bearing, and each is pinned by `tests/merge-base-
   meanings are separated — the shared decision is not taught a caller-specific one. `cancel-in-progress`
   (#27/#29) makes this the *routine* outcome under a fleet, not an edge case, which is why an
   `unverified` has to reach the report rather than being smoothed into a success.
+
+- **Neither `clear` nor `no-ci` is answered on the first reading.** This runs seconds after
+  `gh pr merge` returned, and GitHub posts check-runs on its own schedule, so the first reading of a
+  healthy merge is routinely *nothing yet* (`no-ci`, indistinguishable from a base with no CI) or
+  *only the fast jobs* (`clear`, indistinguishable from a green graph). `no-ci` is retried until
+  `--settle` expires (default 90 s, clamped to `--timeout`); `clear` is taken only once the reduced
+  job set matches the previous poll's — the same "wait one poll interval and re-derive" argument §3
+  makes for the pre-merge gate, where the window is narrower than it is here. `failed` is answered
+  at once: a job that failed does not become un-failed when a later job posts.
 
 A timeout is `unverified`, never `red`: reporting a slow run as a breakage would file bugs against
 healthy merges. And nothing in this path writes anything — no revert, no re-run, no branch touched.

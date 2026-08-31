@@ -74,7 +74,8 @@ Create a task per item and work them in order. Step 4 is a loop — repeat until
 7. **Delete the local branch & worktree** — from the main checkout, remove the PR's worktree and local branch.
 8. **Report** — merged PR URL, corrections applied, follow-ups filed, cleanup done.
 
-Resume-safe: re-running mid-flight is fine. If the PR is already merged, skip to Steps 6–7. If the
+Resume-safe: re-running mid-flight is fine. If the PR is already merged, skip to Step 5b (recover
+the sha from `gh pr view --json mergeCommit`) and then Steps 6–7. If the
 **local** worktree/branch is already gone, skip Step 7's local cleanup — but still run its remote
 check (`remote-branch-teardown.sh`): the local branch being gone says nothing about whether
 `origin/<headRefName>` survived (#185), and skipping Step 7 outright on a resume is exactly how
@@ -103,7 +104,7 @@ gh pr view "$PR" --json number,title,state,isDraft,mergeable,mergeStateStatus,re
   --jq '{number,title,state,isDraft,mergeable,mergeStateStatus,reviewDecision,head:.headRefName,base:.baseRefName,url}'
 ```
 
-- `state != OPEN` → if `MERGED`, skip to Steps 6–7 (follow-ups + cleanup); if `CLOSED` (not merged), stop and ask — merging a deliberately closed PR is not a safe default.
+- `state != OPEN` → if `MERGED`, skip to Step 5b and then Steps 6–7 (follow-ups + cleanup). There is no `$MERGE_OUT` on this path, so take the sha from `gh pr view "$PR" --json mergeCommit --jq .mergeCommit.oid`; if that is empty, or the run has aged out of the check-runs history, the answer is `base unverified at <sha> — resumed after the merge`. Report that rather than omitting the line: Step 8 requires one, and `auto-dev` reads it off the report line as `BASE:`, where a blank is indistinguishable from the silence Step 5b exists to end. If `CLOSED` (not merged), stop and ask — merging a deliberately closed PR is not a safe default.
 - `isDraft == true` → the user asked to *merge* it, so the flag is almost always stale. Mark ready (`gh pr ready "$PR"`), note the assumption, continue. (If genuinely unfinished, the CI/corrections loop surfaces it.)
 - Capture **`headRefName`** (branch) and **`baseRefName`** (normally `main`) — Steps 2, 4, 7 key off the branch name.
 
@@ -533,10 +534,27 @@ call's own stdout, which is `MERGED <sha>`:
 
 ```bash
 BASE_SHA=$(printf '%s' "$MERGE_OUT" | awk '$1 == "MERGED" { print $2 }')
-base=$(skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA")   # always exits 0, always one JSON object
+
+# The guard reads the sha back itself when it can't, and prints the literal `<unknown-sha>` rather
+# than nothing — a null `mergeCommit.oid` on a readback taken seconds after the merge. That string
+# is not a sha, so recover it before spending a poll on it; the helper would refuse it (exit 64),
+# which is the one case where it does NOT answer.
+case "$BASE_SHA" in
+  *[!0-9a-fA-F]*|"") BASE_SHA=$(gh pr view "$PR" --json mergeCommit --jq '.mergeCommit.oid // ""') ;;
+esac
+[ -n "$BASE_SHA" ] || echo "report: base unverified — the merge landed but no merge sha could be read"
+
+base=$(skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" --timeout 240)
 base_verdict=$(printf '%s' "$base" | jq -r .verdict)              # green | red | unverified
 base_reason=$(printf '%s' "$base" | jq -r .reason)
 ```
+
+**Give the call room, and treat a killed call as a non-verdict.** The helper waits for a run that
+takes minutes, so run this Bash call with a timeout comfortably above the `--timeout` you pass
+(300000 ms for the 240 s above) — the tool's own 120 s default would kill it mid-poll, and an empty
+`$base` satisfies none of the three branches below. If it *is* cut short, that is
+`base unverified at <sha> — the wait was cut short`, not a missing line and not a green.
+
 
 **By the sha, never by recency.** `gh run list --branch main` answers "the newest run on the branch",
 which under a merge train — the ordinary `auto-dev` shape — is routinely a *sibling* merge's run
@@ -551,9 +569,11 @@ Then act on `$base_verdict` — three outcomes, and all three are reported:
 - **`green`** → nothing to do. Continue to Step 6 unchanged.
 - **`red`** → the merge is done and **is not being reverted**. File it once, as a `bug`, through the
   same `create-issue` inlet Step 6 already uses, carrying the base sha, the run URL, this PR and its
-  issue, and the failing job names from `.runs`. If a bug for **the same base sha** already exists —
-  a sibling merge in the train got there first — fold onto it as a comment instead of filing a
-  duplicate. Then continue to Step 6; the merge itself is not in question.
+  issue, and the failing job names from `.runs`. **Fold on the breakage, not on the sha.** A sibling
+  merge in the train produces a *different* squash sha and inherits the same red, so a sha-keyed
+  search never matches and three workers file three bugs for one root cause: look instead for an
+  open bug about the base branch failing **the same job(s)**, and if one exists add your sha, run
+  URL and PR to it as a comment. Then continue to Step 6; the merge itself is not in question.
 - **`unverified`** → say so, in those words. `$base_reason` names which silence it was: the run was
   cancelled by the next merge in the train, the base runs no CI on push, the bound expired, or the
   query never answered. **This is the step working, not failing** — a non-verdict reported is exactly

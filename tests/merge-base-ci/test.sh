@@ -206,7 +206,7 @@ reset_case by-sha
 SHA=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
 arm "$SHA" "$(page "$(run_obj kit 501 success)" "$(run_obj title-gate 502 success)")"
 arm "$SIBLING_SHA" "$(page "$(run_obj kit 601 failure)")"
-v=$(verdict_of "$SHA")
+v=$(verdict_of "$SHA" --timeout 60 --poll-seconds 0)
 expect_verdict by-sha green "$v"
 grep -qF "commits/$SHA/check-runs" "$GH_CALL_LOG" || {
   echo "FAIL [by-sha]: the helper never asked the check-runs endpoint about $SHA:"
@@ -227,7 +227,7 @@ SHA=c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3
 arm "$SHA" "$(page "$(run_obj kit 701 failure)")"
 arm "$SIBLING_SHA" "$(page "$(run_obj kit 702 success)")"
 export RUN_LIST_TRAP='[{"databaseId":33346400000,"headSha":"'"$SIBLING_SHA"'","conclusion":"success","status":"completed","name":"kit","url":"https://github.invalid/run/33346400000"}]'
-v=$(verdict_of "$SHA")
+v=$(verdict_of "$SHA" --timeout 60 --poll-seconds 0)
 expect_verdict sibling-refused red "$v"
 printf '%s' "$v" | jq -e '.runs | map(select(.state == "failure")) | length == 1' > /dev/null || {
   echo "FAIL [sibling-refused]: the failing job is not named in .runs — a filed bug needs it:"
@@ -279,7 +279,7 @@ echo "  ok: cancelled-only — a sha whose only run was cancelled is unverified,
 reset_case superseded-cancel
 SHA=f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6
 arm "$SHA" "$(page "$(run_obj kit 910 cancelled)" "$(run_obj kit 911 success)")"
-v=$(verdict_of "$SHA" --timeout 0 --poll-seconds 0)
+v=$(verdict_of "$SHA" --timeout 60 --poll-seconds 0)
 expect_verdict superseded-cancel green "$v"
 printf '%s' "$v" | jq -e '.runs | length == 1' > /dev/null || {
   echo "FAIL [superseded-cancel]: .runs is the raw history, not the reduced one-run-per-job set:"
@@ -354,5 +354,46 @@ expect_verdict query-failed unverified "$v"
 printf '%s' "$v" | jq -e '.reason == "query-failed"' > /dev/null || {
   echo "FAIL [query-failed]: expected reason 'query-failed', got '$(printf '%s' "$v" | jq -r .reason)'"; exit 1; }
 echo "  ok: query-failed — a gh call that never answers is its own named non-verdict"
+
+# ---------------------------------------------------------------- 11. `no-ci` is not answered on
+# the first poll — it is indistinguishable from "GitHub has not posted the run yet"
+#
+# This helper runs SECONDS after `gh pr merge` returned, and the push run's check-runs are not
+# posted instantly. Answering `no-ci` on the first reading would make `unverified` the outcome of
+# almost every healthy merge, with the whole timeout budget unused — a step that always reports a
+# non-verdict is the silence #355 removes, wearing a different word. So `no-ci` is retried until
+# the settle window expires, and only then is it an answer (case 3 is that expiry, with the window
+# clamped to a zero timeout).
+reset_case no-ci-settles
+SHA=5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c
+arm "$SHA" \
+  "$(page)" \
+  "$(page)" \
+  "$(page "$(run_obj kit 960 success)")"
+v=$(verdict_of "$SHA" --timeout 60 --settle 60 --poll-seconds 0)
+expect_verdict no-ci-settles green "$v"
+[ "$(cat "$GH_RESPONSES/$SHA/count")" -ge 3 ] || {
+  echo "FAIL [no-ci-settles]: the helper answered before the run was posted"; exit 1; }
+echo "  ok: no-ci-settles — an empty check-run set is retried inside the settle window, not answered"
+
+# ---------------------------------------------------------------- 12. a partly-posted job graph is
+# not green yet
+#
+# The mirror hazard, and the one that would report a broken base as clean: a fast job's check-run
+# exists and is green while a job behind a \`needs:\` chain has not posted at all. The reduction
+# calls that set clear — correctly, on the evidence it has. SKILL.md §3 already makes this argument
+# for the PRE-merge gate ("wait one poll interval and re-derive"); post-merge the window is widest,
+# so `clear` counts only once the reduced JOB SET matches the previous poll's.
+reset_case late-job
+SHA=6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d
+arm "$SHA" \
+  "$(page "$(run_obj kit 970 success)")" \
+  "$(page "$(run_obj kit 970 success)" "$(run_obj deploy 971 queued)")" \
+  "$(page "$(run_obj kit 970 success)" "$(run_obj deploy 971 failure)")"
+v=$(verdict_of "$SHA" --timeout 60 --poll-seconds 0)
+expect_verdict late-job red "$v"
+[ "$(cat "$GH_RESPONSES/$SHA/count")" -ge 3 ] || {
+  echo "FAIL [late-job]: the helper called it on the first reading, before the graph had posted"; exit 1; }
+echo "  ok: late-job — a green first reading is re-derived, so a job that posts a beat later still counts"
 
 echo "merge-base-ci golden test OK"
