@@ -390,4 +390,38 @@ grep -qF "on this machine only" <<<"$sec" \
   || fail "detect: the AdrMcp server line was not flagged as a machine-local fact, not a repo fact:
 $sec"
 
+# 9. Tracker host-extraction must handle more than `git@host:` and bare `https://host/`: an
+#    `ssh://` remote and a remote carrying embedded CI credentials (`user:token@host`) are both
+#    real GitHub origins and must not be misclassified as "other" (code-review finding, #311).
+gh9=$(kit_scratch)
+git -C "$gh9" init -q -b main
+git -C "$gh9" -c user.email=t@test -c user.name=T commit -q --allow-empty -m base
+git -C "$gh9" remote add origin ssh://git@github.com/owner/repo.git
+sec9=$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$gh9")
+grep -qF "tracker: github (github.com)" <<<"$sec9" \
+  || fail "detect: an ssh:// GitHub remote was not recognized as github (github.com):
+$sec9"
+
+git -C "$gh9" remote set-url origin https://x-access-token:ghp_dummy@github.com/owner/repo.git
+sec9=$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$gh9")
+grep -qF "tracker: github (github.com)" <<<"$sec9" \
+  || fail "detect: a credential-embedded https GitHub remote was not recognized as github (github.com):
+$sec9"
+
+# 10. Coding standards must name the marker that ACTUALLY matched in Directory.Build.props, not a
+#     fixed string regardless of which one fired (code-review finding, #311).
+cs10=$(kit_scratch)
+git -C "$cs10" init -q -b main
+printf '<Project><PropertyGroup><AnalysisLevel>latest</AnalysisLevel></PropertyGroup></Project>\n' \
+  > "$cs10/Directory.Build.props"
+git -C "$cs10" add -A
+git -C "$cs10" -c user.email=t@test -c user.name=T commit -q -m base
+sec10=$(section_of "$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$cs10")" "Coding standards")
+grep -qF "Directory.Build.props: AnalysisLevel" <<<"$sec10" \
+  || fail "detect: an AnalysisLevel-only Directory.Build.props was not reported by its real marker:
+$sec10"
+grep -qF "EnforceCodeStyleInBuild" <<<"$sec10" \
+  && fail "detect: reported EnforceCodeStyleInBuild for a Directory.Build.props that never mentions it:
+$sec10"
+
 echo "repo-profile golden test OK"

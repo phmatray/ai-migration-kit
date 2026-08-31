@@ -134,7 +134,15 @@ case "$CMD" in
     if [ -z "$origin_url" ]; then
       echo "TODO: no origin remote — cannot name the tracker"
     else
-      tracker_host="$(printf '%s\n' "$origin_url" | sed -E 's#^(git@|https?://)([^/:]+).*#\2#')"
+      # Three remote-URL shapes, tried in order: `ssh://[user@]host[:port]/…`,
+      # `http(s)://[user[:token]@]host[:port]/…` (a CI checkout token embeds credentials right
+      # here — `x-access-token:ghp_…@github.com`), and the scp-like `git@host:owner/repo`. The
+      # original single-pattern version only matched the last two, so an `ssh://` remote or one
+      # carrying embedded credentials fell through unparsed and got misread as a non-GitHub host.
+      tracker_host="$(printf '%s\n' "$origin_url" | sed -E \
+        -e 's#^ssh://([^@/]+@)?([^/:]+)(:[0-9]+)?/.*#\2#' \
+        -e 's#^(https?)://([^@/]+@)?([^/:]+)(:[0-9]+)?/.*#\3#' \
+        -e 's#^git@([^:]+):.*#\1#')"
       # $SLUG (above) is `gh repo view` succeeding against THIS remote — true for github.com and
       # for a GHES host `gh` is configured to talk to, so it is the positive signal, not just a
       # literal "github.com" string match.
@@ -167,7 +175,16 @@ case "$CMD" in
     if ! command -v claude >/dev/null 2>&1; then
       echo "  server: files only (claude CLI not found)"
     else
-      adr_mcp="$(claude mcp list 2>/dev/null || true)"
+      # `claude mcp list` probes each configured server live, so an unreachable/slow one can hang
+      # this call indefinitely — exactly what `detect`'s own contract ("best-effort... never
+      # abort") forbids. Bound it where `timeout`(1) exists (GNU coreutils; not on a stock macOS);
+      # elsewhere fall back to the unbounded call rather than fail the whole probe over a missing
+      # tool.
+      if command -v timeout >/dev/null 2>&1; then
+        adr_mcp="$(timeout 5s claude mcp list 2>/dev/null || true)"
+      else
+        adr_mcp="$(claude mcp list 2>/dev/null || true)"
+      fi
       if printf '%s\n' "$adr_mcp" | grep -iqE '(^|[^a-z])adr(mcp)?([^a-z]|$)'; then
         echo "  server: via AdrMcp (claude mcp list names 'adr') — on this machine only, not a fact about the repo"
       else
@@ -188,10 +205,15 @@ case "$CMD" in
     for f in CONTRIBUTING.md CODING_STANDARDS.md .editorconfig .globalconfig; do
       if [ -f "$f" ]; then printf '  %s\n' "$f"; cs_found=1; fi
     done
-    if [ -f Directory.Build.props ] \
-      && grep -qE 'EnforceCodeStyleInBuild|AnalysisLevel' Directory.Build.props 2>/dev/null; then
-      echo "  Directory.Build.props: EnforceCodeStyleInBuild"
-      cs_found=1
+    if [ -f Directory.Build.props ]; then
+      dbp_markers=""
+      grep -qF 'EnforceCodeStyleInBuild' Directory.Build.props 2>/dev/null \
+        && dbp_markers="EnforceCodeStyleInBuild"
+      grep -qF 'AnalysisLevel' Directory.Build.props 2>/dev/null \
+        && dbp_markers="${dbp_markers:+$dbp_markers, }AnalysisLevel"
+      # Report exactly which marker(s) matched — printing a fixed string regardless of which of
+      # the two actually fired would record a coding standard the repo never stated.
+      [ -n "$dbp_markers" ] && { printf '  Directory.Build.props: %s\n' "$dbp_markers"; cs_found=1; }
     fi
     for m in .eslintrc* eslint.config.*; do
       for f in $m; do
