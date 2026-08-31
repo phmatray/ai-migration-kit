@@ -195,6 +195,8 @@ add_gate "./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool
 
 add_suite "tests/audit-inventory/test.sh"
 
+add_suite "tests/dependency-health/test.sh"
+
 # 15: every template under templates/ is valid YAML.
 add_gate "python3 -c \"import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('templates/**/*.yml', recursive=True)]\""
 
@@ -204,6 +206,7 @@ add_suite "tests/followups/test.sh"
 add_suite "tests/tick-plan/test.sh"
 add_suite "tests/guarded-git/test.sh"
 add_suite "tests/merge-gate/test.sh"
+add_suite "tests/merge-base-ci/test.sh"
 add_suite "tests/pr-existence-guard/test.sh"
 add_suite "tests/plan-locate-comment-guard/test.sh"
 add_suite "tests/merge-freshness/test.sh"
@@ -214,6 +217,7 @@ add_suite "tests/release-title-gate/test.sh"
 add_suite "tests/worktrees-ignored/test.sh"
 add_suite "tests/main-worktree/test.sh"
 add_suite "tests/implement-issue-worktree-step/test.sh"
+add_suite "tests/plan-freshness/test.sh"
 add_suite "tests/roseline/test.sh"
 add_suite "tests/git-gate/test.sh"
 add_suite "tests/auto-dev-never-wait/test.sh"
