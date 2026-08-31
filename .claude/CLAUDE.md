@@ -11,9 +11,9 @@ first.
   `scripts/preflight.sh` reads it.
 - Control-flow decisions → [`decisions/registry.json`](../decisions/registry.json) +
   [`docs/decisions.md`](../docs/decisions.md) — one id, one program, one home.
-- Architectural decisions → `docs/adr/`, once the ADR issue lands (none today).
+- Architectural decisions → the profile's `## ADRs` section (`.claude/skills/repo-profile.md`) — `docs/adr/` once #316 lands.
 - Domain language → [`CONTEXT.md`](../CONTEXT.md).
-- Trigger contracts → `tests/skills/*.triggers.md` today (an `evals/*.json` migration is tracked).
+- Trigger contracts → `evals/<skill>-trigger-eval.json`, the one home (#331); structure checked by `tests/skills/check-frontmatter.py`.
 - Shared test preamble → `tests/_lib.sh` (`local rc=$?` must be the first statement in its trap).
 - Shared skill procedures → `skills/_shared/`.
 - Kit backlog (YAGNI debts) → [`docs/backlog.md`](../docs/backlog.md), hand-edited, read by
@@ -22,7 +22,7 @@ first.
 ## Adding a skill
 
 - Frontmatter carries no `version` key — `tests/skills/check-frontmatter.py`.
-- A trigger contract exists for it — `tests/skills/*.triggers.md`.
+- A trigger contract exists for it — `evals/<skill>-trigger-eval.json`, listed in `evals/run_all.py` and `evals/trigger_eval.py`.
 - A golden suite is wired into CI — `scripts/ci-wiring-check.py`.
 - A script that makes a decision is registered in `decisions/registry.json`, or named in that
   file's `not_decisions` map with a one-line reason.
