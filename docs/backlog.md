@@ -22,8 +22,8 @@ rendra rentable (YAGNI sinon).
   de vrais skills en cours de flux (`evals/README.md` §Safety) — la CI garde la structure, la
   mesure se déclenche à la demande. Déclencheur permanent : une modification de `description`
   → `python3 evals/run_all.py --skills <skill>` et comparaison au `baseline.json` committé.
-  `followups` reste attendu au plancher en sonde headless (positifs ≈ 0/3 sans contexte de repo,
-  cf. l'entrée « Optimisation du déclenchement du skill `followups` » ci-dessous) : ce chiffre
+  `review-followups` reste attendu au plancher en sonde headless (positifs ≈ 0/3 sans contexte de repo,
+  cf. l'entrée « Optimisation du déclenchement du skill `review-followups` » ci-dessous) : ce chiffre
   mesuré *est* sa ligne de base, pas une cible à atteindre.
 - **Mesure du banc après la coupe des descriptions (#323) — dû.** Le déclencheur permanent de
   l'entrée ci-dessus (« une modification de `description` → `run_all.py --skills <skill>` ») a été
@@ -41,7 +41,7 @@ rendra rentable (YAGNI sinon).
   delivery-playbook, report-template, rewrite-playbook) : la surface distribuée est anglaise
   depuis v1.7.0 (SKILL.md, commandes), ces references restent françaises. Déclencheur : premier
   utilisateur non francophone du kit, ou première retouche de fond d'une de ces references.
-- **Optimisation du déclenchement du skill `followups`** : la boucle skill-creator (5 itérations,
+- **Optimisation du déclenchement du skill `review-followups`** : la boucle skill-creator (5 itérations,
   20 requêtes, 3 mesures chacune) n'a départagé aucune variante — en sonde headless sans contexte
   de repo, le skill ne se déclenche presque jamais (positifs ≈ 0/3), donc la mesure est au
   plancher ; seul signal fiable : zéro sur-déclenchement sur les 10 quasi-pièges. Description

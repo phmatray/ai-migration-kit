@@ -19,5 +19,5 @@
   {"query": "what's new in .NET 10?", "should_trigger": false, "note": "informational question — nothing to upgrade"},
   {"query": "merge PR 279", "should_trigger": false, "note": "→ merge-pr"},
   {"query": "implement issue 47 and open a PR", "should_trigger": false, "note": "→ implement-issue"},
-  {"query": "what's still open across the migrated repos?", "should_trigger": false, "note": "→ followups (the tail after the pipeline, not the pipeline)"}
+  {"query": "what's still open across the migrated repos?", "should_trigger": false, "note": "→ review-followups (the tail after the pipeline, not the pipeline)"}
 ]

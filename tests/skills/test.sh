@@ -88,7 +88,7 @@ run_case() {
 meta_mutator() {
   cat <<PY
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 t = re.sub(r'^metadata:\n(?:[ \t]+.*\n)+', '''$1''', t, count=1, flags=re.M)
 p.write_text(t, encoding="utf-8")
@@ -133,7 +133,7 @@ run_case "P8 metadata.suite missing         " fail "$(meta_mutator 'metadata:
 ')"
 run_case "P9 license key missing            " fail '
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 # Drop the key but leave the WORD in prose: a substring test would still pass here.
 t = t.replace("license: MIT\n", "", 1)
@@ -145,7 +145,7 @@ echo "== prose is not a key: these must be accepted =="
 run_case "N1 untouched baseline             " pass 'import sys'
 run_case "N2 \"version:\" inside compatibility" pass '
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 t = re.sub(r"^compatibility: >-\n(?:[ \t]+.*\n)+",
            "compatibility: >-\n  Requires python3 and git. Tested against gh CLI at\n"
@@ -154,7 +154,7 @@ p.write_text(t, encoding="utf-8")
 '
 run_case "N3 \"version:\" inside description  " pass '
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
            "description: >-\n  Consolidates open migration follow-ups. Reports the schema\n"
@@ -203,11 +203,11 @@ run_desc_case() {
   echo "ok   [$label]"
 }
 
-# Give followups' description exactly $1 NORMALIZED characters (the count the checker uses).
+# Give review-followups' description exactly $1 NORMALIZED characters (the count the checker uses).
 desc_mutator() {
   cat <<PY
 import pathlib, sys, re
-p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+p = pathlib.Path(sys.argv[1]) / "skills/review-followups/SKILL.md"
 t = p.read_text(encoding="utf-8")
 body = ("Consolidates the open migration follow-ups and updates them at the source. " * 40)[:$1].strip()
 body += "x" * ($1 - len(body))
@@ -219,11 +219,11 @@ PY
 }
 
 run_desc_case "W1 850 chars warns, exit unchanged " 0 \
-  'WARN followups: description is 850 characters' "$(desc_mutator 850)"
+  'WARN review-followups: description is 850 characters' "$(desc_mutator 850)"
 run_desc_case "W2 1100 chars still hard-fails    " 1 \
-  'followups: description is 1100 characters \(guide limit: 1024\)' "$(desc_mutator 1100)"
+  'review-followups: description is 1100 characters \(guide limit: 1024\)' "$(desc_mutator 1100)"
 run_desc_case "W3 750 chars is silent            " 0 \
-  '!followups: description is' "$(desc_mutator 750)"
+  '!review-followups: description is' "$(desc_mutator 750)"
 
 # ---------------------------------------------------------------------------------------------
 # The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py

@@ -11,7 +11,7 @@ Ported from [mattpocock/skills](https://github.com/mattpocock/skills),
 two rules that keep it honest. The port keeps the jobs and the rules and changes the storage: Matt's
 `.out-of-scope/<concept>.md` folder becomes MADR sections, because the kit already runs AdrMcp and a
 rejection *is* a decision. Two decision stores with two search paths is the parallel-list failure
-`followups` exists to prevent.
+`review-followups` exists to prevent.
 
 ## Why there is a lookup at all
 

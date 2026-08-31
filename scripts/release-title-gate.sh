@@ -108,7 +108,7 @@ NON_SHIPPED=(
 #       constants are baked into EVERY migrated csproj. renovate.json has a customManager watching
 #       this exact file (#36) precisely because those versions ship.
 #   docs/backlog.md
-#       skills/followups/SKILL.md rule 7 mandates `--backlog "<kit>/docs/backlog.md"`, and defines
+#       skills/review-followups/SKILL.md rule 7 mandates `--backlog "<kit>/docs/backlog.md"`, and defines
 #       <kit> as the plugin root — the install cache, not this checkout.
 #
 # Checked BEFORE the deny-list, so they stay gated.

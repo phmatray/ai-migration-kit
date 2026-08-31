@@ -16,7 +16,7 @@
 # customer's app is frequently not fixable inside the migration's scope, so making a finding a hard
 # gate would turn a legitimately-complete migration red for something the pipeline cannot fix, and
 # would push an operator toward skipping a gate. Findings therefore become a recorded section in
-# `migration/report.md` and rows in *Next steps* / *Follow-ups*, which `followups` already drains.
+# `migration/report.md` and rows in *Next steps* / *Follow-ups*, which `review-followups` already drains.
 # What IS hard-gated is the block's existence and a status that is not `unavailable`: **a check that
 # cannot verify must not answer "healthy"**. That is why every failure path below still prints the
 # block, with `status: "unavailable"` and a reason, and exits 1 — an empty `vulnerable[]` from a

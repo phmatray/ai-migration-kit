@@ -2,7 +2,7 @@
 
 A **safe, repeatable** regression check for **every** skill's *description* — all ten of
 [`auto-dev`](../skills/auto-dev), [`create-issue`](../skills/create-issue),
-[`followups`](../skills/followups), [`profile-repo`](../skills/profile-repo),
+[`review-followups`](../skills/review-followups), [`profile-repo`](../skills/profile-repo),
 [`implement-issue`](../skills/implement-issue), [`migrate-legacy`](../skills/migrate-legacy),
 [`merge-pr`](../skills/merge-pr), [`setup-repo`](../skills/setup-repo),
 [`debug-issue`](../skills/debug-issue) and
@@ -18,7 +18,7 @@ the sets absorbed every bullet they were missing, near-miss annotations included
 
 Each skill's close boundaries are carried as negatives **inside its own set** — `setup-repo` vs
 `profile-repo` (write vs read), `auto-dev` vs its own children (many issues vs one),
-`followups` vs `triage-backlog` (report.json queues vs GitHub issues), `debug-issue` vs
+`review-followups` vs `triage-backlog` (report.json queues vs GitHub issues), `debug-issue` vs
 new-code work. `boundary-trigger-eval.json` stays what it always was: specifically the
 `implement-issue` ↔ `merge-pr` pair, with a runner written around exactly those two.
 
@@ -139,16 +139,16 @@ signal to look at.
 
 | Skill | Queries | Pass | Recall (should-trigger) | Specificity (should-not) |
 |-------|--------:|-----:|:-----------------------:|:------------------------:|
-| `create-issue`          | 23 | 18/18 † | 1.0 † | 1.0 † |
-| `implement-issue`       | 21 | 18/18 † | 1.0 † | 1.0 † |
-| `merge-pr`              | 20 | 18/18 † | 1.0 † | 1.0 † |
-| `profile-repo`      | 22 | 18/18 † | 1.0 † | 1.0 † |
-| `triage-backlog`        | 20 | — ‡ | — ‡ | — ‡ |
-| `auto-dev`              | 19 | — ‡ | — ‡ | — ‡ |
-| `followups`             | 19 | — ‡ | — ‡ | — ‡ |
-| `migrate-legacy`        | 20 | — ‡ | — ‡ | — ‡ |
-| `setup-repo`            | 21 | — ‡ | — ‡ | — ‡ |
-| `debug-issue`  | 19 | — ‡ | — ‡ | — ‡ |
+| `create-issue`     | 23 | 18/18 † | 1.0 † | 1.0 † |
+| `implement-issue`  | 21 | 18/18 † | 1.0 † | 1.0 † |
+| `merge-pr`         | 20 | 18/18 † | 1.0 † | 1.0 † |
+| `profile-repo`     | 22 | 18/18 † | 1.0 † | 1.0 † |
+| `triage-backlog`   | 20 | — ‡ | — ‡ | — ‡ |
+| `auto-dev`         | 19 | — ‡ | — ‡ | — ‡ |
+| `review-followups` | 19 | — ‡ | — ‡ | — ‡ |
+| `migrate-legacy`   | 20 | — ‡ | — ‡ | — ‡ |
+| `setup-repo`       | 21 | — ‡ | — ‡ | — ‡ |
+| `debug-issue`      | 19 | — ‡ | — ‡ | — ‡ |
 
 † Last measured over the **18** queries these sets held before #331 grew them; the ported negatives
 are not in that number, so re-run the skill before quoting it as current.
@@ -156,8 +156,8 @@ are not in that number, so re-run the skill before quoting it as current.
 being run). Refresh one at a time — `python3 evals/run_all.py --skills <name> --runs-per-query 3`
 merges into the committed `baseline.json` rather than overwriting it.
 
-`followups` is expected to sit **at the floor** in a headless probe: without repo context it barely
-fires at all (positives ≈ 0/3 — see the "Optimisation du déclenchement du skill `followups`" entry
+`review-followups` is expected to sit **at the floor** in a headless probe: without repo context it barely
+fires at all (positives ≈ 0/3 — see the "Optimisation du déclenchement du skill `review-followups`" entry
 in [`docs/backlog.md`](../docs/backlog.md), where the skill-creator loop measured it). Whatever that
 run records **is** its baseline, not a target to hit; the reliable signal there is the other half —
 zero over-triggering across its near-miss negatives.

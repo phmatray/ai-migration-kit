@@ -1,5 +1,5 @@
 ---
-name: followups
+name: review-followups
 description: >-
   Consolide et met à jour les suivis ouverts des migrations (next_steps/deferred des
   migration/report.json + backlog du kit). Use whenever the user asks what remains open across
@@ -147,7 +147,7 @@ Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.m
 blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
 `None` is a required answer rather than an omission) and the **Next** line, which is read off this
 skill's row in that file's hand-off table instead of being decided again here. Everything below is
-only what **followups** adds on top of them.
+only what **review-followups** adds on top of them.
 
 - **Artifacts** names every repo touched, its `migration/report.json`, the regenerated dashboard and
   the commit sha in that repo — a follow-up modified without a commit does not exist (Guard-rails).

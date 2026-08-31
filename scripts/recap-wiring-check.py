@@ -104,7 +104,7 @@ DASHED_EDGE_RE = re.compile(
     r"([A-Za-z][A-Za-z0-9_]*)" + NODE_SUFFIX + r"\s*-\.(?:[^\n]*?\.)?->\s*"
     r"([A-Za-z][A-Za-z0-9_]*)" + NODE_SUFFIX)
 
-# `commands/<name>.md` says which skill it drives in one sentence: Invoke the `followups` skill.
+# `commands/<name>.md` says which skill it drives in one sentence: Invoke the `review-followups` skill.
 COMMAND_TARGET_RE = re.compile(r"`([A-Za-z0-9][A-Za-z0-9._-]*)`\s+skill")
 
 
@@ -189,7 +189,7 @@ def resolve_command(repo, name):
 
     Directly when `skills/<name>/SKILL.md` exists; otherwise through `commands/<name>.md`, which
     names the skill it invokes — that indirection is what makes `/migrate-followups` a hand-off to
-    `followups` rather than an unresolvable dead end.
+    `review-followups` rather than an unresolvable dead end.
     """
     if (repo / "skills" / name / "SKILL.md").is_file():
         return name

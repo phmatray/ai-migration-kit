@@ -76,9 +76,9 @@ refuses uppercase-type 'lowercase' \
 #    so a two-letter type like `ci` cannot pass by matching some unrelated substring.
 #    The hidden set comes from release-please's DEFAULT_CHANGELOG_SECTIONS
 #    (src/util/filter-commits.ts): chore, docs, style, refactor, test, build, ci.
-refuses docs-skills     "'docs'"     "docs(skills): clarify the trigger list" skills/followups/SKILL.md
-refuses ci-skills       "'ci'"       "ci(skills): reorder the steps"          skills/followups/SKILL.md
-refuses refactor-skills "'refactor'" "refactor(skills): extract the helper"   skills/followups/SKILL.md
+refuses docs-skills     "'docs'"     "docs(skills): clarify the trigger list" skills/review-followups/SKILL.md
+refuses ci-skills       "'ci'"       "ci(skills): reorder the steps"          skills/review-followups/SKILL.md
+refuses refactor-skills "'refactor'" "refactor(skills): extract the helper"   skills/review-followups/SKILL.md
 
 # 8. `feature` is in NEITHER the visible nor the hidden list of that table, so filter-commits.ts
 #    drops it and it cuts no release — despite looking like a synonym for `feat`.
@@ -108,7 +108,7 @@ refuses mixed-shipped-and-docs "'chore'" \
 #         `<kit>/tests/xunit-v3/apply-transform.py` "the witness", and its XUNIT_V3_VERSION /
 #         COVERAGE_EXT_VERSION constants land in EVERY migrated csproj (renovate.json watches this
 #         exact file, #36).
-#       - skills/followups/SKILL.md rule 7 mandates `--backlog "<kit>/docs/backlog.md"`.
+#       - skills/review-followups/SKILL.md rule 7 mandates `--backlog "<kit>/docs/backlog.md"`.
 refuses shipped-anyway-transform "'chore'" \
   "chore(deps): update xunit.v3 to 3.2.3" tests/xunit-v3/apply-transform.py
 refuses shipped-anyway-backlog "'chore'" \
@@ -136,17 +136,17 @@ refuses plugin-json-human-edit "'chore'" \
   "chore: reword the plugin description" .claude-plugin/plugin.json
 
 # 8h. NESTED evals/ FIXTURES UNDER skills/** (#58). is_shipped() was root-anchored, so its `evals/`
-#     entry excluded only the repo-root harness: skills/followups/evals/evals.json matched no rule,
+#     entry excluded only the repo-root harness: skills/review-followups/evals/evals.json matched no rule,
 #     hit the fail-closed default, and was gated as shipped content — forcing a release for a
 #     trigger-eval fixture no consumer can ever observe. Fail-closed stays right; the fix teaches
 #     the classifier the nested-fixture SHAPE (a rule keyed on the `evals/` path segment), not a
 #     second literal list.
 passes nested-evals-directly-under-skill "chore: retune eval fixtures" \
   skills/evals/case.md
-passes nested-evals-under-a-skill "chore(skills): retune the followups eval cases" \
-  skills/followups/evals/evals.json
+passes nested-evals-under-a-skill "chore(skills): retune the review-followups eval cases" \
+  skills/review-followups/evals/evals.json
 passes nested-evals-deeper-under-a-skill "chore(skills): retune a nested eval case" \
-  skills/followups/references/evals/case.md
+  skills/review-followups/references/evals/case.md
 
 # The anchoring must hold in BOTH directions, or the rule trades one false positive for another:
 

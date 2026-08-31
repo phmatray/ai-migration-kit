@@ -115,7 +115,7 @@ hand-copying it further.
   | `area: merge-pr` | `skills/merge-pr/` |
   | `area: implement-issue` | `skills/implement-issue/` |
   | `area: create-issue` | `skills/create-issue/`, `skills/triage-backlog/` |
-  | `area: migrate` | `skills/migrate-legacy/`, `skills/followups/`, `commands/migrate-*.md` |
+  | `area: migrate` | `skills/migrate-legacy/`, `skills/review-followups/`, `commands/migrate-*.md` |
   | `area: repo-setup` | `skills/setup-repo/`, `skills/profile-repo/`, `.claude/skills/repo-profile.md` |
   | `area: skills` | `skills/_shared/`, `skills/debug-issue/`, cross-skill conventions |
   | `area: scripts` | `scripts/` |

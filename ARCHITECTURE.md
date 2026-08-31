@@ -1,6 +1,6 @@
 # Architecture
 
-One plugin, two cooperating suites — the **migration pipeline** (migrate-legacy, followups) and the
+One plugin, two cooperating suites — the **migration pipeline** (migrate-legacy, review-followups) and the
 **issue/PR lifecycle** (create-issue, implement-issue, merge-pr, profile-repo, setup-repo, and the
 `auto-dev` fleet supervisor above them) — bridged where a
 migration's deferred work becomes tracked GitHub issues. Every skill carries
@@ -23,7 +23,7 @@ graph TD
 
     subgraph migration ["Migration suite"]
         LU[migrate-legacy]
-        FU[followups]
+        FU[review-followups]
     end
 
     subgraph lifecycle ["Issue/PR lifecycle suite"]
@@ -76,7 +76,7 @@ graph TD
 one (#175). Edit the table; the graph follows. Labels are free text: only the `(from, to)` pair is
 compared.
 
-The `followups → create-issue → implement-issue → merge-pr → create-issue` chain is deliberate:
+The `review-followups → create-issue → implement-issue → merge-pr → create-issue` chain is deliberate:
 `merge-pr` files the follow-ups it discovers, which feeds the queue again — the backlog stays
 truthful instead of evaporating in chat.
 
@@ -85,7 +85,7 @@ inlets write to the queue — `merge-pr` Step 6, `auto-dev`'s off-scope capture,
 `create-issue` runs — while for a long time the only way out was to build the thing, so the queue
 could only drain at the speed of implementation, which is also what fills it. `triage-backlog` is the
 outlet: it re-decides what is already there, and closing by decision is a documented state there just
-as it has always been in `followups`. The two inlets and the outlet share one criterion —
+as it has always been in `review-followups`. The two inlets and the outlet share one criterion —
 [`skills/_shared/filing-bar.md`](skills/_shared/filing-bar.md) — so what earns an issue and what
 earns continued residence are the same question, asked at different times.
 
@@ -102,7 +102,7 @@ apart silently.
 graph LR
     subgraph skills ["Kit skills"]
         LU[migrate-legacy]
-        FU[followups]
+        FU[review-followups]
         AD[auto-dev]
         CI[create-issue]
         II[implement-issue]
@@ -181,7 +181,7 @@ why no arrow leaves it.
 | Skill | MCP | External skills | CLI tools | Kit scripts |
 |---|---|---|---|---|
 | `migrate-legacy` | **roseline** (required) · context7 (rec.) | frontend-design, dataviz, artifact-design (session) | **dotnet ≥ 8**, **git**, **python3** · gh, node, Chrome (rec.) | `preflight.sh`, `audit-inventory.sh`, `report-dashboard.py`, `contrast-check.py` |
-| `followups` | — | — | **python3**, **git** | `followups.py`, `report-dashboard.py` |
+| `review-followups` | — | — | **python3**, **git** | `followups.py`, `report-dashboard.py` |
 | `create-issue` | adr (rec.) | — (brainstorm, spec and plan doctrine in `skills/_shared/brainstorm-and-spec.md`, `plan-shape.md`) | **gh** | — |
 | `implement-issue` | adr (rec.) | code-review (plan shape and TDD loop in `skills/_shared/plan-shape.md`, `tdd-loop.md`; worktrees via its own `make-worktree.sh`) | **gh**, **git**, **jq** (`tick-plan.sh`'s round-trip check) | — |
 | `merge-pr` | adr (rec.) | — | **gh** (merge rights), **git** | — |

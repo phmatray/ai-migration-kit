@@ -15,7 +15,7 @@
   {"query": "implement issue 158 — the pinned-literals check only covers one pin", "should_trigger": false, "note": "→ implement-issue"},
   {"query": "merge PR 279 and open follow-ups for the deferred bits", "should_trigger": false, "note": "→ merge-pr (filing at the inlet, mid-merge)"},
   {"query": "burn down the backlog with 3 agents, small issues first", "should_trigger": false, "note": "→ auto-dev (drains by BUILDING, not by deciding)"},
-  {"query": "what's still open across the migrated repos — the next_steps from the reports?", "should_trigger": false, "note": "→ followups (report.json queues, not GitHub issues)"},
+  {"query": "what's still open across the migrated repos — the next_steps from the reports?", "should_trigger": false, "note": "→ review-followups (report.json queues, not GitHub issues)"},
   {"query": "close issue 158 for me", "should_trigger": false, "note": "one explicit close — a bare gh call, no triage pass"},
   {"query": "clean up the local branches that are gone on the remote", "should_trigger": false, "note": "git housekeeping, shares 'clean up'"},
   {"query": "review this PR for correctness bugs before I merge it", "should_trigger": false, "note": "→ code-review"},

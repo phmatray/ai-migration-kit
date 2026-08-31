@@ -3,7 +3,7 @@ description: Consolidate the migrated repos' open follow-ups (owner decisions, t
 argument-hint: [repo-dir ...]
 ---
 
-Invoke the `followups` skill.
+Invoke the `review-followups` skill.
 
 Targets: each directory passed in `$ARGUMENTS` (otherwise, the migrated repos known from the
 session/memory; otherwise, ask). Add the kit's backlog if accessible.

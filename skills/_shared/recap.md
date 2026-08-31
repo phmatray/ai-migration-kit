@@ -74,14 +74,14 @@ checked against it; they are not a second copy to hand-sync.
 | `merge-pr` | PR merged, follow-ups filed | `/implement-issue #<next-issue>` |
 | `auto-dev` | the eligible queue drained | `/implement-issue #<held-issue>` for anything held as L/XL, else `—` |
 | `triage-backlog` | every open issue re-decided | `/implement-issue #<kept-issue>` |
-| `followups` | the open tail presented | `/create-issue <entry>` to convert an entry |
+| `review-followups` | the open tail presented | `/create-issue <entry>` to convert an entry |
 | `migrate-legacy` | phase 7 delivered | `/migrate-followups` |
 | `debug-issue` | the root cause identified | `—` (it returns to whatever called it) |
 
 **How the guard reads this table.** Backticked `/<name>` spans in the *Next command* cell are the
 hand-offs; a cell with none is terminal. `<name>` resolves to `skills/<name>/` when that directory
 exists, otherwise to the skill that `commands/<name>.md` invokes — which is how
-`/migrate-followups` resolves to `followups`. Prose around the spans is free text: reword it
+`/migrate-followups` resolves to `review-followups`. Prose around the spans is free text: reword it
 without fear, but do not spell a command outside backticks, where nothing can see it.
 
 **A cell that names no command must say `—`.** An empty cell, or one that says "still deciding", is

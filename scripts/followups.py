@@ -6,7 +6,7 @@ Sources de vérité : le `migration/report.json` de chaque repo migré (clés `n
 et `deferred`) et, en option, le backlog du kit (`--backlog docs/backlog.md`). Le mode
 d'agrégation par défaut (aucun flag `--questionnaire`/`--ingest`) reste en lecture seule ; les
 mises à jour se font dans les rapports eux-mêmes, à la source, via les protocoles du skill
-`followups` — ce que `--ingest` applique désormais mécaniquement pour les décisions propriétaire.
+`review-followups` — ce que `--ingest` applique désormais mécaniquement pour les décisions propriétaire.
 
 Usage :
   followups.py <repo> [<repo>…] [--backlog <fichier.md>] [--json]
