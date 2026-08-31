@@ -547,10 +547,25 @@ jobs:
           # configuration a déjà refusé ce cas ; la garde le revérifie sur SES propres entrées,
           # parce qu'un invariant délégué à l'appelant est un invariant perdu au premier
           # changement d'appelant.
-          if [ -z "${BUNDLE_SRC:-}" ]; then
-            echo "::error::BUNDLE_SRC est vide alors que BUNDLE_DIST est renseignée."
-            echo "La reconstruction n'a donc pas eu lieu là où vit le bundle."
+          #
+          # Un nom DIFFÉRENT de celui de l'étape de configuration (`refuse()` ci-dessus, ~ligne
+          # 419) — délibérément : les deux `run:` restent deux process shell indépendants (#163/
+          # #90), donc rien n'empêche deux fonctions locales de porter le même nom sans jamais se
+          # percuter, mais un même nom pour deux signatures incompatibles (un argument là, N ici)
+          # inviterait à copier un site d'appel de l'une vers l'autre sans le remarquer. Même
+          # esprit qu'`refuse()` — un premier argument porte le `::error::`, les suivants
+          # s'affichent en clair — une seule forme d'émission pour les huit refus de cette étape,
+          # au lieu de sept paires `echo "::error::..."` / `exit 1` retapées à la main (#302).
+          refuse_lines() {
+            echo "::error::$1"
+            shift
+            printf '%s\n' "$@"
             exit 1
+          }
+
+          if [ -z "${BUNDLE_SRC:-}" ]; then
+            refuse_lines "BUNDLE_SRC est vide alors que BUNDLE_DIST est renseignée." \
+              "La reconstruction n'a donc pas eu lieu là où vit le bundle."
           fi
           # Normaliser AVANT de comparer — le même './'-strip et trailing-'/'-strip que l'étape de
           # configuration applique déjà (lignes ~475-477) avant de publier ses sorties. Un invariant
@@ -575,11 +590,10 @@ jobs:
           # garde certifierait « à jour » un répertoire qu'elle n'a jamais eu l'intention d'inspecter.
           case "/$BUNDLE_DIST/" in
             */../*)
-              echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') remonte hors de son arborescence."
-              echo "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), jamais y"
-              echo "remonter par '..' : le test de confinement plus bas compare des chaînes, pas des"
-              echo "chemins résolus, et un '..' le contournerait silencieusement."
-              exit 1 ;;
+              refuse_lines "BUNDLE_DIST ('$BUNDLE_DIST') remonte hors de son arborescence." \
+                "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), jamais y" \
+                "remonter par '..' : le test de confinement plus bas compare des chaînes, pas des" \
+                "chemins résolus, et un '..' le contournerait silencieusement." ;;
           esac
           # `BUNDLE_DIST` peut s'effondrer sur la chaîne vide sans jamais avoir été littéralement
           # vide (ex. BUNDLE_SRC="." BUNDLE_DIST="./" ci-dessus) : il désigne alors la racine du
@@ -588,9 +602,8 @@ jobs:
           # correctement mais sans jamais nommer BUNDLE_SRC, contrairement à toutes les autres
           # branches de refus de cette étape.
           if [ -z "$BUNDLE_DIST" ]; then
-            echo "::error::BUNDLE_DIST est vide une fois normalisé : il désigne BUNDLE_SRC ('$BUNDLE_SRC'), la racine du dépôt."
-            echo "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), pas le dépôt lui-même."
-            exit 1
+            refuse_lines "BUNDLE_DIST est vide une fois normalisé : il désigne BUNDLE_SRC ('$BUNDLE_SRC'), la racine du dépôt." \
+              "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), pas le dépôt lui-même."
           fi
           # L'égalité d'abord, et nommée. `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` l'acceptait
           # (`*` matche la chaîne vide, donc `web/` matche `web/*`) : `npm ci` vient de créer
@@ -598,21 +611,19 @@ jobs:
           # les fichiers ignorés (voir plus bas), elle rougirait à chaque run avec un conseil —
           # « reconstruire, puis committer » — qui ne peut pas la faire verdir.
           if [ "$BUNDLE_DIST" = "$BUNDLE_SRC" ]; then
-            echo "::error::BUNDLE_DIST et BUNDLE_SRC désignent le même répertoire ('$BUNDLE_SRC')."
-            echo "Le bundle doit être un SOUS-répertoire de ses sources : 'npm ci' vient d'y créer"
-            echo "node_modules, que cette garde liste (--ignored), et elle rougirait à chaque run"
-            echo "en réclamant une reconstruction qui ne peut rien y changer."
-            exit 1
+            refuse_lines "BUNDLE_DIST et BUNDLE_SRC désignent le même répertoire ('$BUNDLE_SRC')." \
+              "Le bundle doit être un SOUS-répertoire de ses sources : 'npm ci' vient d'y créer" \
+              "node_modules, que cette garde liste (--ignored), et elle rougirait à chaque run" \
+              "en réclamant une reconstruction qui ne peut rien y changer."
           fi
           # `.` — un front à la racine du dépôt — est le seul BUNDLE_SRC dont tout chemin relatif
           # est un sous-arbre. L'étape de configuration a déjà écarté l'absolu et le `..`.
           if [ "$BUNDLE_SRC" != "." ]; then
             case "$BUNDLE_DIST/" in
               "$BUNDLE_SRC"/?*) : ;;
-              *) echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')."
-                 echo "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :"
-                 echo "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé."
-                 exit 1 ;;
+              *) refuse_lines "BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')." \
+                   "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :" \
+                   "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé." ;;
             esac
           fi
           # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
@@ -624,16 +635,14 @@ jobs:
           # `-z "$BUNDLE_DIST"` n'a plus sa place ici : le refus nommé ci-dessus garantit déjà que
           # BUNDLE_DIST n'est jamais vide à ce point de l'exécution.
           if [ ! -d "$BUNDLE_DIST" ]; then
-            echo "::error::BUNDLE_DIST ('$BUNDLE_DIST') n'est pas un répertoire de ce dépôt."
-            echo "Corrigez \"dist\" dans la configuration committée, ou supprimez le fichier"
-            echo "pour désactiver la garde."
-            exit 1
+            refuse_lines "BUNDLE_DIST ('$BUNDLE_DIST') n'est pas un répertoire de ce dépôt." \
+              "Corrigez \"dist\" dans la configuration committée, ou supprimez le fichier" \
+              "pour désactiver la garde."
           fi
           if ! git ls-files --error-unmatch -- "$BUNDLE_DIST" > /dev/null 2>&1; then
-            echo "::error::$BUNDLE_DIST n'est suivi par git pour aucun fichier."
-            echo "Cette garde ne vaut que pour un bundle COMMITTÉ : sans fichier suivi, elle"
-            echo "resterait verte sans rien mesurer."
-            exit 1
+            refuse_lines "$BUNDLE_DIST n'est suivi par git pour aucun fichier." \
+              "Cette garde ne vaut que pour un bundle COMMITTÉ : sans fichier suivi, elle" \
+              "resterait verte sans rien mesurer."
           fi
           # `--ignored` est OBLIGATOIRE, pas un extra. La façon normale de committer une sortie de
           # build est de mettre `dist/` dans .gitignore puis de forcer l'ajout (`git add -f`). Dans
@@ -644,12 +653,11 @@ jobs:
           # sortie livrée, pas sur un dossier qui contient aussi du cache.
           changes=$(git status --porcelain --ignored -- "$BUNDLE_DIST")
           if [ -n "$changes" ]; then
-            echo "::error::$BUNDLE_DIST est périmé : il ne correspond plus à ses sources."
-            echo "Le binaire livré embarque encore l'ancien bundle — un bump de dépendance JS"
-            echo "ne l'a donc PAS corrigé, il a seulement fermé la PR."
-            echo "Correctif : reconstruire le bundle, puis committer le résultat."
-            echo "$changes"
-            exit 1
+            refuse_lines "$BUNDLE_DIST est périmé : il ne correspond plus à ses sources." \
+              "Le binaire livré embarque encore l'ancien bundle — un bump de dépendance JS" \
+              "ne l'a donc PAS corrigé, il a seulement fermé la PR." \
+              "Correctif : reconstruire le bundle, puis committer le résultat." \
+              "$changes"
           fi
           echo "$BUNDLE_DIST est à jour."
 
