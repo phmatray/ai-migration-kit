@@ -720,12 +720,38 @@ def check_pin_derived(repo, files, pin, problems):
     for entry in entries:
         found = hits[id(entry)]
         if not found:
-            problems.append(
-                "the HISTORICAL entry for %s (anchor %r) matches nothing any more.\n"
-                "      A recorded occurrence that no longer exists is a claim about this repo that\n"
-                "      is no longer true — re-point the anchor, or delete the entry.\n"
-                "      Its reason was: %s" % (entry.path, entry.anchor, entry.reason)
+            # Two different claims share this shape (both leave `found` empty), and they need
+            # different instructions. The literal-scan loop above only ever matches this entry
+            # against a line that ALSO spells the pin's CURRENT version — so `found` is empty
+            # whether the anchor's line was deleted outright, or is still sitting right there
+            # stating some OTHER (stale) version, e.g. after a legitimate bump nobody re-measured
+            # this one illustrative line for (#292). Telling those apart means searching for the
+            # anchor's own text again, this time WITHOUT requiring the current version to be
+            # present — deliberately looser than the `hits` match above, which is exactly the
+            # point: it answers "is the record's line still here at all", not "does it still
+            # agree".
+            entry_lines = read_lines(repo / entry.path)
+            anchor_still_present = entry_lines is not None and any(
+                entry.anchor in line for line in entry_lines
             )
+            if anchor_still_present:
+                problems.append(
+                    "the HISTORICAL entry for %s (anchor %r) still finds its line, but that line no\n"
+                    "      longer states %s %s.\n"
+                    "      The record is not stale — the version is: this reads like a legitimate\n"
+                    "      bump that nobody re-measured this specific line for. RE-MEASURE how %s %s\n"
+                    "      resolves and update the line HISTORICAL points at; do not re-point the\n"
+                    "      anchor or delete the entry — the reason it is recorded still holds.\n"
+                    "      Its reason was: %s"
+                    % (entry.path, entry.anchor, package, version, package, version, entry.reason)
+                )
+            else:
+                problems.append(
+                    "the HISTORICAL entry for %s (anchor %r) matches nothing any more.\n"
+                    "      A recorded occurrence that no longer exists is a claim about this repo that\n"
+                    "      is no longer true — re-point the anchor, or delete the entry.\n"
+                    "      Its reason was: %s" % (entry.path, entry.anchor, entry.reason)
+                )
         elif len(found) > 1:
             problems.append(
                 "the HISTORICAL entry for %s (anchor %r) covers %d lines (%s).\n"
