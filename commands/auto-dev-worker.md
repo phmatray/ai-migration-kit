@@ -70,9 +70,9 @@ Once you are past it:
 
 The supervisor then dispatches a **fresh** sub-agent onto the same branch and PR — `implement-issue`'s
 Step 4 resume contract expects exactly that — and it restarts at ~30K context instead of continuing
-from ~300K. One superlinear session becomes two linear ones: the same split that Token-economics
-lever 1 measured as this fleet's one A/B-verified win, cut at a *length* seam instead of a *phase*
-seam. **`PARTIAL` is a hand-off, not a failure**, and it is not `BLOCKED`: nothing is wrong, the
+from ~300K. One superlinear session becomes two linear ones: the same split that lever 1 of
+`skills/auto-dev/SKILL.md` § Token economics measured as this fleet's one A/B-verified win, cut at a
+*length* seam instead of a *phase* seam. **`PARTIAL` is a hand-off, not a failure**, and it is not `BLOCKED`: nothing is wrong, the
 budget simply ran out.
 
 Two hard conditions:

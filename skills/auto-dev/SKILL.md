@@ -580,7 +580,11 @@ the context the budget exists to discard*, so the hand-off would have cost a tur
 (and the agent has returned anyway; a returned sub-agent cannot be messaged). Record the phase as
 `PARTIAL ×<k>` in the state file so a `loop` re-fire can reconstruct it, and **cap consecutive
 resumes at 3**: a fourth means the issue is genuinely stuck rather than merely long, so surface and
-retire it on the BLOCKED path below instead of resuming again.
+retire it on the BLOCKED path below instead of resuming again — but **skip that path's tier
+escalation**. A budget exhaustion is by construction a *length* failure, not a "the model wasn't
+strong enough" one; this run's own outlier was an `effort: medium` issue that succeeded on the mid
+tier and simply took 434 turns, so promoting it to the top model would put the fleet's most
+expensive issue on its most expensive tier for no reason.
 - **Reported BLOCKED/FAILED** → first **tier-escalate if it was on a lower model**: if the failure looks like the model wasn't strong enough (rather than a genuine hard blocker — un-mergeable conflict, missing approval, no plan), re-dispatch the *same* issue **once** on the top model. If already on top, or it fails again → record it, surface it, retire the slot (it reported, so it has returned — nothing to stop), refill the slot (don't let one blocked issue stall the fleet). This escalation is what makes cheap-by-default tiering safe.
 
 After any change, update the state file (in flight, completed, filed, queue).
@@ -628,7 +632,7 @@ that belong to them. Don't respond by suppressing filings — a worker that sile
 finds breaks the guarantee that makes the backlog truthful, and trades a visible problem for an
 invisible one.
 
-**Keep your own context lean** (Token economics lever 2): the state file is your only working memory
+**Keep your own context lean** (Token economics lever 5): the state file is your only working memory
 (**no per-issue TaskList**), worker reports stay terse, and you **compact on the counted cadence** — the
 merge-counter check in this step's per-wake bookkeeping above, whose integer lives in
 [references/token-economics.md](references/token-economics.md) and is deliberately not restated here.

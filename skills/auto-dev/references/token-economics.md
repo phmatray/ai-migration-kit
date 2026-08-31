@@ -79,14 +79,21 @@ is not a rounding error, on either side of the fleet.
 
 ### The orchestrator is the single most expensive session in the run
 
-The headline `SKILL.md` quotes — *"19-merge run … 21 worker sessions, 863M tokens"* — counts **worker
-sessions only**. Adding the supervisor's own transcript to the same rollup:
+Every headline this file and `SKILL.md` carry counts **worker sessions only**. Adding the
+supervisor's own transcript to the lever-4 rollup above — same run, same `usage_report.py` scan,
+whose per-tier rows sum to exactly the worker line below:
 
 | | Sessions | Tokens | $ list-equiv |
 |---|---|---|---|
-| Workers | 38 | 656,482,029 | $427.20 |
+| Workers | 37 | 656,482,029 | $427.20 |
 | **Orchestrator** | **1** | **116,086,877** | **$212.65** |
-| **Total** | 39 | **772,568,906** | **$639.85** (~$33.7/merge) |
+| **Total** | 38 | **772,568,906** | **$639.85** (~$33.7/merge) |
+
+⚠️ *This does not reconcile with the `19-merge run … 21 worker sessions, 863M tokens` headline
+quoted in `SKILL.md`'s Token economics.* That figure is a different scan of the same run and has
+never been reconciled with the 37-session per-tier rollup here — an inherited discrepancy, not one
+introduced by these numbers. Nothing below depends on which scan you take: the **33%** is a *dollar*
+share ($212.65 of $639.85), and both sides of it come from the one scan tabulated here.
 
 One session, **33% of the run's list-equivalent cost** — more than the four top-tier worker sessions
 combined ($187.23). It ran 551 assistant messages at **~210K average context per message** and

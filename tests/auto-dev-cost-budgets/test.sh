@@ -69,6 +69,11 @@ grep -qi "not A/B-verified optima\|not A/B-verified" "$REF" \
 # declares — or the stale `20`/`150` the fix removed. So "never compacted once across all 19 merges"
 # and "224 turns/session" stay sayable; "compact every 8 merges" and "a turn budget of 150 turns"
 # do not.
+#
+# Both documents are HARD-WRAPPED, so the same rule is applied twice: once per line (which reports a
+# useful line number) and once over the whole file flattened to a single line (which is the one that
+# catches "compact every 8\nmerges"). A line-oriented check alone was measured passing a restatement
+# split across a line break — the identical hazard the PARTIAL block below already flattens for.
 for f in "$SKILL_MD" "$WORKER_MD"; do
   hits=$(grep -nEi 'compact[a-z]*' "$f" | grep -E "(^|[^0-9])($CADENCE|20) *merges" || true)
   if [ -n "$hits" ]; then
@@ -76,13 +81,31 @@ for f in "$SKILL_MD" "$WORKER_MD"; do
     printf '%s\n' "$hits" | sed 's/^/        /'
     exit 1
   fi
+  # Flattened, with a bounded window so the mechanism word and the figure have to be in the same
+  # breath — `[^.]` stops the window at a sentence boundary, which is what keeps an unrelated
+  # measurement three sentences later from reading as a restatement.
+  if tr '\n' ' ' < "$f" | grep -qEi "compact[a-z]*[^.]{0,120}[^0-9]($CADENCE|20) *merges"; then
+    fail "$f restates the compaction cadence across a line break — the integer's one home is $REF"
+  fi
   hits=$(grep -nEi 'turn budget' "$f" | grep -E "(^|[^0-9])($BUDGET|150) *turns" || true)
   if [ -n "$hits" ]; then
     echo "FAIL: $f restates the worker turn budget — the integer's one home is $REF:"
     printf '%s\n' "$hits" | sed 's/^/        /'
     exit 1
   fi
+  if tr '\n' ' ' < "$f" | grep -qEi "turn budget[^.]{0,120}[^0-9]($BUDGET|150) *turns"; then
+    fail "$f restates the worker turn budget across a line break — the integer's one home is $REF"
+  fi
 done
+
+# The single likeliest drift site, pinned on its own: Step 4 hands the reader the compaction formula
+# with a PLACEHOLDER in it, and filling that placeholder in is a restatement that names no unit at
+# all — so neither rule above would see it.
+if grep -qE 'lastCompacted *>=? *[0-9]' "$SKILL_MD"; then
+  fail "SKILL.md's compaction formula has the cadence pasted into it instead of a placeholder: $(grep -nE 'lastCompacted *>=? *[0-9]' "$SKILL_MD" | head -2)"
+fi
+grep -qE 'merges - lastCompacted >= .?<cadence>' "$SKILL_MD" \
+  || fail "SKILL.md no longer states the compaction-due check as 'merges - lastCompacted >= <cadence>'"
 
 # ------------------------------------------------------------------- 3. the citations resolve
 grep -q '^### The two budgets' "$REF" \
@@ -118,8 +141,6 @@ grep -qi 'soft trigger' "$WORKER_MD" \
 # the one way to implement this rule and save nothing (#314's substrate, in-process sub-agents).
 grep -q 'Reported PARTIAL' "$SKILL_MD" \
   || fail "skills/auto-dev/SKILL.md Step 4 has no 'Reported PARTIAL' handling"
-grep -qi 'fresh' "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md does not prescribe a fresh dispatch anywhere"
 # Newlines flattened to spaces before matching: the prose is hard-wrapped, so a phrase this suite
 # pins ("cap consecutive resumes") straddles a line break and a line-oriented grep would report it
 # missing while it is plainly there — a false red that teaches the next reader to loosen the check.
@@ -143,9 +164,18 @@ grep -qi 'lastCompacted' "$SKILL_MD" \
   || fail "skills/auto-dev/SKILL.md Step 4 does not compute the compaction-due check off the merge counter"
 
 # ------------------------------------------------ 6. Step 6 reports the share it kept missing
-grep -qi 'orchestrator share' "$SKILL_MD" \
+# Scoped to the Cost accounting block and flattened, for the same reason as the PARTIAL block. A
+# file-wide `grep -qi worktree` here was measured GREEN with the entire caveat paragraph deleted —
+# `worktree` appears 16 times in a skill whose subject is worktrees, so the check pinned nothing.
+cost_block=$(sed -n '/\*\*Cost accounting\.\*\*/,/\*\*Lessons — mandatory\.\*\*/p' "$SKILL_MD" | tr '\n' ' ')
+[ -n "$cost_block" ] || fail "could not locate Step 6's Cost accounting block in $SKILL_MD"
+printf '%s' "$cost_block" | grep -qi 'orchestrator share' \
   || fail "skills/auto-dev/SKILL.md Step 6 does not report orchestrator share of total as a named metric"
-grep -qi 'worktree' "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md Step 6 does not carry the worktree-transcript caveat"
+printf '%s' "$cost_block" | grep -qiE 'worktree' \
+  || fail "skills/auto-dev/SKILL.md Step 6's cost accounting has no worktree-transcript caveat"
+# `[*_ ]*` between the words: the sentence carries markdown emphasis (*different*), and a pattern
+# that assumed a plain space matched nothing while the caveat was plainly there.
+printf '%s' "$cost_block" | grep -qiE 'different[*_ ]+(project|transcript)[*_ ]+(transcript[*_ ]+)?director' \
+  || fail "skills/auto-dev/SKILL.md Step 6 does not say a worktree-run supervisor writes to a DIFFERENT project transcript directory — the whole reason usage_report.py must be pointed at both"
 
 echo "PASS: auto-dev-cost-budgets (cadence=$CADENCE merges, budget=$BUDGET turns, both declared once)"
