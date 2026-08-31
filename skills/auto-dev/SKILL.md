@@ -1,17 +1,13 @@
 ---
 name: auto-dev
 description: >-
-  Autonomously burn down a GitHub issue backlog with a FLEET of N parallel workers — each takes one
-  issue through its whole lifecycle (`implement-issue` → `merge-pr` → report) then picks up the next,
-  so N issues stay in flight. The orchestrator ABOVE those skills: surveys open issues, orders them
-  (small effort first, then medium), gives each worker a NON-overlapping code area to avoid conflicts,
-  keeps exactly N running (retiring each worker the moment its PR merges), has workers file off-scope
-  finds via `create-issue`, waits for CI itself, and verifies real merge
-  state from GitHub — workers idle at "PR ready" without landing. Use whenever the user wants MANY
-  issues worked hands-off with parallelism: "implement issues small first then medium with 3 agents",
-  "burn down the backlog", "run the auto-dev loop", "spin up a fleet of agents to clear open issues",
-  « vide le backlog avec 3 agents ». Does NOT apply to building ONE issue (implement-issue), landing
-  ONE PR (merge-pr), or filing ONE issue (create-issue).
+  Burn down a GitHub issue backlog hands-off with a FLEET of N parallel workers — each drives one
+  issue through `implement-issue` → `merge-pr`, then takes the next, so N stay in flight. The
+  orchestrator ABOVE those skills: ordering, NON-overlapping areas per worker, CI waits, verified
+  merge state (workers idle at "PR ready" without landing). Triggers: "implement issues small first
+  then medium with 3 agents", "burn down the backlog", "run the auto-dev loop", "spin up a fleet of
+  agents to clear open issues", « vide le backlog avec 3 agents ». Does NOT apply to building ONE
+  issue (implement-issue), landing ONE PR (merge-pr), or filing ONE issue (create-issue).
 license: MIT
 compatibility: >-
   Requires an authenticated gh CLI with push/merge rights, git, and a harness whose Agent tool
