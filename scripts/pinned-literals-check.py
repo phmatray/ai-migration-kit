@@ -626,6 +626,12 @@ def check_pin_derived(repo, files, pin, problems):
     # anchor (a copy-paste in the table), and a value key would silently merge their hit counts —
     # hiding exactly the duplicate the "exactly one line" rule below is meant to surface.
     hits = {id(h): [] for h in entries}
+    # Whether an entry's anchor text is still spelled ANYWHERE on its path — tracked unconditionally
+    # below, before the marked/literal-scan split, so a marked line still counts: `hits` above is
+    # populated only by the literal-scan branch (the marked branch always `continue`s first), so an
+    # anchor that happens to sit on a `pin.marker` line would otherwise look identical to one whose
+    # line is genuinely gone.
+    anchor_seen = {id(h): False for h in entries}
     marked = 0
 
     for rel in files:
@@ -646,6 +652,10 @@ def check_pin_derived(repo, files, pin, problems):
 
             if rel == pin.source and definition.match(line):
                 continue
+
+            for h in entries:
+                if h.path == rel and h.anchor in line:
+                    anchor_seen[id(h)] = True
 
             if pin.marker in line:
                 marked += 1
@@ -725,23 +735,18 @@ def check_pin_derived(repo, files, pin, problems):
             # against a line that ALSO spells the pin's CURRENT version — so `found` is empty
             # whether the anchor's line was deleted outright, or is still sitting right there
             # stating some OTHER (stale) version, e.g. after a legitimate bump nobody re-measured
-            # this one illustrative line for (#292). Telling those apart means searching for the
-            # anchor's own text again, this time WITHOUT requiring the current version to be
-            # present — deliberately looser than the `hits` match above, which is exactly the
-            # point: it answers "is the record's line still here at all", not "does it still
-            # agree".
-            entry_lines = read_lines(repo / entry.path)
-            anchor_still_present = entry_lines is not None and any(
-                entry.anchor in line for line in entry_lines
-            )
-            if anchor_still_present:
+            # this one illustrative line for (#292). `anchor_seen` tells those apart: it is set from
+            # every line on the entry's path regardless of the marked/literal-scan split above, so a
+            # deleted line and a merely-stale one are not conflated.
+            if anchor_seen[id(entry)]:
                 problems.append(
                     "the HISTORICAL entry for %s (anchor %r) still finds its line, but that line no\n"
                     "      longer states %s %s.\n"
-                    "      The record is not stale — the version is: this reads like a legitimate\n"
-                    "      bump that nobody re-measured this specific line for. RE-MEASURE how %s %s\n"
-                    "      resolves and update the line HISTORICAL points at; do not re-point the\n"
-                    "      anchor or delete the entry — the reason it is recorded still holds.\n"
+                    "      The record is not stale; only the version on that line is — this reads\n"
+                    "      like a legitimate bump that nobody re-measured this specific line for.\n"
+                    "      RE-MEASURE how %s %s resolves and update the line HISTORICAL points at;\n"
+                    "      do not re-point the anchor or delete the entry — the reason it is recorded\n"
+                    "      still holds.\n"
                     "      Its reason was: %s"
                     % (entry.path, entry.anchor, package, version, package, version, entry.reason)
                 )
