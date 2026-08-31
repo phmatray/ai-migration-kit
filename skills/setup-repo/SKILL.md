@@ -1,16 +1,14 @@
 ---
 name: setup-repo
 description: >-
-  Bring a GitHub repository to the configuration the issue/PR lifecycle skills assume — the label
-  taxonomy (type, priority, effort, area), the issue forms under .github/ISSUE_TEMPLATE/, and the
-  repository settings (delete-branch-on-merge, squash-only merges). Deterministic and idempotent:
-  a declarative manifest, a read-only `plan` that prints the drift, and an `apply` that converges
-  it. Use whenever a repo needs configuring for these skills or has drifted — "set up the labels",
-  "create the issue templates", "turn on auto-delete merged branches", "configure this repo the
-  way the kit expects", "why does auto-dev ignore my effort labels", « configure les labels du
-  repo », « crée les templates d'issue », « supprime automatiquement les branches mergées ». It is
-  the write half of get-repo-profile, which only READS a repo's conventions and reports what it
-  could not find. Does NOT file issues, implement code, or merge PRs.
+  Bring a GitHub repository to the configuration the issue/PR lifecycle skills assume — label
+  taxonomy, issue forms under .github/ISSUE_TEMPLATE/, repository settings (delete-branch-on-merge,
+  squash-only merges) — deterministic and idempotent: `plan` prints drift, `apply` converges it. Use
+  when a repo needs configuring or has drifted: "set up the labels", "create the issue templates",
+  "turn on auto-delete merged branches", "configure this repository the way the kit expects", "why
+  does auto-dev ignore my effort labels", « configure les labels du repo », « crée les templates
+  d'issue », « supprime automatiquement les branches mergées ». It WRITES what get-repo-profile only
+  READS. Does NOT file issues, implement code, or merge PRs.
 license: MIT
 compatibility: >-
   Requires git, python3 with PyYAML, jq, and an authenticated gh CLI. Without gh the label and

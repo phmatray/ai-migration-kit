@@ -1,5 +1,5 @@
 ---
-description: Run PHASE 1 of an auto-dev worker — implement-issue up to a ready PR, then stop so a fresh sub-agent can merge it. Dispatched by the auto-dev supervisor as a background sub-agent; invoke as `/auto-dev-worker <issue-number>` (the model tier is the `model` the supervisor passed to the Agent tool, not here).
+description: PHASE 1 of an auto-dev worker — implement-issue up to a ready PR, then stop so a fresh sub-agent merges it. Dispatched by the supervisor; `/auto-dev-worker <issue-number>`.
 argument-hint: <issue-number>
 ---
 

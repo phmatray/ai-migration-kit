@@ -3,10 +3,10 @@ name: legacy-upgrade
 description: >-
   Use when upgrading, migrating, or modernizing a legacy application — outdated target framework,
   out-of-support runtime, obsolete APIs, old packages, or legacy idioms. Triggers on "upgrade this
-  app", "migrate to .NET 10", "modernize this codebase", "this project targets an old framework",
-  « mets à niveau cette app », « migre vers .NET 10 », « modernise ce code legacy », /migrate,
-  /migrate-assess, /migrate-verify. Drives a seven-phase, gate-verified pipeline — assessment
-  through verified production — where RoselineMCP performs all C# analysis and code transformation.
+  app", "migrate to .NET 10", "modernize this codebase", "this project targets an old framework", «
+  mets à niveau cette app », « migre vers .NET 10 », « modernise ce code legacy », /migrate,
+  /migrate-assess, /migrate-verify. Drives a seven-phase, gate-verified pipeline (assessment →
+  verified production) in which RoselineMCP performs all C# analysis and transformation.
 license: MIT
 compatibility: >-
   Requires the RoselineMCP server (Roslyn) for all C# analysis and mutation, a .NET SDK >= 8, git

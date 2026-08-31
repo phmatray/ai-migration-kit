@@ -8,6 +8,9 @@
 #   2. a marked line stating a stale version             -> REFUSE, and never "edit the number"
 #   3. a historical line is ignored BECAUSE of its entry -> break the anchor and it refuses
 #   4. a HISTORICAL entry that matches nothing           -> REFUSE (a stale allowlist entry lies)
+#  4a. a HISTORICAL entry whose anchor still matches,    -> REFUSE, told to RE-MEASURE — never told
+#      but the version differs (a legitimate bump)          to re-point or delete a line that is
+#                                                            still there
 #   5. a HISTORICAL entry covering two lines             -> REFUSE (an over-broad anchor)
 #   6. a marker on a line that states no claim           -> REFUSE (it verifies nothing)
 #   7. an EXCLUDED path spelling the pin                 -> REFUSE (a copy nothing else looks at)
@@ -243,6 +246,28 @@ if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'matches nothing any more'; the
   ok "a HISTORICAL entry whose line is gone is refused, not silently carried"
 else
   bad "expected a stale-entry refusal; got rc=$rc: $out"
+fi
+
+# --------------------------- 4a. a HISTORICAL entry whose anchor still matches, but the version
+#                                  differs — a legitimate bump nobody re-measured this line for
+# #292: the pin's constant moves on and this specific illustrative line just never gets
+# re-measured — the anchor's own text (which deliberately carries no version literal, see
+# HISTORICAL's header comment) is still right there, sitting on a line that now states some OTHER
+# version. That is a different claim than "this line is gone" (section 4): the record is still
+# findable, it just needs its number updated. The refusal must say so — RE-MEASURE, never
+# re-point-or-delete — or a maintainer chasing #90/#158's wrong instruction wastes time hunting for
+# a moved anchor that never moved.
+R="$WORK/staleversion"; scaffold "$R"
+rewrite "$R/tests/xunit-v3/apply-transform.py" \
+  "s/mtp-v2\` $FAKE are STABLE releases/mtp-v2\` 1.2.3 are STABLE releases/"
+out=$(run_check "$R"); rc=$?
+if [ $rc -ne 0 ] \
+   && printf '%s' "$out" | grep -q 'still finds its line' \
+   && printf '%s' "$out" | grep -q 're-measure' \
+   && ! printf '%s' "$out" | grep -qi "are STABLE releases.*matches nothing any more"; then
+  ok "a HISTORICAL entry whose anchor still matches but states a stale version is told to re-measure"
+else
+  bad "expected a re-measure refusal (not 'matches nothing any more') for the STABLE-releases entry; got rc=$rc: $out"
 fi
 
 # ------------------------------------------------------- 5. a HISTORICAL entry covering two lines
