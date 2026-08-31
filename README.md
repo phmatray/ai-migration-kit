@@ -58,7 +58,7 @@ Five failure modes this kit was built to close, each with the evidence behind it
 |---|---|---|
 | *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/legacy-upgrade/SKILL.md`](skills/legacy-upgrade/SKILL.md) | The case-study table in [Proven in production](#proven-in-production): 18 min / ~30 min / ~1 h, measured. |
 | *The agent reads whole C# files instead of asking Roslyn.* | The roseline gate denies `Read` on `.cs` and names the tool that replaces it — [`hooks/roseline-gate.sh`](hooks/roseline-gate.sh), [docs/roseline-gate.md](docs/roseline-gate.md) | Preflight only ever proved roseline was *connected*, never that it was *used* (#109). |
-| *Four agents, one checkout — a commit lands in another agent's PR, and every command exits 0.* | Guarded git writes that assert the branch before and after — [`skills/implement-issue/SKILL.md`](skills/implement-issue/SKILL.md) | #26 / #280: a `git commit` in the wrong checkout, silently accepted. |
+| *Four agents, one checkout — a commit lands in another agent's PR, and every command exits 0.* | Guarded git writes that assert the branch before and after — [`skills/implement-issue/SKILL.md`](skills/implement-issue/SKILL.md) — and the git write-gate that denies the raw command at the tool call, [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh) | #26 / #280: a `git commit` in the wrong checkout, silently accepted. |
 | *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/systematic-debugging/SKILL.md`](skills/systematic-debugging/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
 | *Three inlets, no outlet — the backlog only ever fills.* | One filing bar for every inlet, and a skill that re-decides what's already there — [`skills/triage-backlog/SKILL.md`](skills/triage-backlog/SKILL.md), [`skills/_shared/filing-bar.md`](skills/_shared/filing-bar.md) | [ARCHITECTURE.md](ARCHITECTURE.md)'s cycle paragraph: three writers, nothing that ever closed the loop. |
 
@@ -140,6 +140,28 @@ Full reference — the `dnx` version floor, the `Edit` escape hatch for what ros
 (`using` directives, file-scoped namespaces, attributes, top-level statements), both env switches
 (`ROSELINE_GATE=on|off`), and the permissions caveat — lives in
 [docs/roseline-gate.md](docs/roseline-gate.md).
+
+### Destructive git writes are gated the same way
+
+[`hooks/git-write-gate.sh`](hooks/git-write-gate.sh) is the second shipped `PreToolUse` hook, on
+`Bash` rather than `Read`, and it is built on the same three properties:
+
+- **What it denies** — whole-tree discards (`git checkout .`, `git restore .`), `git reset --hard`,
+  `git clean -f…`, a forced `git push`, and a **bare** `git commit`/`push`/`merge`. Each denial names
+  the replacement: the matching `guarded-*.sh` under `skills/implement-issue/scripts/`, which asserts
+  the branch before and after (#26, #280). A line that already calls one of those guards is allowed
+  whole, `--force-with-lease` included.
+- **Inert unless the guards exist** — it only ever denies in a repository that carries a
+  `.claude/skills/repo-profile.md`, i.e. one that has opted into the lifecycle skills. Everywhere
+  else the plugin is installed, it says nothing.
+- **Fails open, always** — no `jq`, no `awk`, no `git`, an unparseable payload, quoting it cannot
+  trust, and the command proceeds. `GIT_GATE=off` (also `0|false|no|disabled`) disables it outright;
+  `GIT_GATE=on` forces it past the profile probe, and `off` still wins.
+
+It tokenises rather than greps, so `echo "git push --force"` and `git log # git reset --hard` are
+not denied. Prior art: `git-guardrails-claude-code/scripts/block-dangerous-git.sh` in
+[mattpocock/skills](https://github.com/mattpocock/skills) (MIT) — the idea, deliberately not the
+script; [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh)'s header records the four reasons.
 
 ### AdrMcp is shipped too — recommended, not enforced
 
@@ -260,6 +282,15 @@ omarchy plugin add https://github.com/Atypical-Consulting/omarchy-aikit.git --en
 - Dedicated `migration/<date>` branch; commit at every green gate.
 - All RoselineMCP mutations run **preview-first**; diffs are inspected before `previewOnly: false`.
 - A failed gate stops forward progress — fix or roll back, never skip.
+- Destructive git is denied at the tool call, not just discouraged in prose —
+  [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh) refuses whole-tree discards, `reset --hard`,
+  `clean -f`, a forced push and the bare `commit`/`push`/`merge`, naming the `guarded-*.sh`
+  replacement in each reason.
+- That gate is **inert** in any repository without a `.claude/skills/repo-profile.md`, and
+  it **fails open** on every internal error — the decision recorded in
+  [ADR 0002](docs/adr/0002-the-roseline-gate-fails-open-always.md).
+- `GIT_GATE=off` disables it for one command or for the session; `GIT_GATE=on` forces it past the
+  profile probe.
 
 ## Repository layout
 

@@ -464,6 +464,9 @@ jobs:
       - name: Roseline golden test (shipped MCP config + the gate, driven to red)
         run: ./tests/roseline/test.sh
 
+      - name: Git write-gate golden test (fail-open Bash gate, every deny AND every allow)
+        run: ./tests/git-gate/test.sh
+
       - name: Auto-dev never-wait golden test (worker prompt + recovery clause pinned)
         run: ./tests/auto-dev-never-wait/test.sh
 

@@ -25,6 +25,7 @@
     }
   ],
   "not_decisions": {
+    "hooks/git-write-gate.sh": "a fail-open allow/deny wrapper on one Bash tool call \u2014 it enforces the guard convention (#26, #280), the same class as the guarded-*.sh scripts it routes to; not a control-flow choice with a registered verdict vocabulary",
     "scripts/audit-inventory.sh": "a read-only structural inventory probe of a .NET repo, not a control-flow choice",
     "scripts/ci-wiring-check.py": "a structural completeness guard (every suite is CI-wired); it has no verdict vocabulary of its own to register",
     "scripts/contrast-check.py": "a WCAG contrast-ratio calculator, not a control-flow choice",
