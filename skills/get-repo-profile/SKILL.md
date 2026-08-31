@@ -6,9 +6,9 @@ description: >-
   identity, build/test/format commands, labels, merge style, conflict hot-spots. Use when no profile
   exists, to PORT those skills to another repository, or to refresh after the toolchain, labels or
   CI changed: "set up the repo profile", "configure this repo for the issue skills", "make these
-  skills work in my other repo", « configure le profil du repo », « fais marcher create-issue dans
-  ce repo ». Does NOT file issues, implement code, merge PRs, or WRITE labels/templates/settings
-  (setup-repo).
+  skills work in my other repo", "regenerate the profile", « configure le profil du repo », « fais
+  marcher create-issue dans ce repo ». Does NOT file issues, implement code, merge PRs, or WRITE
+  labels/templates/settings (setup-repo).
 license: MIT
 compatibility: >-
   Requires git and bash. An authenticated gh CLI is needed for the label / branch-protection /

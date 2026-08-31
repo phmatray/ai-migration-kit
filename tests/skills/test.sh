@@ -163,7 +163,7 @@ t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
 p.write_text(t, encoding="utf-8")
 '
 
-echo "== the 700-char soft ceiling WARNs; the guide's 1024 still hard-fails (#323) =="
+echo "== the 750-char soft ceiling WARNs; the guide's 1024 still hard-fails (#323) =="
 # The soft ceiling is this suite's first NON-BINARY verdict: it must print a warning and leave the
 # exit code alone. run_case keys only on pass/fail, so it cannot tell "warned and accepted" from
 # "said nothing and accepted" — which is the whole behaviour under test. Hence a helper that pins
@@ -218,12 +218,12 @@ p.write_text(t, encoding="utf-8")
 PY
 }
 
-run_desc_case "W1 800 chars warns, exit unchanged " 0 \
-  'WARN followups: description is 800 characters' "$(desc_mutator 800)"
+run_desc_case "W1 850 chars warns, exit unchanged " 0 \
+  'WARN followups: description is 850 characters' "$(desc_mutator 850)"
 run_desc_case "W2 1100 chars still hard-fails    " 1 \
   'followups: description is 1100 characters \(guide limit: 1024\)' "$(desc_mutator 1100)"
-run_desc_case "W3 700 chars is silent            " 0 \
-  '!followups: description is' "$(desc_mutator 700)"
+run_desc_case "W3 750 chars is silent            " 0 \
+  '!followups: description is' "$(desc_mutator 750)"
 
 # ---------------------------------------------------------------------------------------------
 # The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
@@ -994,15 +994,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
-# The two auto-dev command files are DISPATCHED, never discovered (#323). The supervisor invokes
-# `/auto-dev-worker <n>` and `/auto-dev-merge <n>` by name; nothing ever asks the model to FIND
-# them, so a model-facing description buys no discovery and is pure always-loaded context — and
-# these two are the longest in commands/, because each re-states the phase contract its own body
-# already carries. `disable-model-invocation: true` takes them out of that surface; the one-line
-# description and `argument-hint` are what a human still needs in the slash-command list.
+# The two auto-dev command files are DISPATCHED by name, so each carries ONE human-facing line and
+# leaves the phase contract to its body (#323) — they were the longest descriptions in commands/,
+# each re-stating what its own body already says.
+#
+# What they must NOT carry is `disable-model-invocation` (#323 review). #323's spec proposed it on
+# the reasoning that "the supervisor never asks the model to FIND /auto-dev-worker" — true of
+# discovery, false of invocation, and the key gates invocation. Since #314 a worker is an in-process
+# SUB-AGENT: `skills/auto-dev/SKILL.md` dispatches `Agent(prompt: "Invoke \`auto-dev-worker\` with
+# args <N>")`, and that sub-agent is a model whose first act is to invoke the command. Disabling
+# model invocation would leave every phase-1 and phase-2 worker in the fleet unable to reach its own
+# contract. Both halves are pinned so neither can drift back.
 #
 # Pinned against the real tree (no scratch fixture): the defect IS the committed frontmatter.
-echo "== the dispatched auto-dev commands are user-invoked only (#323) =="
+echo "== the dispatched auto-dev commands carry one line, and stay model-invocable (#323) =="
 D_CHECK=$(cat <<'PY'
 import re, sys, yaml
 t = open(sys.argv[1], encoding="utf-8").read()
@@ -1010,9 +1015,10 @@ m = re.match(r"^---\n(.*?)\n---\n", t, re.S)
 fm = yaml.safe_load(m.group(1)) if m else None
 if not isinstance(fm, dict):
     sys.exit("frontmatter absent or not a YAML mapping")
-if fm.get("disable-model-invocation") is not True:
-    sys.exit("disable-model-invocation is not true — the supervisor dispatches this command by "
-             "name, so its description must not sit in every session's context")
+if "disable-model-invocation" in fm:
+    sys.exit("disable-model-invocation is set — since #314 the auto-dev worker is an in-process "
+             "sub-agent that INVOKES this command through the Skill tool, so disabling model "
+             "invocation breaks every worker in the fleet (#323 review)")
 desc = " ".join(str(fm.get("description") or "").split())
 if not desc:
     sys.exit("description missing — the slash-command list still shows it to a human")
@@ -1029,9 +1035,9 @@ for cmd in auto-dev-worker auto-dev-merge; do
   d_rc=$?
   set -e
   if [ "$d_rc" -eq 0 ]; then
-    echo "ok   [D1 commands/$cmd.md dispatched-only]"
+    echo "ok   [D1 commands/$cmd.md one line, invocable]"
   else
-    echo "FAIL: [D1 commands/$cmd.md dispatched-only] $d_out"
+    echo "FAIL: [D1 commands/$cmd.md one line, invocable] $d_out"
     fails=$((fails + 1))
   fi
 done

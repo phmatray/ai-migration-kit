@@ -5,10 +5,10 @@ description: >-
   taxonomy, issue forms under .github/ISSUE_TEMPLATE/, repository settings (delete-branch-on-merge,
   squash-only merges) — deterministic and idempotent: `plan` prints drift, `apply` converges it. Use
   when a repo needs configuring or has drifted: "set up the labels", "create the issue templates",
-  "configure this repository the way the kit expects", "why does auto-dev ignore my effort labels",
-  « configure les labels du repo », « crée les templates d'issue », « supprime automatiquement les
-  branches mergées ». It WRITES what get-repo-profile only READS. Does NOT file issues, implement
-  code, or merge PRs.
+  "turn on auto-delete merged branches", "configure this repository the way the kit expects", "why
+  does auto-dev ignore my effort labels", « configure les labels du repo », « crée les templates
+  d'issue », « supprime automatiquement les branches mergées ». It WRITES what get-repo-profile only
+  READS. Does NOT file issues, implement code, or merge PRs.
 license: MIT
 compatibility: >-
   Requires git, python3 with PyYAML, jq, and an authenticated gh CLI. Without gh the label and

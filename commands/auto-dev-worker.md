@@ -1,7 +1,6 @@
 ---
 description: PHASE 1 of an auto-dev worker — implement-issue up to a ready PR, then stop so a fresh sub-agent merges it. Dispatched by the supervisor; `/auto-dev-worker <issue-number>`.
 argument-hint: <issue-number>
-disable-model-invocation: true
 ---
 
 You are an auto-dev worker (**PHASE 1 of 2**) for this repo. Your assigned issue is #$1.

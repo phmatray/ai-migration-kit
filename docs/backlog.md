@@ -27,11 +27,13 @@ rendra rentable (YAGNI sinon).
   mesuré *est* sa ligne de base, pas une cible à atteindre.
 - **Mesure du banc après la coupe des descriptions (#323) — dû.** Le déclencheur permanent de
   l'entrée ci-dessus (« une modification de `description` → `run_all.py --skills <skill>` ») a été
-  armé le 2026-08-31 : les **dix** descriptions ont été raccourcies (8 518 → 6 501 caractères
-  normalisés, plus aucune au-dessus du plafond souple de 700 posé dans
-  `tests/skills/check-frontmatter.py`). La coupe est **conservatrice** — aucune branche de
-  déclenchement, aucune forme FR, aucune clause « Does NOT apply » retirée — mais elle n'est **pas
-  mesurée** : le banc lance un `claude -p` par requête, ce qu'une session de travail automatisée ne
+  armé le 2026-08-31 : **neuf** descriptions sur dix ont été raccourcies et la dixième
+  (`systematic-debugging`, 513 → 593) a *gagné* les deux formes FR que son jeu d'évals réclamait —
+  8 518 → 6 645 caractères normalisés au total, plus aucune au-dessus du plafond souple de 750 posé
+  dans `tests/skills/check-frontmatter.py`. La coupe est **conservatrice** — aucune forme FR, aucune
+  clause « Does NOT apply », aucune formulation reprise mot pour mot par une requête d'éval n'a été
+  retirée ; ce qui part, c'est l'identité et la mécanique que le corps du skill porte déjà, plus les
+  synonymes qui redisaient une branche déjà nommée. Mais elle n'est **pas mesurée** : le banc lance un `claude -p` par requête, ce qu'une session de travail automatisée ne
   fait pas. Dû avant la prochaine release : `python3 evals/run_all.py --runs-per-query 3`, comparaison
   à `evals/results/baseline.json` (frontière `implement-issue` ↔ `merge-pr` : 6/6 de chaque côté).
   Tant que ce n'est pas fait, le plafond souple reste à 700 et la cible ~450 de #323 attend.

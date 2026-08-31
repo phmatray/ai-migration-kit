@@ -4,9 +4,10 @@ description: >-
   Consolide et met à jour les suivis ouverts des migrations (next_steps/deferred des
   migration/report.json + backlog du kit). Use whenever the user asks what remains open across
   migrated repos, wants a status of pending decisions, says a follow-up item is done, or decides to
-  close/abandon one — triggers on « fais le point », « qu'est-ce qui reste », « c'est fait, coche-le
-  », « on ne le fera pas », "what's still open", "status of the follow-ups", "mark it done", "we
-  won't do that one", /migrate-followups. Also run it at the end of every migration (phase 7).
+  close/abandon one — triggers on « fais le point », « qu'est-ce qui reste », « suivis », « c'est
+  fait, coche-le », « on ne le fera pas », "what's still open", "status of the follow-ups", "next
+  steps", "mark it done", "we won't do that one", /migrate-followups. Also run it at the end of
+  every migration (phase 7).
 license: MIT
 compatibility: >-
   Requires python3 (scripts/followups.py) and read access to the migrated repos'
