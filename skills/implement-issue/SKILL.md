@@ -339,7 +339,9 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
 
 1. **Implement it.** Follow the task's own TDD-first steps (write the failing test → run red →
    implement → run green). Honor the Global Constraints and the profile's *Architecture grain* (touch
-   layers in order, don't break invariants). Use the per-task test filter the plan gives.
+   layers in order, don't break invariants). Use the per-task test filter the plan gives. Name new
+   files, symbols and test cases from the target repo's root `CONTEXT.md` when it has one; a term
+   the glossary lists under `_Avoid_` does not become an identifier.
    - *Inline mode:* directly, with `superpowers:test-driven-development` discipline.
    - *Subagent-per-task mode:* dispatch a subagent with the task block, Global Constraints, and repo grain; have it implement to a green filtered test run and report a short diff summary.
 
