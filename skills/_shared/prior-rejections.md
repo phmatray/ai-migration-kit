@@ -60,8 +60,9 @@ tags:
 
 ## Context and Problem Statement
 
-<what was asked — and, in its own sentence, WHY IT KEEPS BEING ASKED, listing the other names it
-arrives under. That sentence is not colour; it is what the fallback matcher reads.>
+<what was asked, and why it keeps being asked. Prose for a human who opens the file; the fallback
+matcher does NOT read this section, so the alternate names have to be repeated in the Prior
+requests bullet below to be findable.>
 
 ## Considered Options
 
@@ -83,14 +84,23 @@ someone could check, not a mood.>
 - #N — <issue title>, <the words the request arrived in> (<date>)
 ```
 
+**Every line of `## Prior requests` is searched by the fallback, so nothing but requests goes in
+it.** Not the migration provenance, not a note about where the decision used to live, not a
+cross-reference — any of those donate their own words to the match, and the ADR starts answering
+queries about them. It is not a hypothetical: the first draft of the three migrated records ended
+each bullet with *"Declined in `docs/backlog.md` §Non-adoptions until this ADR replaced it"*, and
+`match "docs backlog cleanup"` then returned all three — so a genuine "tidy up `docs/backlog.md`"
+finding would have been silently swallowed by clause 4 of the filing bar. Provenance belongs in
+*Context and Problem Statement*.
+
 `## Consequences` sits at `##`, matching the records AdrMcp has already rendered into `docs/adr/`;
 `python3 tests/adr/check-adrs.py` accepts either depth, and consistency inside one folder is worth
 more than MADR's nesting.
 
 **Write the requester's vocabulary into the *Prior requests* bullet, not just the issue title.** It
-is the one place the alternate names live, and it is half of what the fallback matcher searches — a
-concept whose ADR records only its own preferred name is a concept the fallback cannot find under any
-other. `docs/adr/0008-idea-tree-search.md` is the worked example: its bullet carries *multi-hypothesis
+is the one place the alternate names live that the fallback actually reads — title plus this section,
+and nothing else — so a concept whose ADR records only its own preferred name is a concept the
+fallback cannot find under any other. `docs/adr/0008-idea-tree-search.md` is the worked example: its bullet carries *multi-hypothesis
 tree search*, *branches candidate approaches*, *open solution space*, which is what lets a later
 "hypothesis tree exploration" match a file titled "Idea-tree search".
 

@@ -223,7 +223,10 @@ tree" and a fresh "multi-branch exploration" share no words), and the record of 
 an ADR rather than in an issue at all. Run the lookup in
 [`../_shared/prior-rejections.md`](../_shared/prior-rejections.md) over the idea's title plus a
 one-line gist: `search_adrs` in semantic mode filtered to `status: rejected` through the `adr` server,
-or `skills/triage-backlog/scripts/rejected-adrs.sh match "<title> <gist>"` without it. Report the
+or `skills/triage-backlog/scripts/rejected-adrs.sh --root <the profile's ADR root> match "<title>
+<gist>"` without it — pass `--root` explicitly rather than letting it default to `docs/adr` under
+the working directory, or in a repo whose root is elsewhere it exits 2 on every run and the recap
+reads "lookup unavailable" forever. Report the
 result either way, with the mode, in the Step 8 recap:
 
 ```

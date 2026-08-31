@@ -21,6 +21,8 @@ The request recurs under several names because the underlying wish is common and
 autonomy level, a supervision setting, a `--interactive` / `--yolo` pair, a confirmation policy, a
 human-in-the-loop mode. Each arrives as "the kit should let me choose how much it asks me".
 
+Recorded as French prose in `docs/backlog.md` §Non-adoptions until this ADR replaced it.
+
 ## Considered Options
 
 - A `ui.interaction_mode` configuration value with four levels, read by every phase.
@@ -50,6 +52,5 @@ demonstrated by a case the existing variants leave with no answer. Reopening is 
 ## Prior requests
 
 - `reviews/2026-07-23-jobs/` — "Modes d'interaction (`ui.interaction_mode` auto/direction/review/
-  collaborative)": a configurable autonomy level / supervision mode / human-in-the-loop confirmation
-  policy read by every phase, ported from Arbor (2026-07-23). Declined in `docs/backlog.md`
-  §Non-adoptions until this ADR replaced it.
+  collaborative)": a configurable autonomy level, supervision setting, interactive/yolo flag pair or
+  human-in-the-loop confirmation policy, read by every phase (2026-07-23).

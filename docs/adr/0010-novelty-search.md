@@ -21,6 +21,8 @@ It returns under several phrasings — novelty search, a prior-art check, an alp
 "has anyone solved this already", a research-literature gate — and all of them share one unstated
 premise: that the kit is choosing between ideas at all.
 
+Recorded as French prose in `docs/backlog.md` §Non-adoptions until this ADR replaced it.
+
 ## Considered Options
 
 - Wire an alphaXiv novelty verdict into the assessment phase.
@@ -50,6 +52,5 @@ edit in place.
 ## Prior requests
 
 - `reviews/2026-07-23-jobs/` — "Recherche de nouveauté (novelty search alphaXiv)": an academic
-  novelty / prior-art verdict, read from alphaXiv papers and the arXiv literature, used to rank
-  candidate approaches, ported from Arbor (2026-07-23). Declined in `docs/backlog.md`
-  §Non-adoptions until this ADR replaced it.
+  novelty verdict or prior-art check, read from alphaXiv papers and the arXiv research literature,
+  used to rank candidate approaches — "has anyone solved this already" as a gate (2026-07-23).

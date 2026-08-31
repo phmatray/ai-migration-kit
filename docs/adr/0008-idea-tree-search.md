@@ -24,6 +24,8 @@ tree, hypothesis tree, tree-of-thought, branch-and-score, multi-hypothesis explo
 over approaches. Under any of those names it sounds like a strict upgrade — the kit "only" walks one
 path, so surely walking several is better.
 
+Recorded as French prose in `docs/backlog.md` §Non-adoptions until this ADR replaced it.
+
 ## Considered Options
 
 - Adopt the idea tree: branch on approach, score, prune, keep the best.
@@ -54,6 +56,6 @@ the same mechanism.
 ## Prior requests
 
 - `reviews/2026-07-23-jobs/` — "Arbre d'hypothèses / recherche multi-hypothèses (Idea Tree)":
-  multi-hypothesis tree search that branches candidate approaches and explores an open solution
-  space, ported from Arbor (2026-07-23). Declined in `docs/backlog.md` §Non-adoptions until this
-  ADR replaced it.
+  multi-hypothesis tree search that branches candidate approaches, scores them and explores an open
+  solution space; also asked for as tree-of-thought, branch-and-score, or beam search over
+  approaches (2026-07-23).

@@ -149,6 +149,14 @@ while [ $# -gt 0 ]; do
         # word with anything, so a lenient reading would answer "no prior rejection" — the one
         # answer a caller acts on by filing the issue.
         [ $# -ge 1 ] || refuse "match needs a query: rejected-adrs.sh match \"<title and gist>\""
+        # And a query that is really a FLAG is the same mis-invocation wearing the shape of an
+        # answer. `match --root` would otherwise be read as the one-word query "--root", share no
+        # content word with anything, and exit 1 — "I looked and found no prior rejection", which
+        # is precisely the answer a caller acts on by filing the issue. Every other mis-invocation
+        # in this file refuses; this one must too.
+        case "$1" in
+          -*) refuse "match's query looks like a flag ('$1'); flags go BEFORE the subcommand, as in: rejected-adrs.sh --root <dir> match \"<title and gist>\"" ;;
+        esac
         QUERY="$1"; shift
       fi ;;
     *)
@@ -166,6 +174,13 @@ done
 # file — and one message covering both sends them to the wrong one half the time.
 [ -e "$ROOT" ] || refuse "the ADR root '$ROOT' does not exist"
 [ -d "$ROOT" ] || refuse "the ADR root '$ROOT' is not a directory"
+# A root that exists and IS a directory can still be one this process cannot read into. Without
+# these two the glob below expands to the literal pattern, every `[ -f ]` fails, and the run exits
+# 1 — "I looked and found nothing" — for a root it never opened. That is the exit-1/exit-2 leak
+# this whole script is shaped around, at the one level where the per-file `[ -r ]` refusal further
+# down can never fire, because the loop it guards has no files to iterate.
+[ -r "$ROOT" ] || refuse "the ADR root '$ROOT' is not readable — no verdict is possible over a directory this process cannot list"
+[ -x "$ROOT" ] || refuse "the ADR root '$ROOT' is not searchable (no execute bit) — no verdict is possible over a directory this process cannot enter"
 
 # ------------------------------------------------------------------------------- the row reader
 #
