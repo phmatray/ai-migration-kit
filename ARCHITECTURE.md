@@ -33,7 +33,7 @@ graph TD
         TB[triage-backlog]
         RP[get-repo-profile]
         SR[setup-repo]
-        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling"]
+        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling · brainstorm-and-spec<br>plan-shape · tdd-loop"]
     end
 
     PROF[("repo-profile.md<br>(committed in the target repo)")]

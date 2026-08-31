@@ -76,13 +76,11 @@ not care about internal structure.
   invocation that must be absent), it says why in the case's comment — the defect *is* the committed
   text — and it reads the value it checks out of the doctrine file rather than re-spelling it.
 
-## Mock at boundaries only
+## Doubles inside the loop
 
-Mock at **system boundaries**: another program on `PATH`, an external API, the network, the clock,
-randomness, sometimes the filesystem or a database (prefer a test one). Do not mock your own modules,
-internal collaborators, or anything you control — mocking your own code hides the real integration
-and turns the question from *"does this script call `gh` correctly"* into *"does this script call
-the function I renamed to look like `gh`"*.
+*Where* a double is allowed — system boundaries only, never your own modules — is
+[`test-seams.md`](test-seams.md) §*Mock at boundaries only*, and it is not repeated here. What
+follows is how a double behaves once that rule has allowed it:
 
 - **A mock earns no assertions.** An assertion on the mock passes when the mock is present and
   fails when it is absent; it says nothing about the component. Assert the real component's
@@ -93,9 +91,8 @@ the function I renamed to look like `gh`"*.
   first and observe what actually has to happen.
 - **Doubles are specific and complete.** When arguments, call counts or ordering are part of the
   contract, assert them; a fake that accepts anything verifies nothing. Mirror the real structure
-  with all its documented fields, not only the ones this test reads. In this kit the pattern is
-  `tests/survey/test.sh`'s `gh` stub, which applies the same `--jq` its caller passes instead of
-  `cat`-ing a fixture regardless of flags.
+  with all its documented fields, not only the ones this test reads (`test-seams.md`'s
+  `tests/survey/test.sh` example is this rule at work).
 - **Design the boundary to be mockable.** Pass external dependencies in rather than constructing
   them inside; prefer one specific function per external operation (`getUser`, `createOrder`) over
   a generic fetcher whose mock needs conditional logic to answer.
@@ -103,9 +100,9 @@ the function I renamed to look like `gh`"*.
   mock setup outgrows the test, or the mock keeps missing methods the real component has, switch to
   an integration test with real components.
 
-For the seam vocabulary — what a seam is, choosing seams before tests, the three anti-patterns
-(implementation-coupled, tautological, horizontal slicing) — read [`test-seams.md`](test-seams.md);
-it is not repeated here.
+For the seam vocabulary — what a seam is, choosing seams before tests, where a double may stand,
+the three anti-patterns (implementation-coupled, tautological, horizontal slicing) — read
+[`test-seams.md`](test-seams.md); none of it is repeated here.
 
 ## Evidence before claims
 

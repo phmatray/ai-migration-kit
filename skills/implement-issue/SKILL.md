@@ -41,8 +41,8 @@ This skill owns the GitHub/worktree/PR bookkeeping around that doctrine.
 
 ## Autonomy contract
 
-Run **hands-off** once started — the user watches, doesn't babysit. Whenever a sub-skill (worktree,
-executing-plans, code review) would pause for a question or sign-off, **pick the reasonable default,
+Run **hands-off** once started — the user watches, doesn't babysit. Whenever a step (a dispatched
+sub-agent, the code-review pass, a merge) would pause for a question or sign-off, **pick the reasonable default,
 state the assumption, keep going.** Stop only for a genuine blocker:
 
 - `gh` not authenticated, or no push access.

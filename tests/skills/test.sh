@@ -860,10 +860,16 @@ else
       echo "FAIL: [SP2 $note header note is located             ] expected 2 '### Task' blocks in $FIXTURE, got $(grep -c '^### Task ' "$FIXTURE")"
       fails=$((fails + 1))
     else
-      echo "ok   [SP2 $note header note is located             ] 2 tasks under the anchor"
+      echo "ok   [SP2 $note header note is located             ] anchor hit, 2 '### Task' blocks in the fixture"
     fi
   done
 fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "superpowers-independence golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
 # CONTEXT.md (#313) — the kit's own domain glossary, in Matt Pocock's format (ported from
