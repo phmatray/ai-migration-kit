@@ -121,8 +121,8 @@ assert_q '### Décision propriétaire A'
 assert_q '### Décision propriétaire B sans effort'
 assert_q '## Anything else?'
 # 2 décisions propriétaire -> 2 ids stables, un par fixture repo :
-id_a=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire A'))")
-id_b=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-b','Décision propriétaire B sans effort'))")
+id_a=$(python3 -B -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire A'))")
+id_b=$(python3 -B -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-b','Décision propriétaire B sans effort'))")
 grep -qF "<!-- followup: fixture-a | $id_a -->" <<<"$q" || { echo "ÉCHEC : id followup fixture-a absent ou différent"; exit 1; }
 grep -qF "<!-- followup: fixture-b | $id_b -->" <<<"$q" || { echo "ÉCHEC : id followup fixture-b absent ou différent"; exit 1; }
 [ "$(grep -c '^### ' <<<"$q")" -eq 2 ] || { echo "ÉCHEC : attendu exactement 2 questions « ### », trouvé $(grep -c '^### ' <<<"$q")"; exit 1; }
@@ -163,9 +163,9 @@ json.dump(r, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 ingest_answered="$scratch/answered.md"
 python3 scripts/followups.py "$ingest_dir/fixture-a" "$ingest_dir/fixture-b" \
   --questionnaire "$ingest_answered" > /dev/null
-id_a=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire A'))")
-id_b=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-b','Décision propriétaire B sans effort'))")
-id_c=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire C à trancher plus tard'))")
+id_a=$(python3 -B -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire A'))")
+id_b=$(python3 -B -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-b','Décision propriétaire B sans effort'))")
+id_c=$(python3 -B -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire C à trancher plus tard'))")
 id_stale="deadbeef"
 
 # id_d (« Décision propriétaire D jamais répondue ») reste délibérément SANS réponse : son stub
