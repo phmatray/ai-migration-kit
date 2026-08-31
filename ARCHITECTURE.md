@@ -33,7 +33,7 @@ graph TD
         TB[triage-backlog]
         RP[get-repo-profile]
         SR[setup-repo]
-        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling · brainstorm-and-spec<br>plan-shape · tdd-loop"]
+        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling · prior-rejections<br>brainstorm-and-spec · plan-shape · tdd-loop"]
     end
 
     PROF[("repo-profile.md<br>(committed in the target repo)")]
@@ -188,6 +188,14 @@ committed, then consumed with a plain `cat`.
 it brainstorms and `implement-issue`/`merge-pr` propose an ADR update when a diff touches a path an
 ADR's `code_refs` names; with AdrMcp absent all three fall back to grepping `docs/adr/*.md`
 frontmatter and say so. The repo profile's *ADRs* section is where each of them reads the root from.
+
+The **rejected** ADRs are the second traffic on those arrows, and they degrade asymmetrically
+(`skills/_shared/prior-rejections.md`). `create-issue` Step 3, `merge-pr` 6c and `triage-backlog`
+Step 4 *read* them — semantic `search_adrs` with the server, `skills/triage-backlog/scripts/rejected-adrs.sh`
+without it, and the recap says which ran. `triage-backlog` Step 7 is the only *writer*, and without
+the server it **refuses to author** rather than degrading: a degraded read still catches the obvious
+repeats and announces that it was degraded, while a degraded write would produce a rejection nobody
+can search.
 
 ## Where each concern lives
 
