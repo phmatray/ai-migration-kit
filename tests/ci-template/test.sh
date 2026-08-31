@@ -897,9 +897,9 @@ while IFS="$(printf '\t')" read -r r_src r_dist r_want; do
   # carry that fragment is the equality refusal (normalised src == normalised dist): only ONE
   # path value exists there, printed once, with no second value nearby to confuse it with — for
   # that shape the bare substring is the whole promise the message makes.
-  exp_src=$(containment_normalise "$r_src"); [ -n "$exp_src" ] || exp_src=.
-  exp_dist=$(containment_normalise "$r_dist")
   if [ "$r_want" = refuse ]; then
+    exp_src=$(containment_normalise "$r_src"); [ -n "$exp_src" ] || exp_src=.
+    exp_dist=$(containment_normalise "$r_dist")
     if [ "$exp_dist" = "$exp_src" ]; then
       grep -q "BUNDLE_SRC" "$scratch/out-guard-row.txt" || {
         echo "FAIL: src='$r_src' dist='$r_dist' — the guard refused but never named BUNDLE_SRC:"
