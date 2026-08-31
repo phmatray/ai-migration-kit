@@ -613,6 +613,32 @@ Read the header's `SESSIONS: N in <proj>   (X top-level, Y sub-agent)` line befo
 totals below it: that split is the check that the scan saw the whole fleet at the layouts it does
 read — a `0 sub-agent` count on a fleet means transcripts are missing, not that none were spawned.
 
+**Lessons — mandatory.** Run `scripts/decision-tally.sh` and paste its table. Then write the
+`lessons:` block below it, one entry per candidate, `category` from
+[`references/retro-taxonomy.md`](references/retro-taxonomy.md)'s seven fixed categories
+(`navigation`, `automated-checks`, `coding-standards`, `steering`, `tool-economy`, `no-ops`,
+`information-access`), `evidence` a report line, issue/PR or tally row, `candidate` one sentence
+pre-shaped for `create-issue`:
+
+```markdown
+## Lessons
+<decision tally table from scripts/decision-tally.sh>
+
+lessons:
+  - category: <one of the seven>
+    evidence: <issue/PR/worker report line, or a tally row>
+    candidate: <one sentence, pre-shaped for create-issue>
+```
+
+`lessons: none — <why>` is the **only** accepted empty form — a run with no candidates still says so,
+naming why, rather than omitting the block. Candidates are **recorded, not filed**: each faces
+[`../_shared/filing-bar.md`](../_shared/filing-bar.md) before anyone opens an issue for it, so the
+retro never becomes another inlet that outruns the work (the *treading water* rule in Step 4). Write
+the block to `<state-dir>/auto-dev-retro-<date>.md`, next to the state file, and echo it in the final
+report; for a run that targets the kit itself, commit it as
+`docs/case-studies/auto-dev/<date>-<repo>.md` instead (the kit cannot write into a consumer repo's
+`docs/`, so for any other repo the report names the file and the owner decides where it goes).
+
 ---
 
 ## Large issues (L/XL)
@@ -632,6 +658,7 @@ that frees. Hold the line at N unless told otherwise.
 - **`mergeable=UNKNOWN` is normal right after `main` moves** — GitHub recomputes; it resolves to CLEAN once the branch syncs. Not a blocker.
 - **Retire finished slots** once their PR merges — stop the sub-agent only if it is still running; a returned one is already gone. The fresh replacement starts clean.
 - **File, don't fix, off-scope work** — a filed follow-up keeps both the diff and the issue's scope clean.
+- **A run without a `lessons` block is a run that was not finished.** Step 6's cost accounting is a ledger; the `lessons:` block is what turns the run's own evidence — the decision-events log, every worker's `DETAIL:` line — into candidates the *next* run benefits from. Skipping it because the queue drained cleanly is exactly the run most likely to have a `tool-economy` or `steering` lesson sitting unexamined in the log.
 - **A held `deps=` row is not a stalled issue.** `parent(N)`, `blocked_by=#n` and `assigned` are the frontier rule doing its job, not a survey that failed to classify something. Don't dispatch one to "unstick" it: a parent's body is a tracking list no worker can execute, a blocked child would build against an interface that has not landed, and an assigned issue belongs to a human. The first two clear themselves — the row comes back as `QUEUE`, or as `SKIP` if it never had a plan — but a parent stays held for as long as it is a parent.
 - **Plans drive eligibility, effort labels drive ordering** — no plan → not eligible (seed one with `create-issue` if the user insists); manual-QA → skip with a noted reason.
 - **The state file's *In flight* list is not proof an issue is unclaimed** — a `/compact`, a session restart, or a non-resuming `loop` re-fire can land between "dispatch" and "record," losing the record while the worker keeps running (#248). Run Step 3's dispatch-time guard before *every* dispatch (first batch or refill), not just when the state file looks stale.

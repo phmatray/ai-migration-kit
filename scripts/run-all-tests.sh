@@ -247,6 +247,8 @@ fi
 EOF
 )"
 
+add_suite "tests/decision-tally/test.sh"
+
 add_suite "tests/run-all-tests/test.sh"
 
 # --- One-line notes for anything the flags left out of the plan above, naming the flag that would
