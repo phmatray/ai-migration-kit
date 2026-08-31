@@ -134,11 +134,11 @@ REFUSED=0          # surfaces that could not be read or written — exit 3, and 
 DELTA="$WORKDIR/delta.tsv"
 : > "$DELTA"
 
-# Every report row — drift, refusal, or a plain note — shares this column layout, so one place
-# fixes it for emit()/refuse()/note() at once (#198): three independent `printf '%-8s %-8s %s\n'`
-# calls already had to be kept in sync by hand, and %-8s, not %-7s, matters — `!REFUSED` is eight
-# characters, and a narrower column pushes every refusal one place right of the rows the reader is
-# comparing it against.
+# Every report row — drift or refusal — shares this column layout, so one place fixes it for
+# emit()/refuse() at once (#198): two independent `printf '%-8s %-8s %s\n'` calls already had to
+# be kept in sync by hand, and %-8s, not %-7s, matters — `!REFUSED` is eight characters, and a
+# narrower column pushes every refusal one place right of the rows the reader is comparing it
+# against.
 _report_line() {
   printf '%-8s %-8s %s\n' "$1" "$2" "$3"
 }
@@ -158,13 +158,6 @@ emit() {
 refuse() {
   _report_line "!REFUSED" "$1" "$2"
   REFUSED=$((REFUSED + 1))
-}
-
-# An informational line that is neither drift nor a refusal — apply did something the operator
-# should know about, but it is not a claim that anything is wrong. Kept separate from $DELTA since
-# there is nothing here for a later `apply` pass to re-read.
-note() {
-  _report_line "$1" "$2" "$3"
 }
 
 # Turns a failed `gh label create|edit`'s stderr into the cause it actually names, rather than
