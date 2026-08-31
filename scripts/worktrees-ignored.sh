@@ -116,8 +116,17 @@ MUST_STAY_VISIBLE=".claude/skills/repo-profile.md"
 #
 # `-v` is used ONLY to name the source, never to decide — see the -q/-v note in the header. Its exit
 # status is not consulted here; `-q` has already ruled.
+#
+# `sed` rather than the `rev | cut -d: -f3- | rev` sandwich this used to spell — PORTABILITY, not
+# style, so do not reinstate it (#174). `rev` is util-linux and Git Bash does not ship it: the
+# pipeline produced nothing there, durability_note() took its "" branch, and a rule committed at
+# .gitignore:25 was reported as "rule source unknown", which is the caveat for the case this one is
+# meant to be distinguished FROM. `check-ignore -v` prints `<source>:<line>:<pattern>\t<path>`, so
+# `cut -f1` already isolates those three fields and the `sed` drops the trailing `:<line>:<pattern>`
+# — exactly what the sandwich removed, including for a source path that itself contains colons (a
+# Windows `C:/…/excludesFile`), since only the LAST two are anchored off.
 rule_source() {
-  git -C "$REPO" check-ignore -v "$1" 2>/dev/null | head -1 | cut -f1 | rev | cut -d: -f3- | rev
+  git -C "$REPO" check-ignore -v "$1" 2>/dev/null | head -1 | cut -f1 | sed 's/:[^:]*:[^:]*$//'
 }
 durability_note() {
   local src="$1"
