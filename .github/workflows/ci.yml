@@ -202,6 +202,14 @@ jobs:
       - name: Parse sweep golden test (the #131 construct, driven to red)
         run: ./tests/parse-sweep/test.sh
 
+      # The premise the sweep above depends on. Its terminator compare — and ci-wiring-check.py's
+      # path match — are against raw lines, so a CRLF working copy makes both refuse a tree that is
+      # fine (#174). This suite asserts the committed .gitattributes that removes that premise, and
+      # demonstrates the failure on a CRLF fixture so the reason cannot rot into folklore. It
+      # sources tests/_lib.sh, so it sits with the golden tests rather than with the cheap gates.
+      - name: Line endings are pinned (a CRLF checkout makes the raw-line gates refuse a clean tree)
+        run: ./tests/line-endings/test.sh
+
       # The pinned-literals guard's own refusal paths (#90). A guard is worth exactly what its
       # refusal path is worth, and this one's refusals are the whole design: an unmarked new copy
       # must FAIL rather than be swept into agreement, and the deliberately-historical spellings
