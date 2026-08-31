@@ -141,8 +141,8 @@ Fixes commit through the guards, like every other write in Steps 5–9:
 `merge-pr` Step 6 harvests deferred work and files it as tracked issues. Create the section if the PR
 body has none. A creep finding noted only in the report is a finding that is lost at merge.
 
-Triage the findings with `superpowers:receiving-code-review` rigor — implement the real ones, and
-push back in the Step 10 report on the ones that are wrong rather than performatively complying. A
+Triage the findings with rigor, not deference: read them all before acting on any, verify each against the tree, implement the real ones one at a time (test each), and push back
+in the Step 10 report on the ones that are wrong rather than performatively complying. A
 Spec finding you disagree with is worth a sentence saying why; silently ignoring it is not.
 
 ## When there is no Spec

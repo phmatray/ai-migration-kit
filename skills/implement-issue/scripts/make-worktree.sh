@@ -53,9 +53,10 @@
 #      would otherwise retry a refusal that will never succeed unchanged.
 #
 # A worktree home is `.claude/worktrees/<branch>` — what this harness creates and what merge-pr
-# hardcodes (worktrees-ignored.sh's own header). `.worktrees/` (superpowers:using-git-worktrees'
-# no-native-tool fallback) is still proven ignored by the call below, because worktrees-ignored.sh
-# always checks both — this script just never creates a worktree there itself.
+# hardcodes (worktrees-ignored.sh's own header). `.worktrees/` (the fallback home of the superpowers
+# plugin's using-git-worktrees skill, which a contributor may still drive by hand) is still proven
+# ignored by the call below, because worktrees-ignored.sh always checks both — this script just never
+# creates a worktree there itself.
 
 set -euo pipefail
 

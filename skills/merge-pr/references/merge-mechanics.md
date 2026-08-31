@@ -73,7 +73,8 @@ Only then take one of the two branches:
 WORKTREE=<absolute path of the matched worktree>
 git -C "$WORKTREE" pull --ff-only
 
-# Or created (prefer superpowers:using-git-worktrees; this is the manual fallback):
+# Or created by hand — implement-issue's make-worktree.sh only creates fresh off main, never from a
+# remote branch, so a PR built elsewhere is checked out this way:
 git fetch origin "$HEAD_BRANCH"
 WORKTREE="$REPO_ROOT/.claude/worktrees/merge-$PR"   # same root the guard just cleared
 git worktree add "$WORKTREE" "$HEAD_BRANCH"    # checks out the existing branch (tracks origin/$HEAD_BRANCH)
@@ -540,8 +541,8 @@ than it looks: the rule blocks the merge, so a gate clearable only by changing c
 autonomous run forever on the first finding the agent judges wrong or cannot satisfy.
 
 1. **Fix the ask**, push, then resolve the thread.
-2. **Reply on the thread with your reasoning, then resolve it** (`superpowers:receiving-code-review`
-   discipline). Disagreeing is a legitimate outcome of review.
+2. **Reply on the thread with your reasoning, then resolve it** — technical reasoning, not
+   performative agreement and not a silent shrug. Disagreeing is a legitimate outcome of review.
 
 What is forbidden is resolving *silently*: it clears the gate and deletes the reason. Reply first,
 resolve second, always in that order — the reply is the artifact a human reads later to decide

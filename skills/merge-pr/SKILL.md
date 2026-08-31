@@ -115,7 +115,7 @@ git worktree list --porcelain        # match the entry whose branch == headRefNa
 ```
 
 - **A worktree for the branch exists** (usual case — `implement-issue` left one): use it. Pull first: `git -C <path> pull --ff-only`.
-- **No local worktree/branch** (PR built elsewhere, or already cleaned): create one **only if** Step 4 needs corrections. If the PR is already `CLEAN` with green CI, merge without checking out locally. When needed, create an isolated worktree tracking the remote branch via `superpowers:using-git-worktrees` (or `git worktree add <path> <branch>` as fallback — reference §2). Remember the path; Step 7 removes it.
+- **No local worktree/branch** (PR built elsewhere, or already cleaned): create one **only if** Step 4 needs corrections. If the PR is already `CLEAN` with green CI, merge without checking out locally. When needed, create an isolated worktree tracking the remote branch with `git worktree add <path> <branch>` (reference §2). Remember the path; Step 7 removes it.
 
 **As soon as you know a worktree will be involved — whether you found one above or will create one
 here or in Step 4 — prove its home is ignored, before touching it.** This repo is not the kit's, and
@@ -418,8 +418,9 @@ cannot happen. Resolve the threads.
 ⚠️ **An empty review body is not "no feedback".** `gh pr view --json reviews` renders a bot's
 `COMMENTED` review with an **empty `body`** — the substance lives only in the inline `reviewThreads`.
 Reading the review list, seeing nothing, and concluding there was nothing to address is precisely how
-#294's findings went unread across two merges. §6's thread query is what actually answers it. Triage with `superpowers:receiving-code-review` rigor — fix the
-legitimate ones; for any you disagree with, reply on the thread rather than silently ignoring. (This
+#294's findings went unread across two merges. §6's thread query is what actually answers it. Triage with rigor, not deference — verify each finding against the tree, fix the
+legitimate ones one at a time; for any you disagree with, reply on the thread with technical
+reasoning rather than silently ignoring. (This
 skill does **not** run a fresh `code-review` pass — `implement-issue` did that before ready; it only
 reacts to review already on the PR.)
 

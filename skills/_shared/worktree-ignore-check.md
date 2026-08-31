@@ -55,9 +55,10 @@ different tool typing `git add -A` in a repository the kit just planted a worktr
 unignored full checkout lying in someone's tree is the hazard; the kit merely stopped being the one
 most likely to trip over it.
 
-`superpowers:using-git-worktrees` states the precondition — *"MUST verify directory is ignored before
-creating worktree"* — and `implement-issue` Step 4 delegates creation to it. This is that verification,
-made mechanical, and #86 **widened** it rather than moving it off creation: still before the worktree
+The precondition — *"MUST verify directory is ignored before creating worktree"* — is stated by the
+worktree skill this kit once delegated creation to (obra/superpowers `using-git-worktrees`, MIT);
+`implement-issue` Step 4 now creates through `scripts/make-worktree.sh` (#280, #324). This is that
+verification, made mechanical, and #86 **widened** it rather than moving it off creation: still before the worktree
 is made, and now also before one that already exists is used.
 
 ## The check

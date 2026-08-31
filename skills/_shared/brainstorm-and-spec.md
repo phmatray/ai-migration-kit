@@ -9,7 +9,7 @@ failure (#187). So every point where the source stops to ask, this doctrine says
 reasonable default, state it, keep going* — the `**Assumptions**` note at the end of each half is
 where those picks are recorded, and `--grill` ([`grilling.md`](grilling.md)) is the one sanctioned
 exception. This file is the one home for the doctrine; `create-issue` Step 5 links here instead of
-restating it, and the kit's own CI (`tests/skills/test.sh`) refuses a `superpowers:` invocation in
+restating it, and the kit's own CI (`tests/skills/test.sh`) refuses a plugin invocation (the colon form) in
 any shipped skill so the two sources of truth cannot come back (#324).
 
 ## Before either half: read the tree, then size the idea

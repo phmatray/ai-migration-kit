@@ -33,9 +33,11 @@ up front so progress is visible, one commit per task, and — the part that make
 progress board — **each task's checkboxes get ticked on the issue as the work lands.** When the last
 box is checked, it runs a code review, fixes what surfaces, and marks the PR ready.
 
-Plans prescribe their own executor (`> REQUIRED SUB-SKILL: superpowers:subagent-driven-development …`),
-so this skill leans on the **superpowers** skills to do the implementing — it owns the
-GitHub/worktree/PR bookkeeping around them.
+Plans name this skill as their executor (the header note in
+[`../_shared/plan-shape.md`](../_shared/plan-shape.md)), and the doctrine it executes by — the plan
+shape, the TDD loop in [`../_shared/tdd-loop.md`](../_shared/tdd-loop.md) — ships under
+`skills/_shared/`, so it runs the same on every machine with no third-party plugin installed (#324).
+This skill owns the GitHub/worktree/PR bookkeeping around that doctrine.
 
 ## Autonomy contract
 
@@ -175,7 +177,7 @@ You can't change this session's reasoning-effort setting, so "Extra vs Ultracode
 **execution strategy**, sized to the plan. State which you picked and why, then proceed — don't ask.
 
 - **Inline ("Extra")** — implement here, one task at a time, in this session. For **small, localized** plans: ≤3 tasks, one area (e.g. one module + its tests), no cross-layer churn.
-- **Subagent-per-task ("Ultracode")** — invoke `superpowers:subagent-driven-development` and dispatch **one fresh-context subagent per task, sequentially** (tasks build on each other — the plan is a TDD chain, do NOT parallelize). For **broad/deep** plans: ~4+ tasks, OR multiple layers of the *Architecture grain*, OR a whole new subsystem/target, OR a long file-touch list. Also escalate the Step 7 review to `/code-review high` (or `ultra` for a very large change).
+- **Subagent-per-task ("Ultracode")** — dispatch **one fresh-context sub-agent per task, sequentially and in the foreground**, through the Agent tool (`subagent_type: general-purpose`; the same substrate `auto-dev` spawns its workers on since #314) — consume each report before dispatching the next, because tasks build on each other (the plan is a TDD chain, do NOT parallelize). Each sub-agent gets its task block, the Global Constraints, the repo grain and the pointer Step 6 describes, implements to a green filtered test run per [`../_shared/tdd-loop.md`](../_shared/tdd-loop.md), and reports a short diff summary; you verify the diff it left, not the summary it wrote. For **broad/deep** plans: ~4+ tasks, OR multiple layers of the *Architecture grain*, OR a whole new subsystem/target, OR a long file-touch list. Also escalate the Step 7 review to `/code-review high` (or `ultra` for a very large change).
 
 When it's a toss-up, prefer subagent-per-task — fresh context per task keeps quality high on the longer
 plans. Either way **this skill stays the parent**: it owns the worktree, draft PR, per-task ticking,
@@ -537,8 +539,9 @@ Then act on the disposition (the full table is in the reference):
 work and files it as tracked issues, so a creep finding recorded anywhere else is lost at merge. Do not
 widen this PR to justify the creep, and do not delete a sibling PR's work on a hunch.
 
-Triage with `superpowers:receiving-code-review` rigor — implement the real findings, push back (in your
-report) on wrong ones rather than performatively complying. Then commit and push:
+Triage the findings with rigor, not deference: read them all before acting on any, verify each against the tree, implement the real ones one at a time (test each), and push back (in your
+report) on wrong ones with technical reasoning rather than performatively complying. Then commit and
+push:
 
 ```bash
 "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
