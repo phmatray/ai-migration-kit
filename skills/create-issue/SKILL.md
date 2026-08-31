@@ -8,9 +8,9 @@ description: >-
   track a NEW issue / feature request / idea / ticket / backlog item — including loose phrasings
   like "track this idea", "add an issue for X", "make a ticket", « ouvre une issue pour X »,
   « crée un ticket pour ça », and batches of several ideas at once. Use it even though you could
-  file the issue yourself with `gh` — the whole point is the seeded brainstorm/spec/plan. Does NOT
-  apply to managing EXISTING issues (commenting, closing, listing) — except `--seed #N`, which
-  plans one in place — or to standalone
+  file the issue yourself with `gh` — the whole point is the seeded brainstorm/spec/plan. Also
+  PLANS AN EXISTING raw issue in place via `--seed #N` ("give issue 42 a plan", "seed #42"). Does
+  NOT apply to otherwise managing existing issues (commenting, closing, listing), or to standalone
   brainstorming/planning when there's no issue to file.
 license: MIT
 compatibility: >-
@@ -86,7 +86,7 @@ Create a task per item and complete in order. For a batch of ideas, run steps 2-
 4. **Build the template-compliant body fields** — read the live issue template and fill it.
 5. **Brainstorm + Spec** — collapsible `<details>` sections (via `superpowers:brainstorming`).
 6. **Implementation plan** (via `superpowers:writing-plans`) — a *visible* section whose `- [ ]` checkboxes feed the progress meter; never inside a `<details>`.
-7. **Assemble the description, choose labels, create the issue** — one body, one `gh issue create`, labels (type + priority + effort + area, plus any sub-area the profile defines) from the profile, then read the issue back.
+7. **Assemble the description, choose labels, create the issue** — one body, one `gh issue create` (or, with `--seed #N`, one `gh issue edit` onto the existing issue and never a create), labels (type + priority + effort + area, plus any sub-area the profile defines) from the profile, then read the issue back.
 8. **Report** — list each issue with its URL, point the user at `/implement-issue`.
 
 ---
@@ -110,7 +110,10 @@ codebase. Treat each named idea as its own issue and loop. For each, settle on a
 ### With `--seed #N`, the idea comes from the issue
 
 A raw issue — filed from the GitHub UI, by a bot, or by hand — carries no brainstorm, spec or plan, so
-`auto-dev`'s survey classifies it `SKIP` and nothing in the kit can promote it. `--seed #N` is that
+`auto-dev`'s survey can never queue it, and nothing in the kit could promote it. (It usually lands in
+**HOLD** rather than `SKIP`: an issue filed from the UI carries no `effort:` label either, so it tiers
+past the ceiling before the plan check is even reached. Both buckets appear in the survey's `SEED`
+row, which is why that row counts `plan=false` in *any* bucket.) `--seed #N` is that
 promotion: the *existing* issue is the idea, and Steps 3–7 run against it in place. Nothing is filed;
 `gh issue create` is never called on this path.
 
@@ -122,15 +125,27 @@ N=<the seeded issue number>
 gh issue view "$N" --json number,title,body,labels,state > /tmp/issue-seed-$N.json
 [ -s /tmp/issue-seed-$N.json ] || { echo "REFUSED — could not read #$N"; exit 1; }
 jq -r '.state, .title' /tmp/issue-seed-$N.json
-# `|| true` because 0 is the SEEDABLE answer and `grep -c` exits 1 when it counts none — without
-# it, the one outcome that lets the seed proceed is the one that aborts a `set -e` shell.
-jq -r '.body // ""' /tmp/issue-seed-$N.json | grep -c '^## 🛠️ Implementation plan' || true
+
+# A plan can live in the BODY (what create-issue writes) or in a COMMENT (older issues —
+# implement-issue reads both, see its Step 2). Probe both, with implement-issue's own vocabulary
+# rather than the body heading alone: an issue whose ticked plan sits in a comment looks unplanned
+# to a body-only check AND to survey.sh's `haveplan`, so it is exactly the issue the SEED row will
+# offer you and exactly the one a body-only guard would let you overwrite.
+#
+# `|| true` on each because 0 is the SEEDABLE answer and `grep -c` exits 1 when it counts none —
+# without it, the one outcome that lets the seed proceed is the one that aborts a `set -e` shell.
+jq -r '.body // ""' /tmp/issue-seed-$N.json \
+  | grep -cE 'Implementation plan|^### Task|^- \[[ x]\]' || true          # plan in the body?
+gh issue view "$N" --json comments --jq '.comments[].body' \
+  | grep -cE 'Implementation plan|^### Task|^- \[[ x]\]' || true          # plan in a comment?
 ```
 
-- **The body already has `## 🛠️ Implementation plan`, and no `--force`** → **refuse and change
-  nothing.** Report *"#N is already seeded — pass `--force` to re-seed it"* and stop. A live plan's
+- **Either probe is non-zero, and no `--force`** → **refuse and change nothing.** Report *"#N is already seeded — pass `--force` to re-seed it"* and stop. A live plan's
   checkboxes are `implement-issue`'s progress record; overwriting them silently un-ticks work that
   has already landed and committed, which is the one failure a seeder can cause that nobody notices.
+  A comment-hosted plan is the worse half of this: appending a fresh body plan does not overwrite it,
+  it *shadows* it — `implement-issue` prefers the body — so the recorded progress is orphaned rather
+  than lost, and nothing anywhere reports the divergence.
 - **`--force` was passed** → proceed, and say in Step 8 that an existing plan was replaced, naming how
   many boxes were ticked in the body you overwrote. Never *merge* the two plans.
 - **The issue is closed** → say so and stop unless the user asked for it anyway; seeding a closed
@@ -206,9 +221,16 @@ the pipeline's own initiative, which is the only channel that can outrun the wor
 matches its own keywords by construction, and an unfiltered sweep reads that self-match as "a clear
 duplicate already covers this" and abandons the seed — the one outcome this path cannot produce:
 
+**Both** sweeps, not just the keyword one — the file/subsystem search and the open-refactor scan
+match #N just as reliably:
+
 ```bash
 gh issue list --state all --search "<key terms>" --limit 10 \
   --json number,title,state --jq ".[] | select(.number != $N) | \"#\(.number) [\(.state)] \(.title)\""
+gh issue list --state all --search "<file or subsystem> in:title,body" --limit 15 \
+  --json number,title,state --jq ".[] | select(.number != $N) | \"#\(.number) [\(.state)] \(.title)\""
+gh issue list --state open --label "type:refactor" --limit 30 \
+  --json number,title --jq ".[] | select(.number != $N) | \"#\(.number) \(.title)\""
 ```
 
 The dispositions above still apply to what remains, with one change of shape: on this path they are
@@ -254,18 +276,22 @@ Every synthesized field is a claim you made about someone else's issue, so list 
 
 ## Step 5 — Brainstorm & Spec (collapsible body sections)
 
-**If `--grill` was passed: apply [`../_shared/grilling.md`](../_shared/grilling.md) once, then
-continue with the answers fixed.** Compute the frontier — the decisions this brainstorm cannot make
-from the evidence Steps 3 and 4 gathered (which public surface, which default ships, whether
-compatibility may break, where the scope boundary falls) — and put the whole frontier to the user in
-**one** numbered round, every question carrying your recommended answer. Facts are never questions:
-dispatch a sub-agent for anything you could look up. Wait for one reply; answered questions become
-fixed decisions the Spec below states as design rather than options, and every unanswered one takes
-its recommended answer and is listed in the Spec's **Assumptions** note as *asked, unanswered — took
-`<recommendation>`*. There is no second round. Without `--grill`, skip this paragraph entirely.
-
 Invoke `superpowers:brainstorming`, then apply it **autonomously** (no questions, pick the recommended
 option, note assumptions). Split its output into two sections so the trail reads brainstorm → spec.
+
+**If `--grill` was passed, the round goes between the two halves of this step: brainstorm → grill →
+Spec.** Not before the brainstorm — [`../_shared/grilling.md`](../_shared/grilling.md) defines the
+frontier by *exclusion* against what the brainstorm already settles ("a decision the evidence already
+makes is not on the frontier"; "state it as a finding in the brainstorm"), and neither filter can be
+applied to a brainstorm that does not exist yet. So write the 🧠 Brainstorm first, then apply the
+primitive once: compute the frontier — the decisions the brainstorm could **not** make from the
+evidence (which public surface, which default ships, whether compatibility may break, where the scope
+boundary falls) — and put the whole frontier to the user in **one** numbered round, every question
+carrying your recommended answer. Facts are never questions: dispatch a sub-agent for anything you
+could look up. Wait for one reply; answered questions become fixed decisions the 📋 Spec states as
+design rather than as options with trade-offs, and every unanswered one takes its recommended answer
+and is listed in the Spec's **Assumptions** note as *asked, unanswered — took `<recommendation>`*.
+There is no second round. Without `--grill`, skip this paragraph entirely.
 
 **🧠 Brainstorm** — focused, not a wall of text: *Problem/context* (what need, who, what exists — cite
 README / roadmap / code); *Approaches* (2-3 options with honest trade-offs); *Recommendation* (pick one
@@ -479,12 +505,30 @@ issue is created. The assembly order puts the original first because it is the p
 4. The collapsible 🧠 **Brainstorm** and 📋 **Spec** from Step 5.
 5. The 🛠️ **Implementation plan** from Step 6 — visible, never inside a `<details>`.
 
+Write items 3-5 — everything that goes *below* the rule — into `/tmp/seed-trail-$N.md` first; the
+original comes straight back out of the JSON Step 2 already fetched, so it can never be retyped:
+
+Every check below is a **condition**, not a printout. On the create path a slipped gate produces a
+junk new issue; here the very next command replaces text somebody else wrote, so a gate that only
+prints its verdict is a gate that does nothing at the one moment it matters:
+
 ```bash
+# The trail is checked BEFORE the assembly. If it is missing or empty, the brace group still emits
+# the original body plus a bare `---` — non-empty, so `[ -s ]` on the RESULT would pass, and the
+# edit would replace the author's issue with their own text and nothing else.
+[ -s /tmp/seed-trail-$N.md ] || { echo "REFUSED — no trail to append; #$N untouched"; exit 1; }
+
+# Count the CONTRACT in the trail, not in the assembled file: a well-written issue may already
+# carry an `### Acceptance criteria` heading of its own, and counting the assembly would then read
+# 2 and send you off to "reformat" — which on this path means editing the author's text, the one
+# thing the seed contract forbids.
+[ "$(grep -c '^- \[ \]' /tmp/seed-trail-$N.md || true)" -gt 0 ] \
+  || { echo "REFUSED — the plan has no checkboxes; it got mangled"; exit 1; }
+[ "$(grep -c '^### Acceptance criteria' /tmp/seed-trail-$N.md || true)" -eq 1 ] \
+  || { echo "REFUSED — the Spec contract did not survive assembly"; exit 1; }
+
 { jq -r '.body // ""' /tmp/issue-seed-$N.json; printf '\n\n---\n\n'; cat /tmp/seed-trail-$N.md; } \
   > /tmp/issue-seed-$N.md
-
-grep -c '^- \[ \]' /tmp/issue-seed-$N.md                    # must be > 0 — the plan survived
-grep -c '^### Acceptance criteria' /tmp/issue-seed-$N.md    # must be exactly 1
 
 # `--body-file` REPLACES the whole body, so an empty or truncated file DESTROYS someone else's
 # issue — the same wipe `implement-issue`'s checkbox PATCH once caused, except the text lost here
@@ -512,21 +556,30 @@ different value — that is a replacement wearing an addition's clothes.
 edits a body it did not author:
 
 ```bash
-filed=$(grep -c '^- \[ \]' /tmp/issue-seed-$N.md)
-live=$(gh issue view "$N" --json body --jq .body | grep -c '^- \[ \]')
+gh issue view "$N" --json body --jq .body > /tmp/seed-live-$N.md
+jq -r '.body // ""' /tmp/issue-seed-$N.json  > /tmp/seed-orig-$N.md
+
+# `|| true` on BOTH: `grep -c` exits 1 when it counts none, and `live` being 0 is precisely the
+# wipe this readback exists to catch — without it a `set -e` shell aborts here and the label, title
+# and verbatim checks below never run, in exactly the case they were written for.
+filed=$(grep -c '^- \[ \]' /tmp/issue-seed-$N.md || true)
+live=$(grep  -c '^- \[ \]' /tmp/seed-live-$N.md  || true)
 echo "checkboxes — filed $filed / live $live"               # must be equal and > 0
 gh issue view "$N" --json labels --jq '.labels[].name'      # every intended axis present
 gh issue view "$N" --json title --jq .title                 # UNCHANGED from Step 2's fetch
 
-# the original text is still the head of the body, byte for byte
-orig_lines=$(jq -r '.body // ""' /tmp/issue-seed-$N.json | wc -l)
-diff <(jq -r '.body // ""' /tmp/issue-seed-$N.json) \
-     <(gh issue view "$N" --json body --jq .body | sed -n "1,${orig_lines}p")
+# The original text is still the head of the body, byte for byte. `wc -c < file` with the redirect
+# (never `… | wc -c`) and `tr -d ' '`, the same spelling implement-issue's tick-plan.sh uses: BSD
+# `wc` reading a PIPE right-aligns its count in an 8-character field, so a piped count would splice
+# spaces into the command below, break it, and produce an empty comparison — read as "the original
+# was rewritten", whose documented remedy is to restore, i.e. to delete the plan just written.
+orig_bytes=$(wc -c < /tmp/seed-orig-$N.md | tr -d ' ')
+head -c "$orig_bytes" /tmp/seed-live-$N.md | diff - /tmp/seed-orig-$N.md
 ```
 
 That `diff` is the one that matters. If it reports anything, you rewrote someone's issue: restore the
-original (`jq -r '.body // ""' /tmp/issue-seed-$N.json > /tmp/restore-$N.md`, then the same `[ -s ]`
-guard and `gh issue edit --body-file`) and say so, rather than leaving the edit standing.
+original (`[ -s /tmp/seed-orig-$N.md ]`, then `gh issue edit "$N" --body-file /tmp/seed-orig-$N.md`)
+and say so, rather than leaving the edit standing.
 
 ## Step 8 — Report
 

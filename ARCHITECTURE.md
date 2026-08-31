@@ -32,7 +32,7 @@ graph TD
         MP[merge-pr]
         TB[triage-backlog]
         RP[get-repo-profile]
-        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary"]
+        SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling"]
     end
 
     PROF[("repo-profile.md<br>(committed in the target repo)")]
