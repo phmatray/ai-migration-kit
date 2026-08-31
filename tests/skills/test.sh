@@ -36,11 +36,16 @@ mkdir -p "$WORK/root"
 # the untrusted-input boundary (it is what a dispatched worker actually reads), so a root without it
 # answers NO SUCH CONSUMER for every boundary case below. It is never mutated — only skills/ is
 # restored between cases — so one copy at setup is enough.
-cp -R skills tests commands requirements.json "$WORK/root/"
+# evals/ joins the scratch world for #331: the trigger contract is now
+# evals/<skill>-trigger-eval.json, so a root without evals/ answers "trigger eval set missing"
+# for every skill. Unlike commands/ it IS mutated — by run_eval_case below, which restores it
+# from $PRISTINE the same way run_case restores skills/.
+cp -R skills tests commands evals requirements.json "$WORK/root/"
 ROOT="$WORK/root"
 PRISTINE="$WORK/pristine"
 mkdir -p "$PRISTINE"
 cp -R "$ROOT/skills" "$PRISTINE/"
+cp -R "$ROOT/evals" "$PRISTINE/"
 
 fails=0
 
@@ -157,6 +162,117 @@ t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
            t, count=1, flags=re.M)
 p.write_text(t, encoding="utf-8")
 '
+
+# ---------------------------------------------------------------------------------------------
+# The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
+# used to guard tests/skills/<skill>.triggers.md — a bullet list no tool ever read, whose presence CI
+# certified while the eval sets it duplicated drifted away from it. The rule moved to the file
+# `evals/run_all.py` actually runs, and these cases are the witness that it really refuses, BY NAME,
+# each way a set can be malformed. Without them the block could narrow to "the file exists" and every
+# run would stay green.
+#
+# Only evals/ is mutated here — run_case restores skills/, run_eval_case restores evals/ — so the two
+# families never disturb each other, and the real tree is never touched either way.
+echo "== the trigger contract in evals/*.json must be well-formed (#331) =="
+
+# run_eval_case <label> <expect: pass|fail> <expected marker> <python mutator>
+# The mutator receives the scratch root as argv[1] and edits evals/ in place.
+run_eval_case() {
+  local label="$1" expect="$2" marker="$3" mutator="$4"
+  rm -rf "$ROOT/evals"
+  cp -R "$PRISTINE/evals" "$ROOT/"
+  python3 -c "$mutator" "$ROOT"
+  local out rc
+  set +e
+  out=$(python3 "$ROOT/tests/skills/check-frontmatter.py" 2>&1)
+  rc=$?
+  set -e
+  if [ "$expect" = fail ]; then
+    if [ "$rc" -eq 0 ]; then
+      echo "FAIL: [$label] expected a rejection, got exit 0"
+      echo "      $out"
+      fails=$((fails + 1))
+    elif ! grep -q "$marker" <<<"$out"; then
+      echo "FAIL: [$label] rejected, but not with '$marker'"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] rejected"
+    fi
+  else
+    if [ "$rc" -ne 0 ]; then
+      echo "FAIL: [$label] expected acceptance, got exit $rc"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] accepted"
+    fi
+  fi
+}
+
+run_eval_case "T1 the set is missing entirely    " fail "trigger eval set missing" '
+import pathlib, sys
+(pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json").unlink()
+'
+
+run_eval_case "T2 the set is not valid JSON      " fail "not valid JSON" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+# A trailing comma: the single most common hand-edit typo, and one a bare existence check accepts.
+p.write_text("[\n  {\"query\": \"file an issue\", \"should_trigger\": true},\n]\n", encoding="utf-8")
+'
+
+run_eval_case "T3 every entry is a positive      " fail "no should_trigger: false entry" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+for e in entries:
+    e["should_trigger"] = True
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T3b every entry is a negative     " fail "no should_trigger: true entry" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+for e in entries:
+    e["should_trigger"] = False
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T4 an entry has no query          " fail "missing or empty .query." '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+entries[0].pop("query")
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T5 a query is duplicated          " fail "duplicate query" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# A duplicated positive inflates recall for free — the set scores better for saying less.
+entries.append(dict(entries[0]))
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T6 an entry carries a stray key   " fail "unexpected key" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# "expect" is the boundary set schema, not this one: a copy-paste the runner would silently ignore.
+entries[0]["expect"] = {"create-issue": True}
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T7 the set is an empty list       " fail "non-empty JSON list" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+p.write_text("[]\n", encoding="utf-8")
+'
+
+run_eval_case "N4 untouched baseline             " pass "" 'import sys'
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"

@@ -11,8 +11,12 @@ Checks for each skills/*/SKILL.md:
   versioned as one unit, so the only version anyone can act on is
   .claude-plugin/plugin.json, which release-please bumps. A per-skill number is
   a claim nothing maintains (#16);
-- a trigger list tests/skills/<name>.triggers.md exists, with both
-  "Should trigger" and "Should NOT trigger" sections non-empty.
+- a trigger eval set evals/<name>-trigger-eval.json exists, is a JSON list of
+  {query, should_trigger, note?} objects with no duplicate query, and carries
+  both polarities (#331). That file is the ONE home for a skill's triggering
+  contract: `evals/trigger_eval.py` runs it against the installed description,
+  so the rule now guards the artefact a tool executes rather than the
+  tests/skills/<name>.triggers.md bullet list nothing ever read.
 
 Cross-check against requirements.json (single source): every entry a skill
 hard-requires (`requiredBy`) must be declared in that skill's `compatibility`
@@ -49,6 +53,67 @@ if not skill_files:
 def text_of(value) -> str:
     """Frontmatter scalar as one normalized line, so limits count what a reader sees."""
     return re.sub(r'\s+', ' ', str(value or "")).strip()
+
+
+EVAL_KEYS = {"query", "should_trigger", "note"}
+
+
+def check_trigger_eval_set(skill: str) -> list:
+    """The skill's triggering contract, validated where a tool can actually run it (#331).
+
+    Structural only — CI must never spend a bench run (`evals/run_all.py` spawns a real
+    `claude -p` per query). What it proves is that the set exists, parses, uses the runner's
+    key names, and pins BOTH polarities, so a typo fails here rather than after the tokens
+    are spent. Errors accumulate: one malformed entry does not hide the next.
+    """
+    path = ROOT / "evals" / f"{skill}-trigger-eval.json"
+    rel = path.relative_to(ROOT)
+    if not path.exists():
+        return [f"{skill}: trigger eval set missing ({rel}) — create it as a JSON list of "
+                f"{{query, should_trigger, note?}} objects"]
+
+    try:
+        entries = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"{skill}: {rel} is not valid JSON ({exc})"]
+
+    if not isinstance(entries, list) or not entries:
+        return [f"{skill}: {rel} must be a non-empty JSON list of "
+                f"{{query, should_trigger, note?}} objects"]
+
+    found = []
+    polarities = set()
+    seen = {}
+    for i, entry in enumerate(entries):
+        where = f"{rel}[{i}]"
+        if not isinstance(entry, dict):
+            found.append(f"{skill}: {where} is not an object "
+                         f"(got {type(entry).__name__})")
+            continue
+        stray = sorted(set(entry) - EVAL_KEYS)
+        if stray:
+            found.append(f"{skill}: {where} has unexpected key "
+                         f"{', '.join(repr(k) for k in stray)} "
+                         f"(allowed: query, should_trigger, note)")
+        query = entry.get("query")
+        if not isinstance(query, str) or not query.strip():
+            found.append(f"{skill}: {where} has a missing or empty 'query'")
+        elif query in seen:
+            found.append(f"{skill}: {where} is a duplicate query of {rel}[{seen[query]}] "
+                         f"— a duplicated query inflates recall for free")
+        else:
+            seen[query] = i
+        should_trigger = entry.get("should_trigger")
+        if not isinstance(should_trigger, bool):
+            found.append(f"{skill}: {where} has a missing or non-boolean 'should_trigger'")
+        else:
+            polarities.add(should_trigger)
+
+    for polarity in (True, False):
+        if polarity not in polarities:
+            found.append(f"{skill}: {rel} has no should_trigger: "
+                         f"{str(polarity).lower()} entry")
+    return found
 
 
 compat_by_skill = {}
@@ -105,15 +170,7 @@ for f in skill_files:
                 f"in .claude-plugin/plugin.json, bumped by release-please; a per-skill number "
                 f"is a claim nothing maintains")
 
-    triggers = ROOT / "tests" / "skills" / f"{skill}.triggers.md"
-    if not triggers.exists():
-        errors.append(f"{skill}: trigger list missing ({triggers.relative_to(ROOT)})")
-    else:
-        t = triggers.read_text(encoding="utf-8")
-        for section in ("## Should trigger", "## Should NOT trigger"):
-            block = re.search(rf'{re.escape(section)}\n(.*?)(?=\n## |\Z)', t, re.S)
-            if not block or not re.search(r'^- ', block.group(1), re.M):
-                errors.append(f"{skill}: section \"{section}\" absent or empty in {triggers.name}")
+    errors.extend(check_trigger_eval_set(skill))
 
 # requirements.json ↔ compatibility cross-check.
 req = json.loads((ROOT / "requirements.json").read_text(encoding="utf-8"))
@@ -136,4 +193,4 @@ for entry in req.get("tools", []) + req.get("mcps", []) + req.get("sessionSkills
 if errors:
     print("\n".join(errors))
     sys.exit(1)
-print(f"frontmatter OK for {len(skill_files)} skills (guide limits + trigger lists + requirements cross-check)")
+print(f"frontmatter OK for {len(skill_files)} skills (guide limits + evals/<skill>-trigger-eval.json + requirements cross-check)")
