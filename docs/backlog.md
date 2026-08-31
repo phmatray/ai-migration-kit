@@ -50,20 +50,10 @@ rendra rentable (YAGNI sinon).
 
 ## Non-adoptions (décisions fermées)
 
-Évaluées et **refusées** — consignées pour que la décision survive aux sessions. Source : revue
-jobs du 2026-07-23 (`reviews/2026-07-23-jobs/`), lentille Arbor (RUC-NLPIR) — le kit a adopté les
-ceintures de sécurité d'Arbor (reprise, garde de convergence, chronologie mesurée, rétropropagation
-contractuelle, v1.8.0), et refuse son volant :
-
-- **Arbre d'hypothèses / recherche multi-hypothèses (Idea Tree)** : Arbor explore un espace ouvert
-  (métrique à maximiser, meilleure solution inconnue) ; le kit exécute un chemin connu vers une
-  destination binaire (build vert, tests verts, prod vérifiée). Greffer l'exploration détruirait la
-  propriété qui fait sa valeur — déterministe, reproductible, minutes mesurées.
-- **Modes d'interaction (`ui.interaction_mode` auto/direction/review/collaborative)** : les
-  variantes de portée du kit (`/migrate-assess` lecture seule, `/migrate`, `/migrate-verify`)
-  couvrent déjà le besoin sans concept supplémentaire.
-- **Recherche de nouveauté (novelty search alphaXiv)** : un verdict de nouveauté académique
-  n'améliore aucune migration.
-
-Réouverture : uniquement si le kit change de nature (optimisation d'une métrique ouverte — perfs,
-taille de bundle — où l'exploration paie), jamais pour une migration.
+Elles ne vivent plus ici. Une non-adoption est une **décision**, donc un ADR : `docs/adr/`, en
+`status: rejected` et tagué `out-of-scope`, un fichier par **concept** et non par demande. Les trois
+non-adoptions issues de la revue Arbor du 2026-07-23 y sont passées — [ADR-0008 Idea-tree
+search](adr/0008-idea-tree-search.md), [ADR-0009 Interaction modes](adr/0009-interaction-modes.md),
+[ADR-0010 Novelty search](adr/0010-novelty-search.md) — parce qu'une décision consignée dans une
+prose que rien ne relit revient sous un autre nom : c'est exactement ce que
+`skills/_shared/prior-rejections.md` fait chercher avant tout dépôt d'issue.
