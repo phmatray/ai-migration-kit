@@ -118,6 +118,16 @@ after_bytes=$(wc -c < "$AFTER" | tr -d ' ')
 # The decisive check: with every box forced back to unticked, the two bodies must be identical.
 # Anything else that changed — a rewritten sentence, a lost section, a truncation that happens
 # to preserve length — shows up here.
+#
+# PROVEN IMMUNE to the #199 class of host-dependent stdout corruption (#215 audit, Task 2): unlike
+# the round-trip check below (one side machine-generated, one side a raw file) or the read-back
+# leg further down (one side fetched over the network, the other a raw file), BOTH operands here
+# are produced by the SAME call — sed, via this same function — applied once per file. A stdio
+# translation that corrupts every line sed emits (the Git Bash/msys hazard #199 found in jq -j)
+# would corrupt $BEFORE's and $AFTER's transformed output identically wherever their content
+# agrees, so `diff` still sees only genuine content differences. tests/tick-plan/test.sh's
+# crlf-checkbox-diff-sed-stdout case pins this by wrapping sed to append \r to every line it
+# emits and asserting a correct tick is still accepted.
 unticked_form() { sed -E 's/^([[:space:]]*[-*][[:space:]]+)\[[xX]\]/\1[ ]/' "$1"; }
 
 if ! diff -q <(unticked_form "$BEFORE") <(unticked_form "$AFTER") >/dev/null; then
@@ -315,7 +325,24 @@ if [ "$read_bounded" -eq 0 ] && [ "$read_rc" -eq 0 ]; then
       "$endpoint" "$BEFORE" >&2
     exit 1
   fi
-  if [ "$got" != "$(cat "$AFTER")" ]; then
+  # EXPOSED to the #199 class of host-dependent stdout corruption (#215 audit, Task 1) —
+  # tests/tick-plan/test.sh's crlf-readback-stdout case pins it. Unlike the pre-send round-trip
+  # check above, which is entirely local (no network fetch needed, so #199's fix could avoid the
+  # stdout boundary altogether by never letting decoded text leave a single jq invocation), this
+  # leg's whole job is to learn what GitHub now holds — that answer MUST cross gh's own stdout to
+  # reach us, so the boundary itself cannot be avoided the way it was there. So the fix here is not
+  # "never let text cross a stdout", it is comparing the two sides only after normalising away
+  # exactly the CRLF a text-mode host stdio would introduce (and nothing else), judged purely by
+  # jq's exit code so the compared text never crosses a SECOND stdout on the way to this verdict.
+  # `--rawfile` reads both files' bytes directly off disk — never through a re-emitted stdout that
+  # could itself be reinterpreted (jq's own documented reason for --rawfile reading in binary,
+  # which is exactly what #199's round-trip check above already relies on). `sub("\n+$";"")`
+  # mirrors the trailing-newline tolerance the old `$(cat ...)`-based compare had for free (command
+  # substitution strips all trailing newlines from both sides equally).
+  if ! jq -n --rawfile got "$readback_file" --rawfile after "$AFTER" -e '
+        def norm: gsub("\r\n"; "\n") | sub("\n+$"; "");
+        ($got | norm) == ($after | norm)
+      ' >/dev/null; then
     if [ "$bounded" -eq 1 ]; then
       # Different cause, so different advice. After a call that was cut short, "restore from
       # --before" is the wrong move twice over: the write probably never landed (nothing to undo),
