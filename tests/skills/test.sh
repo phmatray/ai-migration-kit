@@ -419,4 +419,18 @@ grep -q 'not a supported tracker' "$PRECONDITIONS" \
   || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
 echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
 
+# ---------------------------------------------------------------------------------------------
+# create-issue consults the accepted ADRs before it brainstorms (#316). The touchpoint is prose and
+# cannot go red on its own, so this pins the three load-bearing spellings: the server tool it calls,
+# the verdict it must write when an idea contradicts a decision, and the file fallback for a host
+# with no AdrMcp.
+echo "== create-issue checks the idea against accepted ADRs (#316) =="
+CREATE_ISSUE="$KIT_ROOT/skills/create-issue/SKILL.md"
+[ -f "$CREATE_ISSUE" ] || { echo "FAIL: $CREATE_ISSUE missing"; exit 1; }
+for needle in 'search_adrs' 'contradicts ADR-' 'docs/adr'; do
+  grep -q "$needle" "$CREATE_ISSUE" \
+    || { echo "FAIL: $CREATE_ISSUE does not mention '$needle'"; exit 1; }
+done
+echo "ok   create-issue names search_adrs, the contradiction verdict and the docs/adr fallback"
+
 echo "skills golden test: all cases behaved as specified"
