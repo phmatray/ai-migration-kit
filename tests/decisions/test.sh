@@ -558,6 +558,43 @@ git -C "$k" add -A
 refuses "$k" R6 \
   "R6 — the escaped-apostrophe idiom used twice on one shape line still lets a trailing comment's phantom key be found"
 
+# Edge case: the escaped-apostrophe idiom used to CLOSE a string with no reopening quote right after
+# (the `'\''s`-style end-of-word shape, e.g. `'it'\'s`) is NOT the same as the full close/escape/
+# reopen span — a scan that assumes a reopening `'` is always there, and blindly swallows whatever
+# character actually follows the escape, desyncs `in_sq` just as badly and hides a genuine trailing
+# comment's phantom key.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+cat >> "$k/skills/demo/SKILL.md" <<'SHAPE'
+
+```bash
+# >>> decision demo.rule shape >>>
+state=$(printf '%s' 'it'\'s | jq '{state: .}')  # earlier revision built: { legacy_field: .foo, state: .bar }
+# <<< decision demo.rule shape <<<
+```
+SHAPE
+python3 - "$k/decisions/registry.json" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace('"shape": null',
+              '"shape": {"home": "skills/demo/SKILL.md", "marker": "demo.rule shape"}')
+open(p, "w").write(t)
+PY
+python3 - "$k/skills/demo/scripts/prog.sh" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace(
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}',
+    'if .state == "CLEAN" then {verdict:"go", rule:"clean"}\n'
+    '       elif .legacy_field == "x" then {verdict:"stop", rule:"legacy"}',
+)
+open(p, "w").write(t)
+PY
+git -C "$k" add -A
+refuses "$k" R6 \
+  "R6 — the escaped-apostrophe idiom closing a string with no reopening quote does not hide a genuine trailing comment's phantom key"
+
 # Edge case: a shape line using the idiom with NO trailing comment must be unaffected — the fix is
 # additive, not a rewrite of the scanner's default behavior.
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"

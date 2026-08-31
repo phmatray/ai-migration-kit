@@ -220,13 +220,17 @@ def strip_comments(text):
         while i < n:
             ch = line[i]
             # The '\'' embedded-apostrophe idiom: while inside a single-quoted string, a closing `'`
-            # immediately followed by an escaped literal quote and a reopening `'` (`'\''`, 4 chars —
-            # `line[i+1:i+3]` is the middle two, `\'`) is a single inert unit for quote-tracking
-            # purposes. Consuming all 4 characters here and leaving `in_sq` untouched keeps the two
-            # real toggles (close, reopen) from being applied independently, which is what desynced
-            # `in_sq` before #306.
+            # immediately followed by an escaped literal quote (`\'`, 3 chars total — `line[i+1:i+3]`
+            # is the escape pair) always closes the string here and consumes the escape pair without
+            # letting its literal `'` retoggle `in_sq` — that retoggle is what desynced `in_sq` before
+            # #306. Whatever follows is then read normally: a genuine reopening `'` (the common
+            # `'\''` shape) toggles `in_sq` back on, netting to "unchanged", exactly as before; but
+            # anything else — end of line, a bare char, a `#` — is now read with the CORRECT (closed)
+            # state instead of being blindly swallowed as if a reopening quote were guaranteed to
+            # follow.
             if ch == "'" and in_sq and line[i + 1 : i + 3] == "\\'":
-                i += 4
+                in_sq = False
+                i += 3
                 continue
             if ch == '"' and not in_sq:
                 in_dq = not in_dq
