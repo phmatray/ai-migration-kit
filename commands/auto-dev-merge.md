@@ -1,6 +1,7 @@
 ---
-description: Run PHASE 2 of an auto-dev worker — land an already-ready PR via merge-pr, in a FRESH context. Dispatched by the auto-dev supervisor as a background sub-agent after the phase-1 sub-agent reports a PR number; invoke as `/auto-dev-merge <pr-number>` (the model tier is the `model` the supervisor passed to the Agent tool, not here).
+description: PHASE 2 of an auto-dev worker — land the already-ready PR via merge-pr, in a fresh context. Dispatched by the supervisor; `/auto-dev-merge <pr-number>`.
 argument-hint: <pr-number>
+disable-model-invocation: true
 ---
 
 You are an auto-dev worker (**PHASE 2 of 2**) for this repo. Phase 1 already implemented the issue and

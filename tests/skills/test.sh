@@ -993,6 +993,49 @@ else
   fails=$((fails + 1))
 fi
 
+# ---------------------------------------------------------------------------------------------
+# The two auto-dev command files are DISPATCHED, never discovered (#323). The supervisor invokes
+# `/auto-dev-worker <n>` and `/auto-dev-merge <n>` by name; nothing ever asks the model to FIND
+# them, so a model-facing description buys no discovery and is pure always-loaded context — and
+# these two are the longest in commands/, because each re-states the phase contract its own body
+# already carries. `disable-model-invocation: true` takes them out of that surface; the one-line
+# description and `argument-hint` are what a human still needs in the slash-command list.
+#
+# Pinned against the real tree (no scratch fixture): the defect IS the committed frontmatter.
+echo "== the dispatched auto-dev commands are user-invoked only (#323) =="
+D_CHECK=$(cat <<'PY'
+import re, sys, yaml
+t = open(sys.argv[1], encoding="utf-8").read()
+m = re.match(r"^---\n(.*?)\n---\n", t, re.S)
+fm = yaml.safe_load(m.group(1)) if m else None
+if not isinstance(fm, dict):
+    sys.exit("frontmatter absent or not a YAML mapping")
+if fm.get("disable-model-invocation") is not True:
+    sys.exit("disable-model-invocation is not true — the supervisor dispatches this command by "
+             "name, so its description must not sit in every session's context")
+desc = " ".join(str(fm.get("description") or "").split())
+if not desc:
+    sys.exit("description missing — the slash-command list still shows it to a human")
+if len(desc) > 200:
+    sys.exit("description is %d characters — a dispatched command keeps ONE human-facing "
+             "line (<= 200); the phase contract belongs in the body" % len(desc))
+if not str(fm.get("argument-hint") or "").strip():
+    sys.exit("argument-hint missing — it is how a human learns the argument")
+PY
+)
+for cmd in auto-dev-worker auto-dev-merge; do
+  set +e
+  d_out=$(python3 -c "$D_CHECK" "$KIT_ROOT/commands/$cmd.md" 2>&1)
+  d_rc=$?
+  set -e
+  if [ "$d_rc" -eq 0 ]; then
+    echo "ok   [D1 commands/$cmd.md dispatched-only]"
+  else
+    echo "FAIL: [D1 commands/$cmd.md dispatched-only] $d_out"
+    fails=$((fails + 1))
+  fi
+done
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1
