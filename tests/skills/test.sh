@@ -893,6 +893,22 @@ grep -q -F -- 'base-run-verdict.sh' "$mech" \
   || { echo "FAIL: $mech carries no base-run resolution recipe"; exit 1; }
 echo "ok   merge-pr names Step 5b, the helper, and all three base outcomes in its report"
 
+# The fleet inherits Step 5b through its workers, so the answer has to survive the report boundary:
+# a phase-2 worker that folds "the base went red" into free-text DETAIL is indistinguishable, on the
+# orchestrator's state board, from a clean merge. Both halves are pinned — the field on the report
+# line the worker emits, and the place the board puts it — because either one alone re-hides it.
+echo "== a red base after a worker's merge is fleet-visible (#355) =="
+for f in "skills/auto-dev/SKILL.md" "commands/auto-dev-merge.md"; do
+  path="$KIT_ROOT/$f"
+  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+  grep -q -F -- 'BASE:' "$path" \
+    || { echo "FAIL: $path's phase-2 report line carries no BASE: field"; exit 1; }
+done
+grep -q -F -- 'MERGED (<commit>) — base' "$KIT_ROOT/skills/auto-dev/SKILL.md" \
+  || { echo "FAIL: the auto-dev state board's Completed row does not carry the base verdict"; exit 1; }
+echo "ok   auto-dev carries the base verdict on the report line and the state board"
+
+
 echo "skills golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
