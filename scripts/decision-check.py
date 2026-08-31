@@ -184,17 +184,29 @@ def strip_comments(text):
     inverse failure a single-quote-blind scanner has on `emitted_keys()`'s new caller: an odd number
     of `"` embedded inside a `'…'` string used to desync the double-quote parity and leave a genuine
     trailing `# comment` un-stripped — the exact phantom-emit bug #274 exists to close, reachable
-    through a second quoting path. Known gaps, none observed in a registered program — extend the
-    scanner if one arrives, rather than special-casing a caller: a quoted string (either kind)
-    spanning more than one physical line desyncs the per-line quote state, since it resets at every
-    line break; and a bare `#` from bash's `${#arr[@]}` / `$#` length idiom, or a backslash-escaped
-    quote occurring outside any already-open string, is not special-cased — the first is read as a
-    comment start, the second can toggle the quote state unexpectedly. (An earlier draft tracked
-    backslash-escapes while *inside* a string, but that half-measure mishandled exactly the
-    outside-a-string case above without being exercised by any registered program either way, so it
-    was removed rather than kept as untested complexity — see `tests/decisions/test.sh`'s own
-    doctrine: every rule here is proved by breaking a working kit, never by reading the guard and
-    believing it.)
+    through a second quoting path.
+
+    A third quoting path closed by the same bug family (#306): bash's standard idiom for embedding a
+    literal apostrophe inside a single-quoted string, `'\''` (close the string, an escaped literal
+    quote, reopen the string — e.g. `printf '%s' 'it'\''s'`), used to desync `in_sq` the same way —
+    each of the idiom's two inner quote characters toggled `in_sq` on its own, leaving the scanner one
+    toggle short by the end of the line and believing a string was still open. The scan special-cases
+    the whole four-character span (closing `'`, the escaped `\'`, and the reopening `'`) as a single
+    inert unit that leaves `in_sq` exactly as it was — a real close followed by a real reopen nets to
+    no change — rather than letting its two literal `'` characters toggle independently. An earlier
+    draft tracked backslash-escapes while *inside* a string instead, but that half-measure mishandled
+    exactly the outside-a-string case this idiom lives in without being exercised by any registered
+    program either way, so it was removed rather than kept as untested complexity (see
+    `tests/decisions/test.sh`'s own doctrine: every rule here is proved by breaking a working kit,
+    never by reading the guard and believing it) — the fix here only special-cases the specific `'\''`
+    span, not backslash-escapes generally.
+
+    Known gaps, none observed in a registered program — extend the scanner if one arrives, rather
+    than special-casing a caller: a quoted string (either kind) spanning more than one physical line
+    desyncs the per-line quote state, since it resets at every line break; a bare `#` from bash's
+    `${#arr[@]}` / `$#` length idiom is read as a comment start; and a backslash-escaped quote
+    occurring outside any already-open string (rather than the `'\''` close/reopen shape handled
+    above) can still toggle the quote state unexpectedly.
 
     R6's READ_RE also reads this stripped view (#261).
     """
@@ -203,7 +215,23 @@ def strip_comments(text):
         in_dq = False
         in_sq = False
         cut = len(line)
-        for i, ch in enumerate(line):
+        n = len(line)
+        i = 0
+        while i < n:
+            ch = line[i]
+            # The '\'' embedded-apostrophe idiom: while inside a single-quoted string, a closing `'`
+            # immediately followed by an escaped literal quote (`\'`, 3 chars total — `line[i+1:i+3]`
+            # is the escape pair) always closes the string here and consumes the escape pair without
+            # letting its literal `'` retoggle `in_sq` — that retoggle is what desynced `in_sq` before
+            # #306. Whatever follows is then read normally: a genuine reopening `'` (the common
+            # `'\''` shape) toggles `in_sq` back on, netting to "unchanged", exactly as before; but
+            # anything else — end of line, a bare char, a `#` — is now read with the CORRECT (closed)
+            # state instead of being blindly swallowed as if a reopening quote were guaranteed to
+            # follow.
+            if ch == "'" and in_sq and line[i + 1 : i + 3] == "\\'":
+                in_sq = False
+                i += 3
+                continue
             if ch == '"' and not in_sq:
                 in_dq = not in_dq
             elif ch == "'" and not in_dq:
@@ -211,6 +239,7 @@ def strip_comments(text):
             elif ch == "#" and not in_dq and not in_sq:
                 cut = i
                 break
+            i += 1
         out.append(line[:cut])
     return "\n".join(out)
 
