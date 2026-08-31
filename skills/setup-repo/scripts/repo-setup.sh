@@ -134,11 +134,11 @@ REFUSED=0          # surfaces that could not be read or written — exit 3, and 
 DELTA="$WORKDIR/delta.tsv"
 : > "$DELTA"
 
-# Every report row — drift, refusal, or a plain note — shares this column layout, so one place
-# fixes it for emit()/refuse()/note() at once (#198): three independent `printf '%-8s %-8s %s\n'`
-# calls already had to be kept in sync by hand, and %-8s, not %-7s, matters — `!REFUSED` is eight
-# characters, and a narrower column pushes every refusal one place right of the rows the reader is
-# comparing it against.
+# Every report row — drift or refusal — shares this column layout, so one place fixes it for
+# emit()/refuse() at once (#198): two independent `printf '%-8s %-8s %s\n'` calls already had to
+# be kept in sync by hand, and %-8s, not %-7s, matters — `!REFUSED` is eight characters, and a
+# narrower column pushes every refusal one place right of the rows the reader is comparing it
+# against.
 _report_line() {
   printf '%-8s %-8s %s\n' "$1" "$2" "$3"
 }
@@ -158,13 +158,6 @@ emit() {
 refuse() {
   _report_line "!REFUSED" "$1" "$2"
   REFUSED=$((REFUSED + 1))
-}
-
-# An informational line that is neither drift nor a refusal — apply did something the operator
-# should know about, but it is not a claim that anything is wrong. Kept separate from $DELTA since
-# there is nothing here for a later `apply` pass to re-read.
-note() {
-  _report_line "$1" "$2" "$3"
 }
 
 # Turns a failed `gh label create|edit`'s stderr into the cause it actually names, rather than
@@ -470,7 +463,12 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
           proj_err="$(printf '%s' "$proj_err" | tr '\n' ' ' | sed 's/  */ /g; s/[[:space:]]*$//')"
           case "$proj_rc" in
             0) : ;; # already reported +ADD by the diff pass above; nothing more to say
-            3) note "!NOTE" "form" "$f1 — copied, but its Area dropdown could not be generated ($proj_err)" ;;
+            # A projection that was promised (the diff pass's "+ADD … Area dropdown will be
+            # generated") and then didn't happen is drift, not a footnote (#240): route it through
+            # refuse() like every other partial `apply` result, so it counts toward REFUSED and
+            # apply's exit code — never a silent !NOTE at exit 0 that a future `plan`/`apply` has
+            # no way to see again once the form exists on disk (#198's #240 follow-up finding 4).
+            3) refuse "forms" "$f1 — copied, but its Area dropdown could not be generated ($proj_err)" ;;
             *) refuse "forms" "could not project $f1's Area dropdown: $proj_err" ;;
           esac
         fi
