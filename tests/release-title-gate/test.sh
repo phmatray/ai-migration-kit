@@ -135,6 +135,32 @@ refuses marketplace-is-shipped "'chore'" \
 refuses plugin-json-human-edit "'chore'" \
   "chore: reword the plugin description" .claude-plugin/plugin.json
 
+# 8h. NESTED evals/ FIXTURES UNDER skills/** (#58). is_shipped() was root-anchored, so its `evals/`
+#     entry excluded only the repo-root harness: skills/followups/evals/evals.json matched no rule,
+#     hit the fail-closed default, and was gated as shipped content — forcing a release for a
+#     trigger-eval fixture no consumer can ever observe. Fail-closed stays right; the fix teaches
+#     the classifier the nested-fixture SHAPE (a rule keyed on the `evals/` path segment), not a
+#     second literal list.
+passes nested-evals-directly-under-skill "chore: retune eval fixtures" \
+  skills/evals/case.md
+passes nested-evals-under-a-skill "chore(skills): retune the followups eval cases" \
+  skills/followups/evals/evals.json
+passes nested-evals-deeper-under-a-skill "chore(skills): retune a nested eval case" \
+  skills/followups/references/evals/case.md
+
+# The anchoring must hold in BOTH directions, or the rule trades one false positive for another:
+
+# ...a sibling directory merely NAMED evals-runner is a different path segment, not `evals`, and
+#    must stay shipped — this is the exact false-positive a bare substring match on "evals" would
+#    have introduced.
+refuses evals-runner-still-shipped "'chore'" \
+  "chore(skills): reword the runner" skills/evals-runner/SKILL.md
+
+# ...docs/skills/… still does not read as skills/… — the rule is anchored on the `skills/` prefix,
+#    same as every other rule in is_shipped().
+passes docs-skills-evals-not-nested "docs: note an eval fixture" \
+  docs/skills/evals/case.md
+
 # ---------------------------------------------------------------- passes
 
 # 9. The releasable types — the four VISIBLE sections of DEFAULT_CHANGELOG_SECTIONS. perf and
