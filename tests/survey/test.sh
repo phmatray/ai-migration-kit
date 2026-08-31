@@ -849,3 +849,23 @@ assert_bucket HOLD  32 "$O12C"; assert_deps "blocked_by=#31" 32 "$O12C"
 assert_bucket HOLD  33 "$O12C"; assert_deps "parent(3)"     33 "$O12C"
 echo "ok: frontier — the plain-array shape of the same fields is read identically to the connection"
 
+
+# ------------------------------------------------- 12d. SKILL.md documents the column it now prints
+#
+# The row format is a contract between survey.sh and the supervisor that reads it; a column nothing
+# documents is a column the supervisor will not act on. Step 4's re-survey trigger is pinned in the
+# same way — waiting the usual ~5 merges after landing a blocker leaves its blockees, and the slots
+# they would fill, idle.
+SKILL="$KIT/skills/auto-dev/SKILL.md"
+[ -r "$SKILL" ] || { echo "FAIL: $SKILL missing"; exit 1; }
+for token in 'deps=' 'blocked_by=' 'parent(' 'blocking='; do
+  grep -qF -- "$token" "$SKILL" || {
+    echo "FAIL: skills/auto-dev/SKILL.md never mentions '$token' — the survey prints a column the supervisor is not told to read"
+    exit 1; }
+done
+# The trigger itself, not just the token: Step 4 must say to re-survey AT ONCE on a blocking= row.
+grep -qi 'blocking=' "$SKILL" || { echo "FAIL: SKILL.md does not name the blocking= re-survey trigger"; exit 1; }
+awk '/^## Step 4/,/^## Step 5/' "$SKILL" | grep -qF 'blocking=' || {
+  echo "FAIL: SKILL.md Step 4 does not carry the immediate re-survey trigger for a merged blocking= row"
+  exit 1; }
+echo "ok: frontier — SKILL.md documents the deps= column and Step 4's blocking= re-survey trigger"
