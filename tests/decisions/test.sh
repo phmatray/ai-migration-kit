@@ -845,6 +845,94 @@ PY
 git -C "$k" add -A
 refuses "$k" R10 "R10 — an absolute path in not_decisions is refused, never checked against the real filesystem root"
 
+# --- R10's SCOPE: hooks/ and scripts at a skill's ROOT (#307) -----------------------------------
+#
+# `E` is only as complete as the pathspecs it is enumerated with. #252 took those from the four
+# globs its own Problem section measured "32 executables" with — `scripts/` and
+# `skills/*/scripts/` — so a genuinely decision-shaped file living anywhere else was invisible BY
+# CONSTRUCTION: R10 never enumerated it, it therefore needed neither a registry row nor a
+# `not_decisions` record, and the guard never noticed it existed. Two such files were already in
+# this repo when #307 was filed — `hooks/roseline-gate.sh`, a PreToolUse gate that branches on
+# `ROSELINE_GATE` and a launcher probe to allow or deny a Read, and
+# `skills/systematic-debugging/find-polluter.sh` at a skill's root. Each new shape is driven to RED
+# below over the scratch kit, the same way every other rule here is.
+
+# A hook. `hooks/` holds the only files in this kit that decide whether a tool call runs at all,
+# and it sat entirely outside `E`.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/hooks"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/hooks/demo-gate.sh"
+chmod +x "$k/hooks/demo-gate.sh"
+git -C "$k" add -A
+refuses "$k" R10 \
+  "R10 — a tracked executable under hooks/ is refused by name (the #307 glob-scope gap)"
+
+# The same hook, RECORDED. Widening `E` must not leave a hooks/ path with no reachable remedy: a
+# gap closed by making its own fix impossible is not closed.
+python3 - "$k/decisions/registry.json" <<'RECORD'
+import json, sys
+p = sys.argv[1]
+doc = json.load(open(p))
+doc["not_decisions"]["hooks/demo-gate.sh"] = "a scratch hook, recorded rather than registered"
+json.dump(doc, open(p, "w"), indent=2)
+RECORD
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a hooks/ executable recorded in not_decisions passes; the widened E stays answerable"
+else
+  bad "R10 — recording a hooks/ executable did not satisfy the widened E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# A script at a skill's ROOT rather than under its `scripts/` subdirectory — the exact shape of
+# `skills/systematic-debugging/find-polluter.sh`.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/root-tool.sh"
+chmod +x "$k/skills/demo/root-tool.sh"
+git -C "$k" add -A
+refuses "$k" R10 \
+  "R10 — a tracked executable at a skill's ROOT, not under scripts/, is refused (#307)"
+
+# A script nested DEEPER than `skills/<one-segment>/scripts/`. The replaced glob's singleton `*`
+# had to match exactly one segment, so this was out of reach as well — the case #252's own comment
+# flagged as "the NEXT script someone drops in", now enumerated rather than flagged.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/nested/scripts"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/nested/scripts/deep.sh"
+chmod +x "$k/skills/demo/nested/scripts/deep.sh"
+git -C "$k" add -A
+refuses "$k" R10 \
+  "R10 — a tracked executable nested below skills/<skill>/scripts/ is refused (#307)"
+
+# `E`'s pathspecs are DATA in one file, not a literal inside one guard, so a second consumer can
+# read the same answer instead of keeping a copy that drifts. #144 widens `scripts/parse-sweep.sh`
+# past `tests/*/test.sh` to exactly these paths, and #307's triage asked that whichever half landed
+# first define the list the other reads. This asserts the shipped list is readable from bash — the
+# language of that other consumer — and that it really enumerates the two files #307 was filed about.
+globs=$(grep -v '^[[:space:]]*#' "$REPO/scripts/tracked-exec-globs.txt" 2>/dev/null | grep -v '^[[:space:]]*$')
+if [ -z "$globs" ]; then
+  bad "scripts/tracked-exec-globs.txt is missing or declares no pathspecs — R10's E is unanswerable"
+else
+  # Globbing off: these ARE glob patterns, and an unquoted expansion would otherwise let the shell
+  # match them against whatever directory the suite is run from before git ever sees them.
+  set -f
+  listed=$(git -C "$REPO" ls-files -- $globs)
+  set +f
+  missing=''
+  for want in hooks/roseline-gate.sh skills/systematic-debugging/find-polluter.sh; do
+    case "$listed" in
+      *"$want"*) ;;
+      *) missing="$missing $want" ;;
+    esac
+  done
+  if [ -z "$missing" ]; then
+    ok "the shipped pathspec list reads from bash and enumerates hooks/ and skill-root scripts (#307, for #144)"
+  else
+    bad "the shipped pathspec list misses:$missing"
+  fi
+fi
+
 # --- the escape hatch of #208 is closed, end to end (#252 Task 3) -------------------------------
 #
 # Before R10, this was a fifteen-second escape: delete a decision's registry row, and every OTHER
