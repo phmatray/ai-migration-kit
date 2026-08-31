@@ -109,6 +109,7 @@ verifies it are one edit apart, and the check refuses in both directions — a c
 link, and a file that adds one without appearing below.
 
 - `skills/implement-issue/SKILL.md` — the issue body, and the implementation plan read out of it
+- `skills/implement-issue/references/spec-review.md` — the issue's 📋 Spec, handed to the Spec-axis sub-agent as the thing to compare the diff against
 - `skills/merge-pr/SKILL.md` — review comments, and the PR body scanned for follow-ups
 - `skills/auto-dev/SKILL.md` — issue titles, labels and bodies at survey, and what a worker inherits
 - `skills/create-issue/SKILL.md` — other issues' bodies, during the duplicate and root-cause sweep
