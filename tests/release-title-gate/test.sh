@@ -156,10 +156,13 @@ passes nested-evals-deeper-under-a-skill "chore(skills): retune a nested eval ca
 refuses evals-runner-still-shipped "'chore'" \
   "chore(skills): reword the runner" skills/evals-runner/SKILL.md
 
-# ...docs/skills/… still does not read as skills/… — the rule is anchored on the `skills/` prefix,
-#    same as every other rule in is_shipped().
-passes docs-skills-evals-not-nested "docs: note an eval fixture" \
-  docs/skills/evals/case.md
+# ...an `evals/` segment OUTSIDE skills/ must stay shipped — the rule is anchored on the `skills/`
+#    prefix, same as every other rule in is_shipped(). The witness has to be a path that no OTHER
+#    rule excludes: docs/skills/evals/… would pass via the `docs/` prefix whether or not the new
+#    rule matched it, so it cannot tell an anchored pattern from an unanchored `*/evals/*`.
+#    scripts/ is shipped and has no rule of its own, so only the anchor keeps this refused.
+refuses evals-outside-skills-still-shipped "'chore'" \
+  "chore(scripts): retune a fixture" scripts/evals/fixture.sh
 
 # ---------------------------------------------------------------- passes
 
