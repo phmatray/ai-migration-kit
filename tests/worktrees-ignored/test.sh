@@ -414,7 +414,11 @@ git -C "$dir" add .gitignore
 git -C "$dir" commit -qm "ignore worktree homes"
 git -C "$dir" ls-files --error-unmatch .gitignore >/dev/null 2>&1 \
   || { echo "FAIL [rev-less-committed]: fixture bug — .gitignore is not tracked"; exit 1; }
-out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1)
+# `|| rc=$?`, like verdict() does, and for the reason verdict() does it: under this file's
+# `set -euo pipefail` an unexpected non-zero exit here would abort the suite AT this line — no
+# FAIL line, no case 24b, and a reader left to work out from a bare exit code which case died.
+rc=0; out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [rev-less-committed]: the guard exited $rc on a correctly configured repo:"; echo "$out"; exit 1; }
 grep -qF 'rule source unknown' <<<"$out" \
   && { echo "FAIL [rev-less-committed]: a committed rule was reported as unverified on a rev-less host:"; echo "$out"; exit 1; }
 grep -qF 'command not found' <<<"$out" \
@@ -427,9 +431,34 @@ echo "  ok: rev-less-committed — a tracked rule carries no false 'unverified' 
 dir="$WORK/revless-local"
 revless_repo "$dir" ''
 printf '.claude/worktrees/\n.worktrees/\n' >> "$dir/.git/info/exclude"
-out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1)
+rc=0; out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [rev-less-local-exclude]: the guard exited $rc on an ignored repo:"; echo "$out"; exit 1; }
 grep -qF '.git/info/exclude' <<<"$out" \
   || { echo "FAIL [rev-less-local-exclude]: the rule source is not named on a rev-less host:"; echo "$out"; exit 1; }
 echo "  ok: rev-less-local-exclude — the rule source is still named without rev"
+
+# 24c. The Windows spelling of 24b. `check-ignore -v` names a global excludes file exactly as
+#      core.excludesFile spells it, so on Git Bash the source comes back as `C:/Users/…/ignore` —
+#      no leading `/`, which is what durability_note()'s global-excludes arm used to match on. It
+#      fell through to the "not tracked by git … commit it" branch, telling the user to commit
+#      their global excludes file on the one host this change is for.
+#
+#      Reproducible here because git prints the configured path verbatim and a directory may be
+#      called `C:` on Linux — so the drive-letter SHAPE is testable without a Windows host, which
+#      is the whole trick this suite needs.
+dir="$WORK/revless-drive"
+revless_repo "$dir" ''
+mkdir -p "$dir/C:/fake"
+printf '.claude/worktrees/\n.worktrees/\n' > "$dir/C:/fake/ignore"
+git -C "$dir" config core.excludesFile "C:/fake/ignore"
+git -C "$dir" check-ignore -v .claude/worktrees/ | grep -q '^C:/fake/ignore:' \
+  || { echo "FAIL [drive-letter]: fixture bug — git did not report a drive-letter source"; exit 1; }
+rc=0; out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [drive-letter]: the guard exited $rc on an ignored repo:"; echo "$out"; exit 1; }
+grep -qF 'a global excludes file' <<<"$out" \
+  || { echo "FAIL [drive-letter]: a C:/ excludes file is not classified as a global one:"; echo "$out"; exit 1; }
+grep -qF 'commit it' <<<"$out" \
+  && { echo "FAIL [drive-letter]: the guard told the user to commit their global excludes file:"; echo "$out"; exit 1; }
+echo "  ok: drive-letter — a C:/ excludes file reads as global, not as an uncommitted repo file"
 
 echo "worktrees-ignored golden test OK"

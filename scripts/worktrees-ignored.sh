@@ -132,7 +132,14 @@ durability_note() {
   local src="$1"
   case "$src" in
     "")   printf '  note: rule source unknown — treat "ignored" as unverified beyond this checkout.\n' ;;
-    /*)   printf '  note: the rule lives in %s (a global excludes file), not in this repo — it\n' "$src"
+    # A Windows absolute path — `C:/Users/…/.config/git/ignore`, or the backslash spelling — is
+    # the same answer as `/*`: an excludes file outside the repository. It gets its own arm because
+    # it does not start with `/`, so before #174 it fell through to the `*)` branch below and the
+    # guard told a Git Bash user to `commit` their global excludes file — on the one host this
+    # whole change exists to fix. Unreachable until rule_source() started returning anything there
+    # at all, which is exactly why it lands with the rev fix rather than after it.
+    /*|[A-Za-z]:/*|[A-Za-z]:\\*)
+          printf '  note: the rule lives in %s (a global excludes file), not in this repo — it\n' "$src"
           printf '        protects this machine only; teammates and CI still stage the worktree.\n' ;;
     .git/*) printf '  note: the rule lives in %s, which is NOT committed — it protects this\n' "$src"
           printf '        checkout only; teammates and CI still stage the worktree.\n' ;;
