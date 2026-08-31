@@ -146,8 +146,9 @@ session `.jsonl` transcripts:
   (`<proj>/<supervisor-session>/subagents/agent-*.jsonl`), so one run's fleet sits under one id.
 - `scripts/analyze_cache.py` — turns/session, context at start vs peak, avg context per turn, and
   tool-result volume by tool. This is where you see *why* a session is expensive.
-- `scripts/measure_phase2.py` — finds each worker's merge handoff turn and splits cost into
-  implement-phase vs merge-phase. This is what proved lever 1.
+- `scripts/measure_phase2.py` — pairs each issue's phase-1 and phase-2 sub-agent transcripts (by
+  the `ISSUE:` of their report lines) and splits cost into implement-phase vs merge-phase; on a
+  pre-2.0 transcript it finds the in-session merge handoff turn instead. This is what proved lever 1.
 
 Two metrics carry most of the signal: **avg context per turn** (are late turns bloated?) and
 **tool calls per turn** (are turns doing any work at all? baseline ~0.55 — see lever 2).
@@ -447,8 +448,8 @@ Then, per slot:
   shutdown needed; stop it only if it is somehow still running) and **refill the slot** —
   pick the next queued issue whose area isn't currently held, dispatch a fresh worker (Step 3). Keeps
   the fleet at N. Otherwise, add a line to the state file's `## Needs manual sweep` section naming the
-  issue, PR, and the `WORKTREE` text verbatim — then **still retire the slot and refill it
-  regardless**: the PR is merged, only local cleanup is outstanding, and nothing about that blocks the
+  issue, PR, and the `WORKTREE` text verbatim — then **still end the agent and refill the slot
+  regardless** (the same retirement as above — stop it only if it is still running): the PR is merged, only local cleanup is outstanding, and nothing about that blocks the
   fleet. Either way, the issue still moves to `## Completed` right away — unlike the takeover bullet
   below, nothing here re-dispatches a sub-agent to close the gap, so there is no future report to defer
   that entry for; `## Needs manual sweep` tracks the outstanding local housekeeping separately, it

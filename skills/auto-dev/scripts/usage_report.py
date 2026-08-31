@@ -2,18 +2,19 @@
 """auto-dev cost accounting — aggregate token usage across the orchestrator + every
 background worker session, so you can track tokens/merge and $/merge across runs.
 
-Workers are dispatched one of two ways, and both land transcripts this script must open —
-counting only one route silently drops every worker dispatched the other way (#281):
+Two transcript layouts land in a project dir, and this script must open both — counting only
+one silently drops whatever sits in the other (#281):
 
-  pre-2.0 process worker    its OWN top-level Claude session, transcript alongside the
-                             orchestrator's directly in the project dir:
-                               <proj>/<session-id>.jsonl
-  Agent-tool sub-agent       a transcript nested under the DISPATCHING session's own dir:
-                               <proj>/<session-id>/subagents/agent-*.jsonl
-                             kept separate because a sub-agent's tokens are never folded
-                             into its dispatcher's top-level transcript — they exist only
-                             here, and skipping this layout is how they go uncounted rather
-                             than merely mis-attributed.
+  top-level session          <proj>/<session-id>.jsonl — since 2.0 (#314) this is the
+                             ORCHESTRATOR only. A pre-2.0 run also left one per worker here,
+                             because a worker was then its own process session.
+  Agent-tool sub-agent       <proj>/<session-id>/subagents/agent-*.jsonl — since 2.0 EVERY
+                             worker (two per issue: the phase-1 implement agent and the
+                             phase-2 merge agent), nested under the supervisor session that
+                             dispatched it. Kept separate because a sub-agent's tokens are
+                             never folded into its dispatcher's top-level transcript — they
+                             exist only here, and skipping this layout is how they go
+                             uncounted rather than merely mis-attributed.
 
 `<proj>` is  ~/.claude/projects/<url-encoded-worktree-path>.  Every run reports how many of
 each kind it found — `SESSIONS: N in <proj>   (X top-level, Y sub-agent)` — so a project dir
@@ -38,7 +39,7 @@ from on-disk token counts. On a Max/Pro subscription your marginal cash cost is 
 (usage is included, bounded by rate limits). Treat $ as a *relative scalability* signal
 — where the tokens go — and as "rate-limit budget consumed", not necessarily a bill.
 The authoritative cash number for the CURRENT session is the built-in `/cost` command;
-this script is more complete because it also sees the tmux worker sessions /cost can't.
+this script is more complete because it also sees the worker sub-agents /cost can't.
 """
 import json, glob, os, sys
 
@@ -110,9 +111,10 @@ def row_label(path):
 def discover_transcripts(proj):
     """Yield (path, kind, parent) for every transcript this project dir holds.
 
-    kind='top'  <proj>/<session-id>.jsonl               — orchestrator or a pre-2.0 process worker;
-                                                            parent=None.
-    kind='sub'  <proj>/<session-id>/subagents/*.jsonl    — an Agent-tool sub-agent worker;
+    kind='top'  <proj>/<session-id>.jsonl               — the orchestrator (or, on a pre-2.0
+                                                            run, a process worker); parent=None.
+    kind='sub'  <proj>/<session-id>/subagents/*.jsonl    — a worker: since 2.0 every phase-1
+                                                            and phase-2 agent is one of these;
                                                             parent=<session-id> of the dir it sits
                                                             under (its dispatcher — may or may not
                                                             be the orchestrator).
