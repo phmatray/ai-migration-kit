@@ -166,6 +166,47 @@ Specificity is *real*, not just "nothing fired": each near-miss negative fires t
 skill (e.g. `implement issue 47` → `implement-issue`, `file an issue …` → `create-issue`,
 `set up the repo profile` → `get-repo-profile`), recorded in each result's `fired` histogram.
 
+## The description budget (#323)
+
+A `description` is **always-loaded** context: every session with the plugin installed pays for all
+ten on every turn, whether or not a skill fires. That makes it the one piece of a skill that earns
+harder pruning than its body — and the reason `tests/skills/check-frontmatter.py` prints
+
+```
+WARN <skill>: description is N characters — over the 700-char soft ceiling (#323)
+```
+
+above **700** characters, exit code unchanged. The guide's 1024 stays the hard error; 700 is the
+tripwire far enough below it that accretion is visible while it is still a sentence.
+
+**Cut rules** (the pointer-writing discipline of `mattpocock/skills` `productivity/writing-for-agents`,
+MIT — ported from mattpocock/skills):
+
+1. Lead with the trigger, not the identity — *"Land an open GitHub pull request …"*, not *"the
+   'ship it' counterpart to implement-issue"*. The body already carries the identity, and the body
+   is not loaded until the skill fires.
+2. **One trigger phrase per branch**, one FR form per branch. Seven synonyms for *file an issue* are
+   one branch written seven times.
+3. Cut examples that restate a branch already named in the same sentence.
+4. Keep, always: every distinct trigger branch, every `« … »` French form, and the *"Does NOT
+   apply"* clause — that clause is what the eval sets' **negatives** lean on, so shortening it is
+   how specificity silently reopens.
+
+**Measured on 2026-08-31** (#323), whitespace-normalised, the same count the checker uses:
+
+| | before | after |
+|---|---:|---:|
+| Total across the ten skills | 8,518 | 6,501 |
+| Largest single description | 1,018 (`auto-dev`) | 696 (`setup-repo`) |
+| Over the 700 soft ceiling | 8 | 0 |
+
+⚠️ **Those cuts are NOT yet bench-proven.** They were made conservatively — no trigger branch, FR
+form or boundary clause was removed — but conservative is an argument, not a measurement. Before the
+next release, run `python3 evals/run_all.py --runs-per-query 3` and compare every skill against
+[`results/baseline.json`](results/baseline.json); the `implement-issue` ↔ `merge-pr` boundary run
+must stay 6/6 each. Only once that passes is the ceiling worth tightening toward the ~450 #323 aimed
+at — a limit below what the bench has cleared teaches a reader to ignore a standing warning.
+
 ## The `implement-issue` ↔ `merge-pr` boundary (#370)
 
 The deliberately-close boundary #370's description edits targeted — sync an **in-flight** PR
