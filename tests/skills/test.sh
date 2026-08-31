@@ -539,6 +539,73 @@ fi
 echo "grilling link golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# skills/_shared/prior-rejections.md must exist, and all THREE consumers must link it (#319). A
+# prior rejection is an ADR with `status: rejected`; the lookup that consults it runs at every inlet
+# (`create-issue` Step 3, `merge-pr` 6c) and the pass that judges the queue (`triage-backlog` Step
+# 4), while the authoring half runs in `triage-backlog` Step 7 alone. That asymmetry — three readers,
+# one writer — is exactly the kind of rule that gets restated slightly differently in each SKILL.md
+# and then drifts, which is why it has one home and why a SKILL.md that stops pointing at that home
+# is a failure rather than a style question.
+#
+# `filing-bar.md` is checked too, and for a stronger reason than the others: its clause 4 is a VETO
+# over gates 1-3, and a veto whose lookup recipe is not linked is a rule an inlet cannot actually
+# apply. Pinned against the real tree — the defect IS the committed prose.
+echo "== the prior-rejection recipe has one home, and its four consumers link it (#319) =="
+
+if [ -f "$KIT_ROOT/skills/_shared/prior-rejections.md" ]; then
+  echo "ok   [PR1 prior-rejections.md exists          ]"
+else
+  echo "FAIL: [PR1 prior-rejections.md exists          ] file is missing"
+  fails=$((fails + 1))
+fi
+
+for consumer in create-issue merge-pr triage-backlog; do
+  if grep -qF '](../_shared/prior-rejections.md)' \
+      "$KIT_ROOT/skills/$consumer/SKILL.md" 2>/dev/null; then
+    printf 'ok   [PR2 %-14s SKILL.md links it    ]\n' "$consumer"
+  else
+    printf 'FAIL: [PR2 %-14s SKILL.md links it    ] missing the literal\n' "$consumer"
+    echo "      '](../_shared/prior-rejections.md)'"
+    fails=$((fails + 1))
+  fi
+done
+
+# Same directory, so the link is `](./prior-rejections.md)` rather than `](../_shared/…)`.
+if grep -qF '](./prior-rejections.md)' "$KIT_ROOT/skills/_shared/filing-bar.md" 2>/dev/null; then
+  echo "ok   [PR3 filing-bar.md links the recipe      ]"
+else
+  echo "FAIL: [PR3 filing-bar.md links the recipe      ] clause 4 is a veto over gates 1-3; without"
+  echo "      the literal '](./prior-rejections.md)' it names no way to apply it"
+  fails=$((fails + 1))
+fi
+
+# The port is MIT-licensed work by someone else; the credit is part of the file's contract, not a
+# courtesy a later edit may drop. Same rule as G3 above.
+if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/_shared/prior-rejections.md" 2>/dev/null; then
+  echo "ok   [PR4 prior-rejections.md credits source  ]"
+else
+  echo "FAIL: [PR4 prior-rejections.md credits source  ] missing the 'mattpocock/skills' attribution"
+  fails=$((fails + 1))
+fi
+
+# The degraded path has to be NAMED, not merely implied. A recipe that describes only the semantic
+# lookup reads as "no lookup happened" on every machine without the server, which is the one outcome
+# the fallback exists to prevent — and the helper it names is the only shell surface under test.
+if grep -qF 'rejected-adrs.sh' "$KIT_ROOT/skills/_shared/prior-rejections.md" 2>/dev/null; then
+  echo "ok   [PR5 the recipe names its fallback       ]"
+else
+  echo "FAIL: [PR5 the recipe names its fallback       ] missing 'rejected-adrs.sh' — without the"
+  echo "      fallback named, a reader with no AdrMcp has nothing to run"
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "prior-rejection link golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # The decompose branch (#315) hangs off two references — the parent's tracking-body shape and
 # the slicing rules — and create-issue must link both. The parent-body invariant they carry (no
 # `Implementation plan`, no `### Task`, no `- [ ]`) is what keeps survey.sh's `haveplan` false so
