@@ -221,6 +221,7 @@ add_suite "tests/auto-dev-worktree-field/test.sh"
 add_suite "tests/wait-ci/test.sh"
 add_suite "tests/usage-report/test.sh"
 add_suite "tests/survey/test.sh"
+add_suite "tests/wire-edges/test.sh"
 add_suite "tests/hitl-loop/test.sh"
 
 # The kit's own ADRs are structurally sound. The gate runs the checker over the REAL
