@@ -841,10 +841,10 @@ fi
 # not name the plugin, and it must hit a fixture of each note with the same task count.
 echo "== implement-issue locates a plan under either header note (#324) =="
 MECH="$KIT_ROOT/skills/implement-issue/references/github-mechanics.md"
-PLAN_ANCHOR=$(grep -o "grep -q '[^']*' /tmp/plan-\$ISSUE.md" "$MECH" | head -1 \
-  | sed "s/^grep -q '\(.*\)' \/tmp\/plan-\$ISSUE.md$/\1/")
+RECIPE_LINE_RE="grep -q '[^']*' /tmp/plan-\$ISSUE.md"   # tmp-lint:allow — the recipe's own text being matched, not a path this suite writes
+PLAN_ANCHOR=$(grep -o "$RECIPE_LINE_RE" "$MECH" | head -1 | sed "s/^grep -q '\(.*\)' .*$/\1/")
 if [ -z "$PLAN_ANCHOR" ]; then
-  echo "FAIL: [SP2 the §2 locator anchor is readable          ] no \"grep -q '…' /tmp/plan-\$ISSUE.md\" line in $MECH"
+  echo "FAIL: [SP2 the §2 locator anchor is readable          ] no \"grep -q '…' <plan file>\" line in $MECH"
   fails=$((fails + 1))
 elif printf '%s' "$PLAN_ANCHOR" | grep -qi 'superpowers\|SUB-SKILL\|agentic workers'; then
   echo "FAIL: [SP2 the §2 locator anchor is readable          ] anchors on the header note ('$PLAN_ANCHOR'), not the heading"
