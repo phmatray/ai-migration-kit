@@ -140,10 +140,11 @@ The orchestrator (you) stays on the top model, but keep its *per-turn context* s
 **Measure it** — never claim a lever works without an A/B. Three scripts, all taking a directory of
 session `.jsonl` transcripts:
 - `scripts/usage_report.py` — tokens + $-equivalent by model. Track **tokens/merge** and **$/merge**.
-  ⚠️ It aggregates the WHOLE project dir including past runs — symlink one run's transcripts into a
-  temp dir first (select by a prompt signature, e.g. `grep -l 'PHASE 1 of 2'`; **mtime is unreliable**).
-  Worker transcripts live under the supervisor session's own `subagents/` directory
-  (`<proj>/<supervisor-session>/subagents/agent-*.jsonl`), so one run's fleet sits under one id.
+  ⚠️ It aggregates the WHOLE project dir including past runs — symlink one run into a temp dir
+  first, **keeping the layout**: the supervisor session's `<sid>.jsonl` plus its `<sid>/subagents/`
+  directory (`<proj>/<sid>/subagents/agent-*.jsonl` is where every worker transcript lives, so one
+  run's fleet sits under one id — pick the id from the state file or `gh` timestamps; **mtime is
+  unreliable**). A flat pile of `agent-*.jsonl` symlinks reads as `0 sub-agent` and pairs nothing.
 - `scripts/analyze_cache.py` — turns/session, context at start vs peak, avg context per turn, and
   tool-result volume by tool. This is where you see *why* a session is expensive.
 - `scripts/measure_phase2.py` — pairs each issue's phase-1 and phase-2 sub-agent transcripts (by
@@ -327,7 +328,7 @@ Agent(subagent_type: general-purpose, model: <tier>, run in background,
 # …the agent's final line arrives as its report: PHASE1 | ISSUE: <N> | PR: <n> | STATUS: … — then:
 scripts/wait-ci.sh <n>                                  # supervisor-side, backgrounded
 # phase 2 — land it in a FRESH sub-agent (never SendMessage into phase 1)
-Agent(model: <small tier>, run in background,
+Agent(subagent_type: general-purpose, model: <small tier>, run in background,
       prompt: "Invoke `auto-dev-merge` with args `<n>`. CI IS ALREADY GREEN — VERIFIED: <check table>. You are the retry.")
 ```
 
@@ -429,8 +430,8 @@ merged) rather than re-typing the gh queries each tick. Three verbs apply to a s
 depends on whether its sub-agent is **still running** or has **returned** (its report arrived):
 
 - **Retire** a slot — MERGED and cleaned, BLOCKED/FAILED after escalation, or a takeover — by
-  stopping its sub-agent explicitly **if it is still running**; one that already returned has
-  nothing left to stop.
+  stopping its sub-agent explicitly (`TaskStop`) **if it is still running**; one that already
+  returned has nothing left to stop.
 - **Message** a slot whose agent is still running — a real `SendMessage` to that live agent.
 - **Re-dispatch** when the agent has returned — a fresh Agent spawn in Step 3's form. A returned
   deferral cannot be messaged: it returned.
@@ -461,9 +462,8 @@ worker's `implement-issue` worktree still holding the head branch while the supe
 `main` — makes gh's own local-cleanup half fail routinely, on a merge that landed regardless). What
 each code means is the script's own header comment and `merge-pr` SKILL.md Step 5's table (#184) —
 one home, not restated here — but what **auto-dev** specifically does with each outcome is:
-`0` (MERGED) → retire the slot (stop the worker if it is still running — it idled, so it usually
-is) and refill it (same as any other retirement, right away — don't wait on anything below to do
-this part). **Separately**, dispatch a cleanup sub-agent the way Step 3 spawns phase 2 —
+`0` (MERGED) → retire the slot and refill it (same as any other retirement, right away — don't
+wait on anything below to do this part). **Separately**, dispatch a cleanup sub-agent the way Step 3 spawns phase 2 —
 `Agent(model: <small tier>, run in background, prompt: "Invoke `auto-dev-merge` with args `<PR>`. …")`
 (cheap tier: there is no blocker left to clear, only follow-up triage and teardown; the rest of the
 spawn form is Step 3's, not restated here). This sub-agent holds no area and is **not** one of the

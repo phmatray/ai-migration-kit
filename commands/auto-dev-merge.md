@@ -37,4 +37,4 @@ which `merge-pr` loads.
 
 Your FINAL message must be this single line and nothing else:
 
-ISSUE: <the issue this PR closes> | PR: $1 | STATUS: MERGED|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none> | WORKTREE: <cleaned up / what remains>
+ISSUE: <number of the issue this PR closes, digits only> | PR: $1 | STATUS: MERGED|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none> | WORKTREE: <cleaned up / what remains>
