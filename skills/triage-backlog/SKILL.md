@@ -248,9 +248,11 @@ would still be a single `effort: large` plan no worker can carry. The shape is `
 plans, wired with native edges:
 
 ```bash
-# 1. The parent: run create-issue with --seed on the root when it exists (it BECOMES the parent,
-#    its original text kept above the --- rule), or with the whole job as a fresh idea when the
-#    chain has no usable root. Either way the parent's body ends in the tracking sections —
+# 1. The parent: run create-issue with --seed on the root when its own text carries no plan
+#    token (it BECOMES the parent, its original text kept above the --- rule) — a root that still
+#    holds its old `## 🛠️ Implementation plan` cannot, and is folded under a FRESH parent instead
+#    (create-issue Step 7 checks this and says so). Either way the parent's body ends in the
+#    tracking sections —
 #    Destination / Notes / Decisions so far / Not yet ticketed / Out of scope — and carries NO plan
 #    token. `Decisions so far` is where the attempts go, one line each, by NAME then number:
 #      - [Attempt title](link) (#N): <what it got done, and what it left>
@@ -263,7 +265,7 @@ skills/create-issue/scripts/wire-edges.sh --repo {owner}/{repo} --parent "$P" \
 gh issue close "$FRAG" --reason "not planned" --comment "Folded into <Child title> (#$C1) — one slice of <Parent title> (#$P)."
 ```
 
-Read the parent back the way `create-issue` Step 7 does — `grep -cE 'Implementation plan|^### Task|- \[ \]'`
+Read the parent back the way `create-issue` Step 7 does — `grep -cE 'Implementation plan|### Task|- \[ \]'`
 over its body must print `0` — before closing a single fragment: a parent that trips it would be
 dispatched whole, which is the failure the rescope exists to end.
 

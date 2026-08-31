@@ -50,8 +50,8 @@ Give each child the set of children that **must complete before it can start**. 
   them is a prefactoring child both are blocked by.
 
 The **frontier** at any moment is the set of open, unblocked, unassigned children — what `auto-dev`
-may dispatch (reading `issue_dependencies_summary.blocked_by == 0` is I2b's job; today the text line
-is what a human reads). For a purely linear chain the frontier is one child at a time, top to bottom.
+may dispatch (reading `issue_dependencies_summary.blocked_by == 0` is #317's job; today the text
+line is what a human reads). For a purely linear chain the frontier is one child at a time, top to bottom.
 
 ## Wide refactors: expand → migrate → contract
 

@@ -84,7 +84,14 @@ while [ $# -gt 0 ]; do
       if [ "$child" != "$spec" ]; then
         rest="${spec#*:}"
         case "$rest" in
-          blocked-by=*) blockers=$(printf '%s' "${rest#blocked-by=}" | tr ',' ' ') ;;
+          blocked-by=*)
+            list="${rest#blocked-by=}"
+            # An empty entry (`blocked-by=`, `blocked-by=,12`, a `$C1` that came back empty from a
+            # failed create) must not silently wire one blocker fewer and print ok.
+            case ",$list," in
+              *,,*) refuse "--child '$spec': empty blocker in the list" ;;
+            esac
+            blockers=$(printf '%s' "$list" | tr ',' ' ') ;;
           *) refuse "--child '$spec': expected <N> or <N>:blocked-by=<A>[,<B>…]" ;;
         esac
       fi
@@ -170,7 +177,11 @@ post() {
   if err=$(gh api -H "Accept: application/vnd.github+json" --method POST --silent "$endpoint" -F "$field" 2>&1 >/dev/null); then
     echo "ok"; return 0
   fi
-  code=$(printf '%s' "$err" | sed -n 's/.*(HTTP \([0-9][0-9][0-9]\)).*/\1/p' | head -1)
+  # Two spellings: `gh: <message> (HTTP <code>)` when the error body was JSON with a message,
+  # and a bare `gh: HTTP <code>` when it was not (a proxy's HTML 404 in front of a GHES host).
+  # The second must still read as a status — a plain-text 404 is the fallback case, not a
+  # "no status" failure.
+  code=$(printf '%s' "$err" | sed -n 's/.*HTTP \([0-9][0-9][0-9]\))\{0,1\}$/\1/p' | head -1)
   msg=$(printf '%s' "$err" | sed -n 's/^gh: \(.*\) (HTTP [0-9][0-9][0-9])$/\1/p' | head -1)
   [ -n "$msg" ] || msg=$(printf '%s' "$err" | tr '\n' ' ')
   case "$code" in

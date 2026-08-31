@@ -559,7 +559,7 @@ largest size (it is the whole job), each child its own small or medium.
 ```bash
 # 1. The parent — the tracking body, ZERO checkboxes. Prove it before filing: the same tokens
 #    survey.sh reads, so a parent that trips this would be dispatched as if it were a plan.
-[ "$(grep -cE 'Implementation plan|^### Task|- \[ \]' /tmp/issue-<slug>.md || true)" -eq 0 ] \
+[ "$(grep -cE 'Implementation plan|### Task|- \[ \]' /tmp/issue-<slug>.md || true)" -eq 0 ] \
   || { echo "REFUSED — the parent body carries a plan token"; exit 1; }
 [ "$(grep -c '^## Destination' /tmp/issue-<slug>.md || true)" -eq 1 ] \
   || { echo "REFUSED — the parent body has no ## Destination"; exit 1; }
@@ -581,8 +581,10 @@ C1=$(gh issue create --title "<child 1 title>" --label "<type>" --label "<priori
 # 3. The second pass — sub-issue links and native blocked_by edges, one call for the whole set.
 #    `fallback` on a line means that endpoint answered 404 (feature off on this host): the text
 #    `**Blocked by:**` line in the body stands and Step 8 says so. Exit 1 is a real API failure.
+#    Redirect, don't `tee`: through a pipe the exit code you read would be tee's.
 skills/create-issue/scripts/wire-edges.sh --repo {owner}/{repo} --parent "$P" \
-  --child "$C1" --child "$C2:blocked-by=$C1" --child "$C3:blocked-by=$C1,$C2" | tee /tmp/issue-<slug>-edges.txt
+  --child "$C1" --child "$C2:blocked-by=$C1" --child "$C3:blocked-by=$C1,$C2" > /tmp/issue-<slug>-edges.txt
+rc=$?; cat /tmp/issue-<slug>-edges.txt; echo "wire-edges exit $rc"     # 0 = ok/fallback; 1 = a real API failure
 ```
 
 `wire-edges.sh` resolves database ids itself (`gh api repos/o/r/issues/<n> --jq .id` — never the
@@ -594,7 +596,7 @@ to print the POSTs without sending them. Its contract and exit codes are in its 
 plan round-tripped, the summary the proof the edges exist where GitHub reads them:
 
 ```bash
-live=$(gh issue view "$P" --json body --jq .body | grep -cE 'Implementation plan|^### Task|- \[ \]' || true)
+live=$(gh issue view "$P" --json body --jq .body | grep -cE 'Implementation plan|### Task|- \[ \]' || true)
 [ "$live" -eq 0 ] || { echo "PARENT #$P carries a plan token — repair before anything else"; exit 1; }
 for c in "$C1" "$C2" "$C3"; do
   n=$(gh issue view "$c" --json body --jq .body | grep -c '^- \[ \]' || true)
@@ -694,6 +696,32 @@ head -c "$orig_bytes" /tmp/seed-live-$N.md | diff - /tmp/seed-orig-$N.md
 That `diff` is the one that matters. If it reports anything, you rewrote someone's issue: restore the
 original (`[ -s /tmp/seed-orig-$N.md ]`, then `gh issue edit "$N" --body-file /tmp/seed-orig-$N.md`)
 and say so, rather than leaving the edit standing.
+
+**`--seed #N` on the decompose branch — #N becomes the parent, if its own text allows it.** The
+invariant is over the **whole** body, and the original above the `---` rule is text you may not
+edit — so check it first:
+
+```bash
+jq -r '.body // ""' /tmp/issue-seed-$N.json | grep -cE 'Implementation plan|### Task|- \[ \]' || true
+```
+
+- **Non-zero** — the original already carries a plan token (a `--force` re-seed, or a rescoped root
+  that kept its old plan). It **cannot** become a tracking parent: seeding the tracking sections
+  under it leaves `plan=true` and the parent gets dispatched whole. Refuse the in-place parent, file
+  a **fresh** parent through the decomposed variant with `**Related:** #N` and #N cited under its
+  *Decisions so far*, and report it (`triage-backlog`'s rescope then closes #N as folded into the
+  parent).
+- **Zero** — proceed in place. The trail is then the 🧠 Brainstorm, the 📋 Spec and the tracking
+  sections (`## Destination` … `## Out of scope`) — no plan — so the two trail gates above
+  **invert**: the trail must count **`0`** `- [ ]` lines and **exactly one** `^## Destination`. The
+  readback replaces the checkbox count with the three-token grep over the **full live body**, which
+  must print `0` (plus the same `diff` on the original text). Then file the children and wire the
+  edges exactly as in the decomposed variant, with `P=$N`.
+
+Labels on this path: the parent must carry the **largest** effort size, because the tier check is the
+second guard that keeps it out of `QUEUE` even if a later edit trips the token invariant. This is the
+**one** sanctioned replacement on the seed path: an `effort: small`/`medium` on #N is swapped for
+`effort: large` (`--remove-label` then `--add-label`), and the report says so by name.
 
 ## Step 8 — Report
 

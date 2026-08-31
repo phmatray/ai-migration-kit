@@ -423,7 +423,7 @@ fi
 # itself carry none of the three plan tokens, or the reference teaches the wrong invariant.
 if [ -f "$KIT_ROOT/skills/create-issue/references/tracking-issue.md" ]; then
   if sed -n '/^```markdown$/,/^```$/p' "$KIT_ROOT/skills/create-issue/references/tracking-issue.md" \
-       | grep -qE 'Implementation plan|^### Task|- \[ \]'; then
+       | grep -qE 'Implementation plan|### Task|- \[ \]'; then
     echo "FAIL: [D5 tracking-issue.md's example body carries a plan token] a fenced example contains 'Implementation plan', '### Task' or '- [ ]'"
     fails=$((fails + 1))
   else

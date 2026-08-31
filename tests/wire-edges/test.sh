@@ -46,6 +46,9 @@ mkdir -p "$WORK/bin"
 #   GH_SUB_STATUS     for POST …/issues/P/sub_issues                        default 201
 #   GH_DEP_STATUS     for POST …/issues/C/dependencies/blocked_by           default 201
 #   GH_422_MESSAGE    the message a 422 carries                              default "Validation Failed"
+#   GH_ISSUE_404_FOR  one issue NUMBER whose id lookup alone answers 404 (the others succeed)
+#   GH_PLAIN_ERROR    when set, a non-2xx prints the bare `gh: HTTP <code>` form real gh uses
+#                     when the error body is not JSON (a proxy's HTML page), with no message
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "ARGS: $*" >> "$GH_CALL_LOG"
@@ -66,6 +69,10 @@ fail() {
     422) msg="${GH_422_MESSAGE:-Validation Failed}" ;;
     *)   msg="Server Error" ;;
   esac
+  if [ -n "${GH_PLAIN_ERROR:-}" ]; then
+    echo "gh: HTTP $code" >&2
+    exit 1
+  fi
   printf '{"message":"%s","status":"%s"}' "$msg" "$code"
   echo "gh: $msg (HTTP $code)" >&2
   exit 1
@@ -81,8 +88,9 @@ fi
 case "$endpoint" in
   repos/*/issues/[0-9]*)
     s="${GH_ISSUE_STATUS:-200}"
-    case "$s" in 2??) ;; *) fail "$s" ;; esac
     n="${endpoint##*/issues/}"
+    [ "${GH_ISSUE_404_FOR:-}" = "$n" ] && s=404
+    case "$s" in 2??) ;; *) fail "$s" ;; esac
     echo $((1000 + n))
     exit 0 ;;
 esac
@@ -192,9 +200,20 @@ expect_rc 1 \
   && expect_line '^DEP 12⇐11 FAILED.*HTTP 500' \
   && ok "a 500 is FAILED with the status quoted, exit 1 — never read as fallback"
 
-GH_SUB_STATUS=503 run_case "sub-issues-503" --repo o/r --parent 10 --child 11
-expect_rc 1 && expect_line '^SUB 10←11 FAILED.*HTTP 503' \
-  && ok "a 503 on sub_issues is FAILED too, exit 1"
+# Two children: the script keeps going after a FAILED edge and still reports every edge, and
+# the summary line counts them — a script that exits on the first failure would report one.
+GH_SUB_STATUS=503 run_case "sub-issues-503" --repo o/r --parent 10 --child 11 --child 12
+expect_rc 1 && expect_line '^SUB 10←11 FAILED.*HTTP 503' && expect_line '^SUB 10←12 FAILED.*HTTP 503' \
+  && expect_line '^wire-edges: 2 edge\(s\) — 0 ok, 0 fallback, 2 failed' \
+  && ok "a 503 on sub_issues is FAILED too, every edge is still reported, exit 1"
+
+# The bare `gh: HTTP <code>` form (non-JSON error body) is still a status: 404 → fallback, 500 → FAILED.
+GH_PLAIN_ERROR=1 GH_DEP_STATUS=404 run_case "plain-404" --repo o/r --parent 10 --child 11 --child 12:blocked-by=11
+expect_rc 0 && expect_line '^DEP 12⇐11 fallback' \
+  && ok "a bare 'gh: HTTP 404' (no JSON body) still reads as fallback"
+GH_PLAIN_ERROR=1 GH_DEP_STATUS=500 run_case "plain-500" --repo o/r --parent 10 --child 11 --child 12:blocked-by=11
+expect_rc 1 && expect_line '^DEP 12⇐11 FAILED.*HTTP 500' \
+  && ok "a bare 'gh: HTTP 500' is FAILED with the status quoted"
 
 # ------------------------------------------------- 5. 422 "already exists" → ok (idempotent re-run)
 # The two messages are the ones github.com actually returned on a second run (measured 2026-08-31
@@ -227,6 +246,17 @@ else
   ok "an unresolvable issue id stops before any POST, exit 1"
 fi
 
+# Only the LAST issue's lookup fails: a script that resolved ids lazily between POSTs would have
+# posted the parent←11 edge before discovering #12 — the header promises every id is resolved
+# before the first write.
+GH_ISSUE_404_FOR=12 run_case "id-lookup-404-late" --repo o/r --parent 10 --child 11 --child 12:blocked-by=11
+expect_rc 1 || true
+if grep -qE 'POST' "$GH_CALL_LOG"; then
+  echo "FAIL: [$CASE] a POST was sent before every id was resolved"; cat "$GH_CALL_LOG"; fails=$((fails + 1))
+else
+  ok "ids are all resolved before the first POST — a late lookup failure posts nothing"
+fi
+
 # ------------------------------------------------------------------------- 7. usage errors → exit 2
 run_case "no-parent" --repo o/r --child 11
 expect_rc 2 && expect_no_calls && ok "missing --parent is exit 2 and calls nothing"
@@ -245,6 +275,15 @@ expect_rc 2 && expect_no_calls && ok "a child equal to the parent is exit 2 and 
 
 run_case "self-blocked" --repo o/r --parent 10 --child 11:blocked-by=11
 expect_rc 2 && expect_no_calls && ok "a child blocked by itself is exit 2 and calls nothing"
+
+run_case "blocked-by-parent" --repo o/r --parent 10 --child 11:blocked-by=10
+expect_rc 2 && expect_no_calls && ok "a child blocked by the parent is exit 2 and calls nothing"
+
+run_case "empty-blocker" --repo o/r --parent 10 --child 12:blocked-by=,11
+expect_rc 2 && expect_no_calls && ok "an empty entry in the blocker list is exit 2 and calls nothing"
+
+run_case "bare-blocked-by" --repo o/r --parent 10 --child 12:blocked-by=
+expect_rc 2 && expect_no_calls && ok "a bare blocked-by= is exit 2 and calls nothing"
 
 run_case "unknown-flag" --repo o/r --parent 10 --child 11 --bogus
 expect_rc 2 && expect_no_calls && ok "an unknown flag is exit 2 and calls nothing"

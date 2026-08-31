@@ -23,8 +23,8 @@ A body that matches is a candidate; one that does not lands in `SKIP` and is nev
 parent of a decomposed job must be the second kind — it is a job no single context can hold, which is
 the very reason it was split — so its body carries **none of the three tokens**:
 
-- not the string `Implementation plan` (not even in prose: *"see each child's implementation plan"*
-  is a match — write *"each child carries its own plan"*);
+- not the exact, case-sensitive string `Implementation plan` (not even in prose: *"see each child's
+  Implementation plan"* is a match — write *"each child carries its own plan"*);
 - no `### Task` heading;
 - no `- [ ]` checkbox anywhere, which is why *Decisions so far* below is a plain bullet list and why
   the parent's 📋 Spec keeps its acceptance criteria numbered, as the Spec contract already requires.
