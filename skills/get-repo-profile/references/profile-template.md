@@ -68,8 +68,10 @@ them exactly as the repo uses them.
   session fact, not a repo fact).
 
 ## Out-of-scope records
-- <docs/out-of-scope/ (N files) | none> — prior rejections; read before filing (create-issue,
-  merge-pr) and before proposing (triage-backlog).
+- <`docs/adr/` `status: rejected` (N records) | docs/out-of-scope/ (N files) | none> — prior
+  rejections; read before filing (create-issue, merge-pr) and before proposing (triage-backlog),
+  per `skills/_shared/prior-rejections.md`. Prefer the rejected-ADR form where the repo has an ADR
+  root: a rejection IS a decision, and two decision stores mean two search paths.
 
 ## Coding standards
 - <the markers found (CONTRIBUTING.md, .editorconfig, analyzers, …), or "none" — the review pass

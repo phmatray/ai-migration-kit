@@ -25,3 +25,6 @@
 | 0005 | [The lifecycle skills run hands-off; triage-backlog does not](0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) | accepted | 2026-08-31 |
 | 0006 | [The kit targets Claude Code only](0006-the-kit-targets-claude-code-only.md) | accepted | 2026-08-31 |
 | 0007 | [Workers are in-process sub-agents, never claude -p](0007-workers-are-in-process-sub-agents-never-claude-p.md) | proposed | 2026-08-31 |
+| 0008 | [Idea-tree search](0008-idea-tree-search.md) | rejected | 2026-07-23 |
+| 0009 | [Interaction modes](0009-interaction-modes.md) | rejected | 2026-07-23 |
+| 0010 | [Novelty search](0010-novelty-search.md) | rejected | 2026-07-23 |
