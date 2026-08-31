@@ -81,7 +81,7 @@ Create a task per item and work them in order.
 5. **Cluster by root cause** — the same clustering `merge-pr` 6a does, over the whole queue.
 6. **Propose one disposition per cluster** — apply the filing bar retroactively; present one table.
 7. **Execute the confirmed dispositions** — each with its documented reason, then read back.
-8. **Report** — the tally, and whether the queue is actually draining.
+8. **Recap** — the shared closing shape: the tally, and whether the queue is actually draining.
 
 ---
 
@@ -321,7 +321,13 @@ a label taxonomy nobody maintains.
 Read back what you changed (`gh issue view "$N" --json state,stateReason`) the same way `create-issue`
 reads back its labels — a `gh` call that prints nothing is not proof it worked.
 
-## Step 8 — Report
+## Step 8 — Recap
+
+Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
+blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
+`None` is a required answer rather than an omission) and the **Next** line, which is read off this
+skill's row in that file's hand-off table instead of being decided again here. Everything below is
+only what **triage-backlog** adds on top of them.
 
 - **The tally** — reviewed, kept, sharpened, folded, rescoped, closed-done, closed-by-decision, and
   how many were excluded as in-flight or left unreviewed.

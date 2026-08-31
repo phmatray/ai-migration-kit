@@ -87,3 +87,21 @@ All pipeline artifacts live in a `migration/` folder at the target repo root:
 | `dotnet test` fails locally on a missing prerequisite (workload, DB) | The app has a CI-only prerequisite | Run per-project builds / filtered suites and record the degradation in the report — documented, never silent |
 | Phase 4 loops — error count stopped dropping | Fixes introduce as many diagnostics as they resolve (pathological repo) | Hard rule 9: after two passes without reduction, stop — roll back to the last green gate, record the remaining diagnostics (grouped by id) in the report, escalate to the owner |
 | Session interrupted mid-pipeline | Crash, context loss, or user stop between gates | Re-run `/migrate`: it detects the `migration/` folder and the gate commits, announces the resume point, and re-enters at the phase after the last green gate (see Scope variants — Resume) |
+
+## Recap
+
+Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
+blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
+`None` is a required answer rather than an omission) and the **Next** line, which is read off this
+skill's row in that file's hand-off table instead of being decided again here. Everything below is
+only what **legacy-upgrade** adds on top of them.
+
+- Name the phase reached and every gate's verdict — a pipeline that stopped at a green gate and one
+  that stopped at a red one are different outcomes, and hard rule 8 makes "verified production" a
+  claim rather than a formality.
+- **Artifacts** lists the `migration/` folder's contents by path (`assessment.md`, `baseline.md`,
+  `report.md`, `report.html`, `report.json`) plus the gate commits, so the next run's resume logic
+  and the owner read the same evidence.
+- A documented degradation (a test suite skipped for a CI-only prerequisite, a verdict of
+  `ALREADY_MODERN`, diagnostics left after hard rule 9's two-pass limit) belongs in **Assumed ·
+  skipped · unverified** — recorded, never silent.

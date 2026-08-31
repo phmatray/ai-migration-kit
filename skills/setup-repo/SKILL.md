@@ -104,3 +104,18 @@ axes and the lifecycle skills start applying them.
 
 `plan` exiting 1 on drift makes it usable as a CI step, if the repo wants configuration drift to go
 red the way code drift does.
+
+## Recap
+
+Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
+blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
+`None` is a required answer rather than an omission) and the **Next** line, which is read off this
+skill's row in that file's hand-off table instead of being decided again here. Everything below is
+only what **setup-repo** adds on top of them.
+
+- Name each surface separately — labels, issue forms, repository settings — and whether it
+  converged, was already converged, or was **refused** (and by what: missing admin rights, an
+  unfilled `area:` placeholder, `gh` unauthenticated). A partially configured repo with a named gap
+  is a result; an unqualified "done" over a refused surface is not.
+- Say whether `--prune` ran. It deletes labels, including the six undeclared GitHub defaults, so it
+  is never a silent detail.

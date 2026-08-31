@@ -8,6 +8,7 @@
 #   B. a table row naming a skill with no skills/<name>/ directory                 -> REFUSE, named
 #   C. a real skill directory with no row in the table                             -> REFUSE, named
 #   D. --repo pointing at a tree with no _shared/recap.md                          -> exit 2, NOT 1
+#   E. a skill whose SKILL.md never links _shared/recap.md                         -> REFUSE, named
 #   I. a Next-command cell naming a command that resolves to no skill               -> REFUSE
 #   J. a duplicate row for one skill                                                -> REFUSE
 #   K. a table with no rows at all                                                  -> exit 2, never
@@ -152,6 +153,16 @@ expect "the row-less skill is named" 1 "$F" "REFUSE" "beta"
 echo "D. --repo with no _shared/recap.md"
 F="$WORK/d"; scaffold "$F"; rm -f "$F/skills/_shared/recap.md"
 expect "a missing reference is a plumbing error, not a refusal" 2 "$F" "ERR"
+
+# ------------------------------------------------------------ E. a skill that never links it
+echo "E. a skill whose SKILL.md does not link the reference"
+F="$WORK/e"; scaffold "$F"
+cat > "$F/skills/beta/SKILL.md" <<'EOF'
+# beta
+## Recap
+I invented my own ending and linked nothing.
+EOF
+expect "the unlinked skill is named" 1 "$F" "REFUSE" "beta"
 
 # ------------------------------------------------------- I. a next command that resolves nowhere
 echo "I. a Next command naming something that is not a skill or a command"

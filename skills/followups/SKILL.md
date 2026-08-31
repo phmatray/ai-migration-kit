@@ -140,3 +140,19 @@ the issue points at the repo, the entry points at the issue.
 - The kit's backlog (`docs/backlog.md`) is hand-edited (its entries carry their YAGNI trigger);
   this skill reads it, it does not rewrite it.
 - Never invent items: everything comes from the reports, the backlog, or an explicit request.
+
+## Recap
+
+Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
+blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
+`None` is a required answer rather than an omission) and the **Next** line, which is read off this
+skill's row in that file's hand-off table instead of being decided again here. Everything below is
+only what **followups** adds on top of them.
+
+- **Artifacts** names every repo touched, its `migration/report.json`, the regenerated dashboard and
+  the commit sha in that repo — a follow-up modified without a commit does not exist (Guard-rails).
+- **What happened** is the state transitions: how many entries were marked done, closed by decision,
+  added, or converted into an issue — never the whole list re-pasted. The consolidated view is the
+  artifact; the recap says what moved.
+- Owner decisions still waiting are **Assumed · skipped · unverified**, not results: they are the
+  reason `--questionnaire` exists, and a run that leaves them unspoken looks like a run with none.

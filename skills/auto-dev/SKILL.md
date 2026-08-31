@@ -179,7 +179,7 @@ Track these as todos. Steps 4–6 are the long-running supervision loop.
 3. **Dispatch the first N workers** — area-isolated, using the worker-prompt contract.
 4. **Supervise (loop)** — on every report / idle notification: reconcile against GitHub, re-drive any merge stalled at "ready", retire merged workers, refill slots from the queue; **re-survey the backlog (Step 2) every ~5 merges**.
 5. **Heartbeat** — keep a self-paced wakeup armed (via `loop`) as the safety net; poll CI only while actively driving a merge.
-6. **Stop & report** — when the queue drains (or the user stops), let the last workers finish, then summarize merged PRs, filed follow-ups, and anything blocked.
+6. **Stop & recap** — when the queue drains (or the user stops), let the last workers finish, then close with the shared recap shape: merged PRs, filed follow-ups, anything blocked.
 
 Resume-safe: the state file is the source of truth for a re-run (or `loop` re-fire) to reconstruct the
 fleet from. It is not, by itself, proof against double-dispatching an issue whose record it lost — Step
@@ -583,7 +583,13 @@ can't notify you about; return to the long fallback once it lands. (Cache nuance
 wake past the ~5-min TTL pays a full cache write, so batch pending reconcile work into a long-idle
 wake.)
 
-## Step 6 — Stop & report
+## Step 6 — Stop & recap
+
+Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
+blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
+`None` is a required answer rather than an omission) and the **Next** line, which is read off this
+skill's row in that file's hand-off table instead of being decided again here. Everything below is
+only what **auto-dev** adds on top of them.
 
 Stop dispatching when the eligible queue is empty (or the user says stop). Let the in-flight workers
 finish and land, retire them, then summarize: issues merged (with PR numbers), follow-ups filed, anything

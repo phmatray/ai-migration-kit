@@ -94,7 +94,7 @@ Create a task per item and complete in order. For a batch of ideas, run steps 2-
 5. **Brainstorm + Spec** — collapsible `<details>` sections (per `_shared/brainstorm-and-spec.md`).
 6. **Implementation plan** (per `_shared/plan-shape.md`) — a *visible* section whose `- [ ]` checkboxes feed the progress meter; never inside a `<details>`. **If the plan would earn the largest effort size** (and no `--no-split`): decompose it into a parent plus vertical-slice children instead.
 7. **Assemble the description, choose labels, create the issue** — one body, one `gh issue create` (or, with `--seed #N`, one `gh issue edit` onto the existing issue and never a create), labels (type + priority + effort + area, plus any sub-area the profile defines) from the profile, then read the issue back. **Decomposed:** parent first, children in dependency order, then `scripts/wire-edges.sh` wires the edges in a second pass.
-8. **Report** — list each issue with its URL, point the user at `/implement-issue`. **Decomposed:** name then number, and hand off to the first frontier child, never the parent.
+8. **Recap** — the shared closing shape; list each issue with its URL, point the user at `/implement-issue`. **Decomposed:** name then number, and hand off to the first frontier child, never the parent.
 
 ---
 
@@ -757,11 +757,18 @@ second guard that keeps it out of `QUEUE` even if a later edit trips the token i
 **one** sanctioned replacement on the seed path: an `effort: small`/`medium` on #N is swapped for
 `effort: large` (`--remove-label` then `--add-label`), and the report says so by name.
 
-## Step 8 — Report
+## Step 8 — Recap
 
-List every issue created with its title, URL, and applied labels (type / priority / effort / scope),
-and flag anything assumed or skipped (a label not in the live list, a duplicate you declined, a
-defaulted field). Name each idea **folded into an existing issue** and where it went (`#N`) — a fold
+Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
+blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
+`None` is a required answer rather than an omission) and the **Next** line, which is read off this
+skill's row in that file's hand-off table instead of being decided again here. Everything below is
+only what **create-issue** adds on top of them.
+
+List every issue created with its title, URL, and applied labels (type / priority / effort / scope)
+under **Artifacts** — a label not in the live list, a duplicate you declined and a defaulted field
+all belong in the shared **Assumed · skipped · unverified** block rather than in a sentence of their
+own here. Name each idea **folded into an existing issue** and where it went (`#N`) — a fold
 is a result, not a non-event, and it's the one outcome the user can't see by listing new issues.
 **If `--grill` ran**, say how the round landed in one line — *"grilled: 4 asked, 3 answered, Q2 took
 its recommended answer"* — so the user can see which of their silences became an assumption without

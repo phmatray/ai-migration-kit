@@ -22,6 +22,10 @@ What it checks, against `skills/_shared/recap.md`'s hand-off table:
      `skills/<name>/` directory except `_shared/` has exactly one row (no skill missing, no row
      orphaned); every `/<command>` named in a `Next command` cell resolves to a skill, directly
      (`skills/<name>/`) or through the command that invokes it (`commands/<name>.md`).
+  2. EVERY SKILL LINKS THE REFERENCE — each `skills/<name>/SKILL.md` points at
+     `_shared/recap.md`, so a skill cannot quietly grow a hand-written ending again. The link is
+     what the check can see; whether a given RUN filled the four blocks is a judgement call and
+     stays one, exactly as it does for `preconditions.md`.
 
 Everything here is `pathlib` + `re`: no shell idioms, so it behaves the same on a Windows checkout
 (#174).
@@ -55,6 +59,11 @@ TABLE_HEADER = ("skill", "ends with", "next command")
 # rather than an inline mention of a path or a flag, and the name stops at the first space so
 # `/implement-issue #<issue>` and `/get-repo-profile --refresh` both resolve to their skill.
 COMMAND_RE = re.compile(r"`\s*/([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+# The reference, as a skill's `## Recap` links it. Only the tail is pinned: `../_shared/recap.md`
+# from a skill, `skills/_shared/recap.md` from the repo root, and a bare mention all satisfy it —
+# what matters is that the skill points at the one home rather than restating the shape.
+RECAP_LINK_RE = re.compile(r"_shared/recap\.md")
 
 # `commands/<name>.md` says which skill it drives in one sentence: Invoke the `followups` skill.
 COMMAND_TARGET_RE = re.compile(r"`([A-Za-z0-9][A-Za-z0-9._-]*)`\s+skill")
@@ -181,6 +190,18 @@ def check_table_resolves(repo, rows):
     return refusals
 
 
+def check_skills_link(repo, rows):
+    """Assertion 2 — every skill points at the shared reference instead of restating it."""
+    refusals = []
+    for name in skill_dirs(repo):
+        skill_md = repo / "skills" / name / "SKILL.md"
+        if not RECAP_LINK_RE.search(read_text(skill_md)):
+            refusals.append(
+                "REFUSE: skills/%s/SKILL.md never links %s — close it with a `## Recap` section "
+                "that points at the shared shape rather than inventing one" % (name, RECAP_REL))
+    return refusals
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -192,6 +213,7 @@ def main(argv=None):
     try:
         rows = parse_handoff_table(repo / RECAP_REL)
         refusals = check_table_resolves(repo, rows)
+        refusals += check_skills_link(repo, rows)
     except PlumbingError as exc:
         print("ERR: %s" % exc)
         return 2
@@ -200,7 +222,8 @@ def main(argv=None):
         for line in refusals:
             print(line)
         return 1
-    print("OK: %d skills, one hand-off row each, every next command resolves" % len(rows))
+    print("OK: %d skills, one hand-off row each, every next command resolves, "
+          "every skill links the reference" % len(rows))
     return 0
 
 
