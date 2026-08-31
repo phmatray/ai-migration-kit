@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Golden test for skills/auto-dev/scripts/usage_report.py's transcript discovery (#281).
+# Golden test for skills/auto-dev/scripts/usage_report.py's transcript discovery (#281) and, since
+# 2.0, for measure_phase2.py's by-issue pairing of the two sub-agent transcripts a worker leaves (#314).
 #
 # The bug: the script discovered sessions with one glob, `<proj>/*.jsonl`, which matches only the
 # transcripts sitting DIRECTLY in the project directory. A worker dispatched via the Agent tool
@@ -14,6 +15,8 @@ KIT="$PWD"
 
 SCRIPT="$KIT/skills/auto-dev/scripts/usage_report.py"
 [ -f "$SCRIPT" ] || { echo "FAIL: $SCRIPT missing"; exit 1; }
+PHASE2="$KIT/skills/auto-dev/scripts/measure_phase2.py"
+[ -f "$PHASE2" ] || { echo "FAIL: $PHASE2 missing"; exit 1; }
 
 . "$KIT/tests/_lib.sh" || {
   echo "FAIL: cannot source $KIT/tests/_lib.sh — refusing to run unguarded"; exit 1; }
@@ -22,13 +25,15 @@ kit_init "$KIT"
 # ------------------------------------------------------------------------------- fixture builders
 #
 # Each transcript line only needs a `message.model` + `message.usage` object — scan() in
-# usage_report.py reads nothing else.
+# usage_report.py reads nothing else. measure_phase2.py additionally reads an assistant turn's
+# text (the worker's report line, #314) and tool_use blocks (the pre-2.0 merge-pr handoff).
 write_usage_line() {
-  # $1 = out file (appended), $2 = model, $3..$6 = input/output/cacheWrite/cacheRead
-  local out="$1" model="$2" tin="$3" tout="$4" tcw="$5" tcr="$6"
-  python3 - "$out" "$model" "$tin" "$tout" "$tcw" "$tcr" <<'PY'
+  # $1 = out file (appended), $2 = model, $3..$6 = input/output/cacheWrite/cacheRead,
+  # $7 = optional assistant text, $8 = optional tool name (a `Skill merge-pr` tool_use block)
+  local out="$1" model="$2" tin="$3" tout="$4" tcw="$5" tcr="$6" text="${7:-}" tool="${8:-}"
+  python3 - "$out" "$model" "$tin" "$tout" "$tcw" "$tcr" "$text" "$tool" <<'PY'
 import json, sys
-out, model, tin, tout, tcw, tcr = sys.argv[1:7]
+out, model, tin, tout, tcw, tcr, text, tool = sys.argv[1:9]
 rec = {
     "type": "assistant",
     "message": {
@@ -41,6 +46,14 @@ rec = {
         },
     },
 }
+content = []
+if text:
+    content.append({"type": "text", "text": text})
+if tool:
+    content.append({"type": "tool_use", "id": "t1", "name": tool, "input": {"skill": "merge-pr"}})
+if content:
+    rec["message"]["role"] = "assistant"
+    rec["message"]["content"] = content
 with open(out, "a") as f:
     f.write(json.dumps(rec) + "\n")
 PY
@@ -146,3 +159,86 @@ grep -q "(1 top-level, 0 sub-agent)" "$OUT2" || {
   echo "FAIL: zero sub-agent transcripts is not printed as a fact — looks like an omission instead"
   cat "$OUT2"; exit 1; }
 echo "ok: top-only — a project dir with no subagents/ anywhere reports (1 top-level, 0 sub-agent), not silence"
+
+# ------------------------------------------------ 2.0 fleet: orchestrator + two sub-agents per issue
+#
+# Since #314 a worker is TWO Agent-tool sub-agents per issue, both under the supervisor session's
+# subagents/ dir: phase 1 (auto-dev-worker) ends with `PHASE1 | ISSUE: N | PR: n | STATUS: READY`,
+# phase 2 (auto-dev-merge) with `ISSUE: N | PR: n | STATUS: MERGED …`. Nothing sits next to the
+# orchestrator's transcript any more — `top` is the orchestrator alone.
+#
+# orchestrator "sess-orch": input 1000 | output 100 | cacheWrite 0 | cacheRead 0
+# phase 1 "agent-a" (issue 7): 3 turns, cacheRead 1M + 2M + 3M = 6M   (implement half)
+# phase 2 "agent-b" (issue 7): 2 turns, cacheRead 400K + 600K = 1M     (merge half, fresh: starts at 400K)
+PROJ3=$(kit_scratch)
+write_user_line  "$PROJ3/sess-orch.jsonl" "auto-dev supervisor: fleet of 1"
+write_usage_line "$PROJ3/sess-orch.jsonl" "$MODEL" 1000 100 0 0
+mkdir -p "$PROJ3/sess-orch/subagents"
+write_user_line   "$PROJ3/sess-orch/subagents/agent-a.jsonl" "Invoke auto-dev-worker with args 7"
+write_usage_line  "$PROJ3/sess-orch/subagents/agent-a.jsonl" "$MODEL" 100 10 0 1000000
+write_usage_line  "$PROJ3/sess-orch/subagents/agent-a.jsonl" "$MODEL" 100 10 0 2000000
+write_usage_line  "$PROJ3/sess-orch/subagents/agent-a.jsonl" "$MODEL" 100 10 0 3000000 \
+  "PHASE1 | ISSUE: 7 | PR: 12 | STATUS: READY | DETAIL: all tasks landed. | FILED: none"
+write_user_line   "$PROJ3/sess-orch/subagents/agent-b.jsonl" "Invoke auto-dev-merge with args 12"
+write_usage_line  "$PROJ3/sess-orch/subagents/agent-b.jsonl" "$MODEL" 100 10 0 400000
+write_usage_line  "$PROJ3/sess-orch/subagents/agent-b.jsonl" "$MODEL" 100 10 0 600000 \
+  "ISSUE: 7 | PR: 12 | STATUS: MERGED | DETAIL: squash-merged. | FILED: none | WORKTREE: cleaned up"
+
+OUT3=$(kit_scratch)/out.txt
+python3 "$SCRIPT" "$PROJ3" --main sess-orch > "$OUT3" 2>&1 || {
+  echo "FAIL: usage_report.py exited non-zero on the 2.0 fleet fixture"; cat "$OUT3"; exit 1; }
+grep -q "(1 top-level, 2 sub-agent)" "$OUT3" || {
+  echo "FAIL: 2.0 fleet — header does not report (1 top-level, 2 sub-agent)"; cat "$OUT3"; exit 1; }
+if ! python3 - "$OUT3" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r"orchestrator\s*:\s*\$([\d.]+)", text)
+w = re.search(r"workers\+other:\s*\$([\d.]+)", text)
+assert m and w, "ORCHESTRATOR vs WORKERS section missing"
+orch, work = float(m.group(1)), float(w.group(1))
+top_cost = (1000*3.0 + 100*15.0) / 1e6
+sub_cost = (500*3.0 + 50*15.0 + 7_000_000*0.30) / 1e6
+assert abs(orch - top_cost) < 0.01, f"orchestrator cost {orch} != top-level-only {top_cost}"
+assert abs(work - sub_cost) < 0.01, f"workers cost {work} != both sub-agents {sub_cost}"
+PY
+then
+  echo "FAIL: 2.0 fleet — both phase sub-agents were not attributed to WORKERS"; cat "$OUT3"; exit 1
+fi
+
+# Three more transcripts that must NOT disturb issue 7's row, each a real 2.0 shape:
+#   agent-c — phase 1 of issue 8 spelled `ISSUE: #8` (the natural GitHub form; auto-dev-merge.md
+#             never mandated bare digits), bolded, with a trailing "Done." turn after the report;
+#   agent-d — phase 2 of issue 8 that invoked `Skill merge-pr` and then RETURNED A DEFERRAL (the
+#             failure Step 4 recovers) — it has a handoff tool_use and no report line, and must not
+#             be mis-read as a pre-2.0 "merge inside the implement session" row;
+#   sess-orch's own final text quotes a report line at line start — the orchestrator is never a half.
+write_usage_line "$PROJ3/sess-orch/subagents/agent-c.jsonl" "$MODEL" 100 10 0 500000 \
+  "**PHASE1 | ISSUE: #8 | PR: #13 | STATUS: READY | DETAIL: done. | FILED: none**"
+write_usage_line "$PROJ3/sess-orch/subagents/agent-c.jsonl" "$MODEL" 100 10 0 510000 "Done."
+write_usage_line "$PROJ3/sess-orch/subagents/agent-d.jsonl" "$MODEL" 100 10 0 30000 "" "Skill"
+write_usage_line "$PROJ3/sess-orch/subagents/agent-d.jsonl" "$MODEL" 100 10 0 31000 \
+  "I'll pause here and wait for CI to finish."
+write_usage_line "$PROJ3/sess-orch.jsonl" "$MODEL" 100 10 0 50000 \
+  "Merged this run:
+ISSUE: 7 | PR: 12 | STATUS: MERGED"
+
+OUT4=$(kit_scratch)/phase2.txt
+python3 "$PHASE2" "$PROJ3" > "$OUT4" 2>&1 || {
+  echo "FAIL: measure_phase2.py exited non-zero on the 2.0 fleet fixture"; cat "$OUT4"; exit 1; }
+# One row for issue 7: 3 implement turns / 6.0M, 2 merge turns / 1.0M, merge context starting at 400K.
+grep -qE '#7[[:space:]]+3[[:space:]]+6\.0M[[:space:]]+2[[:space:]]+1\.0M[[:space:]]+400K' "$OUT4" || {
+  echo "FAIL: measure_phase2.py did not pair issue 7's phase-1 and phase-2 sub-agents into one row (3/6.0M implement, 2/1.0M merge, 400K at merge start)"
+  cat "$OUT4"; exit 1; }
+grep -q "issues with both an implement and a merge half: 1$" "$OUT4" || {
+  echo "FAIL: measure_phase2.py counted something other than issue 7 as a paired issue (the orchestrator's quoted report line, or the deferral)"
+  cat "$OUT4"; exit 1; }
+# Issue 8 is seen (its `ISSUE: #8` phase-1 report, bolded, followed by a stray "Done.") and reported
+# as unpaired — its phase-2 agent returned a deferral, which is not a merge half.
+grep -qE 'unpaired: 1 issue\(s\).*\(#8\)' "$OUT4" || {
+  echo "FAIL: measure_phase2.py did not report issue 8 (ISSUE: #8, then a trailing 'Done.' turn) as the one unpaired issue"
+  cat "$OUT4"; exit 1; }
+if grep -q 'pre-2.0' "$OUT4"; then
+  echo "FAIL: measure_phase2.py mis-read a 2.0 sub-agent (the phase-2 deferral with a merge-pr tool_use) as a pre-2.0 session"
+  cat "$OUT4"; exit 1
+fi
+echo "ok: 2.0 fleet — orchestrator is the only top-level transcript, both phase sub-agents count as workers, and measure_phase2.py pairs them by issue"

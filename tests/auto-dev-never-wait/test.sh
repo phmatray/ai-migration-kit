@@ -3,7 +3,9 @@
 #
 # Two of three phase-1 workers in a live fleet run were killed after doing essentially all of the
 # work: each ended its turn to "wait" for a subagent or background suite it had itself dispatched,
-# and a one-shot `claude -p` process that ends its turn is dead, not paused. `SKILL.md` already
+# and a worker that ends its turn has ended its run — its final message IS its report, and nothing
+# resumes it (#314: workers are background sub-agents now, and the rule survives the substrate
+# change — the deferral just arrives as a report instead of a dead process). `SKILL.md` already
 # documented this hazard at length for phase 2 (waiting on CI), but `commands/auto-dev-worker.md` —
 # the literal text a phase-1 worker's context is seeded with — said nothing about it at all.
 #
@@ -28,9 +30,20 @@ fail() { echo "FAIL: $1"; exit 1; }
 WORKER_MD="$KIT/commands/auto-dev-worker.md"
 [ -f "$WORKER_MD" ] || fail "missing $WORKER_MD"
 
-# 1a. The worker prompt states the one-shot-process warning.
-grep -qi "one-shot process" "$WORKER_MD" \
-  || fail "commands/auto-dev-worker.md has no 'one-shot process' marker"
+# 1a. The worker prompt states the background-sub-agent warning: the worker's final message is its
+#     report, and ending the turn ends the run (#314 re-grounded the rule on sub-agents).
+grep -qi "background sub-agent" "$WORKER_MD" \
+  || fail "commands/auto-dev-worker.md has no 'background sub-agent' marker"
+grep -qi "final message is your report" "$WORKER_MD" \
+  || fail "commands/auto-dev-worker.md does not say the final message is the report"
+
+# 1a'. Neither worker command still describes itself as a `claude -p` process — that substrate is
+#      gone (#314, the v2.0 breaking change). A plain `grep -q` exit 1 on both files is the pass.
+MERGE_MD="$KIT/commands/auto-dev-merge.md"
+[ -f "$MERGE_MD" ] || fail "missing $MERGE_MD"
+if grep -q 'claude -p' "$WORKER_MD" "$MERGE_MD"; then
+  fail "a worker command still names 'claude -p' as its substrate: $(grep -n 'claude -p' "$WORKER_MD" "$MERGE_MD" | head -3)"
+fi
 
 # 1b. It names the observed forbidden phrasings verbatim, so a future edit that quietly drops one
 #     of the three concrete examples is caught rather than passing on the marker phrase alone.
