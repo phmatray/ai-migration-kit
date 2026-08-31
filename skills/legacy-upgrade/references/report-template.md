@@ -13,7 +13,7 @@ Toute migration (in place ou réécriture) livre **deux fichiers** committés da
    éteint par preuve, coût de maintenance, réutilisabilité) · capture du produit · couverture par
    classe (graphique) · avant/après · code porté vs écrit vs testé · portes franchies (une par
    commit) · **chronologie du pipeline** (`phases[]` — minutes par phase, dérivées des commits de
-   porte, jamais chronométrées à la main ; cf. phase-6-verify §6) · **Prochaines étapes** · Suivis
+   porte, jamais chronométrées à la main ; cf. phase-6-verify §7) · **Santé des dépendances** · **Prochaines étapes** · Suivis
    différés · **leçons de la vague** (`lessons` — rétropropagées au kit ou « rien à apprendre »
    explicite ; cf. delivery-playbook §9) · méthode et limites.
 2. **`migration/report.md` — le résumé diffable** (grep/diff-friendly) : mêmes chiffres condensés,
@@ -100,6 +100,25 @@ Structure du résumé markdown :
 
 ## Estimation vs réalisé
 (chiffre de l'audit, réalisé, écart expliqué)
+
+## Santé des dépendances
+**Statut :** <ok | findings> · **Vérifié le :** <ISO 8601> (bloc `dependencyHealth` de
+`migration/report.json`, produit par `scripts/dependency-health.sh` — phase-6-verify §4)
+
+| Paquet | Version | Type | Sévérité | Avis |
+|---|---|---|---|---|
+| <id> | <résolue> | vulnérable (transitive) / déprécié | <low\|moderate\|high\|critical> ou n/d | <URL de l'avis> ou <paquet alternatif> |
+
+(« aucune » quand les deux listes sont vides — la section reste, car le lecteur doit pouvoir
+distinguer *mesuré, rien trouvé* de *jamais mesuré*.)
+
+Chaque ligne ci-dessus a son pendant en **Prochaines étapes** (décision du propriétaire : monter de
+version, accepter le risque, remplacer par l'alternative nommée) ou en **Suivis différés** avec le
+POURQUOI du report. Une trouvaille qui n'apparaît que dans ce tableau n'a pas de propriétaire.
+
+Ce tableau est une **photo à la date de livraison**, pas une surveillance : le complément continu
+est Renovate/Dependabot activé sur le repo livré (phase 7, CI) — c'est lui qui verra la CVE publiée
+la semaine prochaine.
 
 ## Prochaines étapes
 - [ ] <action concrète, ordonnée, avec effort estimé> (ex. : merger la branche, déployer avec
