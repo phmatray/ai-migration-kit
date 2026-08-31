@@ -4,7 +4,8 @@ description: >-
   Generate or load the per-repo profile (`.claude/skills/repo-profile.md`) that the issue/PR
   lifecycle skills — `create-issue`, `implement-issue`, `merge-pr` — read for the repo-specific
   facts they would otherwise hardcode: commit identity, build/test/format commands, label taxonomy,
-  merge style, conflict hot-spots, issue templates, architecture grain. Use when no profile exists
+  merge style, conflict hot-spots, issue templates, architecture grain, the issue tracker, domain
+  language glossary, ADRs, out-of-scope records and coding standards. Use when no profile exists
   yet, to PORT the lifecycle skills to a new repository, or to refresh after the toolchain, labels
   or CI changed — "set up the repo profile", "make these skills work in my other repo", "regenerate
   the profile", « configure le profil du repo », « fais marcher create-issue dans ce repo ». First

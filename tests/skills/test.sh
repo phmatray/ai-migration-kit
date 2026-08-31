@@ -304,6 +304,45 @@ fi
 echo "check-untrusted-boundary golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# skills/_shared/test-seams.md must exist and create-issue must link it (#310). The Spec
+# contract's Testing decisions heading points a reader at this file for the seam doctrine
+# (what a seam is, choosing seams before tests, mocking at boundaries only, the three
+# anti-patterns) — if the file goes missing or the link erodes, the doctrine and the contract
+# silently diverge. Pinned directly against the real tree (no scratch fixture): the defect this
+# guards is the committed prose losing its link, not a checker's behavior under mutation.
+echo "== create-issue must link skills/_shared/test-seams.md (#310) =="
+
+if [ -f "$KIT_ROOT/skills/_shared/test-seams.md" ]; then
+  echo "ok   [S1 skills/_shared/test-seams.md exists     ]"
+else
+  echo "FAIL: [S1 skills/_shared/test-seams.md exists     ] file is missing"
+  fails=$((fails + 1))
+fi
+
+if grep -qF '](../_shared/test-seams.md)' "$KIT_ROOT/skills/create-issue/SKILL.md" 2>/dev/null; then
+  echo "ok   [S2 create-issue/SKILL.md links it          ]"
+else
+  echo "FAIL: [S2 create-issue/SKILL.md links it          ] missing the literal '](../_shared/test-seams.md)'"
+  fails=$((fails + 1))
+fi
+
+# issue-template.md lives one directory deeper than SKILL.md (skills/create-issue/references/,
+# not skills/create-issue/), so its correct link climbs two levels, not one — this is exactly the
+# shape of link a copy-paste from SKILL.md gets wrong.
+if grep -qF '](../../_shared/test-seams.md)' "$KIT_ROOT/skills/create-issue/references/issue-template.md" 2>/dev/null; then
+  echo "ok   [S3 issue-template.md links it (../../)     ]"
+else
+  echo "FAIL: [S3 issue-template.md links it (../../)     ] missing the literal '](../../_shared/test-seams.md)'"
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "test-seams link golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # The main-worktree derivation has one home now (#125): scripts/main-worktree.sh. Two broken
 # spellings kept getting re-introduced before that — a caller resolving `-C` from
 # `git rev-parse --show-toplevel` right next to a worktrees-ignored.sh call (fails OPEN from a
@@ -385,4 +424,90 @@ if [ -n "$SUBSTRATE_HITS" ]; then
   exit 1
 fi
 echo "ok   no auto-dev file names claude -p or --strict-mcp-config"
+
+# ---------------------------------------------------------------------------------------------
+# CONTEXT.md (#313) — the kit's own domain glossary, in Matt Pocock's format (ported from
+# mattpocock/skills, MIT). This is a structural case, not a content one: it proves the file
+# stays in shape (a term section before the ambiguities section, every term actually defined,
+# "decision" still flagged rather than quietly resolved by a rename) without pinning the prose
+# itself, which is free to grow. It runs over the real committed file for the same reason the
+# #125 scan above does — the defect this guards against is the committed file drifting out of
+# its own format, not something a fixture could stand in for.
+echo "== CONTEXT.md stays in Matt Pocock's format, with decision flagged (#313) =="
+python3 - "$KIT_ROOT" <<'PY'
+import re
+import sys
+import pathlib
+
+root = pathlib.Path(sys.argv[1])
+path = root / "CONTEXT.md"
+if not path.is_file():
+    print("FAIL: CONTEXT.md missing at the kit root")
+    sys.exit(1)
+
+lines = path.read_text(encoding="utf-8").splitlines()
+
+# At least one `## ` section heading must precede `## Flagged ambiguities`.
+amb_idx = next((i for i, l in enumerate(lines) if l.startswith("## Flagged ambiguities")), None)
+if amb_idx is None:
+    print("FAIL: CONTEXT.md has no '## Flagged ambiguities' section")
+    sys.exit(1)
+section_headings_before = [l for l in lines[:amb_idx] if l.startswith("## ")]
+if not section_headings_before:
+    print("FAIL: CONTEXT.md has no '## ' term section before '## Flagged ambiguities'")
+    sys.exit(1)
+
+# Every "**Term**:" line must be followed by a non-empty definition line — skipping over at most
+# one blank line, since a term header, blank line, definition is still a valid layout.
+term_re = re.compile(r"^\*\*[^*]+\*\*:\s*$")
+for i, l in enumerate(lines):
+    if term_re.match(l):
+        j = i + 1
+        if j < len(lines) and not lines[j].strip():
+            j += 1
+        nxt = lines[j] if j < len(lines) else ""
+        if not nxt.strip() or term_re.match(nxt):
+            print("FAIL: CONTEXT.md line %d ('%s') has no definition on the next line" % (i + 1, l))
+            sys.exit(1)
+
+# The ambiguities section must still name "decision" and its registry home, not resolve it away.
+amb_text = "\n".join(lines[amb_idx:])
+if "decision" not in amb_text:
+    print("FAIL: CONTEXT.md's '## Flagged ambiguities' section does not mention \"decision\"")
+    sys.exit(1)
+if "docs/decisions.md" not in amb_text:
+    print("FAIL: CONTEXT.md's '## Flagged ambiguities' section does not name docs/decisions.md")
+    sys.exit(1)
+
+print("ok   CONTEXT.md has term sections, defined terms, and decision flagged")
+PY
+
+# The two naming consumers must point at the target repo's CONTEXT.md, and say what they refuse.
+echo "== create-issue and implement-issue read the target repo's CONTEXT.md (#313) =="
+for consumer in skills/create-issue/SKILL.md skills/implement-issue/SKILL.md; do
+  grep -q "CONTEXT.md" "$consumer" || { echo "FAIL: $consumer does not mention CONTEXT.md"; exit 1; }
+  grep -q "_Avoid_" "$consumer" || { echo "FAIL: $consumer does not mention _Avoid_"; exit 1; }
+done
+echo "ok   create-issue and implement-issue both point at CONTEXT.md and its _Avoid_ lists"
+
+# The map must know where the language lives.
+echo "== ARCHITECTURE.md and README.md point at CONTEXT.md (#313) =="
+for doc in ARCHITECTURE.md README.md; do
+  grep -q "CONTEXT.md" "$doc" || { echo "FAIL: $doc does not mention CONTEXT.md"; exit 1; }
+done
+echo "ok   ARCHITECTURE.md and README.md both mention CONTEXT.md"
+
+# ---------------------------------------------------------------------------------------------
+# preconditions.md refuses a non-GitHub tracker in one sentence (#311). Fixture-free: this is a
+# grep against the committed reference itself, not a probe run against a scratch repo — the
+# probe/profile side of the Tracker line is pinned by tests/repo-profile/test.sh.
+echo "== preconditions refuse a non-GitHub tracker (#311) =="
+PRECONDITIONS="$KIT_ROOT/skills/_shared/preconditions.md"
+[ -f "$PRECONDITIONS" ] || { echo "FAIL: $PRECONDITIONS missing"; exit 1; }
+grep -q 'Tracker' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not mention the profile's Tracker line"; exit 1; }
+grep -q 'not a supported tracker' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
+echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
+
 echo "skills golden test: all cases behaved as specified"
