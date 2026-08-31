@@ -47,7 +47,9 @@ git -C "$repo" init -q
 git -C "$repo" -c user.email=t@test -c user.name=T commit -q --allow-empty -m "init"
 out=$(bash "$SCRIPT" detect "$repo")
 for s in "## Identity" "## Commit identity" "## Build system" "## CI gates" \
-         "## Integration style" "## Labels" "## Issue templates" "## Architecture grain"; do
+         "## Integration style" "## Labels" "## Issue templates" \
+         "## Tracker" "## Domain language" "## ADRs" "## Out-of-scope records" \
+         "## Coding standards" "## Architecture grain"; do
   grep -qF "$s" <<<"$out" || fail "detect: section '$s' missing"
 done
 grep -qF "TODO: no CLAUDE.md commit rule found" <<<"$out" \
@@ -58,6 +60,44 @@ grep -qF "TODO: no marker file at the repo root" <<<"$out" \
   || fail "detect: build-system TODO fallback did not fire"
 # The one commit made above must be visible (probes emit real facts, not only TODOs).
 grep -qF "T <t@test>" <<<"$out" || fail "detect: recent-authors probe lost the real fact"
+
+# 4b. The five v2.0 sections (#311): absence is a VERDICT ("none"), not a TODO, for four of them —
+#     only the Tracker probe can genuinely fail to reach a verdict (no remote at all).
+section_of() { awk -v h="## $2" '$0==h{f=1;next} /^## /{f=0} f' <<<"$1"; }
+
+grep -qF "TODO: no origin remote — cannot name the tracker" <<<"$out" \
+  || fail "detect: Tracker TODO fallback did not fire on a repo with no origin remote:
+$out"
+
+sec=$(section_of "$out" "Domain language")
+grep -qF "none" <<<"$sec" || fail "detect: Domain language did not fall back to 'none':
+$sec"
+
+sec=$(section_of "$out" "ADRs")
+grep -qF "root: none" <<<"$sec" || fail "detect: ADRs root did not fall back to 'none':
+$sec"
+
+sec=$(section_of "$out" "Out-of-scope records")
+grep -qF "none" <<<"$sec" || fail "detect: Out-of-scope records did not fall back to 'none':
+$sec"
+
+sec=$(section_of "$out" "Coding standards")
+grep -qF "none" <<<"$sec" || fail "detect: Coding standards did not fall back to 'none':
+$sec"
+
+# 4c. The five v2.0 headers `detect` prints must also appear, verbatim, in the SCHEMA block of
+#     references/profile-template.md — not the worked example below it — so the writer (`detect`)
+#     and the reader's schema cannot drift apart the way #157 warned about for the older sections.
+#     Scoped to the schema fence (between "## The schema" and "## Worked example"): the worked
+#     example repeats "## Identity" etc. for a DIFFERENT repo, and a whole-file grep would let a
+#     header that only ever appears there pass as if it were part of the contract.
+TEMPLATE="$KIT/skills/get-repo-profile/references/profile-template.md"
+schema_block=$(awk '/^## The schema/{f=1} f{print} /^## Worked example/{exit}' "$TEMPLATE")
+for s in "## Tracker" "## Domain language" "## ADRs" "## Out-of-scope records" "## Coding standards"; do
+  grep -qF "$s" <<<"$schema_block" \
+    || fail "profile-template.md's schema block is missing the '$s' header detect now prints — the
+      writer and the schema have drifted apart (#311)"
+done
 
 # 5. The worktree-home probe reports the MEASURED ignore status, never a fixed claim (#71).
 #    detect's whole contract is "facts a probe established", and this field was the exception: it
@@ -211,6 +251,16 @@ grep -qF '## Commit identity' "$KIT/$PROFILE" \
   || fail "$PROFILE is tracked but carries no '## Commit identity' section — the lifecycle skills
       read it there; fill the schema in skills/get-repo-profile/references/profile-template.md"
 
+# The five v2.0 sections (#311) must be present in the KIT'S OWN committed profile too, the same
+# way '## Commit identity' is pinned above — a schema that only ever shows up in the template and
+# never in the kit's own dogfood copy is exactly the drift #157 exists to catch.
+for s in "## Tracker" "## Domain language" "## ADRs" "## Out-of-scope records" "## Coding standards"; do
+  grep -qF "$s" "$KIT/$PROFILE" \
+    || fail "$PROFILE is tracked but carries no '$s' section — regenerate it with
+      \`skills/get-repo-profile/scripts/repo-profile.sh detect\` FROM THE MAIN WORKING TREE (#125)
+      and fill in the five v2.0 sections (#311)"
+done
+
 # 7. No skill reads the profile with a bare `cat` (#157). The helper's whole reason to exist is that
 #    it distinguishes "absent" from "empty": `show` prints NO_PROFILE and exits 3 (case 1 above),
 #    while a bare cat writes one line to STDERR, nothing to stdout, and returns a status the reading
@@ -247,5 +297,131 @@ printf 'Read it directly:\n\n```bash\ncat .claude/skills/repo-profile.md\n```\n'
   > "$probe/skills/decoy.md"
 grep -rqE "$PROFILE_CAT_RE" --include='*.md' "$probe/skills" \
   || fail "the bare-cat pattern no longer matches a bare cat — the case above passes vacuously"
+
+# 8. The five v2.0 sections, positive case (#311): a fixture repo carrying a glossary, an ADR
+#    root, an out-of-scope directory and a coding-standards marker, with a non-GitHub origin —
+#    and the ADRs "server" facet exercised on three separate states of the `claude` binary.
+#    PATH is rebuilt from scratch (not prepended) for each variant so a REAL `claude` on this
+#    machine's PATH can never leak into the "absent"/"files only" cases.
+mkbin() {
+  local dir="$1"; shift
+  mkdir -p "$dir"
+  local c p
+  for c in "$@"; do
+    p="$(command -v "$c" 2>/dev/null)" || continue
+    ln -s "$p" "$dir/$c"
+  done
+}
+DETECT_TOOLS="bash git gh grep sed head sort wc find basename cat cut dirname tr"
+
+fx=$(kit_scratch)
+git -C "$fx" init -q -b main
+git -C "$fx" config user.email t@test
+git -C "$fx" config user.name T
+printf '# glossary\n' > "$fx/CONTEXT.md"
+mkdir -p "$fx/docs/adr" "$fx/docs/out-of-scope"
+printf '# ADR 1\n' > "$fx/docs/adr/0001-x.md"
+printf 'rejected idea\n' > "$fx/docs/out-of-scope/a.md"
+printf '[*]\nindent_style = space\n' > "$fx/.editorconfig"
+git -C "$fx" add -A
+git -C "$fx" -c user.email=t@test -c user.name=T commit -q -m base
+git -C "$fx" remote add origin git@gitlab.example.com:x/y.git
+
+# 8a. No `claude` binary anywhere on PATH.
+NOCLAUDE="$(kit_scratch)/bin"
+mkbin "$NOCLAUDE" $DETECT_TOOLS
+out=$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$fx")
+
+grep -qF "tracker: other: gitlab.example.com" <<<"$out" \
+  || fail "detect: a non-GitHub origin was not reported as 'other: <host>':
+$out"
+sec=$(section_of "$out" "Domain language")
+grep -qF "CONTEXT.md" <<<"$sec" || fail "detect: Domain language lost CONTEXT.md:
+$sec"
+sec=$(section_of "$out" "ADRs")
+grep -qF "root: docs/adr/ (1 files)" <<<"$sec" || fail "detect: ADRs root count wrong:
+$sec"
+grep -qF "server: files only (claude CLI not found)" <<<"$sec" \
+  || fail "detect: ADRs server did not report the missing claude CLI:
+$sec"
+sec=$(section_of "$out" "Out-of-scope records")
+grep -qF "docs/out-of-scope/ (1 files)" <<<"$sec" \
+  || fail "detect: Out-of-scope records count wrong:
+$sec"
+sec=$(section_of "$out" "Coding standards")
+grep -qF ".editorconfig" <<<"$sec" || fail "detect: Coding standards lost .editorconfig:
+$sec"
+
+# 8b. `claude` present, but `mcp list` names no `adr` server.
+NOADR="$(kit_scratch)/bin"
+mkbin "$NOADR" $DETECT_TOOLS
+cat > "$NOADR/claude" <<'STUBEOF'
+#!/bin/sh
+if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
+  echo "No MCP servers configured."
+  exit 0
+fi
+exit 1
+STUBEOF
+chmod +x "$NOADR/claude"
+sec=$(section_of "$(PATH="$NOADR" bash "$SCRIPT" detect "$fx")" "ADRs")
+grep -qF "server: files only (no 'adr' MCP server" <<<"$sec" \
+  || fail "detect: ADRs server did not fall back to 'files only' when claude names no adr server:
+$sec"
+
+# 8c. `claude` present and `mcp list` names an `adr` (AdrMcp) server — a session/machine fact,
+#     never promoted to a claim about the repo.
+WITHADR="$(kit_scratch)/bin"
+mkbin "$WITHADR" $DETECT_TOOLS
+cat > "$WITHADR/claude" <<'STUBEOF'
+#!/bin/sh
+if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
+  echo "adr: dnx AdrMcp@latest  - ✓ Connected"
+  exit 0
+fi
+exit 1
+STUBEOF
+chmod +x "$WITHADR/claude"
+sec=$(section_of "$(PATH="$WITHADR" bash "$SCRIPT" detect "$fx")" "ADRs")
+grep -qF "server: via AdrMcp" <<<"$sec" \
+  || fail "detect: ADRs server did not report AdrMcp when claude mcp list names 'adr':
+$sec"
+grep -qF "on this machine only" <<<"$sec" \
+  || fail "detect: the AdrMcp server line was not flagged as a machine-local fact, not a repo fact:
+$sec"
+
+# 9. Tracker host-extraction must handle more than `git@host:` and bare `https://host/`: an
+#    `ssh://` remote and a remote carrying embedded CI credentials (`user:token@host`) are both
+#    real GitHub origins and must not be misclassified as "other" (code-review finding, #311).
+gh9=$(kit_scratch)
+git -C "$gh9" init -q -b main
+git -C "$gh9" -c user.email=t@test -c user.name=T commit -q --allow-empty -m base
+git -C "$gh9" remote add origin ssh://git@github.com/owner/repo.git
+sec9=$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$gh9")
+grep -qF "tracker: github (github.com)" <<<"$sec9" \
+  || fail "detect: an ssh:// GitHub remote was not recognized as github (github.com):
+$sec9"
+
+git -C "$gh9" remote set-url origin https://x-access-token:ghp_dummy@github.com/owner/repo.git
+sec9=$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$gh9")
+grep -qF "tracker: github (github.com)" <<<"$sec9" \
+  || fail "detect: a credential-embedded https GitHub remote was not recognized as github (github.com):
+$sec9"
+
+# 10. Coding standards must name the marker that ACTUALLY matched in Directory.Build.props, not a
+#     fixed string regardless of which one fired (code-review finding, #311).
+cs10=$(kit_scratch)
+git -C "$cs10" init -q -b main
+printf '<Project><PropertyGroup><AnalysisLevel>latest</AnalysisLevel></PropertyGroup></Project>\n' \
+  > "$cs10/Directory.Build.props"
+git -C "$cs10" add -A
+git -C "$cs10" -c user.email=t@test -c user.name=T commit -q -m base
+sec10=$(section_of "$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$cs10")" "Coding standards")
+grep -qF "Directory.Build.props: AnalysisLevel" <<<"$sec10" \
+  || fail "detect: an AnalysisLevel-only Directory.Build.props was not reported by its real marker:
+$sec10"
+grep -qF "EnforceCodeStyleInBuild" <<<"$sec10" \
+  && fail "detect: reported EnforceCodeStyleInBuild for a Directory.Build.props that never mentions it:
+$sec10"
 
 echo "repo-profile golden test OK"
