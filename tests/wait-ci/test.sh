@@ -226,4 +226,22 @@ has_poll "$out" 3 && {
 }
 echo "  ok: zero-via-real-error — gh's real 'no checks reported' failure still trips the zero-checks bound"
 
+# ---------------------------------------------------------------- 8. the header's rationale (#314)
+# The "why this exists" paragraph reasons from the worker substrate. Workers are Agent-tool
+# background sub-agents now, not one-shot `claude -p` processes: the structural rule (the SUPERVISOR
+# waits, never the phase-2 worker) and its name — a dispatch-timing bug — survive unchanged; only
+# the mechanism of the loss does (a sub-agent that ends its turn to wait has ended its run — its
+# report is a deferral — rather than a process dying). Pin all three so the header cannot drift
+# back to the old substrate or lose the rule's name.
+if grep -q 'claude -p' "$WAIT"; then
+  echo "FAIL [header]: wait-ci.sh still reasons from a 'claude -p' worker: $(grep -n 'claude -p' "$WAIT" | head -1)"; exit 1
+fi
+grep -q 'dispatch-timing bug' "$WAIT" || {
+  echo "FAIL [header]: wait-ci.sh no longer names the rule — 'dispatch-timing bug'"; exit 1
+}
+grep -qi 'sub-agent' "$WAIT" || {
+  echo "FAIL [header]: wait-ci.sh does not reason from a sub-agent worker (its run ends with its turn)"; exit 1
+}
+echo "  ok: header — reasons from sub-agents (no 'claude -p'), still names the dispatch-timing bug"
+
 echo "wait-ci golden test OK"
