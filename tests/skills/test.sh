@@ -163,6 +163,68 @@ t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
 p.write_text(t, encoding="utf-8")
 '
 
+echo "== the 600-char soft ceiling WARNs; the guide's 1024 still hard-fails (#323) =="
+# The soft ceiling is this suite's first NON-BINARY verdict: it must print a warning and leave the
+# exit code alone. run_case keys only on pass/fail, so it cannot tell "warned and accepted" from
+# "said nothing and accepted" — which is the whole behaviour under test. Hence a helper that pins
+# the exit code AND the output text, with a leading `!` on the pattern asserting its ABSENCE.
+#
+# run_desc_case <label> <expected exit> <pattern | !pattern> <python mutator>
+run_desc_case() {
+  local label="$1" want_rc="$2" pattern="$3" mutator="$4"
+  rm -rf "$ROOT/skills"
+  cp -R "$PRISTINE/skills" "$ROOT/"
+  python3 -c "$mutator" "$ROOT"
+  local out rc negate=0
+  case "$pattern" in '!'*) negate=1; pattern="${pattern#!}" ;; esac
+  set +e
+  out=$(python3 "$ROOT/tests/skills/check-frontmatter.py" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -ne "$want_rc" ]; then
+    echo "FAIL: [$label] expected exit $want_rc, got $rc"
+    echo "      $out"
+    fails=$((fails + 1))
+    return
+  fi
+  if grep -qE "$pattern" <<<"$out"; then
+    if [ "$negate" -eq 1 ]; then
+      echo "FAIL: [$label] exit $rc as expected, but the output matched /$pattern/ and must not"
+      echo "      $out"
+      fails=$((fails + 1))
+      return
+    fi
+  elif [ "$negate" -eq 0 ]; then
+    echo "FAIL: [$label] exit $rc as expected, but the output did not match /$pattern/"
+    echo "      $out"
+    fails=$((fails + 1))
+    return
+  fi
+  echo "ok   [$label]"
+}
+
+# Give followups' description exactly $1 NORMALIZED characters (the count the checker uses).
+desc_mutator() {
+  cat <<PY
+import pathlib, sys, re
+p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+t = p.read_text(encoding="utf-8")
+body = ("Consolidates the open migration follow-ups and updates them at the source. " * 40)[:$1].strip()
+body += "x" * ($1 - len(body))
+assert len(body) == $1, len(body)
+t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+", "description: >-\n  " + body + "\n",
+           t, count=1, flags=re.M)
+p.write_text(t, encoding="utf-8")
+PY
+}
+
+run_desc_case "W1 700 chars warns, exit unchanged " 0 \
+  'WARN followups: description is 700 characters' "$(desc_mutator 700)"
+run_desc_case "W2 1100 chars still hard-fails    " 1 \
+  'followups: description is 1100 characters \(guide limit: 1024\)' "$(desc_mutator 1100)"
+run_desc_case "W3 600 chars is silent            " 0 \
+  '!followups: description is' "$(desc_mutator 600)"
+
 # ---------------------------------------------------------------------------------------------
 # The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
 # used to guard tests/skills/<skill>.triggers.md — a bullet list no tool ever read, whose presence CI

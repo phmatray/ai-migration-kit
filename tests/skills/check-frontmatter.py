@@ -3,7 +3,9 @@
 
 Checks for each skills/*/SKILL.md:
 - name present, kebab-case, equal to the folder name;
-- description present, <= 1024 characters, no XML tags;
+- description present, <= 1024 characters, no XML tags; and a WARN (exit code
+  unchanged) above a 600-character soft ceiling, because a description is
+  always-loaded context paid for on every turn (#323);
 - compatibility <= 500 characters when present;
 - license present (kit requirement, not the guide's);
 - metadata.author and metadata.suite present (stable facts about the skill);
@@ -51,6 +53,14 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[2]
 errors = []
+warnings = []
+
+# A description is ALWAYS-LOADED context: every session pays for all ten on every turn, whether or
+# not a skill fires (#323). The guide's 1024 is the wall; this is the tripwire well before it, so
+# accretion is visible in CI output while it is still a sentence and not a paragraph. It WARNs and
+# never changes the exit code — a limit with no eval behind it is a number, not a contract, and
+# `evals/run_all.py` is the only thing that can say whether a shorter description still triggers.
+DESCRIPTION_SOFT_CEILING = 600
 
 skill_files = sorted(ROOT.glob("skills/*/SKILL.md"))
 if not skill_files:
@@ -188,6 +198,11 @@ for f in skill_files:
         errors.append(f"{skill}: description missing")
     elif len(desc) > 1024:
         errors.append(f"{skill}: description is {len(desc)} characters (guide limit: 1024)")
+    elif len(desc) > DESCRIPTION_SOFT_CEILING:
+        warnings.append(
+            f"{skill}: description is {len(desc)} characters — over the "
+            f"{DESCRIPTION_SOFT_CEILING}-char soft ceiling (#323); the guide's hard limit is 1024. "
+            f"Cut it one trigger per branch and re-run evals/run_all.py --skills {skill}")
     if re.search(r'<[^>]+>', fm):
         errors.append(f"{skill}: XML tag in the frontmatter (forbidden by the guide)")
 
@@ -246,6 +261,10 @@ for entry in req.get("tools", []) + req.get("mcps", []) + req.get("sessionSkills
             errors.append(
                 f"{skill}: compatibility does not mention '{token}' although "
                 f"requirements.json marks '{entry['name']}' as hard-required by it")
+
+# Warnings first, so they are still on screen above a failure's error list.
+for warning in warnings:
+    print(f"WARN {warning}")
 
 if errors:
     print("\n".join(errors))
