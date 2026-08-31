@@ -235,7 +235,14 @@ User-typed entry points, each a `commands/*.md` file:
 ## Skills
 
 Model-invoked, each a `skills/<name>/SKILL.md` file. The issue/PR lifecycle trio and their
-supervisors are usable on any repo, not just migrations:
+supervisors are usable on any repo, not just migrations.
+
+**The names follow two rules, so the list below is derivable rather than memorised:** a standalone
+skill is `verb-object` (`create-issue`, `profile-repo`, `debug-issue`), and a member of a family is
+`<family>-<role>`, where the family is itself a rule-1 name or the bare verb that heads it
+(`migrate` → `migrate-legacy`, `migrate-assess`, `migrate-followups`; `auto-dev` →
+`auto-dev-worker`, `auto-dev-merge`). Renames happen only in a major —
+[ADR 0012](docs/adr/0012-two-skill-naming-rules-verb-object-and-family-role.md) is the decision.
 
 | Skill | Job |
 |---|---|
@@ -253,8 +260,8 @@ supervisors are usable on any repo, not just migrations:
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
 conflict hot-spots) lives in the committed per-repo profile — the skills themselves stay portable
 (`skills/_shared/` holds their common procedures). They are the natural tail of a migration:
-phase 7's `review-followups` queue hands items that deserve a real ticket to `create-issue` (the report
-keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Their dependencies
+phase 7's `review-followups` queue hands items that deserve a real ticket to `create-issue` (the
+report keeps the issue URL), then `implement-issue` and `merge-pr` burn them down. Their dependencies
 (authenticated `gh`, a code-review skill — no third-party plugin: the brainstorm, plan and TDD
 doctrines ship under `skills/_shared/`) are declared in
 [`requirements.json`](requirements.json). Call graph and full dependency matrix:

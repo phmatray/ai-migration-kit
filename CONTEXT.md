@@ -140,7 +140,8 @@ _Avoid_: stage, step
   - `review-followups`: an **owner decision** — a follow-up only the repo owner can settle
     (`"owner": true` in a migrated repo's `migration/report.json`; `scripts/followups.py`'s French
     output calls this "décisions propriétaire").
-  - `triage-backlog` / `review-followups`: **close by decision** — the documented "not pursued" outcome
+  - `triage-backlog` / `review-followups`: **close by decision** — the documented "not pursued"
+    outcome
     for an issue that fails the filing bar on review.
 
   When the bare word would read the wrong way, qualify it: *registry decision*, *owner decision*,

@@ -21,6 +21,9 @@ first.
 
 ## Adding a skill
 
+- The folder name obeys one of the two naming rules — `verb-object`, or `<family>-<role>` for a
+  family member. The name is the identifier six times over, and renaming one is a breaking change,
+  so it only happens in a major: [ADR 0012](../docs/adr/0012-two-skill-naming-rules-verb-object-and-family-role.md).
 - Frontmatter carries no `version` key — `tests/skills/check-frontmatter.py`.
 - A trigger contract exists for it — `evals/<skill>-trigger-eval.json`, listed in `evals/run_all.py` and `evals/trigger_eval.py`.
 - A golden suite is wired into CI — `scripts/ci-wiring-check.py`.

@@ -22,8 +22,10 @@ rendra rentable (YAGNI sinon).
   de vrais skills en cours de flux (`evals/README.md` §Safety) — la CI garde la structure, la
   mesure se déclenche à la demande. Déclencheur permanent : une modification de `description`
   → `python3 evals/run_all.py --skills <skill>` et comparaison au `baseline.json` committé.
-  `review-followups` reste attendu au plancher en sonde headless (positifs ≈ 0/3 sans contexte de repo,
-  cf. l'entrée « Optimisation du déclenchement du skill `review-followups` » ci-dessous) : ce chiffre
+  `review-followups` reste attendu au plancher en sonde headless (positifs ≈ 0/3 sans contexte de
+  repo,
+  cf. l'entrée « Optimisation du déclenchement du skill `review-followups` » ci-dessous) : ce
+  chiffre
   mesuré *est* sa ligne de base, pas une cible à atteindre.
 - **Mesure du banc après la coupe des descriptions (#323) — dû.** Le déclencheur permanent de
   l'entrée ci-dessus (« une modification de `description` → `run_all.py --skills <skill>` ») a été
