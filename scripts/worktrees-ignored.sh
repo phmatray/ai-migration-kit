@@ -30,11 +30,12 @@
 #
 # TWO worktree homes are checked, because two are reachable:
 #   .claude/worktrees/  what this harness creates, and what merge-pr hardcodes.
-#   .worktrees/         what superpowers:using-git-worktrees falls back to (its Step 1b) when no
-#                       native worktree tool exists. implement-issue Step 4 delegates worktree
-#                       creation to that skill, so a contributor on a bare harness lands there
-#                       instead — and a rule naming only `.claude/` would pass while that
-#                       contributor's `git add -A` staged `.worktrees/<branch>`. Measured: it does.
+#   .worktrees/         what the superpowers plugin's using-git-worktrees skill falls back to (its
+#                       Step 1b) when no native worktree tool exists. The kit's own lifecycle skills
+#                       create through skills/implement-issue/scripts/make-worktree.sh (#324), but
+#                       a contributor driving that plugin by hand still lands there — and a rule
+#                       naming only `.claude/` would pass while that contributor's `git add -A`
+#                       staged `.worktrees/<branch>`. Measured: it does.
 #
 # ONE path must stay VISIBLE: `.claude/skills/repo-profile.md`. get-repo-profile writes it and
 # tells consumer repos to commit it, so broadening this rule to all of `.claude/` would make this
