@@ -146,6 +146,18 @@ mkdir -p "$ingest_dir"
 cp -R tests/followups/fixture-a "$ingest_dir/fixture-a"
 cp -R tests/followups/fixture-b "$ingest_dir/fixture-b"
 
+# Deux décisions propriétaire de plus, SEULEMENT sur la copie scratch, pour couvrir les deux
+# chemins que "Décision propriétaire A" (done) et "B" (wont) ne couvrent pas : une réponse
+# `later` (conservée, annotée) et un stub laissé VIDE (l'entrée ne doit pas bouger).
+python3 -c "
+import json
+p = '$ingest_dir/fixture-a/migration/report.json'
+r = json.load(open(p, encoding='utf-8'))
+r['next_steps'].append({'text': 'Décision propriétaire C à trancher plus tard', 'effort': '~5 min', 'owner': True})
+r['next_steps'].append({'text': 'Décision propriétaire D jamais répondue', 'effort': '~5 min', 'owner': True})
+json.dump(r, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+"
+
 # Le fichier de réponses est GÉNÉRÉ par un rendu réel (les ids ne peuvent pas dériver du schéma) :
 # on rend depuis la copie scratch elle-même, puis on complète les stubs.
 ingest_answered="$scratch/answered.md"
@@ -153,16 +165,22 @@ python3 scripts/followups.py "$ingest_dir/fixture-a" "$ingest_dir/fixture-b" \
   --questionnaire "$ingest_answered" > /dev/null
 id_a=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire A'))")
 id_b=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-b','Décision propriétaire B sans effort'))")
+id_c=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire C à trancher plus tard'))")
 id_stale="deadbeef"
 
-python3 - "$ingest_answered" "$id_a" "$id_b" "$id_stale" <<'PY'
+# id_d (« Décision propriétaire D jamais répondue ») reste délibérément SANS réponse : son stub
+# `>` généré par le rendu reste vide, exactement ce que produirait un propriétaire qui a sauté
+# la question.
+python3 - "$ingest_answered" "$id_a" "$id_b" "$id_c" "$id_stale" <<'PY'
 import sys
-path, id_a, id_b, id_stale = sys.argv[1:5]
+path, id_a, id_b, id_c, id_stale = sys.argv[1:6]
 text = open(path, encoding='utf-8').read()
 text = text.replace(f"<!-- followup: fixture-a | {id_a} -->\n>",
                      f"<!-- followup: fixture-a | {id_a} -->\n> done")
 text = text.replace(f"<!-- followup: fixture-b | {id_b} -->\n>",
                      f"<!-- followup: fixture-b | {id_b} -->\n> wont — too costly")
+text = text.replace(f"<!-- followup: fixture-a | {id_c} -->\n>",
+                     f"<!-- followup: fixture-a | {id_c} -->\n> later, ask me in Q4")
 # Un id fabriqué, sur un repo réellement passé : doit être signalé PÉRIMÉ, jamais planté.
 text += f"\n### Fabricated stale question\n<!-- followup: fixture-a | {id_stale} -->\n> later, ask me in Q4\n"
 open(path, 'w', encoding='utf-8').write(text)
@@ -190,7 +208,14 @@ python3 -c "
 import json
 r = json.load(open('$ingest_dir/fixture-a/migration/report.json', encoding='utf-8'))
 assert not any(s.get('text') == 'Décision propriétaire A' for s in r['next_steps']), r['next_steps']
-assert len(r['next_steps']) == 2, r['next_steps']
+# 'later' : conservée, annotée answer/answered — jamais retirée.
+c = next(s for s in r['next_steps'] if s.get('text') == 'Décision propriétaire C à trancher plus tard')
+assert c.get('answer', '').startswith('later'), c
+assert c.get('answered'), c
+# Stub laissé vide : l'entrée n'a RIEN reçu — ni answer, ni answered, ni suppression.
+d = next(s for s in r['next_steps'] if s.get('text') == 'Décision propriétaire D jamais répondue')
+assert 'answer' not in d and 'answered' not in d, d
+assert len(r['next_steps']) == 4, r['next_steps']  # une tâche + une demi-heure + C + D
 "
 python3 -c "
 import json
