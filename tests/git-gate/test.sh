@@ -208,4 +208,65 @@ verdict "A35 an oversized command"     pass "" "$(pay Bash "$BIG" "$PROF")"
   || { echo "FAIL: parse-sweep rejects the gate or this suite"; exit 1; }
 echo "ok: the gate and this suite pass ./scripts/parse-sweep.sh"
 
+# S2 — the registration. A hook that is never invoked looks exactly like a hook that found nothing
+# to block, which is the failure scripts/ci-wiring-check.py exists for one level up.
+HJ="$KIT/hooks/hooks.json"
+jq -e . "$HJ" >/dev/null 2>&1 || { echo "FAIL: hooks.json is not valid JSON"; exit 1; }
+n=$(jq '[.hooks.PreToolUse[] | select(.matcher=="Bash")] | length' "$HJ")
+[ "$n" = "1" ] || { echo "FAIL: hooks.json has $n Bash matchers, want exactly 1"; exit 1; }
+got=$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[0].command' "$HJ")
+case "$got" in
+  *'${CLAUDE_PLUGIN_ROOT}'*git-write-gate.sh) echo "ok: hooks.json wires Bash -> $got" ;;
+  *) echo "FAIL: Bash matcher command is '$got'; must reference \${CLAUDE_PLUGIN_ROOT}/hooks/git-write-gate.sh"; exit 1 ;;
+esac
+tmo=$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[0].timeout // empty' "$HJ")
+[ -n "$tmo" ] || { echo "FAIL: the Bash hook has no timeout; a hung gate would stall every Bash call"; exit 1; }
+resolved="${got/\$\{CLAUDE_PLUGIN_ROOT\}/$KIT}"
+[ -x "$resolved" ] || { echo "FAIL: hooks.json points at '$resolved', which is not an executable file"; exit 1; }
+echo "ok: the registered command resolves to a shipped executable with timeout=$tmo"
+
+# The Read matcher must survive this PR untouched — the two hooks share one file, and the roseline
+# gate going missing would be invisible to every case above.
+jq -e '[.hooks.PreToolUse[] | select(.matcher=="Read")] | length == 1' "$HJ" >/dev/null \
+  || { echo "FAIL: hooks.json no longer carries exactly one Read matcher"; exit 1; }
+echo "ok: the roseline gate's Read matcher is still registered"
+
+# S3 — the registry entry. `scripts/decision-check.py`'s R10 does not enumerate `hooks/` today
+# (#307 will widen it); recording the entry now is what makes that widening land green instead of
+# red, and it is the class the four `guarded-*.sh` scripts are already recorded under.
+python3 - "$KIT/decisions/registry.json" <<'PY' || exit 1
+import json, sys
+reg = json.load(open(sys.argv[1]))
+nd = reg.get("not_decisions", {})
+key = "hooks/git-write-gate.sh"
+if key not in nd:
+    print(f"FAIL: decisions/registry.json not_decisions has no entry for {key}")
+    sys.exit(1)
+if not nd[key].strip():
+    print(f"FAIL: the not_decisions entry for {key} is empty; it must say WHY")
+    sys.exit(1)
+print(f"ok: decisions/registry.json records {key} under not_decisions")
+PY
+
+# S4 — the prerequisite. Without `jq` the hook exits at its first probe and enforcement is silently
+# off, so the manifest has to name this gate too, not just the roseline one.
+REQ="$KIT/requirements.json"
+hint=$(jq -r '.tools[] | select(.name | test("jq")) | .hint' "$REQ")
+printf '%s' "$hint" | grep -qF 'git-write-gate.sh' \
+  || { echo "FAIL: requirements.json's jq hint does not mention hooks/git-write-gate.sh: '$hint'"; exit 1; }
+echo "ok: requirements.json's jq hint names both gates"
+
+# S5 — the documentation. An off-switch nobody can find is not an off-switch.
+grep -qF 'git-write-gate' "$KIT/README.md" \
+  || { echo "FAIL: README does not document the git write-gate"; exit 1; }
+grep -qF 'GIT_GATE=off' "$KIT/README.md" \
+  || { echo "FAIL: README does not document GIT_GATE=off"; exit 1; }
+echo "ok: README documents the gate and its off-switch"
+
+# S6 — the prior-art credit. Matt Pocock's block-dangerous-git.sh (mattpocock/skills, MIT) is the
+# idea's source and is deliberately not copied; the file has to say both.
+grep -qF 'mattpocock/skills' "$GATE" \
+  || { echo "FAIL: the gate does not credit mattpocock/skills as prior art"; exit 1; }
+echo "ok: the gate credits its prior art"
+
 echo "git write-gate golden test OK"
