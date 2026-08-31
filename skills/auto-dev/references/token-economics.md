@@ -148,16 +148,16 @@ file's own standard (*never claim a lever works without an A/B*) applies to them
 
 ### Substrate note — what changed when workers became sub-agents (#314)
 
-Since v2.0 a worker is an in-process background sub-agent, not a `claude -p` process. That does not
-soften either budget; it changes how each is applied.
+Since v2.0 a worker is an in-process background sub-agent rather than a separate process the
+supervisor shelled out to. That does not soften either budget; it changes how each is applied.
 
 - **A budget resume is a fresh dispatch, never a `SendMessage`.** `SendMessage` resumes a live
   sub-agent *with its context intact* — which is exactly the context the turn budget exists to
   discard. Messaging an over-budget worker to carry on saves nothing at all; the saving comes only
   from a **new** sub-agent starting again at ~30K against the branch and draft PR that already exist,
   which is what `implement-issue`'s Step 4 resume contract is for.
-- **The supervisor gains a cheap lever the old substrate could not offer.** A `claude -p` worker could
-  only bound itself. A live sub-agent can be *told* to wrap up: one `SendMessage` — "you are past the
+- **The supervisor gains a cheap lever the old substrate could not offer.** A worker in its own
+  process could only bound itself. A live sub-agent can be *told* to wrap up: one `SendMessage` — "you are past the
   turn budget; take on no new scope, finish to green, push, report `PARTIAL`" — costs the supervisor a
   single turn. That is the intervention for a slot that has been implementing a long time with no
   report. Reading the worker's transcript to count its turns instead would cost precisely the money
