@@ -390,6 +390,13 @@ jobs:
       - name: Inventory golden test — vendoredAssets (reported, covered, empty, nested)
         run: ./tests/audit-inventory/test.sh
 
+      # The case that matters here is the one where `dotnet` FAILS: a script that swallows that and
+      # prints an empty vulnerable[] is byte-identical to a clean graph, and phase 6 would pass on
+      # it. The suite drives every case through the DOTNET_BIN seam over recorded JSON, so it needs
+      # no SDK and no network (#267).
+      - name: Dependency-health golden test (a check that cannot verify must not answer healthy)
+        run: ./tests/dependency-health/test.sh
+
       # Recursive since #192: the issue forms repo-setup copies into a consumer's repository live
       # in templates/issue-forms/, and the old non-recursive glob did not reach them — they would
       # have shipped unvalidated, which is the "wired in but enforcing nothing" shape
