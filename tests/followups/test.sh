@@ -103,4 +103,41 @@ d = json.load(sys.stdin)
 assert len(d['ownerDecisions']) == 2 and len(d['tasks']) == 3 and len(d['deferred']) == 2, d
 "
 
+# --questionnaire : rendu du gabarit "discovery questionnaire" (I-332, porté de
+# mattpocock/skills productivity/to-questionnaire, MIT) sur les décisions propriétaire des
+# fixtures — 2 au total, une par fixture.
+q_out="$scratch/questionnaire.md"
+python3 scripts/followups.py tests/followups/fixture-a tests/followups/fixture-b \
+  --questionnaire "$q_out" > "$scratch/questionnaire.log"
+q="$(cat "$q_out")"
+assert_q() { grep -qF "$1" <<<"$q" || { echo "ÉCHEC (questionnaire) : « $1 » absent"; exit 1; }; }
+assert_q '**Purpose:**'
+assert_q '**From:**'
+assert_q '## Context'
+assert_q '## How to answer'
+assert_q '## FixtureA'
+assert_q '## FixtureB'
+assert_q '### Décision propriétaire A'
+assert_q '### Décision propriétaire B sans effort'
+assert_q '## Anything else?'
+# 2 décisions propriétaire -> 2 ids stables, un par fixture repo :
+id_a=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-a','Décision propriétaire A'))")
+id_b=$(python3 -c "import sys; sys.path.insert(0,'scripts'); import followups as f; print(f.entry_id('fixture-b','Décision propriétaire B sans effort'))")
+grep -qF "<!-- followup: fixture-a | $id_a -->" <<<"$q" || { echo "ÉCHEC : id followup fixture-a absent ou différent"; exit 1; }
+grep -qF "<!-- followup: fixture-b | $id_b -->" <<<"$q" || { echo "ÉCHEC : id followup fixture-b absent ou différent"; exit 1; }
+[ "$(grep -c '^### ' <<<"$q")" -eq 2 ] || { echo "ÉCHEC : attendu exactement 2 questions « ### », trouvé $(grep -c '^### ' <<<"$q")"; exit 1; }
+# Les tâches (non owner) ne sont jamais des questions :
+grep -qF 'Tâche quinze minutes' <<<"$q" && { echo "ÉCHEC : une tâche non-owner est apparue comme question"; exit 1; }
+
+# --profile-todos : un thème "Repo profile" en plus, une question par marqueur TODO.
+q_todo_out="$scratch/questionnaire-todos.md"
+python3 scripts/followups.py tests/followups/fixture-a tests/followups/fixture-b \
+  --questionnaire "$q_todo_out" --profile-todos tests/followups/fixture-profile.md \
+  > "$scratch/questionnaire-todos.log"
+q2="$(cat "$q_todo_out")"
+grep -qF '## Repo profile' <<<"$q2" || { echo "ÉCHEC : thème « Repo profile » absent avec --profile-todos"; exit 1; }
+[ "$(grep -c '^### ' <<<"$q2")" -eq 4 ] || { echo "ÉCHEC : attendu 4 questions (2 décisions + 2 TODO), trouvé $(grep -c '^### ' <<<"$q2")"; exit 1; }
+grep -qF 'confirm the commit author identity' <<<"$q2" || { echo "ÉCHEC : premier TODO du profil absent"; exit 1; }
+grep -qF 'link CONTEXT.md once the owner writes one' <<<"$q2" || { echo "ÉCHEC : second TODO du profil absent"; exit 1; }
+
 echo "OK test golden followups"
