@@ -517,6 +517,9 @@ jobs:
       - name: Auto-dev worktree-field golden test (normal MERGED report reads WORKTREE, not just STATUS)
         run: ./tests/auto-dev-worktree-field/test.sh
 
+      - name: Auto-dev cost-budgets golden test (compaction cadence + worker turn budget have one home, #270)
+        run: ./tests/auto-dev-cost-budgets/test.sh
+
       - name: Wait-ci golden test (waits on every gating check via --json, not one hardcoded name, #188)
         run: ./tests/wait-ci/test.sh
 

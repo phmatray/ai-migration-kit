@@ -70,6 +70,106 @@ Dollar figures are API list-price equivalents — on a subscription they map to 
 
 **Historical note:** An earlier record stated "≈2.7×" as the mid:small ratio but did not document the measurements it came from (the printed 2.395/2.145 figures do not derive that ratio). The ratio should be re-derived from a documented run rather than propagated without source.
 
+## Session length — the cost centre the levers above do not bound
+
+Levers 1–4 shrink what a *turn* costs and shave round-trips off it. None of them bounds **how long a
+session is allowed to run**, and cost is *Σ over turns of context size* — so the tail of a long
+session is where the money actually goes. Two measurements from the same 19-merge run (bsca-dev/partners-api, 2026-08-24) say that tail
+is not a rounding error, on either side of the fleet.
+
+### The orchestrator is the single most expensive session in the run
+
+Every headline this file and `SKILL.md` carry counts **worker sessions only**. Adding the
+supervisor's own transcript to the lever-4 rollup above — same run, same `usage_report.py` scan,
+whose per-tier rows sum to exactly the worker line below:
+
+| | Sessions | Tokens | $ list-equiv |
+|---|---|---|---|
+| Workers | 37 | 656,482,029 | $427.20 |
+| **Orchestrator** | **1** | **116,086,877** | **$212.65** |
+| **Total** | 38 | **772,568,906** | **$639.85** (~$33.7/merge) |
+
+⚠️ *This does not reconcile with the `19-merge run … 21 worker sessions, 863M tokens` headline
+quoted in `SKILL.md`'s Token economics.* That figure is a different scan of the same run and has
+never been reconciled with the 37-session per-tier rollup here — an inherited discrepancy, not one
+introduced by these numbers, and tracked as #386. Nothing below depends on which scan you take: the **33%** is a *dollar*
+share ($212.65 of $639.85), and both sides of it come from the one scan tabulated here.
+
+One session, **33% of the run's list-equivalent cost** — more than the four top-tier worker sessions
+combined ($187.23). It ran 551 assistant messages at **~210K average context per message** and
+**never compacted once across all 19 merges**, because the cadence in force at the time (*~40–50% of
+the window, or every ~20 merges*) could not fire inside a 19-merge run at all.
+
+Corroborated on this repo, 2026-08-31: a ~30-merge fleet run whose supervisor again never compacted
+once. A rule that has not fired in two consecutive runs is not a bound; it is a note.
+
+### Worker cost is a tail, not an average
+
+`scripts/analyze_cache.py` over the same run's 37 analysable worker sessions:
+
+```
+sessions=37  turns=4690  cacheRead=643M
+avg turns/session=127  avg context/turn=137K
+
+sess      turns  ctx@start  ctx@peak  cacheRead
+ecb6dbb8    434        30K      347K      95.7M   ← issue #263, effort: medium, MID tier
+2d051111    307        30K      314K      60.3M
+c6943a7a    279        30K      276K      48.9M
+29700f65    270        30K      279K      47.9M
+...
+00410c0c    177        16K      180K      21.0M
+```
+
+The **top 3 of 37 sessions consumed 205M of 643M cache-read — 32% of all worker cost**, and the worst
+of them was an `effort: medium` bug on the **mid** tier whose token total alone beat all four
+top-tier sessions put together. Neither the effort label nor the tier predicted it, so neither can be
+the control.
+
+`SKILL.md`'s lever 2 is the relevant negative result: per-turn tool-call batching was A/B'd and did
+not move (0.556 → 0.537 calls per turn). Per-turn optimisation is close to exhausted, which leaves **session length** as the
+variable nothing has touched — and lever 1 already proved that exact mechanism pays, by splitting one
+session at a *phase* boundary. A length boundary is the same cut at a less natural seam.
+
+### The two budgets — declared here, cited everywhere else
+
+Both integers live in this file and **nowhere else**. `SKILL.md` and `commands/auto-dev-worker.md`
+cite this section rather than carrying a number of their own, and `tests/auto-dev-cost-budgets/test.sh`
+fails the build if either is restated there — a figure repeated in two documents is a figure that
+drifts, which is why this repo already gates its pinned version literals the same way.
+
+- **COMPACTION CADENCE = 8 merges.** The supervisor compacts (with a focus directive) as soon as
+  `merges - lastCompacted >= 8`, counted off the state file's existing merge counter instead of
+  eyeballed off `/context`. Derived from the run above: from a ~30K session start, ~8 merges is
+  roughly where per-turn context has multiplied several-fold and every remaining turn starts costing
+  ~10× an early one. The **re-survey** cadence is the proof the mechanism works — it is counted off
+  the same field, and it *did* fire, twice, inside the very run whose compaction rule never fired.
+- **WORKER TURN BUDGET = 150 turns.** Past ~150 self-estimated turns a phase-1 worker takes on no new
+  task scope: it finishes the task in hand to green, commits, pushes, leaves the PR open, and reports
+  `STATUS: PARTIAL` naming the plan checkboxes it did not reach. Derived from the 127-turn mean —
+  comfortably above it, well below the 434-turn outlier. Two 150-turn sessions cost far less than one
+  300-turn session because the second one restarts at ~30K instead of continuing from ~300K.
+
+Both are **starting values derived from one run on one repo, not A/B-verified optima**, and this
+file's own standard (*never claim a lever works without an A/B*) applies to them too. Re-measure with
+`analyze_cache.py` and change them **here**, in the one place, when a second run disagrees.
+
+### Substrate note — what changed when workers became sub-agents (#314)
+
+Since v2.0 a worker is an in-process background sub-agent rather than a separate process the
+supervisor shelled out to. That does not soften either budget; it changes how each is applied.
+
+- **A budget resume is a fresh dispatch, never a `SendMessage`.** `SendMessage` resumes a live
+  sub-agent *with its context intact* — which is exactly the context the turn budget exists to
+  discard. Messaging an over-budget worker to carry on saves nothing at all; the saving comes only
+  from a **new** sub-agent starting again at ~30K against the branch and draft PR that already exist,
+  which is what `implement-issue`'s Step 4 resume contract is for.
+- **The supervisor gains a cheap lever the old substrate could not offer.** A worker in its own
+  process could only bound itself. A live sub-agent can be *told* to wrap up: one `SendMessage` — "you are past the
+  turn budget; take on no new scope, finish to green, push, report `PARTIAL`" — costs the supervisor a
+  single turn. That is the intervention for a slot that has been implementing a long time with no
+  report. Reading the worker's transcript to count its turns instead would cost precisely the money
+  this section is about, and `SKILL.md` forbids it for that reason.
+
 ## Measurement
 
 `scripts/usage_report.py <project-transcript-dir> --main <orchestrator-session-id>` aggregates tokens

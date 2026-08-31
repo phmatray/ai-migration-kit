@@ -69,6 +69,15 @@ turns*, not for thinking. Apply these rules; full rationale + measurement in
 > turn**. Cache-read was 98.3% of tokens. Cost = **Σ over turns of context size**, so late turns cost
 > ~10× early ones and *turn count is superlinear* — it drives both factors at once. Rank levers by
 > that, not by intuition.
+>
+> **That headline counts *worker* sessions — and the orchestrator was a third of the bill.** Folding
+> the supervisor's own transcript into the same rollup: one session, 551 assistant messages, **~210K
+> average context per message, 33% of the run's list-equivalent cost** — more than every top-tier
+> worker session combined — and it **never compacted once** across all 19 merges. Worker spend is
+> skewed the same way: **the top 3 of 37 worker sessions were 32% of all worker cost**, and the worst
+> was an `effort: medium` issue on the mid tier, so neither label nor tier predicted it. Both
+> measurements, and the two counted budgets that bound them, are in
+> [references/token-economics.md](references/token-economics.md) § *Session length*.
 
 **1. Split each worker into two sub-agents: implement, then merge** — **the one lever that measurably
 worked. A/B verified, ~11% of all worker tokens.** Phase 1 (`/auto-dev-worker <N>`) stops at a ready
@@ -121,7 +130,15 @@ The orchestrator (you) stays on the top model, but keep its *per-turn context* s
 **5. Shrink what's re-read every turn.**
 - **Trim the fixed preamble** — it is paid on *every* turn of *every* worker. `CLAUDE.md` at 44KB (~11K tok) cost **52M tokens in one run from a single file**; move deploy/secrets/kubectl reference material into linked docs and leave a pointer.
 - **No per-issue TaskList** — it grows unboundedly and re-injects every turn. The **state file is your only working memory.**
-- **Compact deliberately** at ~40–50% (`/context`) or every ~20 merges, with a focus directive — e.g. `/compact keep the slot→issue/PR map, merge counter, queue order, filed follow-ups`. First action after any compact / `/clear` / `loop` re-fire: **re-read the state file.**
+- **Compact deliberately, on a counted cadence — not on a feeling.** The cadence integer has one home,
+  [references/token-economics.md](references/token-economics.md) § *The two budgets*; Step 4 fires it off
+  the state file's merge counter, the same counted field the re-survey cadence already uses. Do not restate
+  the number here — `tests/auto-dev-cost-budgets/test.sh` fails the build if you do. *Why counted:* cost is
+  Σ(context × turns), so a run's tail is superlinear, and the rule this replaces — a `/context` percentage
+  **or** a cadence loose enough that it never fired inside a 19-merge run — bounded nothing and cost $213 in
+  a single session. Always compact **with a focus directive**, e.g. `/compact keep the slot→issue/PR map,
+  merge counter, queue order, filed follow-ups`. First action after any compact / `/clear` / `loop` re-fire:
+  **re-read the state file.**
 - **Keep worker FINAL REPORTs terse** — they're re-read on every later reconcile turn.
 - **Delegate heavy reads to throwaway `Explore` sub-agents** — the file-dump dies with the sub-agent instead of riding your context.
 - **Launch the SUPERVISOR session lean** — sub-agents inherit the supervisor's MCP set, so every
@@ -132,6 +149,14 @@ The orchestrator (you) stays on the top model, but keep its *per-turn context* s
 - **Batch independent tool calls** into one turn (parallel reads/greps/`gh`).
 - **Let scripts collapse query+classify** — `scripts/survey.sh`, `scripts/reconcile.sh`.
 - **Don't poll on a short cadence** unless a merge is imminent — a needless wake re-reads everything, and one past the ~5-min cache TTL pays a full cache *write* (1.25×), not a read (0.1×).
+- **Bound the session, not just the turn.** Batching was A/B'd and did not move (lever 2), so per-turn
+  optimisation is close to exhausted and **session length is the variable that is left** — the top 3 of 37
+  worker sessions were 32% of all worker cost, and neither the effort label nor the tier predicted which
+  three. Phase-1 workers therefore carry a **turn budget** (the integer lives in
+  [references/token-economics.md](references/token-economics.md) § *The two budgets*, not here) and hand off
+  at it with `STATUS: PARTIAL`; Step 4 resumes them in a **fresh** sub-agent, which is where the saving is —
+  a `SendMessage` resume keeps the context the budget exists to discard. This is lever 1's mechanism, the
+  section's one verified win, applied at a *length* seam instead of a *phase* seam.
 
 **Measure it** — never claim a lever works without an A/B. Three scripts, all taking a directory of
 session `.jsonl` transcripts:
@@ -267,9 +292,9 @@ Persist a **state file** outside the repo (a scratch/temp dir, not a tracked pat
 survives compaction and `loop` re-fires. Keep it small and current:
 
 ```markdown
-# auto-dev state — <repo>, N=<concurrency> · merges: <total> · queue last refreshed @ <merge# of last refresh>
+# auto-dev state — <repo>, N=<concurrency> · merges: <total> · queue last refreshed @ <merge# of last refresh> · last compacted @ <merge# of last compact>
 ## In flight
-- Slot A → #<n> (<area>) — <phase: implementing / PR #<pr> ready→merging / merged>
+- Slot A → #<n> (<area>) — <phase: implementing / PARTIAL ×<k> → resumed / PR #<pr> ready→merging / merged>
 - Slot B → ...
 ## Queue — SMALL (then MEDIUM), eligible & area-tagged
 <#n (area), ...>
@@ -298,6 +323,10 @@ reaches this same guard. **It does not apply to a BLOCKED/FAILED tier-escalation
 `implement-issue` for an issue this fleet already owns, on a branch/PR `implement-issue`'s own Step 4
 resume contract expects to find and continue; running this guard there would read that worker's own
 draft PR as "already claimed" and wrongly drop the issue it was meant to retry.
+**Nor does it apply to a `PARTIAL` budget resume** (Step 4: a worker that hit its turn budget, handed
+off a green draft PR and reported `PARTIAL`) — the same reasoning, only more literally: a `PARTIAL`
+hand-off *guarantees* an open draft PR this fleet itself opened, so running the guard on that
+re-dispatch would refuse every single time, by construction.
 
 The state file's *In flight* section is not proof by itself, because recording a dispatch is a
 **separate, later step from making it**: "Dispatch each ... record each" above are two actions, in
@@ -366,7 +395,8 @@ or the un-namespaced form the runtime resolves) — and the per-dispatch facts; 
 worker needs is already in the command file.
 
 Phase 1 expands to: `implement-issue <N>` in its **own** worktree → draft PR → tasks → code-review →
-sync → **stop at ready**, emitting `PHASE1 | ISSUE: … | PR: <n> | STATUS: READY|BLOCKED|FAILED | …`.
+sync → **stop at ready**, emitting `PHASE1 | ISSUE: … | PR: <n> | STATUS: READY|PARTIAL|BLOCKED|FAILED | …`
+(`PARTIAL` = it hit its turn budget and handed off a green draft PR; see Step 4).
 Phase 2 expands to: `merge-pr <PR>` driven to MERGED (never idle at "ready") → teardown → the final
 report line:
 
@@ -537,7 +567,24 @@ instead of guessing.
   - **All checkboxes ticked but no deferral-shaped line at all — e.g. the worker went silent or was cut off** → treat it the same way. A draft PR with every task done and no `PHASE1 | …` report line ever emitted is itself the load-bearing signal; the deferral phrasing is confirmation, not a requirement. Don't leave a finished worker in the generic "still implementing" bucket below just because its last line doesn't quote-match.
   - **Mid-implementation, not all boxes ticked** → same recovery shape, but read "what's already done" off the boxes actually ticked and the latest commit — do not assume the plan is complete; the tail prompt names exactly which task is next.
   - **What it was waiting on genuinely failed** (a real CI/test failure, not merely something slow) → check the actual check/test state yourself before writing "just finish" — the tail prompt must resume investigation of the failure, not tell the next session to declare victory over a red bar.
-- **Idle with a draft PR / no PR yet** → still implementing; leave it. If long with no progress, `SendMessage` a one-line status ping (don't read its transcript).
+- **Idle with a draft PR / no PR yet** → still implementing; leave it. If long with no progress, `SendMessage` a one-line status ping (don't read its transcript). If it has been grinding for a long time and the ping confirms it is still mid-implementation, spend one more `SendMessage` to **invoke the turn budget explicitly** — *"you are past the turn budget: take on no new scope, finish the task in hand to green, push, and report `PARTIAL` naming the boxes you did not reach"*. This is the one supervisor-side cost lever the pre-2.0 process-per-worker substrate could not offer, and it costs you a single turn. It is a judgment call on elapsed time and silence, **not** a measurement: you cannot see a worker's turn count without reading its transcript, and that costs exactly the money the budget is saving.
+- **Reported PARTIAL** → the worker hit its **turn budget**
+([references/token-economics.md](references/token-economics.md) § *The two budgets*) and handed off.
+**Nothing is wrong** — this is not `BLOCKED`; the budget simply ran out. Its tree is green, its
+commits are pushed, its draft PR is open, and its `DETAIL:` names the plan checkboxes it did not
+reach. **Do not retire the slot and do not move the issue to `## Completed`.** Dispatch a **fresh**
+phase-1 sub-agent against the same issue at the same tier, in Step 3's form: `implement-issue`'s own
+Step 4 resume contract re-enters the existing branch and PR and starts again at ~30K context, which
+is the entire saving. It has to be a fresh dispatch — a `SendMessage` would resume the agent *with
+the context the budget exists to discard*, so the hand-off would have cost a turn and saved nothing
+(and the agent has returned anyway; a returned sub-agent cannot be messaged). Record the phase as
+`PARTIAL ×<k>` in the state file so a `loop` re-fire can reconstruct it, and **cap consecutive
+resumes at 3**: a fourth means the issue is genuinely stuck rather than merely long, so surface and
+retire it on the BLOCKED path below instead of resuming again — but **skip that path's tier
+escalation**. A budget exhaustion is by construction a *length* failure, not a "the model wasn't
+strong enough" one; this run's own outlier was an `effort: medium` issue that succeeded on the mid
+tier and simply took 434 turns, so promoting it to the top model would put the fleet's most
+expensive issue on its most expensive tier for no reason.
 - **Reported BLOCKED/FAILED** → first **tier-escalate if it was on a lower model**: if the failure looks like the model wasn't strong enough (rather than a genuine hard blocker — un-mergeable conflict, missing approval, no plan), re-dispatch the *same* issue **once** on the top model. If already on top, or it fails again → record it, surface it, retire the slot (it reported, so it has returned — nothing to stop), refill the slot (don't let one blocked issue stall the fleet). This escalation is what makes cheap-by-default tiering safe.
 
 After any change, update the state file (in flight, completed, filed, queue).
@@ -554,6 +601,22 @@ merges (or sooner if refills cluster into one area or the queue looks empty), fo
 first, area-tagged, eligibility-checked), and note what changed. Keep a **merge counter** in the state
 file (record the count at the last refresh) so a `loop` re-fire knows when the next refresh is due.
 
+**Compact on that same counter — on every wake, ask both questions.** The state file's header carries
+`last compacted @ <merge#>` beside `queue last refreshed @ <merge#>`, and your per-wake bookkeeping
+computes *is a compaction due* exactly the way it already computes *is a re-survey due*:
+`merges - lastCompacted >= <cadence>`, where the cadence integer has one home in
+[references/token-economics.md](references/token-economics.md) § *The two budgets* and is
+deliberately not restated here. When it is due, `/compact` **with the focus directive** (Token
+economics lever 5), then re-read the state file — already the standing rule after any compact /
+`/clear` / `loop` re-fire — and write the current merge count into `last compacted @`.
+*Why counted rather than eyeballed:* you are the single most expensive session in the fleet — a
+measured 33% of one run's cost, in one session that never compacted once — and the rule this
+replaces was a `/context` percentage nobody checks plus a cadence too loose to fire inside a
+19-merge run. The re-survey counter is the proof the mechanism works: it fired, twice, in the very
+run whose compaction rule never did. A compact landing mid-dispatch is not a new hazard — Step 3's
+dispatch-time guard exists precisely because a compact can land between dispatching a worker and
+recording it, so a more frequent compact only makes that guard earn its keep more often.
+
 **Re-survey at once — not at the next ~5 — when a merged issue's row carried `blocking=`.** That
 issue was holding its blockees, and they entered the frontier the moment it landed. Waiting out the
 usual counter leaves them held and up to N-1 slots idle, which on a small backlog is the whole
@@ -569,8 +632,10 @@ that belong to them. Don't respond by suppressing filings — a worker that sile
 finds breaks the guarantee that makes the backlog truthful, and trades a visible problem for an
 invisible one.
 
-**Keep your own context lean** (Token economics lever 2): the state file is your only working memory
-(**no per-issue TaskList**), worker reports stay terse, and **compact or `/clear` ~every 20 merges**.
+**Keep your own context lean** (Token economics lever 5): the state file is your only working memory
+(**no per-issue TaskList**), worker reports stay terse, and you **compact on the counted cadence** — the
+merge-counter check in this step's per-wake bookkeeping above, whose integer lives in
+[references/token-economics.md](references/token-economics.md) and is deliberately not restated here.
 
 ## Step 5 — Heartbeat
 
@@ -606,7 +671,25 @@ finding nobody ever sees.
 
 **Cost accounting.** Run `scripts/usage_report.py <project-transcript-dir> --main <orchestrator-session-id>`
 to aggregate tokens + $-equivalent across the orchestrator and every worker, broken down by model.
-Report **tokens/merge** and **$/merge**. (Auto-detects the transcript dir from `$PWD`; dollar figures
+Report **tokens/merge**, **$/merge**, and **orchestrator share of total**.
+
+⚠️ **A supervisor running in a git worktree writes its transcript to a *different* project directory
+than its workers.** The transcript dir is keyed off the working directory, so a fleet whose workers
+run from the main checkout while the supervisor sits in `…/.claude/worktrees/<branch>` is split
+across two of them — and the naive single-directory invocation then reports **worker cost only**,
+silently, with the orchestrator's share simply absent from a total that looks complete. This skill
+already warns that a worker's transcript dir differs from the checkout; the supervisor's own does
+too, and that is the half that goes missing. Point the script at **both** (symlink the supervisor
+session's `<sid>.jsonl` *and* its `<sid>/subagents/` directory into the one temp dir, keeping the
+layout — the ⚠️ under *Measure it* in Token economics has the recipe), then read the header's
+`SESSIONS: N … (X top-level, Y sub-agent)` line back and check it against the fleet you actually
+ran.
+
+**Orchestrator share is a first-class number, not a curiosity.** It was **33% in one measured run,
+from a single session** — the largest single cost centre in the fleet, more than every top-tier
+worker combined. Report it explicitly; when it comes in materially above that, the finding is that
+Step 4's counted compaction cadence did not fire often enough, and the cadence in
+[references/token-economics.md](references/token-economics.md) is what to re-measure and move. (Auto-detects the transcript dir from `$PWD`; dollar figures
 are API list-price equivalents — on a subscription they're rate-limit budget, not cash; the
 authoritative cash figure is `/cost`.) It classifies transcripts by layout: `top`
 (`<proj>/<session-id>.jsonl`) is the orchestrator only — or a pre-2.0 run's process workers; every
