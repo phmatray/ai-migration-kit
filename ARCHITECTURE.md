@@ -51,6 +51,7 @@ graph TD
     AD -- "off-scope finds" --> CI
     AD -- "reads at step 1" --> PROF
     RP -- "generates (run once per repo)" --> PROF
+    RP -. "names as the remedy for a missing label axis or issue-form dir" .-> SR
     SR -. "afterwards: re-run get-repo-profile --refresh" .-> RP
     CI -- "reads at step 1" --> PROF
     II -- "reads at step 1" --> PROF
@@ -140,6 +141,7 @@ graph LR
 
     II --> GH
     II --> GIT
+    II --> JQ
     II --> SP
     II --> CR
     II -.-> ADR
@@ -173,7 +175,7 @@ why no arrow leaves it.
 | `legacy-upgrade` | **roseline** (required) · context7 (rec.) | frontend-design, dataviz, artifact-design (session) | **dotnet ≥ 8**, **git**, **python3** · gh, node, Chrome (rec.) | `preflight.sh`, `audit-inventory.sh`, `report-dashboard.py`, `contrast-check.py` |
 | `followups` | — | — | **python3**, **git** | `followups.py`, `report-dashboard.py` |
 | `create-issue` | adr (rec.) | superpowers (brainstorming, writing-plans) | **gh** | — |
-| `implement-issue` | adr (rec.) | superpowers (worktrees, TDD, subagent/executing-plans, verification, receiving-code-review) · code-review | **gh**, **git** | — |
+| `implement-issue` | adr (rec.) | superpowers (worktrees, TDD, subagent/executing-plans, verification, receiving-code-review) · code-review | **gh**, **git**, **jq** (`tick-plan.sh`'s round-trip check) | — |
 | `merge-pr` | adr (rec.) | superpowers (receiving-code-review) | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
