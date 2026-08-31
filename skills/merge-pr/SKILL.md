@@ -1,17 +1,14 @@
 ---
 name: merge-pr
 description: >-
-  Land an open GitHub pull request the way a careful maintainer would — the "ship it" counterpart
-  to `implement-issue`. Use whenever the user wants to MERGE, land, ship, or close out an open PR:
-  waits for CI, then applies corrections until mergeable — fixes red checks, merges the latest
-  `main` and resolves conflicts, addresses unresolved review — squash-merges, triages follow-up work
-  (inline `--follow-up "…"` args plus ones discovered in the PR) by folding symptoms into the root
-  issue that owns them and filing the rest via `create-issue`, and tears down the branch and
-  worktree. Triggers: "merge PR 279", "land #281", "ship this PR", "get that PR merged once CI's
-  green", "wrap up 279 and open follow-ups", « merge la PR 279 », « fais
-  atterrir la 281 », or a bare PR link with "merge it". Does NOT apply to opening or implementing a
-  PR, to syncing one still being built (implement-issue), to reviewing without merging
-  (code-review), or to filing a standalone issue (create-issue).
+  Land an open GitHub pull request. Use whenever the user wants to MERGE, land, ship, or close out
+  an open PR: waits for CI, applies corrections until mergeable (red checks, conflicts with the
+  latest `main`, unresolved review), squash-merges, triages follow-ups, and tears down the branch
+  and worktree. Triggers: "merge PR 279", "land #281", "ship this PR", "get that PR merged once CI's
+  green", "wrap up 279 and open follow-ups", « merge la PR 279 », « fais atterrir la 281 », a bare
+  PR link with "merge it". Does NOT apply to opening or implementing a PR, to syncing one STILL
+  BEING BUILT (implement-issue), to reviewing without merging (code-review), or to filing an issue
+  (create-issue).
 license: MIT
 compatibility: >-
   Requires an authenticated gh CLI with merge/push rights, and git. Files follow-ups via the

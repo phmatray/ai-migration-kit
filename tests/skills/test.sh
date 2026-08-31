@@ -163,6 +163,68 @@ t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
 p.write_text(t, encoding="utf-8")
 '
 
+echo "== the 750-char soft ceiling WARNs; the guide's 1024 still hard-fails (#323) =="
+# The soft ceiling is this suite's first NON-BINARY verdict: it must print a warning and leave the
+# exit code alone. run_case keys only on pass/fail, so it cannot tell "warned and accepted" from
+# "said nothing and accepted" — which is the whole behaviour under test. Hence a helper that pins
+# the exit code AND the output text, with a leading `!` on the pattern asserting its ABSENCE.
+#
+# run_desc_case <label> <expected exit> <pattern | !pattern> <python mutator>
+run_desc_case() {
+  local label="$1" want_rc="$2" pattern="$3" mutator="$4"
+  rm -rf "$ROOT/skills"
+  cp -R "$PRISTINE/skills" "$ROOT/"
+  python3 -c "$mutator" "$ROOT"
+  local out rc negate=0
+  case "$pattern" in '!'*) negate=1; pattern="${pattern#!}" ;; esac
+  set +e
+  out=$(python3 "$ROOT/tests/skills/check-frontmatter.py" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -ne "$want_rc" ]; then
+    echo "FAIL: [$label] expected exit $want_rc, got $rc"
+    echo "      $out"
+    fails=$((fails + 1))
+    return
+  fi
+  if grep -qE "$pattern" <<<"$out"; then
+    if [ "$negate" -eq 1 ]; then
+      echo "FAIL: [$label] exit $rc as expected, but the output matched /$pattern/ and must not"
+      echo "      $out"
+      fails=$((fails + 1))
+      return
+    fi
+  elif [ "$negate" -eq 0 ]; then
+    echo "FAIL: [$label] exit $rc as expected, but the output did not match /$pattern/"
+    echo "      $out"
+    fails=$((fails + 1))
+    return
+  fi
+  echo "ok   [$label]"
+}
+
+# Give followups' description exactly $1 NORMALIZED characters (the count the checker uses).
+desc_mutator() {
+  cat <<PY
+import pathlib, sys, re
+p = pathlib.Path(sys.argv[1]) / "skills/followups/SKILL.md"
+t = p.read_text(encoding="utf-8")
+body = ("Consolidates the open migration follow-ups and updates them at the source. " * 40)[:$1].strip()
+body += "x" * ($1 - len(body))
+assert len(body) == $1, len(body)
+t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+", "description: >-\n  " + body + "\n",
+           t, count=1, flags=re.M)
+p.write_text(t, encoding="utf-8")
+PY
+}
+
+run_desc_case "W1 850 chars warns, exit unchanged " 0 \
+  'WARN followups: description is 850 characters' "$(desc_mutator 850)"
+run_desc_case "W2 1100 chars still hard-fails    " 1 \
+  'followups: description is 1100 characters \(guide limit: 1024\)' "$(desc_mutator 1100)"
+run_desc_case "W3 750 chars is silent            " 0 \
+  '!followups: description is' "$(desc_mutator 750)"
+
 # ---------------------------------------------------------------------------------------------
 # The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
 # used to guard tests/skills/<skill>.triggers.md — a bullet list no tool ever read, whose presence CI
@@ -986,6 +1048,55 @@ else
   echo "      point Triggering contracts at evals/<name>-trigger-eval.json"
   fails=$((fails + 1))
 fi
+
+# ---------------------------------------------------------------------------------------------
+# The two auto-dev command files are DISPATCHED by name, so each carries ONE human-facing line and
+# leaves the phase contract to its body (#323) — they were the longest descriptions in commands/,
+# each re-stating what its own body already says.
+#
+# What they must NOT carry is `disable-model-invocation` (#323 review). #323's spec proposed it on
+# the reasoning that "the supervisor never asks the model to FIND /auto-dev-worker" — true of
+# discovery, false of invocation, and the key gates invocation. Since #314 a worker is an in-process
+# SUB-AGENT: `skills/auto-dev/SKILL.md` dispatches `Agent(prompt: "Invoke \`auto-dev-worker\` with
+# args <N>")`, and that sub-agent is a model whose first act is to invoke the command. Disabling
+# model invocation would leave every phase-1 and phase-2 worker in the fleet unable to reach its own
+# contract. Both halves are pinned so neither can drift back.
+#
+# Pinned against the real tree (no scratch fixture): the defect IS the committed frontmatter.
+echo "== the dispatched auto-dev commands carry one line, and stay model-invocable (#323) =="
+D_CHECK=$(cat <<'PY'
+import re, sys, yaml
+t = open(sys.argv[1], encoding="utf-8").read()
+m = re.match(r"^---\n(.*?)\n---\n", t, re.S)
+fm = yaml.safe_load(m.group(1)) if m else None
+if not isinstance(fm, dict):
+    sys.exit("frontmatter absent or not a YAML mapping")
+if "disable-model-invocation" in fm:
+    sys.exit("disable-model-invocation is set — since #314 the auto-dev worker is an in-process "
+             "sub-agent that INVOKES this command through the Skill tool, so disabling model "
+             "invocation breaks every worker in the fleet (#323 review)")
+desc = " ".join(str(fm.get("description") or "").split())
+if not desc:
+    sys.exit("description missing — the slash-command list still shows it to a human")
+if len(desc) > 200:
+    sys.exit("description is %d characters — a dispatched command keeps ONE human-facing "
+             "line (<= 200); the phase contract belongs in the body" % len(desc))
+if not str(fm.get("argument-hint") or "").strip():
+    sys.exit("argument-hint missing — it is how a human learns the argument")
+PY
+)
+for cmd in auto-dev-worker auto-dev-merge; do
+  set +e
+  d_out=$(python3 -c "$D_CHECK" "$KIT_ROOT/commands/$cmd.md" 2>&1)
+  d_rc=$?
+  set -e
+  if [ "$d_rc" -eq 0 ]; then
+    echo "ok   [D1 commands/$cmd.md one line, invocable]"
+  else
+    echo "FAIL: [D1 commands/$cmd.md one line, invocable] $d_out"
+    fails=$((fails + 1))
+  fi
+done
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"

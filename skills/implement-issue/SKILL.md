@@ -1,16 +1,14 @@
 ---
 name: implement-issue
 description: >-
-  Do the actual coding for an existing GitHub issue and turn it into a finished pull request — the
-  "go build it" counterpart to `create-issue`. Use whenever an issue carries an implementation plan
-  (a `🛠️ Implementation plan` checklist) and the user wants it BUILT: isolated worktree, draft PR,
-  then task-by-task implement → verify green → commit → tick the checkbox on the live issue, code
-  review, sync with `main`, ready-flip. Triggers: "implement issue 47", "knock out the tasks on
-  issue 71", "execute the plan and mark the PR ready", "resume issue #X", « implémente l'issue 47 »,
-  « exécute le plan de l'issue », or a bare issue link with "go build it" — including keeping the
-  in-flight PR mergeable (sync/conflicts with `main`) while it is still being built. Does NOT apply
-  to creating or planning a NEW issue (create-issue), to landing a finished PR (merge-pr), or to
-  ad-hoc coding with no issue plan to drive it.
+  Turn an existing GitHub issue into a finished pull request — the actual coding. Use when an issue
+  carries a `🛠️ Implementation plan` checklist and the user wants it BUILT: worktree, draft PR,
+  task-by-task commits ticked on the live issue, review, ready-flip. Triggers: "implement issue 47",
+  "knock out the tasks on issue 71", "execute the plan", "resume issue #X", « implémente l'issue 47
+  », « exécute le plan de l'issue », a bare issue link with "go build it" — including keeping the
+  IN-FLIGHT PR mergeable (sync/conflicts with `main`) while it is still being built. Does NOT apply
+  to planning a NEW issue (create-issue), landing a finished PR (merge-pr), or ad-hoc coding with no
+  plan.
 license: MIT
 compatibility: >-
   Requires an authenticated gh CLI, git, the superpowers skills (using-git-worktrees,
