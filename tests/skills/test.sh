@@ -611,7 +611,7 @@ echo "grilling link golden test: all cases behaved as specified"
 # re-spelled here, and the fixture the SP2 case below locates must carry that exact note.
 echo "== the ported doctrine references exist, are linked, and credit their source (#324) =="
 
-for ref in brainstorm-and-spec plan-shape; do
+for ref in brainstorm-and-spec plan-shape tdd-loop; do
   if [ -f "$KIT_ROOT/skills/_shared/$ref.md" ]; then
     echo "ok   [R1 skills/_shared/$ref.md exists]"
   else
@@ -626,7 +626,7 @@ for ref in brainstorm-and-spec plan-shape; do
   fi
 done
 
-for pair in "create-issue:brainstorm-and-spec" "create-issue:plan-shape" "implement-issue:plan-shape"; do
+for pair in "create-issue:brainstorm-and-spec" "create-issue:plan-shape" "implement-issue:plan-shape" "implement-issue:tdd-loop"; do
   skill="${pair%%:*}"; ref="${pair##*:}"
   if grep -qF "](../_shared/$ref.md)" "$KIT_ROOT/skills/$skill/SKILL.md" 2>/dev/null; then
     echo "ok   [R3 $skill/SKILL.md links _shared/$ref.md]"
@@ -635,6 +635,15 @@ for pair in "create-issue:brainstorm-and-spec" "create-issue:plan-shape" "implem
     fails=$((fails + 1))
   fi
 done
+
+# tdd-loop.md carries two ports: the loop from obra/superpowers (checked above) and the good-test
+# and mock-at-boundaries guidance from mattpocock/skills, which earns its own credit line.
+if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/_shared/tdd-loop.md" 2>/dev/null; then
+  echo "ok   [R2 _shared/tdd-loop.md credits mattpocock/skills too]"
+else
+  echo "FAIL: [R2 _shared/tdd-loop.md credits mattpocock/skills too] missing the 'mattpocock/skills' attribution"
+  fails=$((fails + 1))
+fi
 
 # The header note has one home. plan-shape.md states it; create-issue cites it rather than carrying
 # a second copy that can drift; and the new-note fixture SP2 locates is that exact line.
