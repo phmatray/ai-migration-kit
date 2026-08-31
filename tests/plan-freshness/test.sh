@@ -214,5 +214,10 @@ want_in "P17 the brief bounds its length   " "$SPEC_REVIEW" "400 words"
 # carry the boundary is the #266 failure one file over.
 want_in "P18 the brief reads it as data    " "$SPEC_REVIEW" "untrusted-input-boundary.md"
 
+echo "== Step 10 must REPORT both new verdicts — an unreported check is no check (#322) =="
+STEP10=$(section "$SKILL" "## Step 10 — " "## Notes on quality")
+want_in "P19 Step 10 reports freshness    " "$STEP10" "Plan freshness"
+want_in "P20 Step 10 reports the Spec axis" "$STEP10" "Spec axis"
+
 [ "$FAILED" -eq 0 ] || exit 1
 echo "plan-freshness golden test: all cases behaved as specified"
