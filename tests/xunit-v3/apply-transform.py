@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Apply the documented xunit v2 -> v3 transform to a COPY of a .NET app.
 
-This is the executable form of `skills/legacy-upgrade/references/xunit-v3-migration.md`.
+This is the executable form of `skills/migrate-legacy/references/xunit-v3-migration.md`.
 The reference states the rule; this script is the witness that the rule works — the golden
 test (`tests/xunit-v3/test.sh`) runs it against a scratch copy of `samples/LegacyShop` and
 then counts the tests that actually execute.

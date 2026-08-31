@@ -3,7 +3,7 @@
 A **safe, repeatable** regression check for **every** skill's *description* — all ten of
 [`auto-dev`](../skills/auto-dev), [`create-issue`](../skills/create-issue),
 [`followups`](../skills/followups), [`profile-repo`](../skills/profile-repo),
-[`implement-issue`](../skills/implement-issue), [`legacy-upgrade`](../skills/legacy-upgrade),
+[`implement-issue`](../skills/implement-issue), [`migrate-legacy`](../skills/migrate-legacy),
 [`merge-pr`](../skills/merge-pr), [`setup-repo`](../skills/setup-repo),
 [`debug-issue`](../skills/debug-issue) and
 [`triage-backlog`](../skills/triage-backlog).
@@ -126,7 +126,7 @@ path to create — [`tests/skills/test.sh`](../tests/skills/test.sh) cases `T1`�
 that each of those refusals still fires.
 
 **Slash-command queries.** A skill's command file is not named after the skill (`/migrate` opens
-`commands/migrate.md`, which contains no "legacy-upgrade"), so `trigger_eval.py` carries a
+`commands/migrate.md`, which contains no "migrate-legacy"), so `trigger_eval.py` carries a
 `SKILL_COMMANDS` map and counts a command file this skill owns as the skill firing. Without it a
 slash-command entry would read 0/N forever and depress recall for a reason unrelated to the
 description.
@@ -146,7 +146,7 @@ signal to look at.
 | `triage-backlog`        | 20 | — ‡ | — ‡ | — ‡ |
 | `auto-dev`              | 19 | — ‡ | — ‡ | — ‡ |
 | `followups`             | 19 | — ‡ | — ‡ | — ‡ |
-| `legacy-upgrade`        | 20 | — ‡ | — ‡ | — ‡ |
+| `migrate-legacy`        | 20 | — ‡ | — ‡ | — ‡ |
 | `setup-repo`            | 21 | — ‡ | — ‡ | — ‡ |
 | `debug-issue`  | 19 | — ‡ | — ‡ | — ‡ |
 

@@ -56,7 +56,7 @@ Five failure modes this kit was built to close, each with the evidence behind it
 
 | Problem | Fix | Evidence |
 |---|---|---|
-| *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/legacy-upgrade/SKILL.md`](skills/legacy-upgrade/SKILL.md) | The case-study table in [Proven in production](#proven-in-production): 18 min / ~30 min / ~1 h, measured. |
+| *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/migrate-legacy/SKILL.md`](skills/migrate-legacy/SKILL.md) | The case-study table in [Proven in production](#proven-in-production): 18 min / ~30 min / ~1 h, measured. |
 | *The agent reads whole C# files instead of asking Roslyn.* | The roseline gate denies `Read` on `.cs` and names the tool that replaces it — [`hooks/roseline-gate.sh`](hooks/roseline-gate.sh), [docs/roseline-gate.md](docs/roseline-gate.md) | Preflight only ever proved roseline was *connected*, never that it was *used* (#109). |
 | *Four agents, one checkout — a commit lands in another agent's PR, and every command exits 0.* | Guarded git writes that assert the branch before and after — [`skills/implement-issue/SKILL.md`](skills/implement-issue/SKILL.md) — and the git write-gate that denies the raw command at the tool call, [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh) | #26 / #280: a `git commit` in the wrong checkout, silently accepted. |
 | *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/debug-issue/SKILL.md`](skills/debug-issue/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
@@ -239,7 +239,7 @@ supervisors are usable on any repo, not just migrations:
 
 | Skill | Job |
 |---|---|
-| [`legacy-upgrade`](skills/legacy-upgrade/SKILL.md) | The seven-phase pipeline orchestrator that `/migrate` drives — phase references and playbooks. |
+| [`migrate-legacy`](skills/migrate-legacy/SKILL.md) | The seven-phase pipeline orchestrator that `/migrate` drives — phase references and playbooks. |
 | [`create-issue`](skills/create-issue/SKILL.md) | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
 | [`implement-issue`](skills/implement-issue/SKILL.md) | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
 | [`merge-pr`](skills/merge-pr/SKILL.md) | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
@@ -301,7 +301,7 @@ ARCHITECTURE.md         skill call graph + dependency matrix (mermaid)
 CONTEXT.md              the kit's own domain glossary, in Matt Pocock's CONTEXT.md format (ported from mattpocock/skills, MIT)
 requirements.json       single source for prerequisites (tools, MCPs, session skills) — read by preflight.sh
 commands/               /migrate, /migrate-assess, /migrate-verify, /migrate-audit, /migrate-followups, /auto-dev-worker, /auto-dev-merge
-skills/legacy-upgrade/  the pipeline orchestrator + phase references + playbooks
+skills/migrate-legacy/  the pipeline orchestrator + phase references + playbooks
 skills/followups/       consolidated follow-up queue across migrated repos, updated at the source
 skills/create-issue/    generic issue/PR lifecycle: seeded issue (brainstorm → spec → plan)
 skills/implement-issue/ generic issue/PR lifecycle: plan → draft PR → ready

@@ -18,5 +18,5 @@
   {"query": "what's the status of CI?", "should_trigger": false, "note": "build status, not follow-ups"},
   {"query": "go through the open GitHub issues and tell me which to close", "should_trigger": false, "note": "→ triage-backlog (GitHub issues, not report.json queues)"},
   {"query": "merge PR 279 and open follow-ups for the deferred bits", "should_trigger": false, "note": "→ merge-pr (filing at the inlet, mid-merge)"},
-  {"query": "upgrade this app to .NET 10", "should_trigger": false, "note": "→ legacy-upgrade (runs the migration; this skill only tends its tail)"}
+  {"query": "upgrade this app to .NET 10", "should_trigger": false, "note": "→ migrate-legacy (runs the migration; this skill only tends its tail)"}
 ]

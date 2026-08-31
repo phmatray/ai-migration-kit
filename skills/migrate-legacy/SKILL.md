@@ -1,5 +1,5 @@
 ---
-name: legacy-upgrade
+name: migrate-legacy
 description: >-
   Use when upgrading, migrating, or modernizing a legacy application — outdated target framework,
   out-of-support runtime, obsolete APIs, old packages, or legacy idioms. Triggers on "upgrade this
@@ -94,7 +94,7 @@ Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.m
 blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where
 `None` is a required answer rather than an omission) and the **Next** line, which is read off this
 skill's row in that file's hand-off table instead of being decided again here. Everything below is
-only what **legacy-upgrade** adds on top of them.
+only what **migrate-legacy** adds on top of them.
 
 - Name the phase reached and every gate's verdict — a pipeline that stopped at a green gate and one
   that stopped at a red one are different outcomes, and hard rule 8 makes "verified production" a

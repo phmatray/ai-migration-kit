@@ -2,7 +2,7 @@
 
 `XUNIT_V3_VERSION` in `tests/xunit-v3/apply-transform.py` is the constant Renovate bumps (`#36`).
 `tests/xunit-v3/test.sh` `[7e]` (`#69`) already asserts that the *measurement claims* in that module
-and in `skills/legacy-upgrade/references/xunit-v3-migration.md` agree with it. It stopped there on
+and in `skills/migrate-legacy/references/xunit-v3-migration.md` agree with it. It stopped there on
 purpose, and `#90` is the question it left open: **the same literal appears in a dozen more lines,
 and they are not all the same kind of thing.**
 
@@ -76,8 +76,8 @@ every refusal.
 | file:line | what it claims |
 |---|---|
 | `renovate.json:78` | prose: which MTP major the pinned package resolves to |
-| `skills/legacy-upgrade/references/xunit-v3-migration.md:65` | the `OutputType` trap, measured on the pinned package |
-| `skills/legacy-upgrade/references/xunit-v3-migration.md:135` | the measured-resolution table's `xunit.v3` row |
+| `skills/migrate-legacy/references/xunit-v3-migration.md:65` | the `OutputType` trap, measured on the pinned package |
+| `skills/migrate-legacy/references/xunit-v3-migration.md:135` | the measured-resolution table's `xunit.v3` row |
 | `templates/ci-dotnet.yml:89` | the coverage guard's measurement banner — **shipped to migrated repos** |
 | `tests/xunit-v3/apply-transform.py:41` | the module header's resolution table, `xunit.v3` row |
 | `tests/xunit-v3/test.sh:237` | section 3: the `OutputType` guard, measured on the pinned package |
@@ -101,8 +101,8 @@ swallow the next copy silently, which is the exclusion-list failure this design 
 
 | file:line | why it must not track the pin |
 |---|---|
-| `skills/legacy-upgrade/references/xunit-v3-migration.md:136` | the measured table's **`mtp-v2`** row — the other MTP line (`MTP_LINE` → 2) |
-| `skills/legacy-upgrade/references/xunit-v3-migration.md:153` | the "`mtp-v2` 3.2.x are stable" enumeration — the evidence that the major does not pick the line |
+| `skills/migrate-legacy/references/xunit-v3-migration.md:136` | the measured table's **`mtp-v2`** row — the other MTP line (`MTP_LINE` → 2) |
+| `skills/migrate-legacy/references/xunit-v3-migration.md:153` | the "`mtp-v2` 3.2.x are stable" enumeration — the evidence that the major does not pick the line |
 | `tests/xunit-v3/apply-transform.py:42` | the header table's **`mtp-v2`** row — same reason as the reference's |
 | `tests/xunit-v3/apply-transform.py:44` | the same stable-releases enumeration, in the module |
 | `tests/xunit-v3/apply-transform.py:65` | a measurement of `xunit.v3.core.mtp-v{1,2}`'s nuspecs — it spans **both** lines, so the v2 leg is not this pin's to govern; re-measure both legs by hand when the pin moves |

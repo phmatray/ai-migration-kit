@@ -93,7 +93,7 @@ script (linked worktree, bare + linked worktrees, a path containing a space) —
 '1s/^worktree //p'` inside it, and not `awk '{print $2}'`, is what keeps a spaced path intact.
 
 `<kit>` is the kit root — the directory holding `skills/` and `scripts/` — resolved when the skill
-loads, the same placeholder `legacy-upgrade` and `followups` use for `<kit>/scripts/…`. Do **not**
+loads, the same placeholder `migrate-legacy` and `followups` use for `<kit>/scripts/…`. Do **not**
 write it as a shell variable: an unset `$KIT` expands to `/scripts/main-worktree.sh`, i.e. exit
 `127`, and a caller that treats every non-zero as "stop" then refuses to use any worktree at all.
 `main-worktree.sh` can legitimately be absent on the skills-only adoption path documented below —

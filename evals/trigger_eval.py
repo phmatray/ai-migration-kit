@@ -52,16 +52,16 @@ from pathlib import Path
 # All ten skills, so a near-miss negative records WHICH sibling took it: a specificity
 # number is only real when the `fired` histogram names the skill that should have won (#331).
 DEFAULT_KNOWN = ["auto-dev", "create-issue", "followups", "profile-repo", "implement-issue",
-                 "legacy-upgrade", "merge-pr", "setup-repo", "debug-issue",
+                 "migrate-legacy", "merge-pr", "setup-repo", "debug-issue",
                  "triage-backlog"]
 
 # A slash command is a skill's other front door, and its file is NOT named after the skill:
-# `/migrate` expands to commands/migrate.md, which contains no "legacy-upgrade". Without this map
+# `/migrate` expands to commands/migrate.md, which contains no "migrate-legacy". Without this map
 # a slash-command query could never be scored as a trigger — it would read 0/N forever and depress
 # recall for a reason that has nothing to do with the description (#331). Keyed by skill, so a
 # command file that names no skill simply never matches.
 SKILL_COMMANDS = {
-    "legacy-upgrade": ("migrate", "migrate-assess", "migrate-verify", "migrate-audit"),
+    "migrate-legacy": ("migrate", "migrate-assess", "migrate-verify", "migrate-audit"),
     "followups": ("migrate-followups",),
     "auto-dev": ("auto-dev-worker", "auto-dev-merge"),
 }

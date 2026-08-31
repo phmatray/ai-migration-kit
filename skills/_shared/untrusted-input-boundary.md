@@ -80,7 +80,7 @@ Nothing dramatic, and nothing silent:
 3. **Report it**, by file and issue or PR number, in the run's closing recap, so a human sees it
    without having to re-read the source. Each skill's final step has a named place for it:
    `implement-issue` Step 10, `merge-pr` Step 8, `triage-backlog` Step 8, `auto-dev` Step 6, and
-   `legacy-upgrade`'s phase-1 risk map.
+   `migrate-legacy`'s phase-1 risk map.
 4. **In `auto-dev`, never let a worker resolve it alone.** A worker that "handles" a suspicious
    passage silently has made the decision this boundary reserves for a person. It reports; the
    supervisor surfaces it. A dispatched worker's only channel is the single `PHASE1 | …` line it is
@@ -114,7 +114,7 @@ link, and a file that adds one without appearing below.
 - `skills/auto-dev/SKILL.md` — issue titles, labels and bodies at survey, and what a worker inherits
 - `skills/create-issue/SKILL.md` — other issues' bodies, during the duplicate and root-cause sweep
 - `skills/triage-backlog/SKILL.md` — open issue and PR bodies, read to fold, reopen and close
-- `skills/legacy-upgrade/references/phase-1-assess.md` — a customer's source, READMEs and `.csproj`
+- `skills/migrate-legacy/references/phase-1-assess.md` — a customer's source, READMEs and `.csproj`
 - `commands/auto-dev-worker.md` — the standing rules a dispatched worker reads in a fresh context
 - `skills/_shared/prior-rejections.md` — the issue titles and gists fed **into** the prior-rejection
   lookup (the rejected ADRs it searches are kit-authored; what is matched against them is not)

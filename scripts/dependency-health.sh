@@ -3,7 +3,7 @@
 #
 # Examines the DELIVERED dependency graph and emits a `dependencyHealth` block, as JSON on stdout,
 # for `migration/report.json` to carry. Phase 6 runs it (see
-# skills/legacy-upgrade/references/phase-6-verify.md).
+# skills/migrate-legacy/references/phase-6-verify.md).
 #
 # Why it exists (#267). Phase 6 defines what "verified" means, and it used to mean three properties
 # of the SOURCE — it compiles, the tests still pass, the diagnostics did not get worse. None of them

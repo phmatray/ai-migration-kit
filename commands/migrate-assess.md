@@ -3,7 +3,7 @@ description: Read-only legacy audit — inventory, diagnostics, risk map, recomm
 argument-hint: [path-to-solution]
 ---
 
-Invoke the `legacy-upgrade` skill and run **phase 1 (Assess) only** — see `references/phase-1-assess.md`.
+Invoke the `migrate-legacy` skill and run **phase 1 (Assess) only** — see `references/phase-1-assess.md`.
 
 Target: `$ARGUMENTS` if given, otherwise auto-discover the solution from the current working directory.
 

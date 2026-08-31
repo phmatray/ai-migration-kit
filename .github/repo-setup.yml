@@ -83,7 +83,7 @@ labels:
     description: "skills/create-issue/ and skills/triage-backlog/ — filing and pruning issues"
   - name: "area: migrate"
     color: "c5def5"
-    description: "skills/legacy-upgrade/, skills/followups/ and commands/migrate-*.md"
+    description: "skills/migrate-legacy/, skills/followups/ and commands/migrate-*.md"
   - name: "area: repo-setup"
     color: "c5def5"
     description: "skills/setup-repo/, skills/profile-repo/ and .claude/skills/repo-profile.md"

@@ -15,7 +15,7 @@ webp, gif — toute autre extension sort un `SystemExit` nommé plutôt qu'un `K
 
 ⚠ TOUT chemin relatif du report.json — `coverage.cobertura` comme `screenshot.path` — se résout
 contre LE RÉPERTOIRE DU REPORT.JSON, jamais contre le cwd ni contre la racine du repo. Dans la
-disposition que `skills/legacy-upgrade/references/report-template.md` impose, le rapport vit dans
+disposition que `skills/migrate-legacy/references/report-template.md` impose, le rapport vit dans
 `migration/` alors que `templates/ci-dotnet.yml` écrit ses coberturas dans le `coverage/` de la
 RACINE : la valeur correcte remonte donc d'un cran, `"../coverage"`. Écrire `"coverage"`
 désignerait `migration/coverage`, où rien n'écrit jamais — c'est #49, que ce module documentait
@@ -233,7 +233,7 @@ def resolve_cobertura(entry, base):
 
     `base` est LE RÉPERTOIRE DU REPORT.JSON — pas le cwd, pas la racine du repo. Les exemples
     ci-dessous sont donc écrits pour la disposition que
-    `skills/legacy-upgrade/references/report-template.md` impose : `migration/report.json`, et des
+    `skills/migrate-legacy/references/report-template.md` impose : `migration/report.json`, et des
     coberturas dans le `coverage/` de la RACINE, là où `templates/ci-dotnet.yml` les écrit. D'où le
     `../` : « coverage » tout court désignerait `migration/coverage`, où rien n'écrit jamais. Ce
     tableau montrait précisément cette valeur-là, ce qui reproduisait #49 pour quiconque lisait le

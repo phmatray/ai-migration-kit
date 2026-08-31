@@ -473,9 +473,9 @@ p.write_text("Read it under [the boundary](./untrusted-input-boundary.md).\n", e
 run_boundary_case "B4 a listed link is wrong-depth   " fail "BROKEN LINK:" "" '
 import pathlib, sys
 # The regression a substring test cannot see: every character of a correct link is present, and it
-# resolves to skills/legacy-upgrade/_shared/… — a path that does not exist. The reminder reads
+# resolves to skills/migrate-legacy/_shared/… — a path that does not exist. The reminder reads
 # fine and is unreachable, which is the guard emptied of meaning while looking green.
-p = pathlib.Path(sys.argv[1]) / "skills/legacy-upgrade/references/phase-1-assess.md"
+p = pathlib.Path(sys.argv[1]) / "skills/migrate-legacy/references/phase-1-assess.md"
 t = p.read_text(encoding="utf-8")
 t = t.replace("](../../_shared/untrusted-input-boundary.md)", "](../_shared/untrusted-input-boundary.md)")
 p.write_text(t, encoding="utf-8")

@@ -3,7 +3,7 @@ description: Run the full seven-phase legacy upgrade pipeline (assess → verifi
 argument-hint: [path-to-solution]
 ---
 
-Invoke the `legacy-upgrade` skill and run the **full pipeline, phases 1 through 7**, on the target application.
+Invoke the `migrate-legacy` skill and run the **full pipeline, phases 1 through 7**, on the target application.
 
 Target: `$ARGUMENTS` if given (a `.sln` path or directory), otherwise auto-discover the solution from the current working directory.
 

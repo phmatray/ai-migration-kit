@@ -56,7 +56,7 @@ refuses mixed-changeset 'chore' \
 # 3. Renames and deletions under skills/** count as touching it — CI passes both sides of a
 #    rename (--no-renames), and a deleted path is still a path.
 refuses deleted-skill-file 'chore' \
-  "chore(skills): retire the old reference" skills/legacy-upgrade/references/phase-9.md
+  "chore(skills): retire the old reference" skills/migrate-legacy/references/phase-9.md
 
 # 4. The exact mistake implement-issue warns about: an issue-derived title whose subject reads
 #    like a scope. 'CSV export' is not a type, so this is not a Conventional Commits header.
@@ -86,7 +86,7 @@ refuses feature-skills "'feature'" "feature(skills): add a harvester" skills/mer
 
 # 8b. skills/** was only ever a proxy (#55). A consumer installs a version-keyed cache that is a
 #     whole-repo checkout of the tagged commit, so these are every bit as install-time as skills/:
-#     scripts/ (legacy-upgrade mandates them by name), commands/ (the five slash commands the
+#     scripts/ (migrate-legacy mandates them by name), commands/ (the five slash commands the
 #     plugin exposes), templates/ (the workflows the kit hands to migrated repos) and
 #     requirements.json (the single source preflight reads). A chore: fix to any of them cut no
 #     release and reached nobody, while the gate printed "not applicable" and exited 0.
@@ -99,12 +99,12 @@ refuses chore-hooks        "'chore'" "chore: adjust the hook"                hoo
 # 8c. One shipped path is enough — a mixed changeset gates on the shipped half, exactly as the old
 #     anchor gated a skills/+README changeset.
 refuses mixed-shipped-and-docs "'chore'" \
-  "chore: tidy up" scripts/audit-inventory.sh docs/legacy-upgrade.md
+  "chore: tidy up" scripts/audit-inventory.sh docs/migrate-legacy.md
 
 # 8d. THE EXCEPTIONS. A top-level directory is the wrong granularity for these two: their directory
 #     is excluded, but a shipped skill resolves them out of the install cache BY NAME, so taking
 #     the directory's word for it would reopen #55 inside the list that closed it.
-#       - skills/legacy-upgrade/references/xunit-v3-migration.md calls
+#       - skills/migrate-legacy/references/xunit-v3-migration.md calls
 #         `<kit>/tests/xunit-v3/apply-transform.py` "the witness", and its XUNIT_V3_VERSION /
 #         COVERAGE_EXT_VERSION constants land in EVERY migrated csproj (renovate.json watches this
 #         exact file, #36).
@@ -191,7 +191,7 @@ passes fix-no-skills "fix(ci): pin the runner image" .github/workflows/ci.yml
 
 # ------------------------------------------------- the deny-list boundaries (#55)
 # The exclusions really do exclude: a change confined to them cuts no release and should not.
-passes docs-only  "chore: fix a typo in the walkthrough" docs/legacy-upgrade.md
+passes docs-only  "chore: fix a typo in the walkthrough" docs/migrate-legacy.md
 passes tests-only "chore: tighten a golden assertion"    tests/preflight/test.sh
 passes evals-reviews-samples-only "chore: refresh the fixtures" \
   evals/skills/case.md reviews/pr-29.md samples/LegacyShop/README.md

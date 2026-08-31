@@ -207,13 +207,13 @@ HISTORICAL = (
     ),
     Recorded(
         pin="xunit-v3",
-        path="skills/legacy-upgrade/references/xunit-v3-migration.md",
+        path="skills/migrate-legacy/references/xunit-v3-migration.md",
         anchor="| `xunit.v3.core.mtp-v2` |",
         reason="the measured-resolution table's xunit.v3.mtp-v2 row — the other MTP line.",
     ),
     Recorded(
         pin="xunit-v3",
-        path="skills/legacy-upgrade/references/xunit-v3-migration.md",
+        path="skills/migrate-legacy/references/xunit-v3-migration.md",
         anchor="are **stable**, not prerelease",
         reason="the reference's copy of the stable-releases enumeration — same record as the "
                "module's, for the reader running a real migration.",

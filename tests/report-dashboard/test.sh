@@ -404,7 +404,7 @@ import json, pathlib, re, shutil, sys, yaml
 # Le bloc ```json de report-template.md qui porte "cobertura". C'est un FRAGMENT d'objet, donc on
 # l'enveloppe avant de le parser — si le fragment cesse d'être du JSON valide, ça casse ici, ce qui
 # est le bon endroit.
-doc = pathlib.Path("skills/legacy-upgrade/references/report-template.md").read_text(encoding="utf-8")
+doc = pathlib.Path("skills/migrate-legacy/references/report-template.md").read_text(encoding="utf-8")
 blocks = [b for b in re.findall(r"```json\n(.*?)```", doc, re.S) if '"cobertura"' in b]
 # EXACTEMENT un. Zéro = la référence ne documente plus rien ; deux = ce test en épinglerait un au
 # hasard et laisserait l'autre dériver — or `docs/backlog.md` programme une traduction anglaise de
@@ -424,12 +424,12 @@ job = (tpl.get("jobs") or {}).get("test")
 assert isinstance(job, dict) and isinstance(job.get("steps"), list), (
     "templates/ci-dotnet.yml n'a plus de job `test` porteur d'une liste `steps` — c'est lui qui "
     f"porte l'étape {ETAPE!r} produisant la couverture que le snippet documenté prétend lire ; "
-    "renommer ici ET dans skills/legacy-upgrade/references/report-template.md")
+    "renommer ici ET dans skills/migrate-legacy/references/report-template.md")
 etape = next((s for s in job["steps"] if s.get("name") == ETAPE), None)
 assert etape is not None, (
     f"templates/ci-dotnet.yml n'a plus d'étape nommée {ETAPE!r} — c'est elle qui produit la "
     "couverture que le snippet documenté prétend lire ; renommer ici ET dans "
-    "skills/legacy-upgrade/references/report-template.md")
+    "skills/migrate-legacy/references/report-template.md")
 
 # Un `working-directory:` déplace la racine d'exécution : `coverage/` cesse alors d'être à la
 # racine du repo et « ../coverage » depuis migration/ ne le désigne plus. C'est le second
@@ -444,7 +444,7 @@ for ou, valeur in (
     assert valeur is None, (
         f"{ou} porte working-directory: {valeur!r} — la couverture n'est plus écrite à la racine "
         "du repo, donc le chemin relatif documenté ne la désigne plus. Corriger "
-        "skills/legacy-upgrade/references/report-template.md avant ce test.")
+        "skills/migrate-legacy/references/report-template.md avant ce test.")
 
 # Les DEUX branches de l'étape (MTP et VSTest) passent un `--results-directory` ; un unique chemin
 # relatif documenté ne peut être correct que si elles écrivent au même endroit.
@@ -491,7 +491,7 @@ def segment(valeur):
     assert re.fullmatch(r"[A-Za-z0-9._-]+", nom) and nom not in (".", ".."), (
         f"--results-directory {valeur!r} n'est plus un simple répertoire à la racine du repo ; "
         "ce test ne peut plus en dériver la disposition documentée — l'adapter, et adapter "
-        "skills/legacy-upgrade/references/report-template.md avec lui")
+        "skills/migrate-legacy/references/report-template.md avec lui")
     return nom
 
 repertoires = sorted({segment(v) for v in bruts})
@@ -520,7 +520,7 @@ assert segments == [ci_dir], (
     f"le snippet documenté ({cobertura!r}) désigne {'/'.join(segments) or '.'} depuis la racine du "
     f"repo, alors que templates/ci-dotnet.yml y écrit la couverture dans {ci_dir}/. Les deux "
     "moitiés du couplage ont divergé — corriger "
-    "skills/legacy-upgrade/references/report-template.md, ou le template.")
+    "skills/migrate-legacy/references/report-template.md, ou le template.")
 
 # --- montage ------------------------------------------------------------------------------------
 # encoding= explicite comme au-dessus : la fixture porte « démonstration », « Vérifié », « Leçon ».
@@ -554,7 +554,7 @@ if ! err=$(python3 scripts/report-dashboard.py "$doc_case/migration/report.json"
              -o "$doc_case/migration/report.html" 2>&1); then
   echo "ÉCHEC : le snippet documenté ne résout pas depuis la disposition documentée."
   echo "        migration/report.json + $ci_cov_dir/ à la racine — le premier recopié depuis"
-  echo "        skills/legacy-upgrade/references/report-template.md, le second dérivé du"
+  echo "        skills/migrate-legacy/references/report-template.md, le second dérivé du"
   echo "        --results-directory de templates/ci-dotnet.yml :"
   echo "        $err"
   exit 1

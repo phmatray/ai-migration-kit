@@ -103,7 +103,7 @@ NON_SHIPPED=(
 # directory's word for it would reopen #55 inside the very list that closed it:
 #
 #   tests/xunit-v3/apply-transform.py
-#       skills/legacy-upgrade/references/xunit-v3-migration.md calls it "<kit>/tests/xunit-v3/
+#       skills/migrate-legacy/references/xunit-v3-migration.md calls it "<kit>/tests/xunit-v3/
 #       apply-transform.py … the witness", and its XUNIT_V3_VERSION / COVERAGE_EXT_VERSION
 #       constants are baked into EVERY migrated csproj. renovate.json has a customManager watching
 #       this exact file (#36) precisely because those versions ship.

@@ -28,7 +28,7 @@ jobs:
       #     Microsoft.Testing.Extensions.CodeCoverage référencé par le projet de test.
       # Mesuré : sous MTP, `--collect:` est IGNORÉ — la commande sort en 0, tous les tests
       # passent, et AUCUN fichier de couverture n'est écrit (simple avertissement MTP0001).
-      # D'où la détection, puis la garde ci-dessous. Détail : legacy-upgrade
+      # D'où la détection, puis la garde ci-dessous. Détail : migrate-legacy
       # references/xunit-v3-migration.md.
       - name: Tests + couverture
         run: |
@@ -218,7 +218,7 @@ jobs:
             fi
             echo "Aucun rapport de couverture produit — la collecte a été ignorée en silence."
             echo "Projet MTP sans Microsoft.Testing.Extensions.CodeCoverage ? Voir"
-            echo "legacy-upgrade/references/xunit-v3-migration.md."
+            echo "migrate-legacy/references/xunit-v3-migration.md."
             exit 1
           fi
 

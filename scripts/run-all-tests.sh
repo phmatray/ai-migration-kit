@@ -143,9 +143,9 @@ fi
 EOF
 )"
 
-# 9: every legacy-upgrade phase guide names its RoselineMCP tools.
+# 9: every migrate-legacy phase guide names its RoselineMCP tools.
 add_gate "$(cat <<'EOF'
-bad=$(grep -L 'analyze_solution\|list_diagnostics\|apply_fixes\|edit_member\|rename_symbol\|find_references\|get_call_graph\|get_symbol_at_position\|search_symbols' skills/legacy-upgrade/references/phase-*.md || true)
+bad=$(grep -L 'analyze_solution\|list_diagnostics\|apply_fixes\|edit_member\|rename_symbol\|find_references\|get_call_graph\|get_symbol_at_position\|search_symbols' skills/migrate-legacy/references/phase-*.md || true)
 if [ -n "$bad" ]; then echo "Phase guides missing tool names: $bad"; exit 1; fi
 EOF
 )"

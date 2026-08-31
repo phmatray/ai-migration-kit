@@ -673,15 +673,15 @@ cd "$KIT"
 #    A reference nobody is routed to is a reference nobody reads: phase 1 must surface the line,
 #    phase 5 must own the gated item, and phase 6 must make the result land in the report.
 # ---------------------------------------------------------------------------
-grep -q 'xunitMajor' skills/legacy-upgrade/references/phase-1-assess.md \
+grep -q 'xunitMajor' skills/migrate-legacy/references/phase-1-assess.md \
   || { echo "FAIL: phase-1-assess.md does not record the xunit major line"; exit 1; }
-grep -q 'xunit-v3-migration.md' skills/legacy-upgrade/references/phase-5-modernize.md \
+grep -q 'xunit-v3-migration.md' skills/migrate-legacy/references/phase-5-modernize.md \
   || { echo "FAIL: phase-5-modernize.md does not route to xunit-v3-migration.md"; exit 1; }
-grep -qi 'baseline' skills/legacy-upgrade/references/phase-5-modernize.md \
+grep -qi 'baseline' skills/migrate-legacy/references/phase-5-modernize.md \
   || { echo "FAIL: phase-5-modernize.md states no counted-tests gate"; exit 1; }
-grep -qi 'test platform\|plateforme de test' skills/legacy-upgrade/references/phase-6-verify.md \
+grep -qi 'test platform\|plateforme de test' skills/migrate-legacy/references/phase-6-verify.md \
   || { echo "FAIL: phase-6-verify.md does not record the test platform"; exit 1; }
-grep -qi 'plateforme de test' skills/legacy-upgrade/references/report-template.md \
+grep -qi 'plateforme de test' skills/migrate-legacy/references/report-template.md \
   || { echo "FAIL: report-template.md has no slot for the test platform"; exit 1; }
 echo "  [5] phases 1, 5 and 6 carry the decision, the route and the recorded outcome"
 
@@ -1066,7 +1066,7 @@ echo "  [7d] --help names the coverage package and version the transform writes,
 #         the constant on every cell and still be unreadable, which pinned-literals-check.py's
 #         line-oriented scan would never notice. That half stays, here.
 xunit_package=$(read_const XUNIT_V3_PACKAGE)
-python3 - "$xunit_package" "$KIT/skills/legacy-upgrade/references/xunit-v3-migration.md" <<'PY'
+python3 - "$xunit_package" "$KIT/skills/migrate-legacy/references/xunit-v3-migration.md" <<'PY'
 import os, re, sys
 
 pkg, path = sys.argv[1], sys.argv[2]
@@ -2289,7 +2289,7 @@ cd "$KIT"
 # the assignment sees, so it would abort HERE under `set -e`, before the diagnostic on the next line
 # ever ran. A bare `x=$(grep … | head -1 | sed …)` on a doc that has lost its command would die
 # silently instead of naming what broke — exactly the hazard first_match/any_match exist to close.
-PHASE6_STEP2=$({ grep -oE '`dotnet test[^`]*`' skills/legacy-upgrade/references/phase-6-verify.md \
+PHASE6_STEP2=$({ grep -oE '`dotnet test[^`]*`' skills/migrate-legacy/references/phase-6-verify.md \
   || true; } | head -1 | sed 's/^`//; s/`$//')
 [ -n "$PHASE6_STEP2" ] || {
   echo "FAIL: phase-6-verify.md step 2 no longer carries a backtick-quoted dotnet test command"

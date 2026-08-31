@@ -75,7 +75,7 @@ _Avoid_: todo, backlog item
 ## The machinery
 
 **Gate**:
-A point in a pipeline — a `legacy-upgrade` phase boundary, a decision in `docs/decisions.md` —
+A point in a pipeline — a `migrate-legacy` phase boundary, a decision in `docs/decisions.md` —
 that must resolve before the run continues. A failed gate stops forward progress; it is fixed or
 rolled back, never skipped.
 _Avoid_: check, checkpoint
@@ -124,7 +124,7 @@ another's.
 _Avoid_: scope, component, module
 
 **Phase**:
-One of the seven numbered phases (1–7) of the `legacy-upgrade` pipeline — README.md and the skill's
+One of the seven numbered phases (1–7) of the `migrate-legacy` pipeline — README.md and the skill's
 own frontmatter call it a "seven-phase" pipeline — each ending at a gate before the next one starts.
 Phase 0 (preflight) runs before all seven and is numbered but not counted among them.
 _Avoid_: stage, step

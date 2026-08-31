@@ -75,7 +75,7 @@ checked against it; they are not a second copy to hand-sync.
 | `auto-dev` | the eligible queue drained | `/implement-issue #<held-issue>` for anything held as L/XL, else `—` |
 | `triage-backlog` | every open issue re-decided | `/implement-issue #<kept-issue>` |
 | `followups` | the open tail presented | `/create-issue <entry>` to convert an entry |
-| `legacy-upgrade` | phase 7 delivered | `/migrate-followups` |
+| `migrate-legacy` | phase 7 delivered | `/migrate-followups` |
 | `debug-issue` | the root cause identified | `—` (it returns to whatever called it) |
 
 **How the guard reads this table.** Backticked `/<name>` spans in the *Next command* cell are the

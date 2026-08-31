@@ -16,7 +16,7 @@ not there:
 
 `<kit>` is the kit root — the directory holding `skills/` and `scripts/` — resolved when the skill
 loads, the same placeholder [`worktree-ignore-check.md`](./worktree-ignore-check.md) and
-`legacy-upgrade` use. Do **not** write it as a shell variable: an unset `$KIT` expands to
+`migrate-legacy` use. Do **not** write it as a shell variable: an unset `$KIT` expands to
 `/skills/…`, i.e. exit `127`, which is a missing tool being read as a verdict.
 
 The helper takes an optional directory and otherwise anchors itself to the repo root, so it resolves

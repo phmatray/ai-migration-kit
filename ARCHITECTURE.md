@@ -1,6 +1,6 @@
 # Architecture
 
-One plugin, two cooperating suites — the **migration pipeline** (legacy-upgrade, followups) and the
+One plugin, two cooperating suites — the **migration pipeline** (migrate-legacy, followups) and the
 **issue/PR lifecycle** (create-issue, implement-issue, merge-pr, profile-repo, setup-repo, and the
 `auto-dev` fleet supervisor above them) — bridged where a
 migration's deferred work becomes tracked GitHub issues. Every skill carries
@@ -22,7 +22,7 @@ graph TD
     end
 
     subgraph migration ["Migration suite"]
-        LU[legacy-upgrade]
+        LU[migrate-legacy]
         FU[followups]
     end
 
@@ -101,7 +101,7 @@ apart silently.
 ```mermaid
 graph LR
     subgraph skills ["Kit skills"]
-        LU[legacy-upgrade]
+        LU[migrate-legacy]
         FU[followups]
         AD[auto-dev]
         CI[create-issue]
@@ -180,7 +180,7 @@ why no arrow leaves it.
 
 | Skill | MCP | External skills | CLI tools | Kit scripts |
 |---|---|---|---|---|
-| `legacy-upgrade` | **roseline** (required) · context7 (rec.) | frontend-design, dataviz, artifact-design (session) | **dotnet ≥ 8**, **git**, **python3** · gh, node, Chrome (rec.) | `preflight.sh`, `audit-inventory.sh`, `report-dashboard.py`, `contrast-check.py` |
+| `migrate-legacy` | **roseline** (required) · context7 (rec.) | frontend-design, dataviz, artifact-design (session) | **dotnet ≥ 8**, **git**, **python3** · gh, node, Chrome (rec.) | `preflight.sh`, `audit-inventory.sh`, `report-dashboard.py`, `contrast-check.py` |
 | `followups` | — | — | **python3**, **git** | `followups.py`, `report-dashboard.py` |
 | `create-issue` | adr (rec.) | — (brainstorm, spec and plan doctrine in `skills/_shared/brainstorm-and-spec.md`, `plan-shape.md`) | **gh** | — |
 | `implement-issue` | adr (rec.) | code-review (plan shape and TDD loop in `skills/_shared/plan-shape.md`, `tdd-loop.md`; worktrees via its own `make-worktree.sh`) | **gh**, **git**, **jq** (`tick-plan.sh`'s round-trip check) | — |
@@ -241,7 +241,7 @@ the gap for one reader; #143 closed it for the other two.
 
 ## Versioning
 
-The plugin ships as one unit: there is no way to install `legacy-upgrade` at one version alongside
+The plugin ships as one unit: there is no way to install `migrate-legacy` at one version alongside
 `merge-pr` at another, so a per-skill version would communicate a granularity that does not exist —
 and nothing would bump it. Six of them had already drifted behind `plugin.json` before the field was
 removed (#16).

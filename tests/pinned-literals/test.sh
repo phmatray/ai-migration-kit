@@ -99,7 +99,7 @@ rewrite() {
 scaffold() {
   local root="$1"
   rm -rf "$root"
-  mkdir -p "$root/tests/xunit-v3" "$root/skills/legacy-upgrade/references" "$root/templates"
+  mkdir -p "$root/tests/xunit-v3" "$root/skills/migrate-legacy/references" "$root/templates"
 
   cat > "$root/tests/xunit-v3/apply-transform.py" <<PY
 # The module that DEFINES the pin. Its own definition line is the source, not a copy.
@@ -160,7 +160,7 @@ XML
 # mod.validate_pairing("xunit.v3", "$FAKE_COVERAGE", package="microsoft.testing.extensions.codecoverage")
 SH
 
-  cat > "$root/skills/legacy-upgrade/references/xunit-v3-migration.md" <<MD
+  cat > "$root/skills/migrate-legacy/references/xunit-v3-migration.md" <<MD
 # Fixture reference
 
 | xunit test package | resolves through | MTP | CodeCoverage |
@@ -210,7 +210,7 @@ fi
 # — never "edit the number" — because these figures carry an MTP version and a CodeCoverage major
 # that a real migration depends on ([7e]'s argument).
 R="$WORK/stale"; scaffold "$R"
-rewrite "$R/skills/legacy-upgrade/references/xunit-v3-migration.md" "s/\`xunit.v3\`\*\* $FAKE/\`xunit.v3\`** 1.2.3/"
+rewrite "$R/skills/migrate-legacy/references/xunit-v3-migration.md" "s/\`xunit.v3\`\*\* $FAKE/\`xunit.v3\`** 1.2.3/"
 out=$(run_check "$R"); rc=$?
 if [ $rc -ne 0 ] \
    && printf '%s' "$out" | grep -q 'xunit-v3-migration.md:5' \
