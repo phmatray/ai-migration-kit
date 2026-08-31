@@ -17,5 +17,8 @@
   {"query": "review the diff on PR 281", "should_trigger": false, "note": "→ review/code-review"},
   {"query": "set up the repo profile for this repo", "should_trigger": false, "note": "→ get-repo-profile"},
   {"query": "what does the C# emitter do for aggregates?", "should_trigger": false, "note": "doc question — no lifecycle skill"},
-  {"query": "track this idea so we don't forget it: a Rust emitter", "should_trigger": false, "note": "→ create-issue"}
+  {"query": "track this idea so we don't forget it: a Rust emitter", "should_trigger": false, "note": "→ create-issue"},
+  {"query": "sync PR 281 so we can land it now", "should_trigger": false, "note": "sync in order to LAND → merge-pr (boundary)"},
+  {"query": "add error handling to utils.py", "should_trigger": false, "note": "ad-hoc coding, no issue plan to drive it"},
+  {"query": "edit the implementation plan on issue 47", "should_trigger": false, "note": "editing the plan, not executing it"}
 ]

@@ -1932,4 +1932,47 @@ git -C "$R" rev-parse --short a > /dev/null \
   || fail stalled-branch-unreadable "fixture broken: after the run, git itself must still read the branch normally"
 echo "  ok: stalled-branch-unreadable — when even the stalled sha cannot be read, the ALERT says so explicitly (<unreadable>), never blank"
 
+# ================================================================== sync-with-main.md content
+#
+# #321: the shared sync procedure's whole instruction for a SEMANTIC conflict ("same logic edited
+# on both sides") used to be "understand both intents" — nothing said how to actually obtain the
+# other side's intent (a squash commit's subject ends in `(#N)`; the design lives in that PR's
+# issue, not the diff), and the exit-5 completing commit used `--no-edit`, so the trade-off a
+# resolution made was recorded nowhere the next merge — or merge-pr Step 8's report — could read
+# it back. These assertions pin the fix in prose: the section exists, names its two lookups, the
+# exit-5 commit now carries `-F` instead of `--no-edit`, and both consuming SKILL.md report steps
+# quote the `Conflicts:` block the new commit shape produces.
+
+SYNC_DOC="$KIT_ROOT/skills/_shared/sync-with-main.md"
+IMPL_SKILL="$KIT_ROOT/skills/implement-issue/SKILL.md"
+MERGE_SKILL="$KIT_ROOT/skills/merge-pr/SKILL.md"
+
+[ -f "$SYNC_DOC" ] || fail sync-doc-exists "missing $SYNC_DOC"
+
+grep -qF "Sourcing the other side's intent" "$SYNC_DOC" \
+  || fail sync-doc-heading "sync-with-main.md must carry a 'Sourcing the other side's intent' section (#321)"
+
+grep -qF 'log --merge' "$SYNC_DOC" \
+  || fail sync-doc-log-merge "sync-with-main.md must name 'git log --merge' as the per-file recipe for the commits on both sides (#321)"
+
+grep -q 'commits/.*pulls' "$SYNC_DOC" \
+  || fail sync-doc-commits-pulls "sync-with-main.md must name the 'commits/<sha>/pulls' gh api lookup that maps a main-side commit back to its PR (#321)"
+
+# The exit-5 completing commit must carry -F (a file, so the Conflicts: message survives shell
+# quoting) and must never fall back to --no-edit, which is exactly the auto-generated subject that
+# discarded the trade-off before #321.
+grep -qF -- '-- -F ' "$SYNC_DOC" \
+  || fail sync-doc-dash-f "sync-with-main.md's exit-5 completing commit must pass '-- -F <file>' (#321)"
+
+grep -qF -- '-- --no-edit' "$SYNC_DOC" \
+  && fail sync-doc-no-edit "sync-with-main.md must not complete the exit-5 merge with --no-edit any more — the trade-off would be discarded (#321)"
+
+grep -qF 'Conflicts:' "$IMPL_SKILL" \
+  || fail implement-issue-conflicts-block "implement-issue/SKILL.md's Merge sync report bullet must quote the merge commit's Conflicts: block (#321)"
+
+grep -qF 'Conflicts:' "$MERGE_SKILL" \
+  || fail merge-pr-conflicts-block "merge-pr/SKILL.md's Corrections applied report bullet must quote the merge commit's Conflicts: block (#321)"
+
+echo "  ok: sync-with-main.md sources the other side's intent, records the trade-off, and both reports quote it (#321)"
+
 echo "guarded-git golden test OK"
