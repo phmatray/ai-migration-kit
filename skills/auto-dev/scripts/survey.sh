@@ -9,10 +9,19 @@
 # less per-turn cache re-read, the dominant cost). The ONE judgment left to the model is
 # area-tagging for conflict-avoidance, which is fuzzy — do that on the QUEUE rows below.
 #
-# Output, one row per issue, already ordered (smallest effort tier first, then by number):
-#   QUEUE  #N  effort  plan=true  qa=false  [labels]  title   ← eligible, area-tag + dispatch
-#   HOLD   #N  ...                                            ← tier past the second, or unclassified
-#   SKIP   #N  ...                                            ← no plan, or manual-QA only
+# Output, one row per issue, already ordered (smallest effort tier first, then the issues that
+# unblock others, then by number):
+#   QUEUE  #N  effort  plan=true  qa=false  deps=-  [labels]  title   ← eligible, area-tag + dispatch
+#   HOLD   #N  ...                                                    ← tier past the second, unclassified, or held by a dependency edge
+#   SKIP   #N  ...                                                    ← no plan, or manual-QA only
+#
+# The `deps=` column is the frontier (#317). The fleet may only dispatch the frontier — open, no
+# OPEN blockers, not a tracking parent, unassigned — and every held row names which of those it
+# failed: `deps=-` (nothing) · `deps=blocked_by=#12,#15` · `deps=parent(3)` · `deps=assigned` ·
+# `deps=blocking=#20` (informational, and eligible: it sorts first inside its tier, because every
+# slot spent elsewhere first leaves its blockees waiting). Without this the survey would QUEUE a
+# blocked child ahead of its blocker — the worker builds against an interface that does not exist
+# yet — and QUEUE a tracking parent, whose body is a list of children, not a plan to execute.
 #
 # Then ONE trailing summary row — the unplanned tail (#312):
 #   SEED   <count>  waiting for a seed: #a #b            ← or `SEED  0  -` when nothing is waiting
@@ -59,6 +68,15 @@ else
   MANIFEST=""
 fi
 
+# Every temp file this script makes, freed by one EXIT trap. Declared up-front (and always
+# referenced through `${…:-}`) so the trap is installed once, before the first mktemp, instead of
+# being re-armed at each one — re-arming drops whatever the previous trap held.
+PARSER_ERR_FILE=""
+VOCAB_TMP=""
+GH_ERR_FILE=""
+cleanup() { rm -f "${PARSER_ERR_FILE:-}" "${VOCAB_TMP:-}" "${GH_ERR_FILE:-}"; }
+trap cleanup EXIT
+
 VOCAB_JSON=""
 PARSER_RC=0
 PARSER_STDERR=""
@@ -83,9 +101,8 @@ if [ -n "$MANIFEST" ] && [ -r "$PARSER" ]; then
   # stderr with `2>/dev/null`, as before, made a die() on a label with nothing to do with the
   # effort: axis collapse into the exact same empty VOCAB_JSON as "no effort: labels found" or "no
   # readable manifest" — reopening #213's mis-tiering through a path #213 never exercised (#230).
-  PARSER_ERR_FILE=""
-  if PARSER_ERR_FILE="$(mktemp 2>/dev/null)"; then
-    trap 'rm -f "$PARSER_ERR_FILE"' EXIT
+  if ! PARSER_ERR_FILE="$(mktemp 2>/dev/null)"; then
+    PARSER_ERR_FILE=""
   fi
   if PARSER_STDOUT="$(python3 "$PARSER" "$MANIFEST" 2>"${PARSER_ERR_FILE:-/dev/null}")"; then
     PARSER_RC=0
@@ -110,9 +127,7 @@ if [ -n "$MANIFEST" ] && [ -r "$PARSER" ]; then
     # codes (measured: `X=$(false | true); echo "${PIPESTATUS[@]}"` prints a single "0"). Routing
     # the pipeline's stdout to a temp file instead — and wrapping it in `if` so a pipefail exit
     # doesn't trip `set -e` before PIPESTATUS can be read — keeps the per-stage codes visible.
-    VOCAB_TMP=""
     if VOCAB_TMP="$(mktemp 2>/dev/null)"; then
-      trap 'rm -f "$PARSER_ERR_FILE" "$VOCAB_TMP"' EXIT
       if printf '%s\n' "$PARSER_STDOUT" \
            | awk -F'\t' '$1 == "L" { print $2 }' \
            | grep -i '^effort:' \
@@ -182,33 +197,154 @@ if [ -z "$VOCAB_JSON" ] || [ "$VOCAB_JSON" = "[]" ] || [ "$VOCAB_PIPE_FAILED" -e
   VOCAB_JSON='["small","medium","large"]'
 fi
 
-gh issue list --state open --limit 300 \
-  --json number,title,labels,body \
+# The dependency fields are not universal: `gh` validates --json field names itself and exits 1 with
+# `Unknown JSON field: "blockedBy"` on any build predating issue-dependencies support — BEFORE jq
+# runs, so under `set -euo pipefail` the survey would print zero rows and exit 1. An empty survey is
+# read as "backlog drained" (that is #213's whole failure mode), so this asks once and degrades
+# loudly to the pre-#317 field list instead: every row then reads `deps=-`, the frontier rule holds
+# nothing, and the operator is told so on stderr. A `// []` guard cannot cover this — it guards a
+# field that is ABSENT from the JSON, not a CLI that refuses to produce the JSON at all.
+BASE_FIELDS=number,title,labels,body
+DEP_FIELDS=$BASE_FIELDS,blockedBy,blocking,subIssues,assignees
+
+# gh's output is held in a shell variable, not a temp file: case 9 of the golden suite proves this
+# script still runs with `mktemp` shadowed by a stub that always fails, and a hard `$(mktemp)` here
+# would have turned that infra fallback into an outright abort. The stderr capture below is the one
+# thing that genuinely needs a file (a pipeline cannot separate a command's two streams into two
+# variables in one run), so it is optional and its absence is a named, degraded path.
+if ! GH_ERR_FILE="$(mktemp 2>/dev/null)"; then
+  GH_ERR_FILE=""
+fi
+GH_RC=0
+if [ -n "$GH_ERR_FILE" ]; then
+  ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$DEP_FIELDS" 2>"$GH_ERR_FILE")" || GH_RC=$?
+else
+  ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$DEP_FIELDS")" || GH_RC=$?
+fi
+
+if [ "$GH_RC" -ne 0 ]; then
+  # Only an unknown-field rejection may fall back; anything else (not authenticated, no network, no
+  # repo) must surface as the failure it is rather than be retried into the same error twice. With
+  # no stderr file there is nothing to tell them apart, so the fallback runs and, for a non-field
+  # failure, fails again on its own — `set -e` then carries gh's status out, which is the safe end.
+  if [ -z "$GH_ERR_FILE" ] || grep -qi 'unknown json field' "$GH_ERR_FILE"; then
+    if [ -n "$GH_ERR_FILE" ]; then
+      GH_ERR_TEXT="$(tr '\n' ' ' < "$GH_ERR_FILE" 2>/dev/null || echo '<unreadable>')"
+    else
+      GH_ERR_TEXT="<stderr not captured: mktemp failed>"
+    fi
+    echo "survey.sh: this gh cannot serve the dependency fields (blockedBy/blocking/subIssues) — falling back to $BASE_FIELDS. Every row then reads deps=-, so the frontier rule holds NOTHING and a blocked child can be dispatched ahead of its blocker (#317). Upgrade gh to restore it. gh said: $GH_ERR_TEXT" >&2
+    ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$BASE_FIELDS")"
+  else
+    cat "$GH_ERR_FILE" >&2
+    exit "$GH_RC"
+  fi
+fi
+
+printf '%s\n' "$ISSUES_JSON" \
   | jq -r --argjson vocab "$VOCAB_JSON" '
     def eff:       (.labels | map(.name) | map(select(startswith("effort:"))) | (.[0] // "effort: ?"));
     def haveplan:  ((.body  // "") | test("Implementation plan|### Task|- \\[ \\]"));
     def manualqa:  ((.title // "") | test("visually|verify by hand|manual QA|by hand"; "i"));
-    # Rank the effort token against the vocabulary order (index 0 = tier 1) rather than testing
-    # for a bare letter. A token the vocabulary does not declare — no effort: label at all, or a
-    # spelling outside it — gets a sentinel past any real tier, same as the original "else 4": a
-    # fixed 999 rather than ($vocab | length) + 1, so an unclassified issue still lands past the
-    # hardcoded ">2" HOLD threshold below even for a manifest declaring only one or two effort
-    # tiers, where length+1 could land AT OR BELOW 2 and read as eligible.
+    # Dependency edges (#317). `gh issue list --json blockedBy,blocking,subIssues` serves GraphQL
+    # CONNECTIONS — {"nodes":[…],"totalCount":N} — measured on gh 2.98.0, while this repo'"'"'s own
+    # sketch of these fields assumed plain arrays. Reading only one shape would silently degrade the
+    # other to "no edges", which IS the bug: a blocked child dispatched ahead of its blocker. So
+    # accept both, and let anything else (null, a fixture predating this change) fall through to [].
+    def edgenodes:
+      (if   type == "object" then (.nodes // [])
+       elif type == "array"  then .
+       else [] end);
+    # A connection that reports MORE edges than it listed was truncated, and the rows it withheld
+    # are the ones that matter: silently reading a short list as "fewer blockers" fails OPEN — a
+    # blocked child gets queued, the exact bug this exists to stop. So a truncated connection holds.
+    def truncated: (type == "object") and (((.totalCount // 0)) > ((.nodes // []) | length));
+    def edgenums:
+      edgenodes
+      | map(if   type == "object" then {number: (.number // null), state: (.state // null)}
+            elif type == "number" then {number: ., state: null}
+            else {number: null, state: null} end)
+      | map(select(.number != null));
+    # An edge counts as still-open when the node SAYS so — the connection carries each linked
+    # issue'"'"'s `state` — and only otherwise falls back to membership in the open set this same call
+    # returned. That ordering matters: `--limit 300` bounds the open set, so an OPEN blocker sitting
+    # outside the window would look closed under membership alone and its blockee would be
+    # dispatched. Reading `state` fails safe; membership is the fallback for the plain-array shape,
+    # which carries no state, and for the body-line refs, which are bare numbers.
+    def openedges($open):
+      edgenums
+      # `.number as $num` first: `index(f)` evaluates f against ITS OWN input ($open, an array), so
+      # a bare `index(.number)` would index the open set with a string and die.
+      | map(.number as $num
+            | select(if .state != null
+                     then (.state | ascii_upcase) == "OPEN"
+                     else ($open | index($num)) != null end))
+      | map(.number) | unique;
+    # The prose fallback `create-issue` ALWAYS writes on a decomposed child, wired or not
+    # (skills/create-issue/scripts/wire-edges.sh, references/decomposition.md). Its refs are not
+    # bare: the shipped shape is `**Blocked by:** <Blocker title> (#a), <Blocker title> (#b)`, and
+    # `none - can start immediately` when there are none. So this matches the LABEL, then scans
+    # every `#n` out of whatever follows it on that line — titles, parentheses, dashes and all.
+    # `[^\\n]` rather than `.`, because `(?m)` also makes `.` match a newline in Oniguruma, which
+    # would swallow the rest of the body. The leading run tolerates what a person types by hand: a
+    # list bullet, a blockquote marker, indentation. It can only ever ADD a blocker, never clear
+    # one - see SKILL.md Step 2: the worst a hostile body line can do is delay its own issue.
+    def bodyblockers:
+      ((.body // "")
+       | [ scan("(?m)^[ \\t>*+-]*\\**Blocked[ \\t]+by:?\\**[ \\t]*([^\\n]*)")
+           | .[0] | scan("#([0-9]+)") | .[0] | tonumber ]);
     def tier:
       (eff | sub("^effort:\\s*"; "") | ascii_downcase) as $tok
       | ($vocab | index($tok)) as $idx
       | if $idx == null then 999 else $idx + 1 end;
-    map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
-         labels:(.labels|map(.name)|join(",")), t:tier})
-    | sort_by(.t, .n)
+    # Every edge is resolved against this call'"'"'s own open set, or the state the connection carries.
+    (map(.number)) as $open
+    | map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
+           labels:(.labels|map(.name)|join(",")), t:tier,
+           # Native edges resolve by their own `state`; body-line refs are bare numbers with no
+           # state to read, so those can only be filtered by membership in the open set.
+           blockers: ((((.blockedBy // []) | openedges($open))
+                       + (bodyblockers | map(select(. as $b | ($open | index($b)) != null))))
+                      | unique),
+           bt:       ((.blockedBy // {}) | truncated),
+           nblocking: ((.blocking // []) | openedges($open)),
+           subs:     (((.subIssues // []) | edgenums) | length),
+           st:       ((.subIssues // {}) | truncated),
+           assigned: (((.assignees // []) | length) > 0)})
+    # The REVERSE edge, derived from the forward ones every row already carries. `blocking` alone
+    # would be empty in exactly the situation the body-line fallback exists for — no native edges —
+    # which would make both the in-tier priority sort below and SKILL.md Step 4'"'"'s "re-survey at
+    # once" trigger dead code precisely when they are needed.
+    | . as $rows0
+    | ([ $rows0[] | {n:.n, b:.blockers[]} ]) as $edges
+    | map(.n as $me
+          | . + {blocking: ((.nblocking + [ $edges[] | select(.b == $me) | .n ]) | unique)})
+    | map(. + {deps:
+        (if   (.subs > 0 or .st)                    then "parent(\(.subs)\(if .st then "+" else "" end))"
+         elif ((.blockers|length) > 0 or .bt)       then "blocked_by=" + ((([.blockers[] | "#\(.)"])
+                                                          + (if .bt then ["?"] else [] end)) | join(","))
+         elif .assigned                             then "assigned"
+         elif ((.blocking|length) > 0)              then "blocking="   + ([.blocking[] | "#\(.)"] | join(","))
+         else                                            "-"
+         end)})
+    # Eligible-and-unblocking first inside a tier: dispatching a blocker early converts its blockees
+    # into frontier the next re-survey can use, where any other order leaves them — and the slots
+    # they would fill — waiting.
+    | sort_by(.t, -(.blocking|length), .n)
     | . as $rows
     | (
         $rows[]
-        | (if   (.t > 2)                      then "HOLD "
+        # The three dependency holds come FIRST, ahead of the tier test: a blocked child, a tracking
+        # parent and a claimed issue are not dispatchable at any effort tier, and the deps= column
+        # says which one it was.
+        | (if   (.subs > 0 or .st)            then "HOLD "
+           elif ((.blockers|length) > 0 or .bt) then "HOLD "
+           elif .assigned                     then "HOLD "
+           elif (.t > 2)                      then "HOLD "
            elif (.plan and (.qa | not))       then "QUEUE"
            else                                    "SKIP "
            end) as $bucket
-        | "\($bucket)\t#\(.n)\t\(.e)\tplan=\(.plan)\tqa=\(.qa)\t[\(.labels)]\t\(.title)"
+        | "\($bucket)\t#\(.n)\t\(.e)\tplan=\(.plan)\tqa=\(.qa)\tdeps=\(.deps)\t[\(.labels)]\t\(.title)"
       ),
       # The unplanned tail, printed LAST so it reads as a summary of the rows above (and so this
       # addition stays append-only against the other in-flight changes to this program). Listed by
