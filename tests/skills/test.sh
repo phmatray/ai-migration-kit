@@ -862,6 +862,37 @@ for f in "README.md" "ARCHITECTURE.md"; do
 done
 echo "ok   README and ARCHITECTURE both name AdrMcp and docs/adr"
 
+# ---------------------------------------------------------------------------------------------
+# merge-pr reads the base-branch CI run its OWN merge triggered, and always says what it found
+# (#355). The skill used to end its contract at "the PR is MERGED": two PRs each green against
+# their own base combined into a red `main` (f17c85c, 2026-08-30) and nobody read the push run,
+# because both merges had already reported success and torn down.
+#
+# Three things are pinned, and the third is the one that keeps the step honest. The step itself,
+# so it cannot be quietly dropped; the helper, so the skill cannot grow a second, hand-rolled CI
+# reader beside it; and ALL THREE report outcomes, because an `unverified` that never reaches the
+# report is indistinguishable from the silence this whole change removes — a merge whose base run
+# was cancelled by the next merge in the train is the COMMON case, not an edge one.
+echo "== merge-pr reports the base CI verdict its own merge produced (#355) =="
+skill="$KIT_ROOT/skills/merge-pr/SKILL.md"
+[ -f "$skill" ] || { echo "FAIL: $skill missing"; exit 1; }
+for needle in 'Step 5b' 'base-run-verdict.sh' 'base green at' 'base RED at' 'base unverified at'; do
+  grep -q -F -- "$needle" "$skill" \
+    || { echo "FAIL: $skill does not name '$needle' — Step 5b is not wired into the skill"; exit 1; }
+done
+# Never revert, and never stop. Both are autonomy-contract promises the step makes in prose only,
+# so prose is where they have to be pinned: an autonomous fleet that gained a post-merge stop, or
+# a skill that reverted somebody else's merge on an inherited red, are the two ways this step
+# turns into a worse failure than the one it fixes.
+grep -q -i -- 'never revert' "$skill" \
+  || { echo "FAIL: $skill no longer says Step 5b never reverts"; exit 1; }
+# The by-sha resolution recipe has one home, beside the §3 check-runs recipe it reuses.
+mech="$KIT_ROOT/skills/merge-pr/references/merge-mechanics.md"
+[ -f "$mech" ] || { echo "FAIL: $mech missing"; exit 1; }
+grep -q -F -- 'base-run-verdict.sh' "$mech" \
+  || { echo "FAIL: $mech carries no base-run resolution recipe"; exit 1; }
+echo "ok   merge-pr names Step 5b, the helper, and all three base outcomes in its report"
+
 echo "skills golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
