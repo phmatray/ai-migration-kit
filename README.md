@@ -56,7 +56,7 @@ Five failure modes this kit was built to close, each with the evidence behind it
 
 | Problem | Fix | Evidence |
 |---|---|---|
-| *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/legacy-upgrade/SKILL.md`](skills/legacy-upgrade/SKILL.md) | The case-study table above: 18 min / ~30 min / ~1 h, measured. |
+| *"Upgrading" meant bumping the TFM and hoping.* | Seven gated phases, resume at the last green gate — [`skills/legacy-upgrade/SKILL.md`](skills/legacy-upgrade/SKILL.md) | The case-study table in [Proven in production](#proven-in-production): 18 min / ~30 min / ~1 h, measured. |
 | *The agent reads whole C# files instead of asking Roslyn.* | The roseline gate denies `Read` on `.cs` and names the tool that replaces it — [`hooks/roseline-gate.sh`](hooks/roseline-gate.sh), [docs/roseline-gate.md](docs/roseline-gate.md) | Preflight only ever proved roseline was *connected*, never that it was *used* (#109). |
 | *Four agents, one checkout — a commit lands in another agent's PR, and every command exits 0.* | Guarded git writes that assert the branch before and after — [`skills/implement-issue/SKILL.md`](skills/implement-issue/SKILL.md) | #26 / #280: a `git commit` in the wrong checkout, silently accepted. |
 | *The fix ships before the cause is known.* | Root cause first, then the patch — [`skills/systematic-debugging/SKILL.md`](skills/systematic-debugging/SKILL.md) | Guessing at a fix treats a symptom; the cause resurfaces elsewhere. |
@@ -130,7 +130,7 @@ rather than silently) and **enforces** its use:
 tool that replaces it. Four properties keep that safe:
 
 - **Inert outside C# projects** — no-ops when no `*.sln`/`*.slnx`/`*.csproj` is found upward.
-- **A one-shot escape** — the identical `Read` again is let through once, then latches shut.
+- **A one-shot escape** — the identical `Read` again is let through once — consumed, not latched (a third read denies again), and it expires.
 - **Fails open, always** — no `jq`, an unparseable payload, any internal error, and the `Read`
   proceeds; it never fails closed.
 - **It never enforces a tool that cannot be there** — no `dnx` on `PATH` means the deny message
