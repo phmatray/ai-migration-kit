@@ -162,10 +162,12 @@ case "$CMD" in
 
     section "ADRs"
     adr_root="none"
+    adr_dir=""
     for d in docs/adr doc/adr adr .agents/adr; do
       if [ -d "$d" ]; then
         adr_n="$(find "$d" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
         adr_root="$d/ ($adr_n files)"
+        adr_dir="$d"
         break
       fi
     done
@@ -193,12 +195,31 @@ case "$CMD" in
     fi
 
     section "Out-of-scope records"
+    # The ADR root is probed FIRST, because that is where this kit puts prior rejections
+    # (skills/_shared/prior-rejections.md): a rejection IS a decision, so it is an ADR with
+    # `status: rejected` rather than a second folder with a second search path. A repo that also
+    # keeps Matt Pocock's `.out-of-scope/`-shaped folder still gets reported — the two are not
+    # exclusive — but reporting `none` over a root holding three rejected ADRs is the failure that
+    # matters here: `create-issue` Step 3 and `triage-backlog` Step 4 read THIS section to decide
+    # whether the lookup has anywhere to look, so a false `none` silently disables it in the one
+    # repository that has records.
+    oos_found=0
+    if [ -n "$adr_dir" ]; then
+      # `^status: rejected` at the start of a line, which is where the rendered frontmatter puts
+      # it. Body prose quoting the phrase mid-line does not count, and `grep -l` stops at the first
+      # hit per file so the count is files, not occurrences.
+      rej_n="$(grep -l '^status: rejected' "$adr_dir"/*.md 2>/dev/null | wc -l | tr -d ' ')"
+      if [ "${rej_n:-0}" -gt 0 ]; then
+        printf '  %s/ `status: rejected` (%s records)\n' "$adr_dir" "$rej_n"
+        oos_found=1
+      fi
+    fi
     if [ -d docs/out-of-scope ]; then
       oos_n="$(find docs/out-of-scope -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
       printf '  docs/out-of-scope/ (%s files)\n' "$oos_n"
-    else
-      echo "  none"
+      oos_found=1
     fi
+    [ "$oos_found" -eq 1 ] || echo "  none"
 
     section "Coding standards"
     cs_found=0

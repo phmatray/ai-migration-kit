@@ -55,12 +55,15 @@
     "skills/implement-issue/scripts/guarded-merge.sh": "a guarded git-write wrapper, same shape as guarded-commit.sh",
     "skills/implement-issue/scripts/guarded-push.sh": "a guarded git-write wrapper, same shape as guarded-commit.sh",
     "skills/implement-issue/scripts/make-worktree.sh": "a guarded worktree-creation wrapper; it enforces the ignore-proof precondition before creating or reusing a worktree, not a registered verdict vocabulary",
+    "skills/implement-issue/scripts/plan-freshness.sh": "a structural freshness guard \u2014 every path the plan names either resolves against the base ref or it does not; the re-anchor that follows a MISSING is SKILL.md Step 2's judgement, not this script's, so there is no verdict vocabulary to register",
     "skills/implement-issue/scripts/tick-plan.sh": "writes a checkbox-flipped plan back to GitHub, fail-closed; a mechanical write helper, not a control-flow choice",
+    "skills/merge-pr/scripts/base-run-verdict.sh": "resolves the base branch's check-runs for one sha and maps the registered `ci.verdict` answer onto a post-merge green/red/unverified report; it delegates every CI rule to that decision rather than restating one",
     "skills/merge-pr/scripts/guarded-pr-merge.sh": "merges a PR and reads the outcome back from `gh pr view`'s state; a guarded write plus read-back, not a registered verdict vocabulary",
     "skills/merge-pr/scripts/remote-branch-teardown.sh": "finishes a remote-branch delete `gh pr merge` left undone; a mechanical cleanup step, not a control-flow choice",
     "skills/setup-repo/scripts/parse-manifest.py": "reads a repo-setup manifest and emits flat records; a data-shape translator, not a control-flow choice",
     "skills/setup-repo/scripts/project-area-options.py": "rewrites a copied issue form's Area dropdown from the manifest; a mechanical rewrite, not a control-flow choice",
     "skills/setup-repo/scripts/repo-setup.sh": "converges a repo to the expected configuration (plan/apply); it does not itself emit a registered verdict",
-    "skills/systematic-debugging/scripts/hitl-loop.template.sh": "a TEMPLATE a debugger copies and edits \u2014 it prompts a human and prints their answers as KEY=VALUE; it has no verdict of its own to register"
+    "skills/systematic-debugging/scripts/hitl-loop.template.sh": "a TEMPLATE a debugger copies and edits \u2014 it prompts a human and prints their answers as KEY=VALUE; it has no verdict of its own to register",
+    "skills/triage-backlog/scripts/rejected-adrs.sh": "a read-only keyword lookup over rejected ADRs; it reports rows and distinguishes 'found none' from 'could not look', the calling skill decides whether a hit blocks a filing"
   }
 }

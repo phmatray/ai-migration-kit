@@ -206,6 +206,7 @@ add_suite "tests/followups/test.sh"
 add_suite "tests/tick-plan/test.sh"
 add_suite "tests/guarded-git/test.sh"
 add_suite "tests/merge-gate/test.sh"
+add_suite "tests/merge-base-ci/test.sh"
 add_suite "tests/pr-existence-guard/test.sh"
 add_suite "tests/plan-locate-comment-guard/test.sh"
 add_suite "tests/merge-freshness/test.sh"
@@ -216,6 +217,7 @@ add_suite "tests/release-title-gate/test.sh"
 add_suite "tests/worktrees-ignored/test.sh"
 add_suite "tests/main-worktree/test.sh"
 add_suite "tests/implement-issue-worktree-step/test.sh"
+add_suite "tests/plan-freshness/test.sh"
 add_suite "tests/roseline/test.sh"
 add_suite "tests/git-gate/test.sh"
 add_suite "tests/auto-dev-never-wait/test.sh"
@@ -233,6 +235,8 @@ add_suite "tests/hitl-loop/test.sh"
 add_gate "python3 tests/adr/check-adrs.py"
 
 add_suite "tests/adr/test.sh"
+
+add_suite "tests/rejected-adrs/test.sh"
 
 # 16: the contrast checker itself, pass AND fail paths.
 add_gate "$(cat <<'EOF'

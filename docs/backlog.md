@@ -25,6 +25,18 @@ rendra rentable (YAGNI sinon).
   `followups` reste attendu au plancher en sonde headless (positifs ≈ 0/3 sans contexte de repo,
   cf. l'entrée « Optimisation du déclenchement du skill `followups` » ci-dessous) : ce chiffre
   mesuré *est* sa ligne de base, pas une cible à atteindre.
+- **Mesure du banc après la coupe des descriptions (#323) — dû.** Le déclencheur permanent de
+  l'entrée ci-dessus (« une modification de `description` → `run_all.py --skills <skill>` ») a été
+  armé le 2026-08-31 : **neuf** descriptions sur dix ont été raccourcies et la dixième
+  (`systematic-debugging`, 513 → 593) a *gagné* les deux formes FR que son jeu d'évals réclamait —
+  8 518 → 6 645 caractères normalisés au total, plus aucune au-dessus du plafond souple de 750 posé
+  dans `tests/skills/check-frontmatter.py`. La coupe est **conservatrice** — aucune forme FR, aucune
+  clause « Does NOT apply », aucune formulation reprise mot pour mot par une requête d'éval n'a été
+  retirée ; ce qui part, c'est l'identité et la mécanique que le corps du skill porte déjà, plus les
+  synonymes qui redisaient une branche déjà nommée. Mais elle n'est **pas mesurée** : le banc lance un `claude -p` par requête, ce qu'une session de travail automatisée ne
+  fait pas. Dû avant la prochaine release : `python3 evals/run_all.py --runs-per-query 3`, comparaison
+  à `evals/results/baseline.json` (frontière `implement-issue` ↔ `merge-pr` : 6/6 de chaque côté).
+  Tant que ce n'est pas fait, le plafond souple reste à 700 et la cible ~450 de #323 attend.
 - **Traduction anglaise des 4 references françaises de `legacy-upgrade`** (audit-executive,
   delivery-playbook, report-template, rewrite-playbook) : la surface distribuée est anglaise
   depuis v1.7.0 (SKILL.md, commandes), ces references restent françaises. Déclencheur : premier
@@ -50,20 +62,10 @@ rendra rentable (YAGNI sinon).
 
 ## Non-adoptions (décisions fermées)
 
-Évaluées et **refusées** — consignées pour que la décision survive aux sessions. Source : revue
-jobs du 2026-07-23 (`reviews/2026-07-23-jobs/`), lentille Arbor (RUC-NLPIR) — le kit a adopté les
-ceintures de sécurité d'Arbor (reprise, garde de convergence, chronologie mesurée, rétropropagation
-contractuelle, v1.8.0), et refuse son volant :
-
-- **Arbre d'hypothèses / recherche multi-hypothèses (Idea Tree)** : Arbor explore un espace ouvert
-  (métrique à maximiser, meilleure solution inconnue) ; le kit exécute un chemin connu vers une
-  destination binaire (build vert, tests verts, prod vérifiée). Greffer l'exploration détruirait la
-  propriété qui fait sa valeur — déterministe, reproductible, minutes mesurées.
-- **Modes d'interaction (`ui.interaction_mode` auto/direction/review/collaborative)** : les
-  variantes de portée du kit (`/migrate-assess` lecture seule, `/migrate`, `/migrate-verify`)
-  couvrent déjà le besoin sans concept supplémentaire.
-- **Recherche de nouveauté (novelty search alphaXiv)** : un verdict de nouveauté académique
-  n'améliore aucune migration.
-
-Réouverture : uniquement si le kit change de nature (optimisation d'une métrique ouverte — perfs,
-taille de bundle — où l'exploration paie), jamais pour une migration.
+Elles ne vivent plus ici. Une non-adoption est une **décision**, donc un ADR : `docs/adr/`, en
+`status: rejected` et tagué `out-of-scope`, un fichier par **concept** et non par demande. Les trois
+non-adoptions issues de la revue Arbor du 2026-07-23 y sont passées — [ADR-0008 Idea-tree
+search](adr/0008-idea-tree-search.md), [ADR-0009 Interaction modes](adr/0009-interaction-modes.md),
+[ADR-0010 Novelty search](adr/0010-novelty-search.md) — parce qu'une décision consignée dans une
+prose que rien ne relit revient sous un autre nom : c'est exactement ce que
+`skills/_shared/prior-rejections.md` fait chercher avant tout dépôt d'issue.

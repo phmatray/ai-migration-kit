@@ -185,8 +185,15 @@ hand-copying it further.
   `python3 tests/adr/check-adrs.py` mirrors `validate_adr` and runs in CI.
 
 ## Out-of-scope records
-- none — no `docs/out-of-scope/` yet (#311; I7a owns wiring `triage-backlog`/`create-issue` to it
-  once one exists).
+- **`docs/adr/`, the records whose frontmatter says `status: rejected`** — one per *concept*, tagged
+  `out-of-scope`, sharing the ADR root above rather than living in a `docs/out-of-scope/` folder of
+  their own (#319 decided that; a rejection is a decision, and two decision stores are two search
+  paths). Three today, migrated from `docs/backlog.md` §Non-adoptions: ADR-0008, ADR-0009, ADR-0010.
+- **Read** by `create-issue` Step 3, `merge-pr` 6c and `triage-backlog` Step 4 before anything is
+  filed or proposed; **written** by `triage-backlog` Step 7 alone, and only on an owner-confirmed
+  *close — by decision* of an `enhancement`. The recipe for both halves — semantic `search_adrs`, the
+  `skills/triage-backlog/scripts/rejected-adrs.sh` fallback, and the refusal to author without the
+  server — is `skills/_shared/prior-rejections.md`; the veto they apply is `filing-bar.md` clause 4.
 
 ## Coding standards
 - `.editorconfig` — present at the repo root. No `CONTRIBUTING.md`, no `.globalconfig`, no
