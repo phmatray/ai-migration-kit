@@ -499,6 +499,18 @@ jobs:
       - name: ADR golden test (the CI mirror of validate_adr, every rule driven to red)
         run: ./tests/adr/test.sh
 
+      # The prior-rejection lookup's FALLBACK half (#319): the keyword scan of `status: rejected`
+      # ADRs that runs when AdrMcp is not connected and `search_adrs` cannot be asked. It sits with
+      # the ADR steps because it reads the same files, but it is guarding a different thing — not
+      # whether an ADR is well-formed, but whether a skill asking "has this been declined before?"
+      # gets an answer it can act on. That path is the one nobody exercises by hand (the maintainer
+      # runs with the server connected), and both of its wrong answers are silent: a lookup that
+      # never looked prints exactly what a lookup that found nothing prints, which is the failure
+      # #319 exists to close. The suite drives the exit-1 / exit-2 line from both sides and asserts
+      # the rendered rows byte-for-byte.
+      - name: Prior-rejection fallback golden test (rejected-adrs.sh — rows, both refusal codes, never writes)
+        run: ./tests/rejected-adrs/test.sh
+
       - name: Contrast checker works (pass AND fail paths)
         run: |
           python3 scripts/contrast-check.py "#000000:#ffffff:sanité"
