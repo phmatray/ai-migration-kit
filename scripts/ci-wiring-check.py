@@ -63,7 +63,6 @@ Exit codes:
 
 import argparse
 import fnmatch
-import os
 import pathlib
 import subprocess
 import sys
@@ -89,7 +88,15 @@ def load_workflows(workflow_dir):
     docs = []
     for path in sorted(workflow_dir.glob("*.y*ml")):
         try:
-            with path.open() as fh:
+            # `encoding="utf-8"` explicitly, never the locale default: on a Windows checkout
+            # that default is cp1252 and both of this repo's workflows carry non-Latin-1 UTF-8
+            # bytes (an em-dash at ci.yml offset 8675), so `path.open()` raised
+            # `UnicodeDecodeError: 'charmap' codec can't decode byte 0x8f` right here — the checker
+            # crashed before it could compute a verdict at all, which reads as a broken tool rather
+            # than as a wrong answer (#174). GitHub Actions guarantees these files are UTF-8, so
+            # the locale does not get a say. tests/ci-wiring/test.sh drives this under an ASCII
+            # locale, where the same line fails the same way.
+            with path.open(encoding="utf-8") as fh:
                 doc = yaml.safe_load(fh)
         except yaml.YAMLError as exc:
             raise SystemExit(f"ci-wiring-check: cannot parse {path}: {exc}")
@@ -285,8 +292,26 @@ def index_modes(repo, paths):
     return modes, None
 
 
+def suite_names(tests_root, repo, entries=None):
+    """The suite paths as a workflow spells them: repo-relative and `/`-separated, always.
+
+    `str(p.relative_to(repo))` joins with the PLATFORM separator, so on a native Windows checkout
+    every name came out `tests\\preflight\\test.sh` while `.github/workflows/ci.yml` spells
+    `./tests/preflight/test.sh`. No suite matched any step, for any suite, ever — all 19 REFUSED on
+    a tree CI was green on (#174). `.as_posix()` is a no-op on a POSIX host and the whole fix on
+    Windows.
+
+    `entries` exists so the derivation is testable off Windows: a caller passes `PureWindowsPath`
+    objects, which have no `.glob()` of their own. Default `None` — not a glob evaluated in the
+    signature — so production behaviour is exactly what the inline generator did.
+    """
+    if entries is None:
+        entries = tests_root.glob("*/test.sh")
+    return sorted(p.relative_to(repo).as_posix() for p in entries)
+
+
 def check(repo, tests_root, workflow_dir):
-    suites = sorted(str(p.relative_to(repo)) for p in tests_root.glob("*/test.sh"))
+    suites = suite_names(tests_root, repo)
     if not suites:
         raise SystemExit(
             f"ci-wiring-check: no {tests_root.name}/*/test.sh under {repo} — refusing to report "
@@ -307,12 +332,10 @@ def check(repo, tests_root, workflow_dir):
     if not mode_error:
         not_executable = {
             # `modes` is keyed by the forward-slash paths `git ls-files` always emits, regardless
-            # of OS. `suite` came from pathlib's `relative_to()` and is joined with the platform's
-            # own separator — a backslash on native Windows — so looking it up unmodified would
-            # never hit on that platform and every suite would silently read as untracked. `os.sep`
-            # is a no-op `/` -> `/` replace everywhere this script actually runs today, so this
-            # changes nothing here; it only matters the day Windows is a supported host for this
-            # check.
+            # of OS — and `suite` is now guaranteed to be spelled the same way, because
+            # `suite_names()` ends in `.as_posix()`. That guarantee replaces the `suite.replace(
+            # os.sep, "/")` this lookup used to carry: one function decides how a suite is spelled,
+            # so a reader cannot fix the separator in one of the two places that compare it (#174).
             #
             # `mode is None` (untracked — never `git add`ed) IS flagged here (#210): a suite absent
             # from the index is absent from any real clone or CI checkout, the exact failure class
@@ -320,7 +343,7 @@ def check(repo, tests_root, workflow_dir):
             # message and remedy rather than the wrong-mode text.
             suite: mode
             for suite in suites
-            if (mode := modes.get(suite.replace(os.sep, "/"))) != REQUIRED_MODE
+            if (mode := modes.get(suite)) != REQUIRED_MODE
         }
 
     verdicts = {}

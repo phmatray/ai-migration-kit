@@ -53,6 +53,9 @@ CHECK="$REPO/scripts/ci-wiring-check.py"
 . "$REPO/tests/_lib.sh" || {
   echo "FAIL: cannot source $REPO/tests/_lib.sh — refusing to run unguarded"; exit 1; }
 kit_init "$REPO"
+# The kit's ONE importlib loader (#42, #51) — sections 24-25 drive functions of the checker
+# directly, which is what makes a Windows-only defect reproducible on the Linux runner.
+kit_source "$REPO/tests/_lib/py.sh"
 WORK=$(kit_scratch)
 
 fails=0
@@ -520,6 +523,85 @@ if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'tests/orphan3/test.sh' \
    && ! printf '%s' "$out" | grep -q 'CI invokes it as ./tests/orphan3/test.sh'; then
   ok "a suite committed at the wrong mode that nothing invokes does not claim CI invokes it"
 else bad "expected refusal without the false 'CI invokes it' claim; got rc=$rc: $out"; fi
+
+# --------------------------------------------------- 24. suite names are POSIX-spelled, off Windows
+# #174, mechanism 2. `str(p.relative_to(repo))` joins with the PLATFORM separator, so on a native
+# Windows checkout every suite came out `tests\preflight\test.sh` while .github/workflows/ci.yml
+# spells `./tests/preflight/test.sh`. Nothing ever matched: the checker refused all 19 suites on a
+# tree CI was green on.
+#
+# The derivation is a named function precisely so this case can exist. Driving it with
+# PureWindowsPath objects reproduces the bug HERE, on Linux, where no amount of running the checker
+# normally ever could — and PureWindowsPath has no `.glob()`, which is why `entries` is a parameter
+# rather than something the function goes and fetches.
+if py_module "$CHECK" <<'PYCASE'
+import pathlib
+repo = pathlib.PureWindowsPath(r"C:\repo\kit")
+names = mod.suite_names(
+    pathlib.PureWindowsPath(r"C:\repo\kit\tests"),
+    repo,
+    entries=[
+        pathlib.PureWindowsPath(r"C:\repo\kit\tests\preflight\test.sh"),
+        pathlib.PureWindowsPath(r"C:\repo\kit\tests\ci-wiring\test.sh"),
+    ],
+)
+assert names == ["tests/ci-wiring/test.sh", "tests/preflight/test.sh"], names
+
+# And the POSIX host is unchanged — the same call over PurePosixPath still yields the same strings,
+# so `.as_posix()` is a no-op here rather than a second spelling to keep in step.
+posix = mod.suite_names(
+    pathlib.PurePosixPath("/repo/kit/tests"),
+    pathlib.PurePosixPath("/repo/kit"),
+    entries=[pathlib.PurePosixPath("/repo/kit/tests/preflight/test.sh")],
+)
+assert posix == ["tests/preflight/test.sh"], posix
+PYCASE
+then
+  ok "suite_names spells suite paths with / even off a Windows-flavoured root"
+else
+  bad "suite_names did not produce POSIX suite names — a Windows checkout matches no workflow step"
+fi
+
+# ------------------------------------------------ 25. the workflows are read as UTF-8, not as locale
+# #174, mechanism 4, and the one that sits IN FRONT of section 24's: on Windows this checker did not
+# return the wrong verdict, it crashed before it could compute one —
+#
+#     UnicodeDecodeError: 'charmap' codec can't decode byte 0x8f  (load_workflows -> yaml.safe_load)
+#
+# `path.open()` with no `encoding=` uses the locale default, which is cp1252 there; both workflows
+# carry non-Latin-1 UTF-8 bytes (an em-dash at ci.yml offset 8675). GitHub Actions guarantees these
+# files are UTF-8, so the encoding is not a question the locale gets to answer.
+#
+# Reproduced here with an ASCII locale rather than cp1252 — same class, same line, and a Linux
+# runner can actually be put in it. PYTHONUTF8=0 and PYTHONCOERCECLOCALE=0 are both required:
+# without them CPython turns the C locale into UTF-8 on its own (PEP 538/540) and the case would
+# pass for the wrong reason, so the control below asserts the condition really bites.
+out=$(LC_ALL=C LANG=C PYTHONUTF8=0 PYTHONCOERCECLOCALE=0 \
+      python3 -c 'import locale, sys; sys.exit(0 if locale.getpreferredencoding(False).lower() in ("ansi_x3.4-1968", "ascii", "us-ascii") else 1)' 2>&1)
+if [ $? -eq 0 ]; then
+  out=$(LC_ALL=C LANG=C PYTHONUTF8=0 PYTHONCOERCECLOCALE=0 python3 "$CHECK" --repo "$REPO" 2>&1); rc=$?
+  if [ $rc -eq 0 ]; then
+    ok "the workflows are decoded as UTF-8 under an ASCII locale (the Windows cp1252 shape)"
+  else
+    bad "the checker failed under an ASCII locale (rc=$rc) — it is reading files at the locale's"
+    bad "  mercy, which is the crash Windows sees: $(printf '%s' "$out" | tail -1)"
+  fi
+else
+  # Not a failure of the checker — a newer CPython that no longer honours the locale here (PEP 686
+  # made UTF-8 mode the default in 3.15). Say so rather than reporting a green that proved nothing.
+  ok "skipped — this CPython does not expose an ASCII locale default, so the cp1252 shape is unreachable"
+fi
+
+# The same defect named directly, for the day the locale case above stops being reachable.
+# PEP 597's EncodingWarning fires on exactly the construct at fault — an `open()` that let the
+# locale decide — and turning it into an error makes it a red case rather than a note.
+out=$(PYTHONWARNDEFAULTENCODING=1 PYTHONWARNINGS=error::EncodingWarning \
+      python3 "$CHECK" --repo "$REPO" 2>&1); rc=$?
+if [ $rc -eq 0 ]; then
+  ok "no read in the checker leaves its encoding to the locale (EncodingWarning as error)"
+else
+  bad "a read in the checker has no explicit encoding= (rc=$rc): $(printf '%s' "$out" | tail -1)"
+fi
 
 echo
 if [ "$fails" -eq 0 ]; then
