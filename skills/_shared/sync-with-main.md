@@ -197,14 +197,18 @@ git -C "$WORKTREE" diff --name-only --diff-filter=U -z \
 git -C "$WORKTREE" diff --cached --name-only   # read the index back — this is your only check
 
 # Write the Conflicts: message from *Sourcing the other side's intent* step 4 to a file — a file,
-# not an inline `-m`, so a message that already holds sentences of its own survives shell quoting:
-cat > /tmp/merge-msg-$ISSUE.txt <<'MSG'
+# not an inline `-m`, so a message that already holds sentences of its own survives shell quoting.
+# mktemp, not a name keyed off an issue/PR number: this procedure is shared by both callers and
+# only implement-issue ever binds `$ISSUE` — merge-pr has no such variable (it tracks `$PR`), so a
+# name that assumes one collides on a fixed path instead of failing loudly.
+MERGE_MSG=$(mktemp /tmp/merge-msg.XXXXXX)
+cat > "$MERGE_MSG" <<'MSG'
 Merge origin/<base> into <branch>
 
 Conflicts:
 - <file> — kept <what> (main, #N) and <what> (ours); trade-off: <one sentence>
 MSG
-"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- -F /tmp/merge-msg-$ISSUE.txt
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- -F "$MERGE_MSG"
 ```
 
 ⚠️ **Neither `git add -A` nor `git add -u` belongs here (#68).** The guards will not catch either:
