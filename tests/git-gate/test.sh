@@ -115,6 +115,92 @@ verdict "D12 bare merge"               deny "guarded-merge.sh"   "$(pay Bash 'gi
 verdict "D13 clean --force"            deny "git clean -n"       "$(pay Bash 'git clean --force -d' "$PROF")"
 verdict "D14 push -f"                  deny "--force-with-lease" "$(pay Bash 'git push -f' "$PROF")"
 
+# ------------------------------------------------------------------ 2. the allow rows (A)
+verdict "A1  branch -D after a merge"  pass "" "$(pay Bash 'git branch -D feat/326-x' "$PROF")"
+verdict "A2  checkout a branch"        pass "" "$(pay Bash 'git checkout main' "$PROF")"
+verdict "A3  switch"                   pass "" "$(pay Bash 'git switch -c feat/x' "$PROF")"
+verdict "A4  restore one named path"   pass "" "$(pay Bash 'git restore src/App.cs' "$PROF")"
+verdict "A5  checkout -- one path"     pass "" "$(pay Bash 'git checkout -- src/App.cs' "$PROF")"
+verdict "A6  stash -u"                 pass "" "$(pay Bash 'git stash -u' "$PROF")"
+verdict "A7  rebase"                   pass "" "$(pay Bash 'git rebase main' "$PROF")"
+verdict "A8  reset without --hard"     pass "" "$(pay Bash 'git reset --soft HEAD~1' "$PROF")"
+verdict "A9  read-only git"            pass "" "$(pay Bash 'git log --oneline -5 && git status --porcelain' "$PROF")"
+verdict "A10 clean -n looks only"      pass "" "$(pay Bash 'git clean -n' "$PROF")"
+verdict "A11 merge --abort"            pass "" "$(pay Bash 'git merge --abort' "$PROF")"
+verdict "A12 no git in the command"    pass "" "$(pay Bash 'ls -la && rm -rf build' "$PROF")"
+
+# The guards are the whole point: a line that calls one is allowed, INCLUDING the `--force-with-lease`
+# the gate refuses on a bare push. Spelled with the quoted `"$GUARDS/…"` every skill actually emits,
+# which is why the recognition reads the raw command and not the quote-stripped one.
+verdict "A13 guarded-commit.sh line"   pass "" \
+  "$(pay Bash '"$GUARDS/guarded-commit.sh" -C "$WORKTREE" -c user.email=a@b -c user.name="A B" main -- -am msg' "$PROF")"
+verdict "A14 guarded-push --force-with-lease" pass "" \
+  "$(pay Bash '"$GUARDS/guarded-push.sh" -C "$WORKTREE" main -- --force-with-lease' "$PROF")"
+verdict "A15 guarded-merge.sh line"    pass "" \
+  "$(pay Bash '"$GUARDS/guarded-merge.sh" -C "$WORKTREE" main -- origin/main' "$PROF")"
+verdict "A16 guarded-pr-merge.sh line" pass "" \
+  "$(pay Bash '"$GUARDS/guarded-pr-merge.sh" 353' "$PROF")"
+
+# Matt's substring greps deny both of these (mattpocock/skills, MIT — prior art, not a port).
+verdict "A17 inside a double-quoted string" pass "" "$(pay Bash 'echo "git push --force"' "$PROF")"
+verdict "A18 inside a single-quoted string" pass "" "$(pay Bash "printf '%s' 'git reset --hard'" "$PROF")"
+verdict "A19 after a # comment"        pass "" "$(pay Bash 'git log --oneline # git reset --hard' "$PROF")"
+
+# ---------------------------------------------------- 3. inert where the guards cannot exist
+# The probe's whole argument (the `dnx` argument of #112, transposed): a denial names a
+# `guarded-*.sh` replacement, so it must not fire where that replacement does not exist.
+verdict "A20 no profile, no denial"    pass "" "$(pay Bash 'git checkout main -- .' "$PLAIN")"
+verdict "A21 no profile, bare commit"  pass "" "$(pay Bash 'git commit -m wip' "$PLAIN")"
+# ...and the pair is a MEASUREMENT rather than a coincidence: the same command in the profiled repo
+# denies (D1 above), so A20's pass can only be the probe and not some other fail-open path.
+
+# --------------------------------------------------------------- 4. the switches (off wins)
+verdict "A22 GIT_GATE=off"             pass "" "$(pay Bash 'git checkout main -- .' "$PROF")" "$PATH" off
+verdict "A23 GIT_GATE=on forces past the probe" deny "checkout -- <path>" \
+  "$(pay Bash 'git checkout main -- .' "$PLAIN")" "$PATH" on
+verdict "A24 off outranks a probe that would deny" pass "" \
+  "$(pay Bash 'git commit -m wip' "$PROF")" "$PATH" off
+verdict "A25 an unrecognised value falls through" pass "" \
+  "$(pay Bash 'git checkout main -- .' "$PLAIN")" "$PATH" maybe
+
+# GIT_GATE holds one value, so `off` and `on` cannot literally both be set; what the spec calls "off
+# wins" is the ORDER of the two branches inside the gate. Asserted at the source, because that order
+# is the only place the invariant exists: with `on` first, a stale `on` in a shell rc would quietly
+# override the `off` a user just typed.
+off_line=$(grep -n 'off|0|false|no|disabled' "$GATE" | head -1 | cut -d: -f1)
+on_line=$(grep -n 'on|1|true|yes|enabled' "$GATE" | head -1 | cut -d: -f1)
+[ -n "$off_line" ] && [ -n "$on_line" ] \
+  || { echo "FAIL: the gate does not carry both switch branches (off=$off_line on=$on_line)"; exit 1; }
+[ "$off_line" -lt "$on_line" ] \
+  || { echo "FAIL: the 'on' branch (line $on_line) precedes 'off' (line $off_line); off must stay the master switch"; exit 1; }
+echo "ok: the off branch is checked before the on branch"
+
+# --------------------------------------------------------- 5. every internal failure fails OPEN
+NOJQ=$(shim_path "$WORK/nojq"); rm -f "$NOJQ/jq"
+NOAWK=$(shim_path "$WORK/noawk"); rm -f "$NOAWK/awk"
+NOGIT=$(shim_path "$WORK/nogit"); rm -f "$NOGIT/git"
+FULL=$(shim_path "$WORK/full")
+
+verdict "A26 no jq on PATH"            pass "" "$(pay Bash 'git commit -m wip' "$PROF")" "$NOJQ"
+verdict "A27 no awk on PATH"           pass "" "$(pay Bash 'git commit -m wip' "$PROF")" "$NOAWK"
+verdict "A28 no git on PATH"           pass "" "$(pay Bash 'git commit -m wip' "$PROF")" "$NOGIT"
+# The control for the three above: the SAME stripped PATH, complete, must still deny — otherwise
+# each pass is equally well explained by the shim missing something the gate needs, and section 5
+# would be green while measuring nothing.
+verdict "A29 the same shim, complete, still denies" deny "guarded-commit.sh" \
+  "$(pay Bash 'git commit -m wip' "$PROF")" "$FULL"
+
+verdict "A30 malformed payload"        pass "" 'not json at all'
+verdict "A31 a tool other than Bash"   pass "" "$(pay NotebookEdit 'git commit -m wip' "$PROF")"
+verdict "A32 BashOutput is not Bash"   pass "" "$(pay BashOutput 'git commit -m wip' "$PROF")"
+verdict "A33 no command in the payload" pass "" '{"tool_name":"Bash","cwd":"/tmp","tool_input":{}}'
+verdict "A34 unterminated quoting is a parse it cannot trust" pass "" \
+  "$(pay Bash 'git commit -m "never closed' "$PROF")"
+# A command past the size cap is not one of the shapes above; parsing it would outrun the hook's
+# 5s timeout, and a timed-out hook is an unpredictable one.
+BIG=$(printf 'git commit -m x # %*s' 70000 '' | tr ' ' 'y')
+verdict "A35 an oversized command"     pass "" "$(pay Bash "$BIG" "$PROF")"
+
 # ---------------------------------------------------------------- 6. structural wiring (S)
 # S1 — hooks are outside parse-sweep's default target set (docs/backlog.md records that gap), so the
 # sweep is invoked on this file explicitly. bash 3.2 is the floor the sweep enforces.
