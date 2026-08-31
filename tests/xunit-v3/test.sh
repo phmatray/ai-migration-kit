@@ -2072,43 +2072,105 @@ PY
 #     failed silent, and a small result set hides it — one match fits in the pipe buffer and find
 #     finishes before grep can close it.
 #
-#     So the fixture is deliberately big enough to overrun the 64 KiB pipe buffer, and the naive
-#     shape is run first: if IT stopped failing, this case would be proving nothing, and that is
-#     reported as a broken fixture rather than quietly passing.
+#     The negative control used to run the naive pipeline against a 2000-entry fixture on the
+#     theory that a listing big enough to overrun the 64 KiB pipe buffer leaves find still writing
+#     when grep exits. That is a probability argument, not an ordering one — nothing kept the
+#     reader's exit from happening safely after every write — and it was measured to fail as such
+#     (#335): a throwaway 500-run harness against this exact fixture returned rc=0 (the failing,
+#     uninverted outcome) 110/500 times idle and 292/500 times with every core saturated. The pipe
+#     buffer's 64 KiB is also a tunable (/proc/sys/fs/pipe-max-size), not a constant, so no fixture
+#     size can make the old shape's guarantee absolute.
+#
+#     So volume is replaced with an explicit handshake: the writer emits one matching line, waits
+#     for PROOF the reader has already exited (a filesystem marker — not a pid or a second pipe;
+#     the reader's pid isn't knowable from inside a plain pipeline, and a second pipe used to
+#     signal would have the same EPIPE problem this test is about), and only then writes again.
+#     That second write is strictly after the reader is gone, so it cannot do anything but hit a
+#     closed pipe — deterministic on every host and load. Same harness, same fixture, after this
+#     change: 0/500 idle, 0/500 saturated. tests/_lib.sh (first_match/any_match) is untouched by
+#     any of this — this is the negative control only, and _lib.sh is a documented conflict
+#     hot-spot.
 # ---------------------------------------------------------------------------
 sigpipe_dir="$scratch/sigpipe-probe"
 mkdir -p "$sigpipe_dir"
-# Long names on purpose: the listing must exceed the pipe buffer well before find runs out of
-# entries, which is what leaves find still writing when grep exits.
+# Long names on purpose: kept even though the negative control below no longer depends on volume,
+# because the positive control (any_match/first_match) and the retained find|grep smoke line still
+# want a real, sizeable fixture to run against.
 for i in $(seq 1 2000); do
   : > "$sigpipe_dir/padded-so-the-listing-overruns-the-pipe-buffer-$i.cobertura.xml"
 done
 
-# The population is measured DIRECTLY rather than inferred from the exit status, because the status
-# alone cannot tell "the reader closed the pipe" from "there was nothing to find" — and it is not
-# even the same status on both platforms. Measured: BSD find (macOS) is killed by SIGPIPE and the
-# pipeline reports 141; GNU find (the ubuntu runner) catches EPIPE, prints
-# `find: 'standard output': Broken pipe` and exits 1 — the very status an empty directory produces.
-# So an exact `-eq 141` is red on CI, and a bare `-ne 0` would call an EMPTY fixture intact and then
-# blame any_match for a directory that simply had no files in it. Proving the fixture is populated
-# first is what makes any non-zero status here unambiguous evidence of the inversion.
+# The population is measured DIRECTLY rather than inferred from an exit status, because a status
+# alone cannot tell "the reader closed the pipe" from "there was nothing to find".
 created=$(find "$sigpipe_dir" -name '*.cobertura.xml' -type f | wc -l | tr -d ' ')
 if [ "$created" -lt 2000 ]; then
   echo "FAIL: fixture broken — $created matching files created, expected 2000. Section 10 cannot"
-  echo "      reproduce #48 without enough entries to overrun the 64 KiB pipe buffer."
+  echo "      reproduce #48 without enough entries for the positive control below."
   exit 1
 fi
 
+# kit_wait_gone <marker-path> [timeout-seconds] — polls until <marker-path> no longer exists;
+# returns 0 once gone, non-zero on timeout. Bounded so a hang in the harness (the reader somehow
+# never exiting) cannot spin forever (#135's shape: an unbounded read-back turns a bug into a
+# hang). Defined here, not in tests/_lib.sh: this is section 10's only caller, and _lib.sh is a
+# documented conflict hot-spot. bash 3.2-safe: no `[[ ]]`, no arrays, no `wait -n`.
+kit_wait_gone() {
+  local marker_path="$1"
+  local marker_timeout="${2:-5}"
+  local elapsed_ms=0
+  local timeout_ms=$((marker_timeout * 1000))
+  while [ -e "$marker_path" ]; do
+    if [ "$elapsed_ms" -ge "$timeout_ms" ]; then
+      return 1
+    fi
+    sleep 0.05
+    elapsed_ms=$((elapsed_ms + 50))
+  done
+  return 0
+}
+
+# The negative control itself: order the reader's exit before the writer's remaining writes
+# instead of hoping volume makes it likely (measured rates in the comment block above). The reader
+# stage keeps `grep -q .` verbatim and preserves ITS OWN status via `exit "$_rc"`, so pipefail still
+# promotes the reader's 0 against the writer's non-zero — #48's exact shape. The writer signals a
+# timeout with a sentinel status (99) distinct from both the reader's 0 and a real SIGPIPE/EPIPE, so
+# the two failure modes below get two different diagnoses instead of sharing one.
+alive="$scratch/sigpipe-reader-alive"
+: > "$alive"
 set +e
-find "$sigpipe_dir" -name '*.cobertura.xml' 2>/dev/null | grep -q .   # sigpipe-repro
+{
+  printf '%s\n' "$sigpipe_dir/padded-so-the-listing-overruns-the-pipe-buffer-1.cobertura.xml"
+  if ! kit_wait_gone "$alive" 5; then
+    exit 99
+  fi
+  # Strictly after the reader has exited and closed its end — this write cannot succeed.
+  i=0
+  while [ "$i" -lt 5000 ]; do
+    printf 'line-%s\n' "$i"
+    i=$((i + 1))
+  done
+} | { grep -q .; _rc=$?; rm -f "$alive"; exit "$_rc"; }   # sigpipe-repro
 naive_rc=$?
 set -e
-if [ "$naive_rc" -eq 0 ]; then
-  echo "FAIL: fixture broken — the naive find|grep pipeline succeeded on $created matches."
-  echo "      It must report FAILURE there (141 on BSD find, 1 on GNU find's 'Broken pipe'):"
-  echo "      that inversion is the whole defect of #48, and section 10 is not reproducing it."
+if [ "$naive_rc" -eq 99 ]; then
+  echo "FAIL: kit_wait_gone timed out waiting for the reader to exit (marker still present:"
+  echo "      $alive, 5s after the writer's first line). This is a hang in the harness, not the"
+  echo "      inversion #48 describes — the two diagnoses must not be confused."
   exit 1
 fi
+if [ "$naive_rc" -eq 0 ]; then
+  echo "FAIL: fixture broken — the ordered pipeline succeeded on a write issued strictly after the"
+  echo "      reader had already exited. It must report FAILURE there (141 for a shell writer"
+  echo "      killed by SIGPIPE, 1 for a stdio writer that catches EPIPE): that inversion is the"
+  echo "      whole defect of #48, and section 10 is not reproducing it."
+  exit 1
+fi
+
+# The real `find` shape is kept as a non-asserting smoke line: it is what #48 actually looked
+# like, and the idiom guard below still needs one legitimate `sigpipe-repro`-tagged example to
+# exempt. Its status is observed, never asserted on — asserting on it is exactly the
+# load-sensitive claim the handshake above replaced.
+find "$sigpipe_dir" -name '*.cobertura.xml' 2>/dev/null | grep -q . || true   # sigpipe-repro (smoke only, not asserted)
 
 if ! any_match "$sigpipe_dir" -name '*.cobertura.xml'; then
   echo "FAIL: any_match reported NOTHING FOUND on a directory full of matches — the probe inverts"
