@@ -36,11 +36,16 @@ mkdir -p "$WORK/root"
 # the untrusted-input boundary (it is what a dispatched worker actually reads), so a root without it
 # answers NO SUCH CONSUMER for every boundary case below. It is never mutated — only skills/ is
 # restored between cases — so one copy at setup is enough.
-cp -R skills tests commands requirements.json "$WORK/root/"
+# evals/ joins the scratch world for #331: the trigger contract is now
+# evals/<skill>-trigger-eval.json, so a root without evals/ answers "trigger eval set missing"
+# for every skill. Unlike commands/ it IS mutated — by run_eval_case below, which restores it
+# from $PRISTINE the same way run_case restores skills/.
+cp -R skills tests commands evals requirements.json "$WORK/root/"
 ROOT="$WORK/root"
 PRISTINE="$WORK/pristine"
 mkdir -p "$PRISTINE"
 cp -R "$ROOT/skills" "$PRISTINE/"
+cp -R "$ROOT/evals" "$PRISTINE/"
 
 fails=0
 
@@ -157,6 +162,158 @@ t = re.sub(r"^description: >-\n(?:[ \t]+.*\n)+",
            t, count=1, flags=re.M)
 p.write_text(t, encoding="utf-8")
 '
+
+# ---------------------------------------------------------------------------------------------
+# The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
+# used to guard tests/skills/<skill>.triggers.md — a bullet list no tool ever read, whose presence CI
+# certified while the eval sets it duplicated drifted away from it. The rule moved to the file
+# `evals/run_all.py` actually runs, and these cases are the witness that it really refuses, BY NAME,
+# each way a set can be malformed. Without them the block could narrow to "the file exists" and every
+# run would stay green.
+#
+# Only evals/ is mutated here — run_case restores skills/, run_eval_case restores evals/ — so the two
+# families never disturb each other, and the real tree is never touched either way.
+echo "== the trigger contract in evals/*.json must be well-formed (#331) =="
+
+# run_eval_case <label> <expect: pass|fail> <expected marker> <python mutator>
+# The mutator receives the scratch root as argv[1] and edits evals/ in place.
+run_eval_case() {
+  local label="$1" expect="$2" marker="$3" mutator="$4"
+  # BOTH trees, every case. evals/ is what these cases mutate, but skills/ carries whatever the
+  # last run_case left behind — so an N4 labelled "untouched baseline" would be running against a
+  # rewritten description, and inserting one more failing run_case above this block would turn
+  # every T case into a coin flip.
+  rm -rf "$ROOT/evals" "$ROOT/skills"
+  cp -R "$PRISTINE/evals" "$PRISTINE/skills" "$ROOT/"
+  python3 -c "$mutator" "$ROOT"
+  local out rc
+  set +e
+  out=$(python3 "$ROOT/tests/skills/check-frontmatter.py" 2>&1)
+  rc=$?
+  set -e
+  if [ "$expect" = fail ]; then
+    if [ "$rc" -eq 0 ]; then
+      echo "FAIL: [$label] expected a rejection, got exit 0"
+      echo "      $out"
+      fails=$((fails + 1))
+    elif ! grep -q "$marker" <<<"$out"; then
+      echo "FAIL: [$label] rejected, but not with '$marker'"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] rejected"
+    fi
+  else
+    if [ "$rc" -ne 0 ]; then
+      echo "FAIL: [$label] expected acceptance, got exit $rc"
+      echo "      $out"
+      fails=$((fails + 1))
+    else
+      echo "ok   [$label] accepted"
+    fi
+  fi
+}
+
+run_eval_case "T1 the set is missing entirely    " fail "trigger eval set missing" '
+import pathlib, sys
+(pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json").unlink()
+'
+
+run_eval_case "T2 the set is not valid JSON      " fail "not valid JSON" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+# A trailing comma: the single most common hand-edit typo, and one a bare existence check accepts.
+p.write_text("[\n  {\"query\": \"file an issue\", \"should_trigger\": true},\n]\n", encoding="utf-8")
+'
+
+run_eval_case "T3 every entry is a positive      " fail "no should_trigger: false entry" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+for e in entries:
+    e["should_trigger"] = True
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T3b every entry is a negative     " fail "no should_trigger: true entry" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+for e in entries:
+    e["should_trigger"] = False
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T4 an entry has no query          " fail "missing or empty .query." '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+entries[0].pop("query")
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T5 a query is duplicated          " fail "duplicate query" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# A duplicated positive inflates recall for free — the set scores better for saying less.
+entries.append(dict(entries[0]))
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T6 an entry carries a stray key   " fail "unexpected key" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# "expect" is the boundary set schema, not this one: a copy-paste the runner would silently ignore.
+entries[0]["expect"] = {"create-issue": True}
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T7 the set is an empty list       " fail "non-empty JSON list" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+p.write_text("[]\n", encoding="utf-8")
+'
+
+run_eval_case "T8 a skill drops out of SKILLS     " fail "must list every skill" '
+import pathlib, sys
+# A skill with a valid set that run_all.py never runs: CI reports the contract present, the bench
+# silently measures nine of ten. That is the exact failure #331 closed, one edit away from coming back.
+p = pathlib.Path(sys.argv[1]) / "evals/run_all.py"
+t = p.read_text(encoding="utf-8")
+p.write_text(t.replace("\"setup-repo\", ", "", 1), encoding="utf-8")
+'
+
+run_eval_case "T9 DEFAULT_KNOWN names a non-skill" fail "must list every skill" '
+import pathlib, sys
+# A stale name in DEFAULT_KNOWN cannot be attributed to any sibling, so a near-miss histogram
+# would report a skill that does not exist.
+p = pathlib.Path(sys.argv[1]) / "evals/trigger_eval.py"
+t = p.read_text(encoding="utf-8")
+p.write_text(t.replace("\"triage-backlog\"]", "\"triage-backlog\", \"revise-claude-md\"]", 1), encoding="utf-8")
+'
+
+run_eval_case "T10 an entry has a non-string note" fail "non-string .note." '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+entries[0]["note"] = 42
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T11 a duplicate differs only in case" fail "duplicate query" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# One query asked twice, spelled differently: the bench cannot tell them apart, nor may the guard.
+dup = dict(entries[0])
+dup["query"] = "  " + dup["query"].upper() + " "
+entries.append(dup)
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "N4 untouched baseline             " pass "" 'import sys'
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
@@ -343,6 +500,45 @@ fi
 echo "test-seams link golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
+# skills/_shared/grilling.md must exist and create-issue must link it (#312). `--grill` is the one
+# sanctioned exception to create-issue's hands-off autonomy contract, and the doctrine that makes it
+# safe — one round, the frontier only, facts are the agent's job, unanswered takes the recommended
+# answer — lives in the shared file rather than in the skill, because triage-backlog's confirmation
+# pass is the second consumer. A `--grill` branch in SKILL.md with no link to that file is a flag
+# whose contract nothing states, which is precisely how the two would drift apart. Pinned against
+# the real tree for the same reason as the test-seams block above.
+echo "== create-issue must link skills/_shared/grilling.md (#312) =="
+
+if [ -f "$KIT_ROOT/skills/_shared/grilling.md" ]; then
+  echo "ok   [G1 skills/_shared/grilling.md exists       ]"
+else
+  echo "FAIL: [G1 skills/_shared/grilling.md exists       ] file is missing"
+  fails=$((fails + 1))
+fi
+
+if grep -qF '](../_shared/grilling.md)' "$KIT_ROOT/skills/create-issue/SKILL.md" 2>/dev/null; then
+  echo "ok   [G2 create-issue/SKILL.md links it          ]"
+else
+  echo "FAIL: [G2 create-issue/SKILL.md links it          ] missing the literal '](../_shared/grilling.md)'"
+  fails=$((fails + 1))
+fi
+
+# The port is MIT-licensed work by someone else; the credit line is part of the file's contract,
+# not a courtesy that may erode in a later edit.
+if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/_shared/grilling.md" 2>/dev/null; then
+  echo "ok   [G3 grilling.md credits its source          ]"
+else
+  echo "FAIL: [G3 grilling.md credits its source          ] missing the 'mattpocock/skills' attribution"
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "grilling link golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
 # The main-worktree derivation has one home now (#125): scripts/main-worktree.sh. Two broken
 # spellings kept getting re-introduced before that — a caller resolving `-C` from
 # `git rev-parse --show-toplevel` right next to a worktrees-ignored.sh call (fails OPEN from a
@@ -407,6 +603,78 @@ print("ok   no file under skills/ re-spells the main-worktree derivation")
 PY
 
 # ---------------------------------------------------------------------------------------------
+# CONTEXT.md (#313) — the kit's own domain glossary, in Matt Pocock's format (ported from
+# mattpocock/skills, MIT). This is a structural case, not a content one: it proves the file
+# stays in shape (a term section before the ambiguities section, every term actually defined,
+# "decision" still flagged rather than quietly resolved by a rename) without pinning the prose
+# itself, which is free to grow. It runs over the real committed file for the same reason the
+# #125 scan above does — the defect this guards against is the committed file drifting out of
+# its own format, not something a fixture could stand in for.
+echo "== CONTEXT.md stays in Matt Pocock's format, with decision flagged (#313) =="
+python3 - "$KIT_ROOT" <<'PY'
+import re
+import sys
+import pathlib
+
+root = pathlib.Path(sys.argv[1])
+path = root / "CONTEXT.md"
+if not path.is_file():
+    print("FAIL: CONTEXT.md missing at the kit root")
+    sys.exit(1)
+
+lines = path.read_text(encoding="utf-8").splitlines()
+
+# At least one `## ` section heading must precede `## Flagged ambiguities`.
+amb_idx = next((i for i, l in enumerate(lines) if l.startswith("## Flagged ambiguities")), None)
+if amb_idx is None:
+    print("FAIL: CONTEXT.md has no '## Flagged ambiguities' section")
+    sys.exit(1)
+section_headings_before = [l for l in lines[:amb_idx] if l.startswith("## ")]
+if not section_headings_before:
+    print("FAIL: CONTEXT.md has no '## ' term section before '## Flagged ambiguities'")
+    sys.exit(1)
+
+# Every "**Term**:" line must be followed by a non-empty definition line — skipping over at most
+# one blank line, since a term header, blank line, definition is still a valid layout.
+term_re = re.compile(r"^\*\*[^*]+\*\*:\s*$")
+for i, l in enumerate(lines):
+    if term_re.match(l):
+        j = i + 1
+        if j < len(lines) and not lines[j].strip():
+            j += 1
+        nxt = lines[j] if j < len(lines) else ""
+        if not nxt.strip() or term_re.match(nxt):
+            print("FAIL: CONTEXT.md line %d ('%s') has no definition on the next line" % (i + 1, l))
+            sys.exit(1)
+
+# The ambiguities section must still name "decision" and its registry home, not resolve it away.
+amb_text = "\n".join(lines[amb_idx:])
+if "decision" not in amb_text:
+    print("FAIL: CONTEXT.md's '## Flagged ambiguities' section does not mention \"decision\"")
+    sys.exit(1)
+if "docs/decisions.md" not in amb_text:
+    print("FAIL: CONTEXT.md's '## Flagged ambiguities' section does not name docs/decisions.md")
+    sys.exit(1)
+
+print("ok   CONTEXT.md has term sections, defined terms, and decision flagged")
+PY
+
+# The two naming consumers must point at the target repo's CONTEXT.md, and say what they refuse.
+echo "== create-issue and implement-issue read the target repo's CONTEXT.md (#313) =="
+for consumer in skills/create-issue/SKILL.md skills/implement-issue/SKILL.md; do
+  grep -q "CONTEXT.md" "$consumer" || { echo "FAIL: $consumer does not mention CONTEXT.md"; exit 1; }
+  grep -q "_Avoid_" "$consumer" || { echo "FAIL: $consumer does not mention _Avoid_"; exit 1; }
+done
+echo "ok   create-issue and implement-issue both point at CONTEXT.md and its _Avoid_ lists"
+
+# The map must know where the language lives.
+echo "== ARCHITECTURE.md and README.md point at CONTEXT.md (#313) =="
+for doc in ARCHITECTURE.md README.md; do
+  grep -q "CONTEXT.md" "$doc" || { echo "FAIL: $doc does not mention CONTEXT.md"; exit 1; }
+done
+echo "ok   ARCHITECTURE.md and README.md both mention CONTEXT.md"
+
+# ---------------------------------------------------------------------------------------------
 # preconditions.md refuses a non-GitHub tracker in one sentence (#311). Fixture-free: this is a
 # grep against the committed reference itself, not a probe run against a scratch repo — the
 # probe/profile side of the Tracker line is pinned by tests/repo-profile/test.sh.
@@ -419,4 +687,190 @@ grep -q 'not a supported tracker' "$PRECONDITIONS" \
   || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
 echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
 
+# ---------------------------------------------------------------------------------------------
+# The roseline-gate essay moved to docs/roseline-gate.md (#325). Fixture-free: the defect this
+# guards is the committed essay drifting away from its own four properties, or the README's link
+# to it eroding, not something a scratch fixture could stand in for.
+echo "== docs/roseline-gate.md carries the roseline-gate essay, linked from README (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+path = root / "docs" / "roseline-gate.md"
+if not path.is_file():
+    print("FAIL: docs/roseline-gate.md missing")
+    sys.exit(1)
+
+text = path.read_text(encoding="utf-8")
+for phrase in (
+    "Inert outside C# projects",
+    "A one-shot escape",
+    "Fails open, always",
+    "never enforces a tool that cannot be there",
+):
+    if phrase not in text:
+        print("FAIL: docs/roseline-gate.md is missing the phrase %r" % phrase)
+        sys.exit(1)
+
+readme = (root / "README.md").read_text(encoding="utf-8")
+if "docs/roseline-gate.md" not in readme:
+    print("FAIL: README.md does not link docs/roseline-gate.md")
+    sys.exit(1)
+
+print("ok   docs/roseline-gate.md carries the four properties, and README links it")
+PY
+
+# ---------------------------------------------------------------------------------------------
+# README leads with the failure modes and a "Which command?" table, and links every skill and
+# command (#325). Fixture-free, same reason as the #313 CONTEXT.md case above: the defect is the
+# committed README drifting out of shape, not something a scratch fixture models better.
+echo "== README leads with failure modes, routes by situation, links every skill/command (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+readme = (root / "README.md").read_text(encoding="utf-8")
+
+for heading in ("## Why this kit exists", "## Which command?"):
+    if heading not in readme:
+        print("FAIL: README.md is missing the heading %r" % heading)
+        sys.exit(1)
+
+targets = set(re.findall(r"\]\(([^)]+)\)", readme))
+
+missing = []
+for skill_dir in sorted((root / "skills").iterdir()):
+    if not skill_dir.is_dir() or skill_dir.name == "_shared":
+        continue
+    rel = "skills/%s/SKILL.md" % skill_dir.name
+    if not (root / rel).is_file():
+        continue
+    if rel not in targets:
+        missing.append(rel)
+
+for cmd in sorted((root / "commands").glob("*.md")):
+    rel = "commands/%s" % cmd.name
+    if rel not in targets:
+        missing.append(rel)
+
+if missing:
+    print("FAIL: README.md does not link: %s" % ", ".join(missing))
+    sys.exit(1)
+
+print("ok   README.md links every skills/*/SKILL.md and commands/*.md")
+PY
+
+# ---------------------------------------------------------------------------------------------
+# A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
+# locations, a line budget so it stays pointers rather than sediment, and every relative link
+# actually resolves — a link that used to work but now 404s is worse than no pointer at all.
+echo "== exactly one pointer-only CLAUDE.md exists, <= 60 lines, links resolve (#325) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+candidates = [root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]
+present = [p for p in candidates if p.is_file()]
+if len(present) != 1:
+    print("FAIL: expected exactly one of CLAUDE.md / .claude/CLAUDE.md, found %d" % len(present))
+    sys.exit(1)
+
+path = present[0]
+lines = path.read_text(encoding="utf-8").splitlines()
+if len(lines) > 60:
+    print("FAIL: %s has %d lines, over the 60-line budget" % (path, len(lines)))
+    sys.exit(1)
+
+text = "\n".join(lines)
+for m in re.finditer(r"\]\(([^)]+)\)", text):
+    target = m.group(1)
+    if target.startswith("http://") or target.startswith("https://") or target.startswith("#"):
+        continue
+    target_path = target.split("#", 1)[0]
+    resolved = (path.parent / target_path).resolve()
+    if not resolved.exists():
+        print("FAIL: %s links %r, which does not resolve (tried %s)" % (path, target, resolved))
+        sys.exit(1)
+
+print("ok   %s exists, is <= 60 lines, and every relative link resolves" % path.relative_to(root))
+PY
+
 echo "skills golden test: all cases behaved as specified"
+
+# ---------------------------------------------------------------------------------------------
+# The trigger contract has ONE home, and the records say so (#331). The ten
+# tests/skills/<name>.triggers.md lists were a CACHE of the eval sets — a second copy of a contract
+# nothing ran, which CI certified while the sets it duplicated drifted away from it. Deleting them
+# is only half the fix: as long as a live document still points a reader at that path, the cache is
+# rebuilt the first time someone follows the pointer. So this pins the pointer, not just the files.
+#
+# Pinned against the real tree (no scratch fixture): the defect IS the committed prose.
+echo "== the trigger contract has one home, and the records name it (#331) =="
+
+# Not `compgen -G`: it answers 1 for "no matches" AND for "not a builtin / progcomp disabled",
+# so a guard whose whole job is anti-recurrence would print ok when it never ran at all.
+r1_found=0
+for f in "$KIT_ROOT"/tests/skills/*.triggers.md; do
+  [ -e "$f" ] && r1_found=1
+done
+if [ "$r1_found" -ne 0 ]; then
+  echo "FAIL: [R1 no tests/skills/*.triggers.md         ] a retired trigger list is back — the"
+  echo "      contract lives in evals/<skill>-trigger-eval.json, guarded by check-frontmatter.py"
+  fails=$((fails + 1))
+else
+  echo "ok   [R1 no tests/skills/*.triggers.md         ]"
+fi
+
+# Only these may still say "triggers.md", and each for a reason that is not a pointer:
+#   CHANGELOG.md, reviews/  — dated, immutable records of what the kit did on a given day;
+#                             rewriting them would falsify history (CHANGELOG.md is release-please's).
+#   docs/backlog.md         — the entry rewritten as a CLOSED item, which has to name what closed.
+#   tests/skills/*.py|sh    — this suite and the checker, explaining the rule they replaced.
+# Anything else naming the path is a live pointer at a home that no longer exists.
+R2_ALLOWED="CHANGELOG.md docs/backlog.md tests/skills/check-frontmatter.py tests/skills/test.sh"
+r2_hits=$(git -C "$KIT_ROOT" grep -l -F "triggers.md" -- . 2>/dev/null || true)
+r2_unexpected=""
+# THIS file always matches (its own R1 glob is spelled below), so an empty or sentinel-less result
+# means `git grep` failed rather than that the tree is clean — the one way this guard could pass
+# while never having looked.
+if ! grep -qx "tests/skills/test.sh" <<<"$r2_hits"; then
+  echo "FAIL: [R2 no live pointer at the retired path  ] the git-grep sweep did not even find this"
+  echo "      file, which always matches — the search failed; the verdict below would be vacuous"
+  fails=$((fails + 1))
+else
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  case "$f" in reviews/*) continue ;; esac
+  case " $R2_ALLOWED " in *" $f "*) continue ;; esac
+  r2_unexpected="$r2_unexpected $f"
+done <<< "$r2_hits"
+if [ -n "$r2_unexpected" ]; then
+  echo "FAIL: [R2 no live pointer at the retired path  ]$r2_unexpected"
+  echo "      still names tests/skills/<name>.triggers.md — point it at evals/<skill>-trigger-eval.json"
+  fails=$((fails + 1))
+else
+  echo "ok   [R2 no live pointer at the retired path  ]"
+fi
+fi
+
+# C: pin the ROW, not the filename. `grep -qF trigger-eval.json` over the whole file passes even if
+#    the "Where each concern lives" row is deleted and the path appears in unrelated prose — which
+#    is the very thing R3's own failure message claims to be checking.
+if grep -qE '^\| Triggering contracts \|[^|]*evals/<name>-trigger-eval\.json' "$KIT_ROOT/ARCHITECTURE.md" 2>/dev/null; then
+  echo "ok   [R3 ARCHITECTURE.md names the new home   ]"
+else
+  echo "FAIL: [R3 ARCHITECTURE.md names the new home   ] its \"Where each concern lives\" row must"
+  echo "      point Triggering contracts at evals/<name>-trigger-eval.json"
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  echo "$fails case(s) failed"
+  exit 1
+fi
+echo "one-trigger-home golden test: all cases behaved as specified"

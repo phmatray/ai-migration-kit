@@ -353,7 +353,11 @@ or pending check outranks *both*: flipping a draft to ready only publishes the r
 ordering is fixed in the program's header, and it is the reason the answer is a word rather than a
 set of conditions to weigh.
 
-**Fix a red CI check.** Reproduce locally in the branch's worktree, fix it for real, commit + push. Run
+**Fix a red CI check.** Reproduce locally in the branch's worktree, fix it for real, commit + push.
+*"Reproduce locally" is the load-bearing half* — do it under `systematic-debugging`, whose Phase 1
+criterion is exactly this: own a local command that goes red on the same failure **before** you change
+anything, because CI's log is the symptom and a fix aimed from the log alone comes back as the next
+red run. Run
 the profile's *Build & test* and *CI gates* — the same ones CI runs: the **build** for compile errors,
 the **single-suite test filter** for the failing suite (the full suite may need a CI-only prerequisite
 the profile flags), then the format/lint **apply** then **verify** (verify must exit clean — CI fails
@@ -563,6 +567,10 @@ spec → plan trail and labels it). Mention the just-merged PR for traceability,
 #279: add Rust snapshot tests."* Batch several in one `create-issue` run. No follow-ups → skip and
 say so.
 
+**Never pass `--grill`** — that flag makes `create-issue` stop and interview the user, and this step
+runs at the end of a merge nobody is necessarily watching, so the question would be asked to an empty
+room (#187).
+
 ## Step 7 — Delete the local branch & worktree
 
 Clean up the throwaway workspace — the right cleanup depends on **where** the branch is checked out
@@ -612,7 +620,7 @@ failure exits 1 with the API error on stderr; report that, don't swallow it (ref
 
 Short and concrete:
 - The merged PR — URL and confirmation it's `MERGED` (with the squash commit sha); the branch it closed.
-- **Corrections applied** — one line each: red checks fixed, conflicts resolved (which files, how), review addressed. "None needed — merged clean" is a fine report. A non-zero `gh pr merge` exit whose readback said `MERGED` is **not** a correction and not a failed merge — it is local cleanup gh couldn't do and Step 7 then did, so it belongs in the Cleanup bullet, not reported as an outstanding deferral.
+- **Corrections applied** — one line each: red checks fixed, conflicts resolved (clean, or the merge commit's `Conflicts:` block verbatim), review addressed. "None needed — merged clean" is a fine report. A non-zero `gh pr merge` exit whose readback said `MERGED` is **not** a correction and not a failed merge — it is local cleanup gh couldn't do and Step 7 then did, so it belongs in the Cleanup bullet, not reported as an outstanding deferral.
 - **Deviation, if the Step 4 fallback ran** — the branch couldn't be pushed, so the merge verdict came from a local build/test against the merged tree rather than from CI. Name what was run and that the verdict is the agent's, not GitHub's.
 - **Follow-ups** — lead with the tally the filing bar produced (*"7 observations · 2 filed · 1 folded · 1 reopened · 3 recorded"*), then the detail: each new issue's title + URL, each one **folded** into an existing issue (`#N`), each **reopened** ancestor (`#N`), each recorded as a PR comment, or "none." If the 6d budget capped anything, say so and name the overflow issue. The tally is what lets the owner see whether the bar is calibrated — all-filed means it isn't being applied.
 - **Scope** — say plainly that the PR's own scope is complete. Findings are discovery, not unfinished business: a merge whose plan is ticked and whose CI is green is *done*, and the follow-up tally above is a separate fact about what was noticed along the way.
