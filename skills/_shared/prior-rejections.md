@@ -94,6 +94,13 @@ other. `docs/adr/0008-idea-tree-search.md` is the worked example: its bullet car
 tree search*, *branches candidate approaches*, *open solution space*, which is what lets a later
 "hypothesis tree exploration" match a file titled "Idea-tree search".
 
+**The fallback can only match words that are written down** — it has no synonyms, no stemming and no
+model. That is a limitation of the degraded path, not of the design: `search_adrs` in semantic mode
+matches the concept whatever words carry it, and the grep helper approximates that only as far as the
+ADR's own vocabulary reaches. Which is the practical reason to spend a clause on the alternate names
+when authoring, and the reason a `0 hits` from the fallback is reported as weaker evidence than a
+`0 hits` from semantic search rather than as the same answer.
+
 ## The lookup
 
 ```mermaid

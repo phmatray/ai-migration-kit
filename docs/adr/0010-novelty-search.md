@@ -50,5 +50,6 @@ edit in place.
 ## Prior requests
 
 - `reviews/2026-07-23-jobs/` — "Recherche de nouveauté (novelty search alphaXiv)": an academic
-  novelty / prior-art verdict from alphaXiv used to rank candidate approaches, ported from Arbor
-  (2026-07-23). Declined in `docs/backlog.md` §Non-adoptions until this ADR replaced it.
+  novelty / prior-art verdict, read from alphaXiv papers and the arXiv literature, used to rank
+  candidate approaches, ported from Arbor (2026-07-23). Declined in `docs/backlog.md`
+  §Non-adoptions until this ADR replaced it.
