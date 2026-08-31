@@ -22,6 +22,15 @@
 #  11.  TWO defects at once                             -> BOTH reported, not just the first
 #  12.  the seven titles docs/adr will carry            -> accept, at the exact filenames the
 #                                                         rendered index links to
+#  13.  a mis-invocation (two arguments)                -> exit 2, NEVER 0 (no verdict possible)
+#  14.  a links[] entry with a target but no type       -> REFUSE  (malformed link)
+#  15.  a three-digit filename                          -> REFUSE  (not an ADR filename)
+#  16.  a filename with no numeric prefix               -> REFUSE  (not an ADR filename)
+#
+# Cases 13 and 15-16 are the same defect at two altitudes, and both are absence-shaped: a checker
+# that exits 0 on a mis-invocation, or that SKIPS the file a contributor misnamed, prints exactly
+# what a clean run prints. 13 would keep the gate green over a root it never opened; 15-16 kept it
+# green over a file no rule ever read.
 #
 # Case 11 is the one that is easy to lose: a checker that stops at the first failure turns a review
 # of an ADR set into N round trips, and this suite is the only thing that says it must not.
@@ -69,24 +78,32 @@ accept() {   # accept <root> <label>
   fi
 }
 
-# refuse <root> <marker> <label>: exit 1 AND the named marker present. Both halves matter — an
-# exit code alone would pass on a checker that refused for an unrelated reason, which is exactly
-# how a rule stops being tested without any case going red.
-refuse() {
-  local root="$1" marker="$2" label="$3" rc=0
-  python3 "$CHECK" "$root" > "$OUT" 2>&1 || rc=$?
-  if [ "$rc" -ne 1 ]; then
-    bad "$label — expected exit 1 (refusal), got $rc; output:"
+# expect_rc <want-rc> <marker> <label> [args…]: the checker exits EXACTLY <want-rc> and some line
+# carries <marker>. Both halves matter — an exit code alone would pass on a checker that failed for
+# an unrelated reason, which is exactly how a rule stops being tested without any case going red.
+#
+# The code is an ARGUMENT rather than a second copy of this function because the suite asserts two
+# of them, and 1 ("I read them; they are broken") versus 2 ("no verdict was possible") is the
+# distinction case 13 exists to hold.
+expect_rc() {
+  local want="$1" marker="$2" label="$3" rc=0
+  shift 3
+  python3 "$CHECK" "$@" > "$OUT" 2>&1 || rc=$?
+  if [ "$rc" -ne "$want" ]; then
+    bad "$label — expected exit $want, got $rc; output:"
     sed 's/^/          /' "$OUT"
     return
   fi
   if grep -qF "$marker" "$OUT"; then
     ok "$label"
   else
-    bad "$label — refused, but no line carried the marker \"$marker\"; output:"
+    bad "$label — exited $rc as expected, but no line carried the marker \"$marker\"; output:"
     sed 's/^/          /' "$OUT"
   fi
 }
+
+# The common case: a refusal about the ADRs themselves.
+refuse() { expect_rc 1 "$2" "$3" "$1"; }
 
 # ---------------------------------------------------------------- 1. the fixture set is valid
 
@@ -254,6 +271,48 @@ done <<'ROWS'
 7|Workers are in-process sub-agents, never claude -p|0007-workers-are-in-process-sub-agents-never-claude-p.md
 ROWS
 accept "$seven" "real-titles — the kebab rule produces the seven filenames docs/adr will carry"
+
+# ---------------------------------------------------------------- 13. a mis-invocation
+#
+# Two arguments is a typo in the add_gate line or in the ci.yml step. The dangerous answer is not
+# a bad message — it is exit 0: the gate would stay green forever over a root it never opened,
+# the same absence-shaped pass as an unwired suite (#45). Exit 2 says "no verdict", which
+# run-all-tests.sh already distinguishes from a real refusal.
+root=$(fixture_root)
+expect_rc 2 "expected at most one argument" "usage-two-args — a mis-invocation exits 2, never 0" \
+  "$root" "an-extra-word"
+
+# ---------------------------------------------------------------- 14. a link with no type
+#
+# `- target: 2` alone. This is how rule 6 gets silenced from the outside: the supersession IS
+# written down, nothing can read it AS one, and `superseded without superseded-by` never fires on
+# a file that looks — to a human skimming the diff — like it carries its trail.
+root=$(fixture_root)
+sed -e 's/^  - type: supersedes$/  - target: 2/' -e '/^    target: 2$/d' \
+  "$root/0003-the-replacement-decision.md" > "$root/tmp"
+mv "$root/tmp" "$root/0003-the-replacement-decision.md"
+refuse "$root" "a link entry has no type" "link-untyped — a target without a type is refused too"
+
+# ---------------------------------------------------------------- 15-16. misnamed ADR files
+#
+# The realistic mistake is a contributor typing THREE digits, not a stray note. Both spellings used
+# to be invisible: the file SET was selected by the very pattern rule 4 checks, so a name wrong in
+# the one way that matters excluded the file from every rule — id uniqueness, the MADR sections,
+# the README index — and the run printed `ADRs OK` over it.
+root=$(fixture_root)
+mv "$root/0001-an-example-decision.md" "$root/001-an-example-decision.md"
+refuse "$root" "not an ADR filename" "filename-three-digits — a three-digit id is refused, not skipped"
+
+root=$(fixture_root)
+mv "$root/0001-an-example-decision.md" "$root/adr-one.md"
+refuse "$root" "not an ADR filename" "filename-no-prefix — a name with no numeric prefix is refused, not skipped"
+
+# The index keeps its exemption: a root of nothing but README.md still reports "no ADR files"
+# rather than refusing README.md for not looking like an ADR.
+only_index="$(kit_scratch)/index-only"
+mkdir -p "$only_index"
+cp "$FIXTURES/README.md" "$only_index/"
+refuse "$only_index" "no ADR files" "index-exempt — README.md is never itself claimed as an ADR"
 
 # ---------------------------------------------------------------- verdict
 

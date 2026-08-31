@@ -211,8 +211,11 @@ PY
 # 7. AdrMcp ships the same way roseline does, at a LOWER level: `.mcp.json` starts it with `dnx`
 #    (the .NET 10 SDK's launcher), so the manifest declares the launcher and the floor — but the
 #    entry is `recommended`, because every consumer degrades to reading `docs/adr/*.md` frontmatter
-#    (#316). Both halves are asserted: the manifest declaration, and the fact that a recommended
-#    entry can never turn into a phase-0 hard fail on a host that lacks the server.
+#    (#316). What is asserted here is the manifest DECLARATION — every field of it can go red on a
+#    typo — plus the status preflight actually reported for the entry. That a `recommended` level
+#    cannot become a phase-0 hard fail is proven generically by cases 5/5b against a synthetic kit,
+#    not re-asserted here where `preflight.sh` only ever emits `missing` for `level = required` and
+#    the assertion would hold by construction.
 #
 #    `$out` from case 1 is long gone by here — cases 5 and 5b rebind it to a SYNTHETIC kit's report —
 #    so this case re-runs the REAL preflight rather than reading a stale variable that would assert
@@ -234,9 +237,8 @@ assert "docs/adr" in adr["hint"], f"the hint must name the fallback the consumer
 seen = {c["name"]: c for c in out["checks"]}
 assert "AdrMcp connected" in seen, "preflight must report the manifest entry"
 status = seen["AdrMcp connected"]["status"]
-assert status != "missing", \
-    f"a recommended entry is a documented degradation, never a phase-0 hard fail, got {status!r}"
-assert status in ("ok", "absent", "unknown"), f"unexpected status {status!r}"
+assert status in ("ok", "absent", "unknown"), \
+    f"a recommended entry degrades in a documented way; 'missing' would be a phase-0 hard fail, got {status!r}"
 PY
 
 echo "preflight golden test OK"
