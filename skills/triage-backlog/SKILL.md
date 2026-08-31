@@ -208,7 +208,7 @@ would not be filed today has no special claim to stay just because it was filed 
 | **keep** | passes the bar, scope is clear, still worth doing | nothing changes — most of a healthy queue lands here |
 | **sharpen** | passes the bar but the title or scope is vague | an edit: name the consequence or the instance, so the next reader can act on it cold |
 | **fold** | an instance of a root that's also open | a `- [ ]` item or comment on the root, and this one closes as a duplicate |
-| **rescope** | a root whose lineage chain is ≥2 deep | one issue re-written to name the *whole* job, with the attempts cited; the fragments fold into it |
+| **rescope** | a root whose lineage chain is ≥2 deep | one **parent** re-written to name the *whole* job — a tracking body ([`../create-issue/references/tracking-issue.md`](../create-issue/references/tracking-issue.md)), the attempts cited under its *Decisions so far* — plus its **frontier as children** with plans, via `create-issue`'s decompose branch; the fragments fold into the children, not the parent |
 | **close — done** | Step 4 found it fixed, with evidence | closed as completed, citing the PR and what in the diff proves it |
 | **close — by decision** | fails the bar: no consequence, no instance in the tree, nobody asked | closed as *not planned*, with the reason recorded in a comment |
 
@@ -241,6 +241,32 @@ gh issue comment "$ROOT" --body "Folds in #$N: <the instance, in one line>."
 gh issue close "$N" --reason "not planned" --comment "Folded into #$ROOT — one job, tracked there."
 ```
 
+**Rescope** is the one disposition that writes a new shape rather than a comment. A chain two deep
+means the job was never named whole, and one wider issue is the same mistake with more words — it
+would still be a single `effort: large` plan no worker can carry. The shape is `create-issue`'s
+**decompose branch**: one **parent** carrying the tracking body and **N children** carrying the
+plans, wired with native edges:
+
+```bash
+# 1. The parent: run create-issue with --seed on the root when it exists (it BECOMES the parent,
+#    its original text kept above the --- rule), or with the whole job as a fresh idea when the
+#    chain has no usable root. Either way the parent's body ends in the tracking sections —
+#    Destination / Notes / Decisions so far / Not yet ticketed / Out of scope — and carries NO plan
+#    token. `Decisions so far` is where the attempts go, one line each, by NAME then number:
+#      - [Attempt title](link) (#N): <what it got done, and what it left>
+# 2. The children: the frontier, filed in dependency order with their plans, each `Part of #P`.
+# 3. The edges — the same second pass create-issue uses:
+skills/create-issue/scripts/wire-edges.sh --repo {owner}/{repo} --parent "$P" \
+  --child "$C1" --child "$C2:blocked-by=$C1"
+# 4. The fragments fold into the CHILD that owns each one (a `- [ ]` on its plan, or a comment),
+#    then close as duplicates naming that child — never into the parent, which stays plan-less.
+gh issue close "$FRAG" --reason "not planned" --comment "Folded into <Child title> (#$C1) — one slice of <Parent title> (#$P)."
+```
+
+Read the parent back the way `create-issue` Step 7 does — `grep -cE 'Implementation plan|^### Task|- \[ \]'`
+over its body must print `0` — before closing a single fragment: a parent that trips it would be
+dispatched whole, which is the failure the rescope exists to end.
+
 Apply a `wontfix`-style label **only** if the profile's Labels section says this repo uses one and its
 convention allows a second label on an issue. Where it doesn't, the `not planned` reason is already
 the record — GitHub renders it, `gh issue list --state closed` filters on it, and it can't drift from
@@ -253,6 +279,11 @@ reads back its labels — a `gh` call that prints nothing is not proof it worked
 
 - **The tally** — reviewed, kept, sharpened, folded, rescoped, closed-done, closed-by-decision, and
   how many were excluded as in-flight or left unreviewed.
+- **Each rescope by name, then number** — the parent and every child as *title (#N)*, which
+  children are on the frontier, and where each folded fragment went: *"Rescoped **The
+  repo-configuration story** (#279) into 3 children — **Manifest-driven label creation** (#402,
+  ready), …; folded #281, #290 into #402."* Never a bare list of numbers; the hand-off is
+  `/implement-issue #<first frontier child>`, not the parent.
 - **Is it draining?** — open count before and after, and against it the arrival rate: issues filed
   since the last triage, and by which inlet (merges, off-scope captures, direct requests). A queue
   that shrinks by 8 in a pass and grows by 10 between passes has an inlet problem, and no amount of
