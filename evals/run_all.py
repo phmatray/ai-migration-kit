@@ -17,9 +17,9 @@ import trigger_eval as te
 # Every skill under skills/ — the trigger contract has one home per skill now
 # (evals/<skill>-trigger-eval.json), and tests/skills/check-frontmatter.py fails CI if
 # one is missing, so the "! skipping" branch below can no longer fire for a real skill (#331).
-SKILLS = ["auto-dev", "create-issue", "review-followups", "profile-repo", "implement-issue",
-          "migrate-legacy", "merge-pr", "setup-repo", "debug-issue",
-          "triage-backlog"]
+SKILLS = ["auto-dev", "create-issue", "debug-issue", "implement-issue",
+          "merge-pr", "migrate-legacy", "profile-repo", "review-followups",
+          "setup-repo", "triage-backlog"]
 EVALS_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EVALS_DIR / "results"
 

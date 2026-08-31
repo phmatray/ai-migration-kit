@@ -141,8 +141,7 @@ _Avoid_: stage, step
     (`"owner": true` in a migrated repo's `migration/report.json`; `scripts/followups.py`'s French
     output calls this "décisions propriétaire").
   - `triage-backlog` / `review-followups`: **close by decision** — the documented "not pursued"
-    outcome
-    for an issue that fails the filing bar on review.
+    outcome for an issue that fails the filing bar on review.
 
   When the bare word would read the wrong way, qualify it: *registry decision*, *owner decision*,
   *close by decision*. Renaming any of these is a separate decision for the owner, not a side

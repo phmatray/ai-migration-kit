@@ -51,9 +51,9 @@ from pathlib import Path
 # (so the implement-issue vs merge-pr boundary can be read off a single run).
 # All ten skills, so a near-miss negative records WHICH sibling took it: a specificity
 # number is only real when the `fired` histogram names the skill that should have won (#331).
-DEFAULT_KNOWN = ["auto-dev", "create-issue", "review-followups", "profile-repo", "implement-issue",
-                 "migrate-legacy", "merge-pr", "setup-repo", "debug-issue",
-                 "triage-backlog"]
+DEFAULT_KNOWN = ["auto-dev", "create-issue", "debug-issue", "implement-issue",
+                 "merge-pr", "migrate-legacy", "profile-repo", "review-followups",
+                 "setup-repo", "triage-backlog"]
 
 # A slash command is a skill's other front door, and its file is NOT named after the skill:
 # `/migrate` expands to commands/migrate.md, which contains no "migrate-legacy". Without this map

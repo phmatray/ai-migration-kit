@@ -9,6 +9,8 @@ tags:
 - breaking-change
 links:
 - type: relates-to
+  target: 1
+- type: relates-to
   target: 3
 - type: relates-to
   target: 4
@@ -77,7 +79,7 @@ own, which is how four offenders accumulated. This record makes the wait afforda
 arbitrary: a future rule-breaking name is fixed at the next major, not argued about again from
 scratch, and the ADR is what a reviewer cites when a new skill is proposed under a third shape.
 
-The rules also make the ten-skill list *derivable* rather than enumerated. `README.md` and
+The rules also make the ten-skill list *predictable* rather than arbitrary. `README.md` and
 `ARCHITECTURE.md` now state the two rules and point here instead of explaining why four entries look
 different, and a reader who knows the family (`migrate-*`, `auto-dev-*`) can predict the folder name
 without opening `skills/`.

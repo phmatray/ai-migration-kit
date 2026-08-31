@@ -10,8 +10,9 @@ description: >-
   already works.
 license: MIT
 compatibility: >-
-  Harness-agnostic: no tools, MCP servers or repo state required. Ported from the corresponding
-  superpowers skill, reworded for trigger precision and decoupled from that suite's other skills.
+  Harness-agnostic: no tools, MCP servers or repo state required. Ported from the superpowers skill
+  `engineering/diagnosing-bugs` (mattpocock/skills, MIT), reworded for trigger precision and
+  decoupled from that suite's other skills.
 metadata:
   author: Philippe Matray
   suite: ai-migration-kit

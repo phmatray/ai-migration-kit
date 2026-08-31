@@ -200,11 +200,22 @@ MIT — ported from mattpocock/skills):
 | | before | after |
 |---|---:|---:|
 | Total across the ten skills | 8,518 | 6,645 |
-| Largest single description | 1,018 (`auto-dev`) | 745 (`triage-backlog`) |
-| Over the 750 soft ceiling | 7 | 0 |
+| Largest single description | 1,018 (`auto-dev`) | 752 (`triage-backlog`) |
+| Over the 750 soft ceiling | 7 | 1 |
 
 `debug-issue` is the one that **grew** (513 → 593): it was the only skill with no French
 trigger form, though its eval set carries two French positives, so it gained them here.
+
+The `after` column was re-measured after the 2.0 skill rename (#389), which spends characters no
+one chose: `triage-backlog` went 745 → 752 purely because its description names two other skills,
+and `followups` → `review-followups` is +7. That is the one standing WARN — it is a **naming** cost,
+not a trigger-wording one, and trimming it here would change a description the rename deliberately
+left alone, so it is tracked separately rather than absorbed into the rename.
+
+**The stored results under `results/` were rewritten by that rename too.** Every skill name in
+`baseline.json` and the per-skill result files now reads with its 2.0 spelling, so the owner's next
+run compares against the same baseline instead of treating a renamed skill as brand new — but the
+measurements themselves predate the rename, `fired` histograms included.
 
 **What the cut removed, precisely.** Not "nothing" — the honest list is: identity the body already
 carries (*"the 'ship it' counterpart to `implement-issue`"*), per-step mechanism the body already

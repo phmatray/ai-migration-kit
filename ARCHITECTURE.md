@@ -6,8 +6,8 @@ and the `auto-dev` fleet supervisor above them) — bridged where a migration's 
 tracked GitHub issues. Every skill carries `metadata.suite: ai-migration-kit` in its frontmatter; in
 Claude Code the plugin namespaces them as `ai-migration-kit:<skill>`.
 
-Every folder under `skills/` is named by one of two rules, so the inventory below is derivable
-rather than enumerated: a **standalone** skill is `verb-object`, and a **member of a family** is
+Every folder under `skills/` is named by one of two rules, so the inventory below is predictable
+rather than arbitrary: a **standalone** skill is `verb-object`, and a **member of a family** is
 `<family>-<role>`, where the family is itself a rule-1 name or the bare verb that heads it. Renames
 happen only in a major —
 [ADR 0012](docs/adr/0012-two-skill-naming-rules-verb-object-and-family-role.md) is the decision.
@@ -82,9 +82,8 @@ one (#175). Edit the table; the graph follows. Labels are free text: only the `(
 compared.
 
 The `review-followups → create-issue → implement-issue → merge-pr → create-issue` chain is
-deliberate:
-`merge-pr` files the follow-ups it discovers, which feeds the queue again — the backlog stays
-truthful instead of evaporating in chat.
+deliberate: `merge-pr` files the follow-ups it discovers, which feeds the queue again — the backlog
+stays truthful instead of evaporating in chat.
 
 **That chain is a cycle, and `triage-backlog` is what keeps it from being a closed one.** Three
 inlets write to the queue — `merge-pr` Step 6, `auto-dev`'s off-scope capture, and direct

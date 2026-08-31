@@ -52,7 +52,8 @@
     "skills/auto-dev/scripts/usage_report.py": "an offline cost-accounting report, not a control-flow choice",
     "skills/auto-dev/scripts/wait-ci.sh": "blocks until CI is final and prints the result table; it reports state, the caller decides what to do with it",
     "skills/create-issue/scripts/wire-edges.sh": "a guarded GitHub write helper (sub-issue and blocked_by edges, 404 = text fallback); it prints ok/fallback/FAILED per edge, the calling skill decides what a fallback means for its report",
-    "skills/profile-repo/scripts/repo-profile.sh": "detects and prints repo facts, or shows the committed profile; a probe, not a control-flow choice",
+    "skills/debug-issue/find-polluter.sh": "a bisection utility a developer runs by hand to find which test creates unwanted state \u2014 it reports the polluter it bisected to, the debugger decides what to do about it; not a control-flow choice the methodology makes",
+    "skills/debug-issue/scripts/hitl-loop.template.sh": "a TEMPLATE a debugger copies and edits \u2014 it prompts a human and prints their answers as KEY=VALUE; it has no verdict of its own to register",
     "skills/implement-issue/scripts/_assert-branch.sh": "sourced by the guards, never executed on its own — a shared assertion helper, not an independent decision",
     "skills/implement-issue/scripts/guarded-commit.sh": "a guarded git-write wrapper; it enforces an invariant (HEAD is the named branch), not a registered verdict vocabulary",
     "skills/implement-issue/scripts/guarded-merge.sh": "a guarded git-write wrapper, same shape as guarded-commit.sh",
@@ -64,11 +65,10 @@
     "skills/merge-pr/scripts/guarded-pr-merge.sh": "merges a PR and reads the outcome back from `gh pr view`'s state; a guarded write plus read-back, not a registered verdict vocabulary",
     "skills/merge-pr/scripts/parent-decision-note.sh": "reads a merged child issue's native `parent` field and appends one line to the parent's body when one exists; a mechanical read-then-conditional-edit (idempotent per PR number), not a control-flow choice",
     "skills/merge-pr/scripts/remote-branch-teardown.sh": "finishes a remote-branch delete `gh pr merge` left undone; a mechanical cleanup step, not a control-flow choice",
+    "skills/profile-repo/scripts/repo-profile.sh": "detects and prints repo facts, or shows the committed profile; a probe, not a control-flow choice",
     "skills/setup-repo/scripts/parse-manifest.py": "reads a repo-setup manifest and emits flat records; a data-shape translator, not a control-flow choice",
     "skills/setup-repo/scripts/project-area-options.py": "rewrites a copied issue form's Area dropdown from the manifest; a mechanical rewrite, not a control-flow choice",
     "skills/setup-repo/scripts/repo-setup.sh": "converges a repo to the expected configuration (plan/apply); it does not itself emit a registered verdict",
-    "skills/debug-issue/find-polluter.sh": "a bisection utility a developer runs by hand to find which test creates unwanted state \u2014 it reports the polluter it bisected to, the debugger decides what to do about it; not a control-flow choice the methodology makes",
-    "skills/debug-issue/scripts/hitl-loop.template.sh": "a TEMPLATE a debugger copies and edits \u2014 it prompts a human and prints their answers as KEY=VALUE; it has no verdict of its own to register",
     "skills/triage-backlog/scripts/rejected-adrs.sh": "a read-only keyword lookup over rejected ADRs; it reports rows and distinguishes 'found none' from 'could not look', the calling skill decides whether a hit blocks a filing"
   }
 }

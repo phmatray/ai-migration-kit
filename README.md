@@ -237,7 +237,7 @@ User-typed entry points, each a `commands/*.md` file:
 Model-invoked, each a `skills/<name>/SKILL.md` file. The issue/PR lifecycle trio and their
 supervisors are usable on any repo, not just migrations.
 
-**The names follow two rules, so the list below is derivable rather than memorised:** a standalone
+**The names follow two rules, so the list below is predictable rather than arbitrary:** a standalone
 skill is `verb-object` (`create-issue`, `profile-repo`, `debug-issue`), and a member of a family is
 `<family>-<role>`, where the family is itself a rule-1 name or the bare verb that heads it
 (`migrate` → `migrate-legacy`, `migrate-assess`, `migrate-followups`; `auto-dev` →
