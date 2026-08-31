@@ -121,6 +121,45 @@ flip checkbox lines under a `### Task` heading. Note the **Global Constraints** 
 floors, architecture invariants from *Architecture grain*, commit identity, build constraints) — these
 bind every task.
 
+### Then check the plan is still fresh
+
+The plan was written the day the issue was **filed**; you are executing it whenever the issue reached
+the front of the queue — weeks and dozens of merges later. #233 and #245 both trace to a `**Files:**`
+line naming a path `main` no longer had, and the failure is absence-shaped: the per-task subagent
+opens the file, does not find it, improvises the nearest thing, its filtered test goes green, the box
+gets ticked, and Step 10 never says the plan described a different tree. So the question is asked
+once, mechanically, **before** the worktree and the draft PR exist:
+
+```bash
+# Spelled from the MAIN checkout, like Step 6's tick-plan.sh: this runs BEFORE Step 4, so there
+# is no $WORKTREE and no $GUARDS yet — those are Step 4's, and this check has to answer first.
+./skills/implement-issue/scripts/plan-freshness.sh -C . --base origin/main /tmp/plan-$ISSUE.md
+```
+
+`0` → every `modify`/`test`/`delete` path the plan names still resolves; carry on. `5` → at least one
+does not, and the `MISSING <verb> <path> (Task N)` lines name them. `2` → **no verdict** (not a plan,
+an empty file, a base ref that does not resolve): fix the invocation rather than reading the silence
+as fresh. Fetch `origin/main` first — a stale remote-tracking ref reports a path MISSING because the
+local ref predates the commit that added it, which is a false stale. Full recipe:
+`references/github-mechanics.md` §2b.
+
+**Re-anchor each `MISSING` through its task's `**Interfaces:**` line, never by guessing.** That line
+names the symbol the task is actually about, and the symbol — not the path — is the durable identity.
+Search for it on the base ref (`git grep -n -l -F -- '<symbol>' origin/main`) and let the file count
+decide:
+
+- **exactly one file** → the path moved. Record `STALE: <old> → <new> (Task N)` and use the new path
+  for that task. The `STALE:` list is carried to Step 10, which reports it.
+- **zero, or more than one** → you cannot tell where the task's work belongs, and picking one is the
+  improvisation this check exists to stop. That task has **no usable plan** — the Autonomy contract's
+  genuine blocker. Stop *before* Step 4's worktree and Step 5's scaffold, and report which path could
+  not be re-anchored and what the search returned.
+
+A `SKIP create <path>` line is not a finding: the plan is about to create that path, so its absence is
+the expected state. And do **not** repair the plan on the issue — `tick-plan.sh` accepts a body that
+differs from the original in checkbox characters and nothing else, so a rewritten path would be
+refused, correctly. The `STALE:` list lives in the run and reaches the reader through Step 10.
+
 ## Step 3 — Pick the execution mode
 
 You can't change this session's reasoning-effort setting, so "Extra vs Ultracode" is a choice of

@@ -124,6 +124,55 @@ page into one array before `jq` sees it. Either way `/tmp/plan-$ISSUE.md` now ho
 text; a body-sourced file also carries the template fields and collapsed brainstorm/spec above it,
 which is fine — §3/§4 only ever touch `### Task` checkbox lines.
 
+### 2b. Is that plan still fresh? (#322)
+
+The file you just fetched describes the tree as it was when the issue was **filed**. Ask whether it
+still describes `main` before anything is built — the shipped script does it, so the answer is an
+exit code rather than a judgement:
+
+```bash
+# $REPO is the checkout you were launched in — the MAIN one. This runs before Step 4, so there is no
+# $WORKTREE and no $GUARDS yet; the freshness question has to be answered before either exists.
+# origin/main must be up to date first: a stale remote-tracking ref would report a path as MISSING
+# because the local ref predates the commit that added it — a false stale, which is worse than none.
+git -C "$REPO" fetch origin main --quiet
+
+FRESH=0
+"$REPO/skills/implement-issue/scripts/plan-freshness.sh" -C "$REPO" --base origin/main \
+  "/tmp/plan-$ISSUE.md" > "/tmp/plan-$ISSUE-freshness.txt" 2>&1 || FRESH=$?
+
+case "$FRESH" in
+  0) : ;;                                                   # every checked path resolves
+  5) grep '^MISSING ' "/tmp/plan-$ISSUE-freshness.txt" ;;    # the paths to re-anchor, below
+  *) echo "no verdict (exit $FRESH) — fix the invocation; do NOT read this as fresh"; exit 1 ;;
+esac
+```
+
+Exit **2** is the no-verdict code, not a pass: an empty `/tmp/plan-$ISSUE.md` (the failed-fetch case
+§2 guards), a file with no `### Task`, a directory that is not a repository, or a `--base` that does
+not resolve. Reading it as `0` restores exactly the silence the script was added to remove.
+
+**Re-anchoring a `MISSING` path.** Each `### Task N` block carries an `**Interfaces:**` line naming
+the symbol the task is about; that symbol, not the path, is the durable identity. Search for it on the
+base ref and let the count decide — this is the whole rule, and it is deliberately unforgiving:
+
+```bash
+# One task's symbol, taken verbatim from its **Interfaces:** line. -l so the answer is a file list;
+# `sort -u` because one file can match many times and it is the FILE COUNT that decides.
+git -C "$REPO" grep -n -l -F -- '<symbol from the task Interfaces line>' origin/main \
+  | sort -u > "/tmp/plan-$ISSUE-anchor.txt"
+wc -l < "/tmp/plan-$ISSUE-anchor.txt"
+```
+
+| files found | verdict |
+|---:|---|
+| `1` | the path moved. Record `STALE: <old> → <new> (Task N)` and use the new path. Step 10 reports the list. |
+| `0` or `2`+ | you cannot tell where the work belongs. That task has **no usable plan** — stop before the worktree and the scaffold, and report the path and what the search returned. |
+
+Do **not** repair the plan on the issue. `tick-plan.sh` accepts a body that differs from the original
+in checkbox characters and nothing else (§4), so rewriting a path there would be refused — correctly.
+The `STALE:` list lives in the run and reaches the reader through Step 10 and the PR body.
+
 ---
 
 ## 3. Decide which tasks are already done (resume + progress)

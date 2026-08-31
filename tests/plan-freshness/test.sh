@@ -143,5 +143,46 @@ run_case "C8 --base without-a finds a.sh gone" 5 "$WORK/all-present.md" --base w
 want_line "C9 …and names it MISSING          " "MISSING modify a.sh (Task 1)"
 run_case "C10 --base origin/main is the same as the default" 0 "$WORK/all-present.md" --base origin/main
 
+# --------------------------------------------------- 4. the prose that has to CALL the script
+#
+# A shipped script nothing invokes is the same absence-shaped failure ci-wiring-check.py exists for,
+# one layer up: `plan-freshness.sh` can be green on every case above while SKILL.md Step 2 never
+# mentions it, and a run would then execute a stale plan exactly as it did before #322. So the
+# call site is pinned too — per STEP, not per file, because a grep over the whole SKILL.md passes
+# on a mention parked in any other step.
+
+section() {  # section <file> <start-heading> <end-heading> -> path to the extracted block
+  local file="$1" start="$2" end="$3" out="$WORK/section.txt"
+  awk -v s="$start" -v e="$end" '
+    index($0, s) == 1 { inside = 1 }
+    inside && index($0, e) == 1 && index($0, s) != 1 { exit }
+    inside { print }
+  ' "$file" > "$out"
+  printf '%s' "$out"
+}
+
+want_in() {  # want_in <label> <file> <needle>
+  local label="$1" file="$2" needle="$3"
+  if [ -s "$file" ] && grep -Fq -- "$needle" "$file"; then
+    note_ok "$label"
+  else
+    note_fail "$label — '$needle' is not in $(basename "$file")"
+  fi
+}
+
+[ -r "$SKILL" ] || { echo "FAIL: $SKILL missing"; exit 1; }
+
+echo "== SKILL.md Step 2 must RUN the freshness pass and carry a STALE list (#322) =="
+STEP2=$(section "$SKILL" "## Step 2 — " "## Step 3 — ")
+want_in "P1 Step 2 calls plan-freshness.sh " "$STEP2" "plan-freshness.sh"
+want_in "P2 Step 2 names the STALE list    " "$STEP2" "STALE:"
+want_in "P3 Step 2 re-anchors via Interfaces" "$STEP2" "**Interfaces:**"
+
+echo "== github-mechanics §2 must carry the call and the re-anchor recipe =="
+[ -r "$MECHANICS" ] || { echo "FAIL: $MECHANICS missing"; exit 1; }
+want_in "P4 §2 spells the freshness call   " "$MECHANICS" "plan-freshness.sh"
+want_in "P5 §2 spells the re-anchor search " "$MECHANICS" "grep -n -l -F --"
+want_in "P6 §2 names the STALE record        " "$MECHANICS" "STALE:"
+
 [ "$FAILED" -eq 0 ] || exit 1
 echo "plan-freshness golden test: all cases behaved as specified"
