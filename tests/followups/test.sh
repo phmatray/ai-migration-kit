@@ -247,4 +247,11 @@ else
 fi
 [ "$rc" -eq 2 ] || { echo "ÉCHEC : un answered.md vide doit sortir en code 2, a rendu $rc : $(cat "$scratch/empty.out")"; exit 1; }
 
+# La doc du skill nomme les deux flags — sinon le loop questionnaire -> ingest n'est documenté
+# nulle part et personne ne sait qu'il existe.
+grep -qF -- '--questionnaire' skills/followups/SKILL.md || {
+  echo "ÉCHEC : skills/followups/SKILL.md ne mentionne pas --questionnaire"; exit 1; }
+grep -qF -- '--ingest' skills/followups/SKILL.md || {
+  echo "ÉCHEC : skills/followups/SKILL.md ne mentionne pas --ingest"; exit 1; }
+
 echo "OK test golden followups"
