@@ -78,6 +78,10 @@ export, an admin panel"). Don't open a Q&A — infer scope from the prompt, READ
 codebase. Treat each named idea as its own issue and loop. For each, settle on a crisp **title**
 (imperative, e.g. "Add CSV export") before writing anything.
 
+If the target repo has a root `CONTEXT.md`, settle the title and the body's nouns in its terms
+(prefer the glossary's word, never one listed under `_Avoid_`); if it has none, say so in one
+sentence of the report and proceed.
+
 ## Step 3 — Check for duplicates, root causes & related issues
 
 A duplicate is noise; an issue that ignores its neighbours reads like it landed from orbit. Search open

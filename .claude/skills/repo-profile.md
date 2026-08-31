@@ -164,6 +164,32 @@ hand-copying it further.
   pipefail — it fails when coverage WAS produced"*. Lead the body with the problem and the
   evidence, not a template heading.
 
+## Tracker
+- **Tracker:** github (github.com) — the lifecycle skills drive GitHub semantics through `gh`; any
+  other value is refused at preconditions (`skills/_shared/preconditions.md` §Verify
+  authentication).
+
+## Domain language
+- none — no `CONTEXT.md` / `CONTEXT-MAP.md` / `docs/CONTEXT.md` at the repo root (#311; a consumer
+  of I8 would fill this in once one exists).
+
+## ADRs
+- **Root:** none — no `docs/adr/`, `doc/adr/`, `adr/` or `.agents/adr/` at the repo root (#311;
+  I7b owns wiring a consumer to whichever root eventually exists).
+- **Server:** files only (as `detect` measured on the generating machine — `claude mcp list`
+  named no `adr`/AdrMcp server there; a session fact, not a repo fact, and not durable across
+  machines).
+
+## Out-of-scope records
+- none — no `docs/out-of-scope/` yet (#311; I7a owns wiring `triage-backlog`/`create-issue` to it
+  once one exists).
+
+## Coding standards
+- `.editorconfig` — present at the repo root. No `CONTRIBUTING.md`, no `.globalconfig`, no
+  `Directory.Build.props` analyzer settings, no ESLint/ruff config (this repo ships bash/python/
+  markdown, not JS or Python-with-lint-config). `implement-issue`'s review pass falls back to the
+  Fowler smell baseline beyond what `.editorconfig` states.
+
 ## Conflict hot-spots (merge-with-main resolutions)
 | File | Why it collides | Resolution |
 |------|-----------------|------------|
