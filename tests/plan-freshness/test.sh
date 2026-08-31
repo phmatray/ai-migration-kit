@@ -194,5 +194,25 @@ STEP6=$(section "$SKILL" "## Step 6 — " "## Step 7 — ")
 want_in "P9 Step 6 names the seam preamble " "$STEP6" "Seams under test"
 want_in "P10 Step 6 links the seam doctrine" "$STEP6" "_shared/test-seams.md"
 
+echo "== Step 7 must review on a SECOND axis, against the Spec (#322) =="
+if [ -r "$SPEC_REVIEW" ]; then
+  note_ok "P11 references/spec-review.md exists"
+else
+  note_fail "P11 references/spec-review.md exists — $SPEC_REVIEW is missing"
+fi
+STEP7=$(section "$SKILL" "## Step 7 — " "## Step 8 — ")
+want_in "P12 Step 7 links the Spec brief   " "$STEP7" "](references/spec-review.md)"
+want_in "P13 Step 7 routes creep to the PR " "$STEP7" "### Follow-ups"
+want_in "P14 Step 7 refuses to rerank      " "$STEP7" "rerank"
+
+# The credit is a licence obligation, not decoration: the brief, the a/b/c categories, the smell
+# baseline and the two-heading aggregation are Matt Pocock's, taken under MIT.
+want_in "P15 the brief credits its source  " "$SPEC_REVIEW" "mattpocock/skills"
+want_in "P16 the brief carries the a/b/c   " "$SPEC_REVIEW" "scope creep"
+want_in "P17 the brief bounds its length   " "$SPEC_REVIEW" "400 words"
+# The Spec is fetched from an issue body — foreign text. A reference that ingests it and does not
+# carry the boundary is the #266 failure one file over.
+want_in "P18 the brief reads it as data    " "$SPEC_REVIEW" "untrusted-input-boundary.md"
+
 [ "$FAILED" -eq 0 ] || exit 1
 echo "plan-freshness golden test: all cases behaved as specified"

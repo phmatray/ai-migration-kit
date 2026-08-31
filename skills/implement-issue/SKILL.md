@@ -480,18 +480,47 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
 
 Continue until no task has an unchecked box. The issue's plan now reads all-`- [x]`.
 
-## Step 7 — Code review
+## Step 7 — Review on two axes: Standards and Spec
 
-Run the **`code-review` skill** over the **whole feature branch** (`main...HEAD`, not just the last
-commit) to catch what task-by-task TDD misses — correctness bugs, missed reuse, cross-task
-inconsistencies. Match effort to Step 3: `/code-review` (default) for inline/small, `/code-review high`
-(or `ultra` for a very large change) for subagent/broad. `--fix` is the fast path; otherwise read the
-findings and fix them yourself.
+Review the **whole feature branch** (`main...HEAD`, not just the last commit) along **two axes, run in
+parallel and never merged**:
 
-This earns its keep most when green tests can't see the whole truth: a **code generator** whose target
-toolchain is absent (conformance logs INCONCLUSIVE), a snapshot suite that captures output without
-executing it — anything where "tests pass" proves the C# ran but not that the *emitted* artifact is
-valid. Point the review at the generated output in those cases.
+- **Standards** — is this good code by this repo's lights? Correctness bugs, missed reuse, cross-task
+  inconsistencies, the profile's *Coding standards*. Run the **`code-review` skill**, matching effort
+  to Step 3: `/code-review` (default) for inline/small, `/code-review high` (or `ultra` for a very
+  large change) for subagent/broad. `--fix` is the fast path; otherwise read the findings and fix them
+  yourself.
+- **Spec** — is this what the issue *promised*? Dispatch **one sub-agent** with the brief in
+  [`references/spec-review.md`](references/spec-review.md): the diff, the commit list and the issue's
+  📋 Spec, reporting (a) requirements missing or partial, (b) behaviour never asked for (scope creep),
+  (c) requirements implemented but wrong — **quoting the Spec line for each**, under 400 words.
+
+A change can pass one axis and fail the other: code that follows every convention and implements the
+wrong feature passes Standards and fails Spec. The task loop makes that likelier here than elsewhere,
+because each task is verified only by *its own* filtered test written from *its own* block — nothing
+in Step 6 ever compares the whole against the promise. A PR can reach Step 9 all-green having built
+the wrong feature to the letter, and this axis is the only thing that looks.
+
+The Standards axis earns its keep most when green tests can't see the whole truth: a **code generator**
+whose target toolchain is absent (conformance logs INCONCLUSIVE), a snapshot suite that captures output
+without executing it — anything where "tests pass" proves the C# ran but not that the *emitted*
+artifact is valid. Point the review at the generated output in those cases.
+
+**Report the two verbatim, under their own headings, and do not rerank across them.** One merged list
+lets a Standards nit outrank a missing acceptance criterion, and the reader acts on the top of the
+list — that masking is what the separation exists to prevent. Close with a one-line tally per axis and
+the worst item *within* each, never a single winner across both.
+
+Then act on the disposition (the full table is in the reference):
+
+| Finding | What happens |
+|---|---|
+| Standards findings, and Spec **(a) missing** / **(c) wrong** | fix **before** the ready-flip, commit on this branch |
+| Spec **(b) not asked for** (scope creep) | a bullet under `### Follow-ups` in the **PR description** — create the section if absent |
+
+`### Follow-ups` and not the session report: that heading is where `merge-pr` Step 6 harvests deferred
+work and files it as tracked issues, so a creep finding recorded anywhere else is lost at merge. Do not
+widen this PR to justify the creep, and do not delete a sibling PR's work on a hunch.
 
 Triage with `superpowers:receiving-code-review` rigor — implement the real findings, push back (in your
 report) on wrong ones rather than performatively complying. Then commit and push:
@@ -502,11 +531,15 @@ report) on wrong ones rather than performatively complying. Then commit and push
 "$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH"
 ```
 
+Spec-axis fixes commit the same way, as `fix: address spec-review findings`, so the two axes stay
+legible in the history.
+
 The guards matter here more than anywhere: `code-review` is a sub-skill that **mutates the working
 tree** (it has run `git checkout <ref> -- .` in a shared checkout and destroyed an uncommitted delta),
 so this is the commit most likely to be made from a tree that moved under you.
 
-If the review is clean, say so and skip the fix commit.
+If an axis is clean, say which one and skip its fix commit. **"Clean" is a result, not a default**: an
+axis that was never run is not clean, and Step 10 reports the two separately for exactly that reason.
 
 ## Step 8 — Sync with `main` and resolve conflicts
 
