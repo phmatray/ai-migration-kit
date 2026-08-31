@@ -461,6 +461,9 @@ jobs:
       - name: Implement-issue worktree-step golden test (Step 4 as one call, never a re-spelling, #280)
         run: ./tests/implement-issue-worktree-step/test.sh
 
+      - name: Plan-freshness golden test (every modify path verified against main before a task runs, #322)
+        run: ./tests/plan-freshness/test.sh
+
       - name: Roseline golden test (shipped MCP config + the gate, driven to red)
         run: ./tests/roseline/test.sh
 
