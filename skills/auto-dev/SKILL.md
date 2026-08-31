@@ -274,7 +274,7 @@ survives compaction and `loop` re-fires. Keep it small and current:
 ## Queue — SMALL (then MEDIUM), eligible & area-tagged
 <#n (area), ...>
 ## Completed
-- #<n> → PR #<pr> MERGED (<commit>)
+- #<n> → PR #<pr> MERGED (<commit>) — base <green | RED #<bug> | unverified: <why>>
 ## Needs manual sweep
 - #<n> → PR #<pr> — WORKTREE: <text>
 ## Off-scope issues filed by workers
@@ -371,8 +371,19 @@ Phase 2 expands to: `merge-pr <PR>` driven to MERGED (never idle at "ready") →
 report line:
 
 ```
-ISSUE: <N> | PR: <number|none> | STATUS: MERGED|BLOCKED|FAILED | DETAIL: … | FILED: … | WORKTREE: …
+ISSUE: <N> | PR: <number|none> | STATUS: MERGED|BLOCKED|FAILED | DETAIL: … | FILED: … | WORKTREE: … | BASE: …
 ```
+
+**A red base is a fleet-visible fact, not a worker's private note.** Workers land through `merge-pr`,
+so they inherit its Step 5b for free: after each merge it reads the CI run that merge triggered on the
+default branch, resolved by the squash sha, and answers `green` / `RED` / `unverified`. Under a fleet
+that answer is *more* load-bearing than in a solo run — several merges land within minutes, each one
+re-basing every other worker's in-flight PR, so one worker's red base is what the next N workers spend
+their CI budget failing on. It reaches you in the phase-2 report's `BASE:` field; put it on the
+**Completed** row of the state board rather than folding it into `DETAIL:`, and treat a `RED` as a
+reason to look before dispatching more work into it — the bug is already filed, so this is triage, not
+a stop. `unverified` is an answer too (a run cancelled by the next merge in the train is the common
+case): record it as-is, and never upgrade it to green.
 
 **Passing the PR number between phases** — belt and braces, because the whole pipeline stalls if this
 is lost: have phase 1 write the digits to the file you name in its prompt; fall back to the `PR:`
@@ -509,7 +520,7 @@ Its `merge-pr <PR>` call runs into that skill's own Step 1 resume contract, whic
 `implement-issue` worktree/branch teardown — so it can never attempt a second merge; it only
 finishes the half `guarded-pr-merge.sh`'s own header comment explicitly leaves to the caller.
 Recognize it's done from the same structured report line every phase-2 worker already emits
-(`ISSUE: … | PR: … | STATUS: MERGED|BLOCKED|FAILED | … | WORKTREE: …`), and only then move this
+(`ISSUE: … | PR: … | STATUS: MERGED|BLOCKED|FAILED | … | WORKTREE: … | BASE: …`), and only then move this
 issue's `## Completed` line — the slot was already refilled, but the entry isn't truly closed
 until that report confirms the local half landed too. If the cleanup sub-agent fails or times out,
 don't block the fleet on it: `merge-pr` is resume-safe, so treat it like any other stalled

@@ -436,6 +436,9 @@ jobs:
       - name: Merge-gate golden test (the latest run per job decides, over fixtures)
         run: ./tests/merge-gate/test.sh
 
+      - name: Merge base-CI golden test (the base verdict is resolved by sha, never by recency)
+        run: ./tests/merge-base-ci/test.sh
+
       - name: PR-existence guard golden test (an issue-scoped search finds a closer under any branch name)
         run: ./tests/pr-existence-guard/test.sh
 

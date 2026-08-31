@@ -980,6 +980,68 @@ for f in "README.md" "ARCHITECTURE.md"; do
 done
 echo "ok   README and ARCHITECTURE both name AdrMcp and docs/adr"
 
+# ---------------------------------------------------------------------------------------------
+# merge-pr reads the base-branch CI run its OWN merge triggered, and always says what it found
+# (#355). The skill used to end its contract at "the PR is MERGED": two PRs each green against
+# their own base combined into a red `main` (f17c85c, 2026-08-30) and nobody read the push run,
+# because both merges had already reported success and torn down.
+#
+# Three things are pinned, and the third is the one that keeps the step honest. The step itself,
+# so it cannot be quietly dropped; the helper, so the skill cannot grow a second, hand-rolled CI
+# reader beside it; and ALL THREE report outcomes, because an `unverified` that never reaches the
+# report is indistinguishable from the silence this whole change removes — a merge whose base run
+# was cancelled by the next merge in the train is the COMMON case, not an edge one.
+echo "== merge-pr reports the base CI verdict its own merge produced (#355) =="
+skill="$KIT_ROOT/skills/merge-pr/SKILL.md"
+[ -f "$skill" ] || { echo "FAIL: $skill missing"; exit 1; }
+for needle in 'Step 5b' 'base-run-verdict.sh' 'base green at' 'base RED at' 'base unverified at'; do
+  grep -q -F -- "$needle" "$skill" \
+    || { echo "FAIL: $skill does not name '$needle' — Step 5b is not wired into the skill"; exit 1; }
+done
+# Never revert, and never stop. Both are autonomy-contract promises the step makes in prose only,
+# so prose is where they have to be pinned: an autonomous fleet that gained a post-merge stop, or
+# a skill that reverted somebody else's merge on an inherited red, are the two ways this step
+# turns into a worse failure than the one it fixes.
+grep -q -i -- 'never revert' "$skill" \
+  || { echo "FAIL: $skill no longer says Step 5b never reverts"; exit 1; }
+# The by-sha resolution recipe has one home, beside the §3 check-runs recipe it reuses.
+mech="$KIT_ROOT/skills/merge-pr/references/merge-mechanics.md"
+[ -f "$mech" ] || { echo "FAIL: $mech missing"; exit 1; }
+grep -q -F -- 'base-run-verdict.sh' "$mech" \
+  || { echo "FAIL: $mech carries no base-run resolution recipe"; exit 1; }
+echo "ok   merge-pr names Step 5b, the helper, and all three base outcomes in its report"
+# Three ways Step 5b could be written and still pass every check above, each found by review and
+# each producing a WRONG report rather than a missing one — so each gets its own witness:
+#   * `guarded-pr-merge.sh` prints the literal `<unknown-sha>` when its readback finds no
+#     mergeCommit.oid. That is not a hex sha, the helper refuses it (exit 64 — its one non-answer),
+#     and the snippet's three branches all fall through to nothing.
+#   * a merge train inherits one red across several DIFFERENT squash shas, so a sha-keyed
+#     de-duplication never matches and N workers file N bugs for one root cause.
+#   * the resume path (`state == MERGED` on entry) has no $MERGE_OUT to read a sha from, and
+#     `auto-dev` now reads a BASE: field off exactly the report line that path produces.
+for needle in 'mergeCommit' 'the same job(s)' 'resumed after the merge'; do
+  grep -q -F -- "$needle" "$skill" \
+    || { echo "FAIL: $skill Step 5b lost its guard for '$needle'"; exit 1; }
+done
+echo "ok   Step 5b guards the unknown-sha sentinel, folds on the breakage, and survives a resume"
+
+
+# The fleet inherits Step 5b through its workers, so the answer has to survive the report boundary:
+# a phase-2 worker that folds "the base went red" into free-text DETAIL is indistinguishable, on the
+# orchestrator's state board, from a clean merge. Both halves are pinned — the field on the report
+# line the worker emits, and the place the board puts it — because either one alone re-hides it.
+echo "== a red base after a worker's merge is fleet-visible (#355) =="
+for f in "skills/auto-dev/SKILL.md" "commands/auto-dev-merge.md"; do
+  path="$KIT_ROOT/$f"
+  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+  grep -q -F -- 'BASE:' "$path" \
+    || { echo "FAIL: $path's phase-2 report line carries no BASE: field"; exit 1; }
+done
+grep -q -F -- 'MERGED (<commit>) — base' "$KIT_ROOT/skills/auto-dev/SKILL.md" \
+  || { echo "FAIL: the auto-dev state board's Completed row does not carry the base verdict"; exit 1; }
+echo "ok   auto-dev carries the base verdict on the report line and the state board"
+
+
 echo "skills golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------

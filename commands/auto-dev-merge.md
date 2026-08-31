@@ -35,6 +35,11 @@ OFF-SCOPE PROTOCOL: anything you trip over that is not part of landing PR #$1 ge
 Repo specifics (default branch, merge mode, CI state, commit identity) come from the repo profile,
 which `merge-pr` loads.
 
+`merge-pr` Step 5b reads the CI run YOUR merge triggered on the default branch and reports one of
+three outcomes for it. Carry that answer into the `BASE:` field verbatim — a red default branch after
+your own merge is YOUR finding, not the next worker's, and `unverified` (the run was cancelled by the
+next merge in the train, most often) is an answer to report, not a blank to omit.
+
 Your FINAL message must be this single line and nothing else:
 
-ISSUE: <number of the issue this PR closes, digits only> | PR: $1 | STATUS: MERGED|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none> | WORKTREE: <cleaned up / what remains>
+ISSUE: <number of the issue this PR closes, digits only> | PR: $1 | STATUS: MERGED|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none> | WORKTREE: <cleaned up / what remains> | BASE: <green | RED #<bug> | unverified: <why>>
