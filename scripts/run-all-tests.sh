@@ -131,7 +131,13 @@ EOF
 )"
 fi
 
-add_suite "tests/renovate-config/test.sh"
+# The suite behind that gate shells out to `npx renovate-config-validator` itself, and asserts that
+# its RE2 engine loaded — so it is exactly as network-bound as the gate above and follows the same
+# switch. Registered unconditionally, it turned every offline `--quick` run red on a host without
+# RE2: a missing prerequisite reading as a failed suite, the very shape this script exists to end.
+if [ "$WITH_NETWORK" -eq 1 ]; then
+  add_suite "tests/renovate-config/test.sh"
+fi
 
 # 8: plugin.json's version must match the release-please manifest.
 add_gate "$(cat <<'EOF'

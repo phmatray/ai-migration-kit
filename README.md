@@ -156,8 +156,16 @@ Full reference — the `dnx` version floor, the `Edit` escape hatch for what ros
   `.claude/skills/repo-profile.md`, i.e. one that has opted into the lifecycle skills. Everywhere
   else the plugin is installed, it says nothing.
 - **Fails open, always** — no `jq`, no `awk`, no `git`, an unparseable payload, quoting it cannot
-  trust, and the command proceeds. `GIT_GATE=off` (also `0|false|no|disabled`) disables it outright;
-  `GIT_GATE=on` forces it past the profile probe, and `off` still wins.
+  trust, and the command proceeds. `GIT_GATE=off` (also `0|false|no|disabled`) disables it outright
+  — as a prefix on the one command (`GIT_GATE=off git …`), or set where Claude is launched for the
+  whole session; an `export` typed into a Bash call never reaches the hook (#372). `GIT_GATE=on`
+  forces it past the profile probe, and `off` still wins.
+- **The probe follows `cd`** — `cd /tmp/shop && git init && git commit` is that repository's commit,
+  not the cwd's, so a literal, resolvable `cd` moves the profile lookup the way `-C <path>` does;
+  a `git init` marks what follows as a brand-new, guard-less repository (#372). And the arms read
+  **meaning, not spelling** (#373): `./`, `:/`, a bundled `-fq`, a `-note` file name after `--`
+  are judged as what git does with them, while `restore --staged .` and `push --dry-run` — read-only
+  or less destructive than the replacement a denial would name — pass.
 
 It tokenises rather than greps, so `echo "git push --force"` and `git log # git reset --hard` are
 not denied. Prior art: `git-guardrails-claude-code/scripts/block-dangerous-git.sh` in
@@ -299,8 +307,9 @@ omarchy plugin add https://github.com/Atypical-Consulting/omarchy-aikit.git --en
 - That gate is **inert** in any repository without a `.claude/skills/repo-profile.md`, and
   it **fails open** on every internal error — the decision recorded in
   [ADR 0002](docs/adr/0002-the-roseline-gate-fails-open-always.md).
-- `GIT_GATE=off` disables it for one command or for the session; `GIT_GATE=on` forces it past the
-  profile probe.
+- A `GIT_GATE=off` prefix lets one command through; launching Claude with `GIT_GATE=off` in its
+  environment disables the gate for the session (an `export` inside a Bash call never reaches the
+  hook). `GIT_GATE=on` forces it past the profile probe.
 
 ## Repository layout
 

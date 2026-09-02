@@ -162,11 +162,31 @@ def scan(path):
 
 def main(argv):
     proj = None; main_id = None; top = 40
+
+    def usage(reason):
+        print("usage: usage_report.py [PROJECT_DIR] [--main SESSION_ID] [--top N]", file=sys.stderr)
+        print(reason, file=sys.stderr)
+        return 2
+
+    # Walk argv and CONSUME each option's value. The first parser collected every non-`--` token as
+    # a positional, so the documented `--main <sid>` form read <sid> as PROJECT_DIR and failed with
+    # "project dir not found: <sid>" (#354).
     i = 0
-    pos = [a for a in argv if not a.startswith("--")]
-    if pos: proj = pos[0]
-    if "--main" in argv: main_id = argv[argv.index("--main")+1]
-    if "--top"  in argv: top = int(argv[argv.index("--top")+1])
+    while i < len(argv):
+        a = argv[i]
+        if a == "--main":
+            if i + 1 >= len(argv): return usage("--main needs a SESSION_ID")
+            main_id = argv[i + 1]; i += 2; continue
+        if a == "--top":
+            if i + 1 >= len(argv): return usage("--top needs a number")
+            try: top = int(argv[i + 1])
+            except ValueError: return usage(f"--top needs a number, got {argv[i + 1]!r}")
+            i += 2; continue
+        if a.startswith("--"):
+            return usage(f"unknown option: {a}")
+        if proj is not None:
+            return usage(f"unexpected argument: {a} (PROJECT_DIR is already {proj})")
+        proj = a; i += 1
     proj = proj or detect_project_dir()
     if not proj or not os.path.isdir(proj):
         print(f"project dir not found: {proj}", file=sys.stderr); return 2

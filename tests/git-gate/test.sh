@@ -99,7 +99,7 @@ PROF=$(profile_repo); PLAIN=$(plain_repo)
 # ------------------------------------------------------- 1. the deny rows, in a profiled repo (D)
 verdict "D1  checkout <ref> -- ."      deny "checkout -- <path>" "$(pay Bash 'git checkout main -- .' "$PROF")"
 verdict "D2  checkout ."               deny "checkout -- <path>" "$(pay Bash 'git checkout .' "$PROF")"
-verdict "D3  restore --staged ."       deny "git restore <path>" "$(pay Bash 'git restore --staged .' "$PROF")"
+verdict "D3  restore --staged --worktree ." deny "git restore <path>" "$(pay Bash 'git restore --staged --worktree .' "$PROF")"
 verdict "D4  reset --hard"             deny "git reset --keep"   "$(pay Bash 'git reset --hard HEAD~1' "$PROF")"
 verdict "D5  clean -fd"                deny "git clean -n"       "$(pay Bash 'git clean -fd' "$PROF")"
 verdict "D6  push --force"             deny "--force-with-lease" "$(pay Bash 'git push --force origin main' "$PROF")"
@@ -115,6 +115,19 @@ verdict "D12 bare merge"               deny "guarded-merge.sh"   "$(pay Bash 'gi
 verdict "D13 clean --force"            deny "git clean -n"       "$(pay Bash 'git clean --force -d' "$PROF")"
 verdict "D14 push -f"                  deny "--force-with-lease" "$(pay Bash 'git push -f' "$PROF")"
 
+# ------------------------------------------------ 1b. meaning, not spelling (#373)
+# Each of these is the SAME whole-tree discard as a row above, typed differently — a `./` for `.`,
+# a bundled `-fq` for `-f`, a `-note` file name after `--` — and every one of them measured as
+# allowed before the arms read a normalised argv. #26's originating incident was literally
+# `git checkout <ref> -- .`; `git checkout HEAD -- ./` sailing through was that class, not a nit.
+verdict "D15 checkout ./"              deny "checkout -- <path>" "$(pay Bash 'git checkout ./' "$PROF")"
+verdict "D16 checkout HEAD -- ./"      deny "checkout -- <path>" "$(pay Bash 'git checkout HEAD -- ./' "$PROF")"
+verdict "D17 checkout -fq (bundled)"   deny "checkout -- <path>" "$(pay Bash 'git checkout -fq main' "$PROF")"
+verdict "D18 switch -fc (bundled)"     deny "checkout -- <path>" "$(pay Bash 'git switch -fc newb' "$PROF")"
+verdict "D19 restore ./"               deny "git restore <path>" "$(pay Bash 'git restore ./' "$PROF")"
+verdict "D20 clean -fd -- -note"       deny "git clean -n"       "$(pay Bash 'git clean -fd -- -note' "$PROF")"
+verdict "D21 checkout -- :/"           deny "checkout -- <path>" "$(pay Bash 'git checkout -- :/' "$PROF")"
+
 # ------------------------------------------------------------------ 2. the allow rows (A)
 verdict "A1  branch -D after a merge"  pass "" "$(pay Bash 'git branch -D feat/326-x' "$PROF")"
 verdict "A2  checkout a branch"        pass "" "$(pay Bash 'git checkout main' "$PROF")"
@@ -128,6 +141,12 @@ verdict "A9  read-only git"            pass "" "$(pay Bash 'git log --oneline -5
 verdict "A10 clean -n looks only"      pass "" "$(pay Bash 'git clean -n' "$PROF")"
 verdict "A11 merge --abort"            pass "" "$(pay Bash 'git merge --abort' "$PROF")"
 verdict "A12 no git in the command"    pass "" "$(pay Bash 'ls -la && rm -rf build' "$PROF")"
+# Read-only, or less destructive than the replacement a deny would name (#373): `--staged .`
+# unstages and touches no file in the tree; a dry-run push pushes nothing. Both were denied while
+# the arms matched spellings, and D3's old form pinned the first one as correct.
+verdict "A36 restore --staged . touches no tree file" pass "" "$(pay Bash 'git restore --staged .' "$PROF")"
+verdict "A37 push --dry-run"           pass "" "$(pay Bash 'git push --dry-run' "$PROF")"
+verdict "A38 push -n"                  pass "" "$(pay Bash 'git push -n' "$PROF")"
 
 # The guards are the whole point: a line that calls one is allowed, INCLUDING the `--force-with-lease`
 # the gate refuses on a bare push. Spelled with the quoted `"$GUARDS/…"` every skill actually emits,
@@ -196,6 +215,37 @@ SH" "$PROF")"
 # `guarded-*.sh` replacement, so it must not fire where that replacement does not exist.
 verdict "A20 no profile, no denial"    pass "" "$(pay Bash 'git checkout main -- .' "$PLAIN")"
 verdict "A21 no profile, bare commit"  pass "" "$(pay Bash 'git commit -m wip' "$PLAIN")"
+
+# The probe follows a literal `cd` (#372): a write after `cd <guard-less repo>` is that repository's
+# write, and denying it names guards that do not exist there. A41 is docs/demo-walkthrough.md's own
+# reproduce line — the directory it cds into is created by the `cp` in the same command, so the
+# `cd` cannot be resolved; the `git init` that follows is what tells the gate the later segments
+# act in a brand-new repository.
+verdict "A40 cd into a guard-less repo" pass "" "$(pay Bash "cd $PLAIN && git commit -m x" "$PROF")"
+verdict "A41 cp, cd, init, commit (the walkthrough line)" pass "" \
+  "$(pay Bash "cp -r samples/LegacyShop $PLAIN/shop && cd $PLAIN/shop && git init && git add -A && git commit -m legacy" "$PROF")"
+verdict "A42 GIT_GATE=off as a one-command prefix" pass "" "$(pay Bash 'GIT_GATE=off git commit -m x' "$PROF")"
+# ...and every cd the hook cannot resolve leaves the probe where it was: a variable, `~`, `cd -`,
+# a bare `cd`, `pushd`, and a `cd` inside `( … )` whose directory change dies with the subshell.
+verdict "D23 cd \$VAR stays put"        deny "guarded-commit.sh" "$(pay Bash 'cd $ELSEWHERE && git commit -m x' "$PROF")"
+verdict "D24 cd ~ stays put"           deny "guarded-commit.sh" "$(pay Bash 'cd ~/elsewhere && git commit -m x' "$PROF")"
+verdict "D25 cd - stays put"           deny "guarded-commit.sh" "$(pay Bash 'cd - && git commit -m x' "$PROF")"
+verdict "D26 bare cd stays put"        deny "guarded-commit.sh" "$(pay Bash 'cd && git commit -m x' "$PROF")"
+verdict "D27 pushd stays put"          deny "guarded-commit.sh" "$(pay Bash "pushd $PLAIN && git commit -m x" "$PROF")"
+verdict "D28 a cd inside ( ) dies with its subshell" deny "guarded-commit.sh" \
+  "$(pay Bash "(cd $PLAIN) && git commit -m x" "$PROF")"
+verdict "D29 cd INTO a profiled repo"  deny "guarded-commit.sh" "$(pay Bash "cd $PROF && git commit -m x" "$PLAIN")"
+# The deny text names the two escapes that work and no longer the one that did nothing (#372): an
+# `export` typed into a Bash call never reaches a hook the Claude Code process spawns.
+reason=$(pay Bash 'git commit -m wip' "$PROF" | bash "$GATE" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+grep -qF 'GIT_GATE=off git' <<<"$reason" \
+  || { echo "FAIL: the deny text does not name the per-command GIT_GATE=off prefix"; exit 1; }
+grep -qF 'launch Claude with GIT_GATE=off' <<<"$reason" \
+  || { echo "FAIL: the deny text does not say the session switch is set where Claude is launched"; exit 1; }
+if grep -qF 'for one command or for the session' <<<"$reason"; then
+  echo "FAIL: the deny text still advertises an off-switch that does nothing from inside a session (#372)"; exit 1
+fi
+echo "ok: the deny text names only the escapes that work"
 # ...and the pair is a MEASUREMENT rather than a coincidence: the same command in the profiled repo
 # denies (D1 above), so A20's pass can only be the probe and not some other fail-open path.
 
@@ -242,8 +292,11 @@ verdict "A33 no command in the payload" pass "" '{"tool_name":"Bash","cwd":"/tmp
 verdict "A34 unterminated quoting is a parse it cannot trust" pass "" \
   "$(pay Bash 'git commit -m "never closed' "$PROF")"
 # A command past the size cap is not one of the shapes above; parsing it would outrun the hook's
-# 5s timeout, and a timed-out hook is an unpredictable one.
-BIG=$(printf 'git commit -m x # %*s' 70000 '' | tr ' ' 'y')
+# 5s timeout, and a timed-out hook is an unpredictable one. The padding goes AFTER an intact
+# `git commit -m x`, so the tokeniser has a real write to find: the first spelling ran the whole
+# line through `tr ' ' 'y'`, spaces included, and left no `git` token at all — with the cap
+# deleted, A35 stayed green and measured nothing (#373).
+BIG="git commit -m x $(printf '%*s' 70000 '' | tr ' ' 'y')"
 verdict "A35 an oversized command"     pass "" "$(pay Bash "$BIG" "$PROF")"
 
 # ---------------------------------------------------------------- 6. structural wiring (S)

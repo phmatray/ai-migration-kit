@@ -27,8 +27,8 @@ graph TD
     end
 
     subgraph migration ["Migration suite"]
-        LU[migrate-legacy]
-        FU[review-followups]
+        ML[migrate-legacy]
+        RF[review-followups]
     end
 
     subgraph lifecycle ["Issue/PR lifecycle suite"]
@@ -45,10 +45,10 @@ graph TD
 
     PROF[("repo-profile.md<br>(committed in the target repo)")]
 
-    M --> LU
-    MF --> FU
-    LU -. "phase 7: /migrate-followups" .-> FU
-    FU -. "convert an entry: /create-issue" .-> CI
+    M --> ML
+    MF --> RF
+    ML -. "phase 7: /migrate-followups" .-> RF
+    RF -. "convert an entry: /create-issue" .-> CI
     CI -. "next step: /implement-issue #N" .-> II
     II -. "hand-off: /merge-pr #PR" .-> MP
     MP -. "then: /implement-issue #<next>" .-> II
@@ -112,8 +112,8 @@ apart silently.
 ```mermaid
 graph LR
     subgraph skills ["Kit skills"]
-        LU[migrate-legacy]
-        FU[review-followups]
+        ML[migrate-legacy]
+        RF[review-followups]
         AD[auto-dev]
         DL[deliver-issue]
         CI[create-issue]
@@ -122,7 +122,7 @@ graph LR
         TB[triage-backlog]
         RP[profile-repo]
         SR[setup-repo]
-        SD[debug-issue]
+        DI[debug-issue]
     end
 
     subgraph mcp ["MCP servers"]
@@ -145,17 +145,17 @@ graph LR
         NODE["node/npx · headless Chrome"]
     end
 
-    LU --> ROS
-    LU --> DN
-    LU --> GIT
-    LU --> PY
-    LU -.-> C7
-    LU -.-> GH
-    LU -.-> NODE
-    LU --> FD
+    ML --> ROS
+    ML --> DN
+    ML --> GIT
+    ML --> PY
+    ML -.-> C7
+    ML -.-> GH
+    ML -.-> NODE
+    ML --> FD
 
-    FU --> PY
-    FU --> GIT
+    RF --> PY
+    RF --> GIT
 
     CI --> GH
     CI -.-> ADR
@@ -189,7 +189,7 @@ graph LR
     DL --> PY
 ```
 
-`debug-issue` (SD) has no external dependency at all — it is a pure process skill, which is
+`debug-issue` (DI) has no external dependency at all — it is a pure process skill, which is
 why no arrow leaves it.
 
 ## Dependency matrix
