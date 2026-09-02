@@ -1,0 +1,26 @@
+# Fixture for tests/repo-setup §15 (#400): the four surfaces a public repository is judged by.
+# One real label and one form keep the other surfaces in the run, so a refusal on a new surface
+# can be shown NOT to stop them.
+labels:
+  - name: "priority: high"
+    color: "b60205"
+    description: "Pull this first"
+
+issueTemplates:
+  - feature_request.yml
+
+settings:
+  delete_branch_on_merge: true
+  # A string with a dash and a colon: the record is TAB-separated, and both must survive the
+  # round trip and compare equal on the second run.
+  description: "The widgets kit — a description with a dash: and a colon"
+  homepage: "https://acme.github.io/widgets/"
+
+topics:
+  - alpha-one
+  - beta2
+
+pages:
+  source:
+    branch: main
+    path: /docs

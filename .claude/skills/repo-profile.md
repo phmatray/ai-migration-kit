@@ -11,6 +11,13 @@
 ## Identity
 - **Repo:** phmatray/ai-migration-kit
 - **Default branch:** main
+- **Homepage:** https://phmatray.github.io/ai-migration-kit/ — the docs/ site (#401), the
+  methodology guide as its home page.
+- **Topics:** claude-code, claude-code-plugin, agent-skills, ai-agents, dotnet, csharp, roslyn,
+  legacy-migration, github-issues, developer-workflow, methodology, mcp.
+- **Where the description, homepage, topics and Pages source live:** `.github/repo-setup.yml`,
+  converged by `setup-repo` (#400) — never edited in the GitHub UI, which drifts from the manifest
+  with nothing to detect it.
 
 ## Commit identity
 - **Author line:** `git -c user.email=phmatray@gmail.com -c user.name="Philippe Matray"`

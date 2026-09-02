@@ -109,7 +109,7 @@ triggering contract, measured by `evals/`.
 | past sessions to learn from | `review-sessions` — "what went wrong in my last runs", « analyse mes sessions précédentes » | the kit's own failures harvested from the transcripts, clustered, checked against `main`, filed through `create-issue` (`--dry-run` lists) | the clusters filed or recorded | review a diff; prune issues; one live failure | `/implement-issue #<filed>` for a cluster it filed, else — |
 | something broken, flaky, "worked before" | `debug-issue` — fires on its own before any fix | a red-capable command, a root cause with evidence, then one fix | the cause identified | new features; refactoring working code | — (returns to whatever called it) |
 | a repository these skills have never run in | `profile-repo` — "set up the repo profile", « configure le profil du repo » | the committed profile every lifecycle skill reads: identity, build/test, gates, labels, hot-spots, tracker, ADR root | the profile written, or read back | file, build or merge anything; write labels or settings | `/setup-repo` when it named a missing label axis or issue-form dir, then `/create-issue <idea>` |
-| a repository whose labels, forms or settings drifted | `setup-repo` — "set up the labels", « configure les labels du repo » | the label taxonomy, the issue forms and the settings converged from a manifest — `plan` prints the drift, `apply` converges it | the repo converged on its manifest | file, build or merge anything | `/profile-repo --refresh` |
+| a repository whose labels, forms, settings, description, topics or Pages site drifted | `setup-repo` — "set up the labels", "enable GitHub Pages from docs/", « configure les labels du repo » | the label taxonomy, the issue forms, the settings, the description and homepage, the topics and the Pages source converged from a manifest — `plan` prints the drift, `apply` converges it | the repo converged on its manifest | file, build or merge anything | `/profile-repo --refresh` |
 | a legacy .NET app (or a portfolio to cost first) | `/migrate-assess`, then `/migrate` (`migrate-legacy`); `/migrate-audit` for the read-only, costed executive report per app and the portfolio synthesis | phase 1's read-only assessment with a verdict; then phases 1–7 to verified production | phase 7 delivered | non-.NET code paths without their own tooling (the method applies, RoselineMCP does not) | `/migrate-followups` |
 | open follow-ups across migrated repos | `/migrate-followups` (`review-followups`) — « fais le point », "what's still open" | the consolidated open tail, updated at the source (`migration/report.json`), owner decisions as a questionnaire | the open tail presented | GitHub issue triage | `/create-issue <entry>` to convert an entry |
 
@@ -224,9 +224,9 @@ identity, build/test commands, CI gates, labels, merge style, conflict hot-spots
 language, ADR root, coding standards, worktree home — and writes the **committed profile** every
 lifecycle skill reads at its Step 1 (ADR 0001: data, not a skill). `setup-repo` converges the
 repository on a declarative manifest — the label taxonomy (type · priority · effort · area, the axis
-`auto-dev` isolates on), the issue forms, the settings (squash-only, delete-branch-on-merge) —
-`plan` prints the drift and writes nothing, `apply` converges it, per surface, refusing by name
-without rights. Run `setup-repo` when `profile-repo` names a missing axis; re-run
+`auto-dev` isolates on), the issue forms, the settings (squash-only, delete-branch-on-merge,
+description, homepage), the topics and the GitHub Pages source — `plan` prints the drift and
+writes nothing, `apply` converges it, per surface, refusing by name without rights. Run `setup-repo` when `profile-repo` names a missing axis; re-run
 `profile-repo --refresh` afterwards.
 
 ### migrate-legacy and review-followups

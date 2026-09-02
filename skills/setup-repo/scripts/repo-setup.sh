@@ -15,9 +15,10 @@
 #
 # Options: --manifest <path>   desired state (default: the target repo's .github/repo-setup.yml,
 #                              else the kit's templates/repo-setup.yml)
-#          --prune             also DELETE live labels the manifest does not declare. Never the
-#                              default: a repo that already runs P1/P2 must not have its taxonomy
-#                              renamed out from under it.
+#          --prune             also DELETE live labels the manifest does not declare — and, when
+#                              the manifest declares `topics:`, live topics it does not name
+#                              (#400). Never the default: a repo that already runs P1/P2 must not
+#                              have its taxonomy renamed out from under it.
 #
 # Exit codes:
 #   0  converged (plan) / applied cleanly (apply)
@@ -319,6 +320,45 @@ else
   refuse "settings" "$(gh_refusal "read" "repos/$SLUG" "$settings_read_err" "gh api repos/$SLUG failed — settings were not read")"
 fi
 
+# Topics and the Pages site (#400): two more reads, each its own surface with its own refusal, so a
+# token that can read settings but not Pages still gets the settings half of the report. Read ONLY
+# when the manifest declares the surface: a manifest silent on `topics:` leaves the live topics
+# alone — `--prune` included — the way a manifest silent on a setting never PATCHes it.
+# `GET repos/{slug}/topics` answers `{"names":[…]}`; `GET repos/{slug}/pages` answers 404 when no
+# site exists — a state, not a failure — and 403 without admin, which is a refusal.
+LIVE_TOPICS="$WORKDIR/live-topics.txt"
+TOPICS_READABLE=0
+TOPICS_DECLARED=0
+: > "$LIVE_TOPICS"
+awk -F'\t' '$1=="O" {found=1} END {exit !found}' "$DESIRED" && TOPICS_DECLARED=1
+if [ "$TOPICS_DECLARED" = 1 ] && [ "$GH_OK" = 1 ]; then
+  if [ -z "$SLUG" ]; then
+    refuse "topics" "the repository slug is unreadable — topics were not read"
+  elif topics_err="$(gh api "repos/$SLUG/topics" --jq '.names[]' 2>&1 >"$LIVE_TOPICS")"; then
+    TOPICS_READABLE=1
+  else
+    refuse "topics" "$(gh_refusal "read" "repos/$SLUG/topics" "$topics_err" "gh api repos/$SLUG/topics failed — topics were not read")"
+  fi
+fi
+
+LIVE_PAGES="$WORKDIR/live-pages.json"
+PAGES_READABLE=0          # 1 = the read answered: a site (JSON in $LIVE_PAGES) or none (404)
+PAGES_EXISTS=0
+PAGES_DECLARED=0
+awk -F'\t' '$1=="G" {found=1} END {exit !found}' "$DESIRED" && PAGES_DECLARED=1
+if [ "$PAGES_DECLARED" = 1 ] && [ "$GH_OK" = 1 ]; then
+  if [ -z "$SLUG" ]; then
+    refuse "pages" "the repository slug is unreadable — the Pages site was not read"
+  elif pages_err="$(gh api "repos/$SLUG/pages" 2>&1 >"$LIVE_PAGES")"; then
+    PAGES_READABLE=1; PAGES_EXISTS=1
+  else
+    case "$pages_err" in
+      *"HTTP 404"*) PAGES_READABLE=1; PAGES_EXISTS=0 ;;
+      *) refuse "pages" "$(gh_refusal "read" "repos/$SLUG/pages" "$pages_err" "gh api repos/$SLUG/pages failed — the Pages site was not read")" ;;
+    esac
+  fi
+fi
+
 # ------------------------------------------------------------------------------------- the diff
 
 # Read from a file rather than a pipe: a `while … done < <(…)` or `… | while` runs the body in a
@@ -365,11 +405,42 @@ while IFS="$(printf '\t')" read -r kind f1 f2 f3; do
     S)
       key="$f1"; want="$f2"
       [ "$SETTINGS_READABLE" = 1 ] || continue
-      have="$(jq -r --arg k "$key" 'if has($k) then (.[$k] | tostring) else "" end' "$LIVE_SETTINGS" 2>/dev/null)"
+      # `!= null` as well as `has`: an unset homepage is JSON null, and `null | tostring` is the
+      # string "null" — which would read as a live value in the report instead of <absent>.
+      have="$(jq -r --arg k "$key" 'if has($k) and .[$k] != null then (.[$k] | tostring) else "" end' "$LIVE_SETTINGS" 2>/dev/null)"
       if [ "$have" = "$want" ]; then
         emit "=OK" "setting" "$key: $want"
       else
         emit "~EDIT" "setting" "$key: ${have:-<absent>} -> $want" "$key" "$want"
+      fi
+      ;;
+    O)
+      name="$f1"
+      [ "$TOPICS_READABLE" = 1 ] || continue
+      # A set, not a list: GitHub lower-cases and may reorder what it stores, and neither is drift.
+      if grep -qxF -- "$name" "$LIVE_TOPICS"; then
+        emit "=OK" "topic" "$name"
+      else
+        emit "+ADD" "topic" "$name" "$name"
+      fi
+      ;;
+    G)
+      key="$f1"; want="$f2"
+      [ "$PAGES_READABLE" = 1 ] || continue
+      if [ "$PAGES_EXISTS" = 0 ]; then
+        emit "+ADD" "pages" "$key: $want (no site yet)" "$key" "$want"
+      else
+        case "$key" in
+          source.branch) have="$(jq -r '.source.branch // ""' "$LIVE_PAGES" 2>/dev/null)" ;;
+          source.path)   have="$(jq -r '.source.path // ""' "$LIVE_PAGES" 2>/dev/null)" ;;
+          build_type)    have="$(jq -r '.build_type // ""' "$LIVE_PAGES" 2>/dev/null)" ;;
+          *)             have="" ;;
+        esac
+        if [ "$have" = "$want" ]; then
+          emit "=OK" "pages" "$key: $want"
+        else
+          emit "~EDIT" "pages" "$key: ${have:-<absent>} -> $want" "$key" "$want"
+        fi
       fi
       ;;
   esac
@@ -391,6 +462,21 @@ if [ "$LABELS_READABLE" = 1 ]; then
       fi
     fi
   done < "$LIVE_LABELS"
+fi
+
+# A live topic the manifest does not declare is reported and kept, like a label; `--prune` drops it
+# by writing the declared set alone. No pruneKeep for topics — nothing but the repo owns a topic.
+if [ "$TOPICS_READABLE" = 1 ]; then
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    if ! awk -F'\t' -v n="$name" '$1=="O" && $2==n {found=1} END {exit !found}' "$DESIRED"; then
+      if [ "$PRUNE" = 1 ]; then
+        emit "-DEL" "topic" "$name — undeclared, queued for deletion (--prune)" "$name"
+      else
+        emit "!EXTRA" "topic" "$name — live but not declared (kept; --prune would delete it)"
+      fi
+    fi
+  done < "$LIVE_TOPICS"
 fi
 
 echo ""
@@ -436,6 +522,10 @@ APPLIED=0
 # pipe, precisely so this stays in the parent shell.
 SET_ARGS=()
 SET_COUNT=0
+# Topics and Pages changes are counted in the loop and written after it, one call per surface,
+# for the same reason settings batch: the topics endpoint replaces the whole set (#400).
+TOPICS_TOUCHED=0
+PAGES_TOUCHED=0
 
 while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
   case "$action" in
@@ -513,9 +603,21 @@ while IFS="$(printf '\t')" read -r action kind f1 f2 f3; do
       ;;
     setting)
       [ -n "$f1" ] || continue
-      SET_ARGS[${#SET_ARGS[@]}]="-F"
+      # `-F` types its value (true/false/numbers become JSON), which the boolean settings need;
+      # `-f` sends a raw string, which the two documented string settings need — a description
+      # that happens to be "42" or to start with "@" must reach GitHub as text (#400).
+      case "$f1" in
+        description|homepage) SET_ARGS[${#SET_ARGS[@]}]="-f" ;;
+        *)                    SET_ARGS[${#SET_ARGS[@]}]="-F" ;;
+      esac
       SET_ARGS[${#SET_ARGS[@]}]="$f1=$f2"
       SET_COUNT=$((SET_COUNT + 1))
+      ;;
+    topic)
+      TOPICS_TOUCHED=$((TOPICS_TOUCHED + 1))
+      ;;
+    pages)
+      PAGES_TOUCHED=$((PAGES_TOUCHED + 1))
       ;;
   esac
 done < "$DELTA"
@@ -530,6 +632,58 @@ if [ "$SET_COUNT" -gt 0 ]; then
     APPLIED=$((APPLIED + SET_COUNT))
   else
     refuse "settings" "$(gh_refusal "update" "repos/$SLUG" "$patch_err" "gh api -X PATCH repos/$SLUG was refused — the token needs admin rights on it")"
+  fi
+fi
+
+# Topics: ONE PUT carrying the whole set — the union of live and declared, or the declared set alone
+# under --prune — because the endpoint REPLACES, never adds; a per-topic loop would drop every topic
+# the manifest does not name on the first call. Only when the diff queued a change (#400).
+if [ "$TOPICS_TOUCHED" -gt 0 ]; then
+  if [ "$GH_OK" = 0 ] || [ -z "$SLUG" ]; then
+    refuse "topics" "$TOPICS_TOUCHED topic change(s) need gh and a repository slug — not applied"
+  else
+    TOPICS_SET="$WORKDIR/topics-set.txt"
+    if [ "$PRUNE" = 1 ]; then
+      awk -F'\t' '$1=="O" {print $2}' "$DESIRED" > "$TOPICS_SET"
+    else
+      { awk -F'\t' '$1=="O" {print $2}' "$DESIRED"; cat "$LIVE_TOPICS"; } | awk 'NF && !seen[$0]++' > "$TOPICS_SET"
+    fi
+    TOPIC_ARGS=()
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      TOPIC_ARGS[${#TOPIC_ARGS[@]}]="-f"
+      TOPIC_ARGS[${#TOPIC_ARGS[@]}]="names[]=$name"
+    done < "$TOPICS_SET"
+    if topics_put_err="$(gh api -X PUT "repos/$SLUG/topics" ${TOPIC_ARGS[@]+"${TOPIC_ARGS[@]}"} 2>&1 >/dev/null)"; then
+      APPLIED=$((APPLIED + TOPICS_TOUCHED))
+    else
+      refuse "topics" "$(gh_refusal "update" "repos/$SLUG/topics" "$topics_put_err" "gh api -X PUT repos/$SLUG/topics was refused — the token needs admin rights on it")"
+    fi
+  fi
+fi
+
+# The Pages site: one POST to create, one PUT to update — the same call shape, the verb decided by
+# the read. Never a DELETE: disabling a site is not a converge (#400).
+if [ "$PAGES_TOUCHED" -gt 0 ]; then
+  if [ "$GH_OK" = 0 ] || [ -z "$SLUG" ]; then
+    refuse "pages" "$PAGES_TOUCHED Pages change(s) need gh and a repository slug — not applied"
+  else
+    PAGES_ARGS=()
+    while IFS="$(printf '\t')" read -r kind key val; do
+      [ "$kind" = "G" ] || continue
+      case "$key" in
+        source.branch) PAGES_ARGS[${#PAGES_ARGS[@]}]="-f"; PAGES_ARGS[${#PAGES_ARGS[@]}]="source[branch]=$val" ;;
+        source.path)   PAGES_ARGS[${#PAGES_ARGS[@]}]="-f"; PAGES_ARGS[${#PAGES_ARGS[@]}]="source[path]=$val" ;;
+        build_type)    PAGES_ARGS[${#PAGES_ARGS[@]}]="-f"; PAGES_ARGS[${#PAGES_ARGS[@]}]="build_type=$val" ;;
+      esac
+    done < "$DESIRED"
+    pages_verb="POST"
+    [ "$PAGES_EXISTS" = 1 ] && pages_verb="PUT"
+    if pages_write_err="$(gh api -X "$pages_verb" "repos/$SLUG/pages" ${PAGES_ARGS[@]+"${PAGES_ARGS[@]}"} 2>&1 >/dev/null)"; then
+      APPLIED=$((APPLIED + PAGES_TOUCHED))
+    else
+      refuse "pages" "$(gh_refusal "update" "repos/$SLUG/pages" "$pages_write_err" "gh api -X $pages_verb repos/$SLUG/pages was refused — the token needs admin rights on it, and Pages must be available on this repository's plan")"
+    fi
   fi
 fi
 
