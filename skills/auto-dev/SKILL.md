@@ -720,7 +720,10 @@ lessons:
     candidate: <one sentence, pre-shaped for create-issue>
 ```
 
-`lessons: none — <why>` is the **only** accepted empty form — a run with no candidates still says so,
+The fleet's reports are half the evidence: the transcripts hold the other half (a worker's tool
+errors, the gate denials it met, the never-wait shape it died in), and `review-sessions` harvests
+those across every session — point the owner at it when a `lessons:` entry needs the transcript
+side. `lessons: none — <why>` is the **only** accepted empty form — a run with no candidates still says so,
 naming why, rather than omitting the block. Candidates are **recorded, not filed**: each faces
 [`../_shared/filing-bar.md`](../_shared/filing-bar.md) before anyone opens an issue for it, so the
 retro never becomes another inlet that outruns the work (the *treading water* rule in Step 4). Write

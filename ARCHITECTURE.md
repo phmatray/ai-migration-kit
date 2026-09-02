@@ -38,6 +38,7 @@ graph TD
         II[implement-issue]
         MP[merge-pr]
         TB[triage-backlog]
+        RS[review-sessions]
         RP[profile-repo]
         SR[setup-repo]
         SH["_shared/<br>preconditions · sync-with-main · filing-bar<br>worktree-ignore-check · untrusted-input-boundary<br>test-seams · grilling · prior-rejections<br>brainstorm-and-spec · plan-shape · tdd-loop · recap"]
@@ -75,7 +76,11 @@ graph TD
     MP -- "reopens an incomplete ancestor" --> TB
     TB -- "folds · rescopes · closes by decision" --> CI
     TB -- "reads at step 1" --> PROF
+    RS -- "files a cluster that passes the bar" --> CI
+    RS -. "filed: /implement-issue #N" .-> II
+    RS -- "reads at step 1" --> PROF
     CI --- SH
+    RS --- SH
     II --- SH
     MP --- SH
     TB --- SH
@@ -123,6 +128,7 @@ graph LR
         RP[profile-repo]
         SR[setup-repo]
         DI[debug-issue]
+        RS[review-sessions]
     end
 
     subgraph mcp ["MCP servers"]
@@ -187,6 +193,10 @@ graph LR
     DL --> GH
     DL --> GIT
     DL --> JQ
+
+    RS --> PY
+    RS --> GH
+    RS -.-> ADR
 ```
 
 `debug-issue` (DI) has no external dependency at all — it is a pure process skill, which is
@@ -204,6 +214,7 @@ why no arrow leaves it.
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
 | `deliver-issue` | — | dispatches create-issue, then the two `auto-dev` worker commands (implement-issue → merge-pr) in fresh sub-agents | **gh** (merge rights), **git**, **jq** (`wait-ci.sh` reads gh's check table with it) | `skills/auto-dev/scripts/wait-ci.sh` (borrowed; ships nothing of its own) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
+| `review-sessions` | adr (rec., the prior-rejection lookup) | files through create-issue | **python3** (`harvest.py`, stdlib) · **gh** (via create-issue) | `harvest.py` (bundled in the skill) |
 | `debug-issue` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
 | `profile-repo` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
 | `setup-repo` | — | — | **git**, **python3** (PyYAML), **jq**, **gh** (admin rights on the settings surface; refused by name without it) | `repo-setup.sh`, `parse-manifest.py`, `project-area-options.py` (bundled in the skill) |

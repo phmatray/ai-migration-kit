@@ -77,6 +77,7 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 | A PR to land | [`merge-pr`](skills/merge-pr/SKILL.md) `#N` |
 | One idea or issue to a merged PR, hands-off | [`deliver-issue`](skills/deliver-issue/SKILL.md) `<idea>` or `#N` |
 | A queue that never shrinks | [`triage-backlog`](skills/triage-backlog/SKILL.md) |
+| What went wrong in my last sessions | [`review-sessions`](skills/review-sessions/SKILL.md) (`--dry-run` lists) |
 | Many issues, hands-off | [`auto-dev`](skills/auto-dev/SKILL.md) |
 | A legacy .NET app | [`/migrate-assess`](commands/migrate-assess.md), then [`/migrate`](commands/migrate.md) |
 | A migrated app to re-verify | [`/migrate-verify`](commands/migrate-verify.md) |
@@ -266,6 +267,7 @@ skill is `verb-object` (`create-issue`, `profile-repo`, `debug-issue`), and a me
 | [`setup-repo`](skills/setup-repo/SKILL.md) | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
 | [`review-followups`](skills/review-followups/SKILL.md) | Consolidate the migrated repos' open follow-ups (owner decisions, tasks, deferrals) and update them at the source. |
 | [`debug-issue`](skills/debug-issue/SKILL.md) | Root cause before any fix is proposed — harness-agnostic, fires on its own ahead of a patch. |
+| [`review-sessions`](skills/review-sessions/SKILL.md) | Read previous sessions' transcripts, harvest the failures the kit itself caused (tool errors on kit scripts, gate denials, workers that died waiting, guard refusals, red suites), cluster by root cause, drop what `main` already fixed, and file what earns an issue through `create-issue`. |
 
 Every repo-specific fact (commit identity, build/test commands, label taxonomy, merge style,
 conflict hot-spots) lives in the committed per-repo profile — the skills themselves stay portable
@@ -328,6 +330,7 @@ skills/auto-dev/         fleet supervisor above the lifecycle skills: N parallel
 skills/deliver-issue/    the single-item form: one idea or issue to a merged PR, each phase dispatched in a fresh sub-agent
 skills/triage-backlog/   the queue's outlet: verify, cluster and re-decide open issues — owner confirms every close
 skills/debug-issue/      root-cause-before-fix process, harness-agnostic
+skills/review-sessions/  the retro across sessions: harvest.py over the transcripts → cluster → verify → filing bar → create-issue
 skills/profile-repo/     the per-repo profile generator the lifecycle skills consume
 skills/setup-repo/       the write half of that: plan/apply a repo's labels, issue forms and settings from a manifest
 skills/_shared/          procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary, test-seams, grilling, brainstorm-and-spec, plan-shape, tdd-loop, recap)
