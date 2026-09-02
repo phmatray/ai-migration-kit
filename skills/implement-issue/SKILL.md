@@ -419,6 +419,15 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
    layers in order, don't break invariants). Use the per-task test filter the plan gives. Name new
    files, symbols and test cases from the target repo's root `CONTEXT.md` when it has one; a term
    the glossary lists under `_Avoid_` does not become an identifier.
+
+   **In a target repo with C#, existing code is read and changed through RoselineMCP**, never
+   through Read/Grep/Edit on a `.cs` file: `search_symbols` to locate a type or member,
+   `get_symbol_info` (`includeSource: true`) to read one, `find_references` before touching an API
+   used elsewhere, `edit_member` / `rename_symbol` (preview first) for the change. The kit's own
+   `hooks/roseline-gate.sh` denies a `Read` on a `.cs` file and names the replacing tool, so this
+   is the rule the gate enforces rather than a preference; `Edit` stays for what roseline cannot
+   reach — `using` directives, attributes, file-scoped namespaces, top-level statements
+   (`docs/roseline-gate.md`). Hand the same rule to every per-task sub-agent's brief.
    - *Inline mode:* directly, per [`../_shared/tdd-loop.md`](../_shared/tdd-loop.md) — red before
      green, one slice at a time, refactoring left to Step 7.
    - *Subagent-per-task mode:* dispatch a subagent with the task block, Global Constraints, repo grain, the target repo's root `CONTEXT.md` (or that it has none), and the **path** to Step 3's `/tmp/issue-$ISSUE-notes.md` (a pointer — it reads them itself); have it implement to a green filtered test run and report a short diff summary.

@@ -39,10 +39,13 @@
   `./scripts/parse-sweep.sh` (every suite parses under macOS bash 3.2, #131),
   `python3 scripts/ci-wiring-check.py` (every suite is wired into CI),
   `python3 scripts/pinned-literals-check.py` (every spelling of the pinned version is marked),
+  `python3 scripts/decision-check.py` (every registered decision is single-homed, invoked, and
+  unrestated by prose — `docs/decisions.md`),
   `python3 scripts/recap-wiring-check.py` (every skill closes with the shared recap, and its
   hand-off table matches ARCHITECTURE.md's dashed edges) and
-  `python3 tests/skills/check-frontmatter.py` (skill frontmatter/compatibility tokens). All five run
-  as part of `./scripts/run-all-tests.sh`.
+  `python3 tests/skills/check-frontmatter.py` (skill frontmatter/compatibility tokens). All six run
+  as part of `./scripts/run-all-tests.sh`, and `tests/repo-profile/test.sh` refuses when this list
+  omits a gate script `run-all-tests.sh --list` runs (#388) — it went stale once already.
 - **Prerequisites / caveats:** `python3` with `PyYAML` — declared in `requirements.json` and
   enforced by `./scripts/preflight.sh` (#170; CI also pip-installs it as a setup step), a `dotnet`
   SDK for the `samples/LegacyShop` fixture only, and `gh` authenticated for anything issue/PR shaped.
@@ -78,7 +81,8 @@ hand-copying it further.
   went stale four times in the README, which is why that gate exists at all.
 - Plus inline `run: |` steps for JSON manifest validity, the Renovate `--strict` validator, the
   plugin-version/manifest match, the RoselineMCP tool-name check, the foreign-working-directory
-  simulation and the contrast checker — same rule: ask the workflow, don't mirror it.
+  simulation and the contrast checker (`python3 scripts/contrast-check.py`, pass AND fail paths) —
+  same rule: ask the workflow, don't mirror it.
 
 `.github/workflows/release-title.yml`, job `title-gate` — a separate check-run:
 - `./scripts/release-title-diff.sh "$BASE_SHA" "$HEAD_SHA"` → `./scripts/release-title-gate.sh "$PR_TITLE" …`
@@ -173,11 +177,15 @@ hand-copying it further.
   authentication).
 
 ## Domain language
-- none — no `CONTEXT.md` / `CONTEXT-MAP.md` / `docs/CONTEXT.md` at the repo root (#311; a consumer
-  of I8 would fill this in once one exists).
+- **`CONTEXT.md`** at the repo root (#313) — the kit's own glossary in Matt Pocock's CONTEXT.md
+  format: the queue terms (inlet, outlet, filing bar, root/instance, fold, seed, close by decision)
+  and the machinery terms (gate, verdict, guard, profile, worktree home, worker/supervisor, area,
+  phase). `create-issue` settles titles and nouns in its terms; `implement-issue` names new files
+  and symbols from it; a term listed under `_Avoid_` never becomes an identifier.
 
 ## ADRs
-- **Root:** `docs/adr/` — seven MADR 4.0 records (`NNNN-<kebab-title>.md`) plus the rendered index
+- **Root:** `docs/adr/` — twelve MADR 4.0 records (`NNNN-<kebab-title>.md`; nine accepted, three
+  rejected out-of-scope concepts) plus the rendered index
   at `docs/adr/README.md` (#316). This is the root `create-issue` Step 5, `implement-issue` Step 7
   and `merge-pr` Step 6 read; it is no longer `none`, so none of them may skip the check.
 - **Server:** `adr` — **AdrMcp**, shipped by this plugin in `.mcp.json` (`dnx AdrMcp --yes`) and

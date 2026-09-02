@@ -697,10 +697,11 @@ worker is `sub`, a sub-agent transcript one level under the supervisor session
 (`<proj>/<supervisor-session>/subagents/agent-*.jsonl`), attributed to the WORKERS side of
 `ORCHESTRATOR vs WORKERS` even though its parent session is the orchestrator (#281). A
 sub-agent dispatched through the `Workflow` tool nests one level deeper still
-(`subagents/workflows/wf_*/agent-*.jsonl`) and is **not yet counted** — tracked separately (#309).
+(`subagents/workflows/wf_*/agent-*.jsonl`) and is counted the same way — `sub`, on the WORKERS
+side, attributed to the top-level `<session-id>` rather than to the `wf_<id>` grouping (#309).
 Read the header's `SESSIONS: N in <proj>   (X top-level, Y sub-agent)` line before trusting the
-totals below it: that split is the check that the scan saw the whole fleet at the layouts it does
-read — a `0 sub-agent` count on a fleet means transcripts are missing, not that none were spawned.
+totals below it: that split is the check that the scan saw the whole fleet — a `0 sub-agent`
+count on a fleet means transcripts are missing, not that none were spawned.
 
 **Lessons — mandatory.** Run `scripts/decision-tally.sh` and paste its table. Then write the
 `lessons:` block below it, one entry per candidate, `category` from

@@ -18,7 +18,7 @@ metadata:
   suite: ai-migration-kit
 ---
 
-# Systematic Debugging
+# Debug an issue — the root cause before any fix
 
 ## Overview
 

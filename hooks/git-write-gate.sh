@@ -19,6 +19,18 @@
 # `GIT_GATE=off` (also `0|false|no|disabled`) is the master switch and is checked FIRST;
 # `GIT_GATE=on` forces enforcement past the probe below, and `off` still wins.
 #
+# Two things the switch cannot do from inside a session, and what the gate does instead (#372):
+#   * an `export GIT_GATE=off` typed into a Bash call never reaches this hook — it is spawned by the
+#     Claude Code process and inherits THAT environment, not the tool's shell. Disabling it for a
+#     session means launching Claude with the variable set. The deny text says exactly that.
+#   * a `GIT_GATE=off git commit …` PREFIX used to be stepped over by the same walk that skips
+#     `TZ=UTC git …`, so the one-command escape the deny text advertised did nothing. The walk now
+#     reads the assignment it steps over: a segment prefixed with the off value is allowed whole.
+# And the probe follows `cd` (#372): `cd /tmp/shop && git commit` is that repository's commit, not
+# the cwd's — a literal, resolvable `cd` in an earlier segment moves the directory the profile is
+# looked up in, exactly as `-C <path>` already does; anything the hook cannot resolve (a variable,
+# `~`, a quoted span, `cd -`, `pushd`, a `cd` inside `( … )`) leaves it where it was.
+#
 # ------------------------------------------------------------------------- prior art, not a port
 # Matt Pocock ships `git-guardrails-claude-code/scripts/block-dangerous-git.sh` (mattpocock/skills,
 # MIT) for the same reason. It is deliberately NOT copied, for four measured reasons:
@@ -98,8 +110,10 @@ cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null) || exit 0
 #     `git log --grep=a#b && git reset --hard` hid its second command from the walk entirely. The
 #     comment then runs to the next `;`, `|`, `&` — the same separators the segment walk splits on,
 #     so a comment can never swallow a command that really would run.
-#   * `(`, `)`, `{`, `}` become spaces, so `(git commit …)`, `{ git commit …; }` and the bodies of
-#     `if`/`for`/`while` are tokenised as the commands they are rather than as one opaque word.
+#   * `{`, `}` become spaces and `(`, `)` become a `@P@` marker token, so `(git commit …)`,
+#     `{ git commit …; }` and the bodies of `if`/`for`/`while` are tokenised as the commands they
+#     are rather than as one opaque word — and a `cd` that sits after a `@P@` in its own segment is
+#     known to be inside a subshell, whose directory change never reaches the segments after it.
 #
 # `sq`/`dq`/`bs` are built with sprintf because the program itself is single-quoted in shell and so
 # cannot contain a literal `'`.
@@ -120,7 +134,8 @@ BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92) }
         }
         continue
       }
-      if (c == "(" || c == ")" || c == "{" || c == "}") { out = out " "; prev = " "; i++; continue }
+      if (c == "(" || c == ")") { out = out " @P@ "; prev = " "; i++; continue }
+      if (c == "{" || c == "}") { out = out " "; prev = " "; i++; continue }
       out = out c; prev = c; i++
     } else {
       if (q == dq && c == bs) { i += 2; continue }
@@ -152,7 +167,7 @@ deny() { # $1 the offending segment  $2 the replacement sentence
   local reason
   reason="Blocked by the git write-gate: \`$1\` is one of the writes that produced #26 and #280 in a shared checkout.
 $2
-Set GIT_GATE=off to disable this gate for one command or for the session."
+To run this one command anyway, prefix it: \`GIT_GATE=off git …\`. To disable the gate for a whole session, launch Claude with GIT_GATE=off in its environment — an \`export\` inside a Bash call never reaches this hook."
   jq -n --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null
   exit 0
@@ -179,9 +194,40 @@ is_profiled() { # $1 a directory
   [ -f "$top/.claude/skills/repo-profile.md" ]
 }
 
+# The directory the probe answers about, for the segment being judged. It starts as the payload's
+# cwd and moves with every `cd <literal path>` the walk meets (#372): `cd /tmp/shop && git commit`
+# is /tmp/shop's commit, and a deny there would name guards that do not exist there. Only a cd the
+# hook can resolve by itself moves it — an absolute or cwd-relative literal that IS a directory.
+# `cd` alone, `cd -`, any flag, a variable, a backtick, `~`, a quoted span (`@Q@`) and `pushd`
+# leave it unchanged, and so does a `cd` inside `( … )` (the `@P@` marker): that change of
+# directory dies with the subshell, so it must not follow the segments after it.
+eff_dir=""
+follow_cd() { # $@ the tokens of a `cd` segment, `cd` first
+  shift
+  [ $# -eq 1 ] || return 0
+  local target="$1" resolved
+  case "$target" in -*|*'$'*|*'`'*|*'~'*|*@Q@*) return 0 ;; esac
+  case "$target" in /*) resolved="$target" ;; *) resolved="${eff_dir:-.}/$target" ;; esac
+  [ -d "$resolved" ] || return 0
+  resolved=$(cd "$resolved" 2>/dev/null && pwd -P) || return 0
+  [ -n "$resolved" ] && eff_dir="$resolved"
+  return 0
+}
+
+# A pathspec that names the whole tree, in every spelling git accepts for it (#373): `.`, `./`,
+# the top-level magic `:/`. Reading only the literal `.` let `git checkout HEAD -- ./` — the exact
+# shape of #26's originating incident — through the gate written for it.
+whole_tree() { # $@ pathspecs
+  local p
+  for p in "$@"; do
+    case "$p" in .|./|.//|./.|:/|:/.) return 0 ;; esac
+  done
+  return 1
+}
+
 # ------------------------------------------------------------------- judge one command segment
 judge() { # $1 one segment of the stripped command
-  local seg="$1" seg_dir="" sub=""
+  local seg="$1" seg_dir="" sub="" grouped=0
   # Word splitting is the tokeniser; `set -f` above is what makes it safe.
   set -- $seg
   [ $# -gt 0 ] || return 0
@@ -195,11 +241,23 @@ judge() { # $1 one segment of the stripped command
     case "$1" in
       env|sudo|command|nohup|time|exec|builtin) shift ;;
       then|do|else|elif|'!') shift ;;
+      @P@) grouped=1; shift ;;
+      # The one assignment the walk READS instead of stepping over: the per-command off-switch the
+      # deny text advertises. It has to be honoured here, because the environment check at the top
+      # of this file sees the hook's own environment, never a prefix typed into the command (#372).
+      GIT_GATE=off|GIT_GATE=0|GIT_GATE=false|GIT_GATE=no|GIT_GATE=disabled) return 0 ;;
       [A-Za-z_]*=*) shift ;;
       *) break ;;
     esac
   done
   [ $# -gt 0 ] || return 0
+
+  # A `cd` segment is never a git write, but it decides which repository the NEXT segments act
+  # in — unless it ran inside `( … )`, where it died with the subshell.
+  if [ "$1" = cd ]; then
+    [ "$grouped" -eq 1 ] || follow_cd "$@"
+    return 0
+  fi
 
   case "$1" in git|*/git) shift ;; *) return 0 ;; esac
 
@@ -222,6 +280,14 @@ judge() { # $1 one segment of the stripped command
 
   sub="$1"; shift
 
+  # `git init` makes the directory the walk is standing in a BRAND-NEW repository — one that cannot
+  # carry a profile, so the guards a denial would name do not exist there. The segments after it
+  # (`git init && git add -A && git commit -m legacy`, the demo walkthrough's own line) are that
+  # repository's writes, even when the `cd` before it named a directory that only comes into being
+  # at run time and so could not be followed. Re-initialising an existing profiled repository is
+  # the one shape this over-allows, and over-allowing is the direction this gate errs in (ADR 0002).
+  if [ "$sub" = init ]; then fresh_init=1; return 0; fi
+
   # Nothing below is worth a probe, so the probe runs only once a git subcommand is in hand.
   case "$sub" in
     checkout|switch|restore|reset|clean|push|commit|merge) ;;
@@ -229,10 +295,11 @@ judge() { # $1 one segment of the stripped command
   esac
 
   if [ "$FORCE" != 1 ]; then
-    local dir="$cwd"
+    [ "$fresh_init" -eq 0 ] || return 0
+    local dir="$eff_dir"
     if [ -n "$seg_dir" ]; then
       local cdir="$seg_dir"
-      case "$cdir" in /*) ;; *) cdir="${cwd:-.}/$cdir" ;; esac
+      case "$cdir" in /*) ;; *) cdir="${eff_dir:-.}/$cdir" ;; esac
       # The `-C` path is used ONLY when it resolves to a real repository. A path that does not —
       # `git -C $WORKTREE commit`, where the hook sees the variable unexpanded, or `-C @Q@` where
       # it was quoted — is no evidence at all, and treating "cannot resolve" as "not profiled"
@@ -244,61 +311,80 @@ judge() { # $1 one segment of the stripped command
     is_profiled "$dir" || return 0
   fi
 
-  local a
+  # ---------------------------------------------------------- normalise argv once (#373)
+  # The arms below read MEANING, not spelling. Everything after `--` is a pathspec, however it is
+  # spelled (`git clean -fd -- -note` deletes a file called -note; the `-n` in it is not a dry run);
+  # everything before it that starts with `-` is an option, and a bundled short cluster (`-fq`,
+  # `-fc`, `-ndf`) is split into one token per letter so `-f` is found wherever it was typed. The
+  # split cannot fail, so the arms' inputs are never left half-normalised.
+  local a opts="" paths="" seen_dd=0 letters
+  for a in "$@"; do
+    if [ "$seen_dd" -eq 1 ]; then paths="$paths $a"; continue; fi
+    case "$a" in
+      --) seen_dd=1 ;;
+      --*) opts="$opts $a" ;;
+      -?*)
+        letters="${a#-}"
+        while [ -n "$letters" ]; do
+          opts="$opts -${letters%"${letters#?}"}"
+          letters="${letters#?}"
+        done ;;
+      *) paths="$paths $a" ;;
+    esac
+  done
+  opts=" $opts "
+
   case "$sub" in
     checkout|switch)
-      # Two shapes of the same whole-tree discard: a pathspec of `.` (with or without a ref, with
-      # or without `--`), and the force flags, which throw the tree away while changing branch —
-      # `git checkout -f main` and `git switch --discard-changes main` are the #26 scenario spelled
-      # without a pathspec. `git checkout <branch>`, `git switch -c <branch>` and
-      # `git checkout -- <named path>` are scoped and stay allowed.
-      for a in "$@"; do
-        case "$a" in
-          .|-f|--force|--discard-changes) deny "$seg" \
-            "That discards every uncommitted change in the tree, including another agent's in a shared checkout. Use \`git checkout -- <path>\` for the one file you mean, or switch branches without the force flag." ;;
-        esac
-      done
+      # Two shapes of the same whole-tree discard: a whole-tree pathspec (with or without a ref,
+      # with or without `--`), and the force flags, which throw the tree away while changing
+      # branch — `git checkout -f main`, `git checkout -fq main`, `git switch -fc newb` and
+      # `git switch --discard-changes main` are the #26 scenario spelled without a pathspec.
+      # `git checkout <branch>`, `git switch -c <branch>` and `git checkout -- <named path>` are
+      # scoped and stay allowed.
+      case "$opts" in
+        *" -f "*|*" --force "*|*" --discard-changes "*) deny "$seg" \
+          "That discards every uncommitted change in the tree, including another agent's in a shared checkout. Use \`git checkout -- <path>\` for the one file you mean, or switch branches without the force flag." ;;
+      esac
+      whole_tree $paths && deny "$seg" \
+        "That discards every uncommitted change in the tree, including another agent's in a shared checkout. Use \`git checkout -- <path>\` for the one file you mean, or switch branches without the force flag."
       ;;
     restore)
-      for a in "$@"; do
-        [ "$a" = "." ] && deny "$seg" \
-          "That discards every uncommitted change in the tree. Use \`git restore <path>\` for the one file you mean."
-      done
+      # `--staged` without `--worktree` unstages and touches nothing in the tree — it is less
+      # destructive than the per-path replacement the deny would name, so it is allowed whole.
+      case "$opts" in
+        *" --staged "*|*" -S "*)
+          case "$opts" in *" --worktree "*|*" -W "*) ;; *) return 0 ;; esac ;;
+      esac
+      whole_tree $paths && deny "$seg" \
+        "That discards every uncommitted change in the tree. Use \`git restore <path>\` for the one file you mean."
       ;;
     reset)
-      for a in "$@"; do
-        [ "$a" = "--hard" ] && deny "$seg" \
-          "That throws away the working tree, including another agent's uncommitted work in a shared checkout. Use \`git reset --keep\`, or give each branch its own worktree with \`skills/implement-issue/scripts/make-worktree.sh\`."
-      done
+      case "$opts" in
+        *" --hard "*) deny "$seg" \
+          "That throws away the working tree, including another agent's uncommitted work in a shared checkout. Use \`git reset --keep\`, or give each branch its own worktree with \`skills/implement-issue/scripts/make-worktree.sh\`." ;;
+      esac
       ;;
     clean)
       # `-n`/`--dry-run` wins over `-f`, whichever order they appear in and whether or not `-n` is
       # bundled: `git clean -ndf` deletes nothing. It is precisely the command the deny reason
-      # recommends, so denying it would send the reader in a circle.
-      for a in "$@"; do
-        case "$a" in
-          --dry-run) return 0 ;;
-          --*) ;;
-          -*n*) return 0 ;;
-        esac
-      done
-      for a in "$@"; do
-        case "$a" in
-          --force) deny "$seg" "That deletes untracked files irreversibly. Use \`git clean -n\` to look first, or \`git stash -u\` to keep them." ;;
-          --*) ;;
-          -*f*) deny "$seg" "That deletes untracked files irreversibly. Use \`git clean -n\` to look first, or \`git stash -u\` to keep them." ;;
-        esac
-      done
+      # recommends, so denying it would send the reader in a circle. Only an OPTION counts — a
+      # `-n` after `--` is a file name.
+      case "$opts" in *" -n "*|*" --dry-run "*) return 0 ;; esac
+      case "$opts" in
+        *" -f "*|*" --force "*) deny "$seg" \
+          "That deletes untracked files irreversibly. Use \`git clean -n\` to look first, or \`git stash -u\` to keep them." ;;
+      esac
       ;;
     push)
+      # A dry run pushes nothing, so there is nothing for a guard to assert about it.
+      case "$opts" in *" -n "*|*" --dry-run "*) return 0 ;; esac
       # `--force-with-lease` is NOT `--force`: it is allowed, but only on a line that also invokes
       # the guard (which asserted the branch first) — and such a line already returned above.
-      for a in "$@"; do
-        case "$a" in
-          --force|-f) deny "$seg" \
-            "A forced push overwrites whatever the remote holds, which in a shared checkout is another agent's branch. Use \`skills/implement-issue/scripts/guarded-push.sh -C <worktree> <branch> -- --force-with-lease\`." ;;
-        esac
-      done
+      case "$opts" in
+        *" -f "*|*" --force "*) deny "$seg" \
+          "A forced push overwrites whatever the remote holds, which in a shared checkout is another agent's branch. Use \`skills/implement-issue/scripts/guarded-push.sh -C <worktree> <branch> -- --force-with-lease\`." ;;
+      esac
       deny "$seg" \
         "A bare push does not check which branch it is pushing — that is how #26 landed a commit in another agent's PR with exit 0. Use \`skills/implement-issue/scripts/guarded-push.sh -C <worktree> <branch>\`, which reads the remote back afterwards."
       ;;
@@ -309,9 +395,7 @@ judge() { # $1 one segment of the stripped command
     merge)
       # `--abort`/`--continue`/`--quit` finish or unwind a merge that is already in progress; they
       # are not the write the guard exists for.
-      for a in "$@"; do
-        case "$a" in --abort|--continue|--quit) return 0 ;; esac
-      done
+      case "$opts" in *" --abort "*|*" --continue "*|*" --quit "*) return 0 ;; esac
       deny "$seg" \
         "A merge is the largest single write in the lifecycle and the one with the widest window (#41). Use \`skills/implement-issue/scripts/guarded-merge.sh -C <worktree> <branch> -- <ref>\`."
       ;;
@@ -324,6 +408,8 @@ judge() { # $1 one segment of the stripped command
 # segment, which the walk skips. A here-string, not a pipe: the loop has to run in THIS shell so
 # `deny`'s `exit 0` ends the hook rather than a subshell.
 segments=$(printf '%s' "$clean" | tr ';|&' '\n\n\n')
+eff_dir="$cwd"
+fresh_init=0
 while IFS= read -r segment; do
   case "$segment" in *[!\ ]*) ;; *) continue ;; esac
   judge "$segment"

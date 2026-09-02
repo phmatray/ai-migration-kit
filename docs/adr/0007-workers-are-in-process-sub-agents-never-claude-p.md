@@ -1,7 +1,7 @@
 ---
 id: 7
 title: Workers are in-process sub-agents, never claude -p
-status: proposed
+status: accepted
 date: 2026-08-31
 tags:
 - auto-dev
@@ -36,6 +36,10 @@ a worker that stalls is a live agent to be asked rather than a dead process to b
 
 ## Consequences
 
-`skills/auto-dev/SKILL.md` and `commands/auto-dev-worker.md` still describe the `claude -p` shape and
-must be rewritten before this record can move from `proposed` to `accepted`; that is why the status
-is `proposed` and why `search_adrs` filtered to `accepted` correctly will not return it yet.
+`skills/auto-dev/SKILL.md` and `commands/auto-dev-worker.md` were rewritten to the sub-agent shape
+by #314 (PR #328, the 2.0 breaking change): a worker is dispatched through the Agent tool with a
+`model` parameter, can be messaged with `SendMessage`, and its final message is its report. Neither
+file describes `claude -p` any more — `tests/auto-dev-never-wait/test.sh` pins the worker prompt —
+which is what moved this record from `proposed` to `accepted` (2026-09-02). The cost: the trigger
+bench `evals/run_all.py`, which spawns real `claude -p` processes to measure descriptions, can never
+run inside a fleet and stays an owner-run step.

@@ -446,4 +446,24 @@ grep -qF "EnforceCodeStyleInBuild" <<<"$sec10" \
   && fail "detect: reported EnforceCodeStyleInBuild for a Directory.Build.props that never mentions it:
 $sec10"
 
+# 11. THIS repository's own profile names every structural gate `run-all-tests.sh --list` runs
+#     (#388). The *Format/lint verify* list is hand-kept prose, and it had already gone stale once:
+#     `scripts/decision-check.py` was wired into CI and into run-all-tests.sh with no line in the
+#     profile, so a reader satisfying "every gate I know about" still failed CI. Read the gate
+#     scripts off the plan and require each by name — the plan cannot drift from ci.yml
+#     (tests/run-all-tests/test.sh), and now the profile cannot drift from the plan.
+own_profile="$KIT/.claude/skills/repo-profile.md"
+[ -f "$own_profile" ] || fail "this repository's own profile is missing (#157)"
+listed=$(bash "$KIT/scripts/run-all-tests.sh" --list --with-network \
+  | awk '$1 == "gate" { print $0 }' \
+  | grep -oE '(scripts/[a-z-]+\.(py|sh)|tests/skills/check-frontmatter\.py)' | sort -u)
+[ -n "$listed" ] || fail "run-all-tests.sh --list named no gate script at all — this guard would pass vacuously"
+n11=0
+for g in $listed; do
+  n11=$((n11 + 1))
+  grep -qF "$g" "$own_profile" \
+    || fail "the profile's CI-gate list omits $g, which run-all-tests.sh --list runs (#388) — add it to .claude/skills/repo-profile.md's Build & test section"
+done
+echo "  ok: the profile names every structural gate run-all-tests.sh lists ($n11 scripts)"
+
 echo "repo-profile golden test OK"

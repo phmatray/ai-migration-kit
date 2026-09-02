@@ -8,7 +8,7 @@
 2. Per project, innermost first:
    a. If legacy-style project: convert to SDK-style csproj first (smallest faithful conversion — keep TFM, references, and settings identical; `packages.config` → `PackageReference`).
    b. Bump `<TargetFramework>` to the chosen target (e.g. `net10.0`).
-   c. Update packages: `dotnet list package --outdated`, then bump — prefer the latest version compatible with the target TFM; major bumps get their release notes checked.
+   c. Update packages: `dotnet list package --outdated`, then bump — prefer the latest version compatible with the target TFM. **A major bump gets its breaking changes read before it is applied**, through the `context7` server: `resolve-library-id` for the package, then `query-docs` on "breaking changes" / "migration guide" for the target major. Without the server, read the package's release notes on NuGet or in its repository and record in the report that context7 was not connected (phase 0, rule 3: documented degradation, never silent).
    d. `dotnet build` **this project only**. Fix breaks before moving on.
 3. **Break triage:** for each build error `File.cs(L,C): error CSxxxx` → `get_symbol_at_position(file, L)` to identify the symbol → `get_symbol_info` for its signature/docs. If the fix touches an API used elsewhere, run `find_references` first and apply the change bottom-up. Use `edit_member` (preview → apply) for the code change.
 4. After all projects: full `dotnet build` at solution level, then `dotnet test`.
