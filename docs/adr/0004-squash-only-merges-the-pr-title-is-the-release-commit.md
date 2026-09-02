@@ -9,6 +9,8 @@ tags:
 code_refs:
 - path: release-please-config.json
 - path: scripts/release-title-gate.sh
+parent: Architectural Decision Records
+nav_order: 4
 ---
 
 # Squash-only merges: the PR title is the release commit

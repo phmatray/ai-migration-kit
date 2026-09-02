@@ -14,6 +14,8 @@ code_refs:
 - path: hooks/roseline-gate.sh
 - path: hooks/git-write-gate.sh
 - path: scripts/decision-check.py
+parent: Architectural Decision Records
+nav_order: 11
 ---
 
 # Hook gates are recorded rather than registered decisions

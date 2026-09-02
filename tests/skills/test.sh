@@ -1151,6 +1151,60 @@ grep -q 'skills/zz-fake' "$_gscratch/guide-red.out" \
   || { echo "FAIL: the guide-coverage check refused the scratch tree without naming skills/zz-fake"; cat "$_gscratch/guide-red.out"; exit 1; }
 echo "ok   a skill folder the guide does not name is refused, by name"
 
+# ------------------------------------------------------------------------------------------------
+# docs/ is the GitHub Pages site (#401): the Jekyll config parses and names the theme and the
+# mermaid version, the landing page exists and links the guide, and every page the config does not
+# exclude carries a `title:` — a page without one drops out of the sidebar silently. Driven to red
+# on a scratch copy with one page's title removed, so the check cannot pass vacuously.
+echo "== docs/ is a Pages site: config parses, index links the guide, every page is titled (#401) =="
+# ONE check, written to a file and run twice — on the real tree (must pass) and on a scratch tree
+# with an untitled page (must fail, and must NAME the page). Links are `.md`, the form that works
+# on GitHub's renderer and on Pages alike (jekyll-relative-links rewrites them at build time).
+_pscratch=$(kit_scratch)
+cat > "$_pscratch/pages-check.py" <<'PY'
+import pathlib, re, sys, yaml
+root = pathlib.Path(sys.argv[1]); docs = root / "docs"
+cfg_path = docs / "_config.yml"
+if not cfg_path.exists():
+    print("FAIL: docs/_config.yml is missing"); sys.exit(1)
+cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+if cfg.get("remote_theme") != "just-the-docs/just-the-docs":
+    print("FAIL: docs/_config.yml does not name remote_theme: just-the-docs/just-the-docs"); sys.exit(1)
+if not (isinstance(cfg.get("mermaid"), dict) and cfg["mermaid"].get("version")):
+    print("FAIL: docs/_config.yml does not pin mermaid.version"); sys.exit(1)
+index = docs / "index.md"
+if not index.exists():
+    print("FAIL: docs/index.md is missing"); sys.exit(1)
+itext = index.read_text(encoding="utf-8")
+if not re.search(r"^title:", itext, re.M) or "nav_order: 1" not in itext or "](methodology.md)" not in itext:
+    print("FAIL: docs/index.md must carry title:, nav_order: 1 and link methodology.md"); sys.exit(1)
+if re.search(r"\]\([^)]*\.html\)", itext):
+    print("FAIL: docs/index.md links .html pages — link the .md source, which renders on GitHub and on Pages"); sys.exit(1)
+excluded = [e.rstrip("/") for e in cfg.get("exclude", []) if not e.startswith("*")]
+untitled = []
+for p in sorted(docs.rglob("*.md")):
+    rel = p.relative_to(docs).as_posix()
+    if any(rel == e or rel.startswith(e + "/") for e in excluded):
+        continue
+    head = p.read_text(encoding="utf-8")[:2000]
+    m = re.match(r"\A---\n(.*?)\n---\n", head, re.S)
+    if not m or not re.search(r"^title:\s*\S", m.group(1), re.M):
+        untitled.append(rel)
+if untitled:
+    print("FAIL: docs/ pages without a title: in their front matter: " + ", ".join(untitled)); sys.exit(1)
+print("ok   docs/_config.yml parses, docs/index.md links the guide, every non-excluded page is titled")
+PY
+python3 "$_pscratch/pages-check.py" "$KIT_ROOT" || exit 1
+mkdir -p "$_pscratch/tree/docs"
+cp "$KIT_ROOT/docs/_config.yml" "$KIT_ROOT/docs/index.md" "$_pscratch/tree/docs/"
+printf -- '---\nnav_order: 9\n---\n\n# untitled\n' > "$_pscratch/tree/docs/untitled.md"
+if python3 "$_pscratch/pages-check.py" "$_pscratch/tree" > "$_pscratch/pages-red.out" 2>&1; then
+  echo "FAIL: the titled-pages check accepted a page with no title:"; exit 1
+fi
+grep -q 'untitled.md' "$_pscratch/pages-red.out" \
+  || { echo "FAIL: the titled-pages check refused the scratch tree without naming untitled.md"; cat "$_pscratch/pages-red.out"; exit 1; }
+echo "ok   a docs/ page without a title is refused, by name"
+
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
 # locations, a line budget so it stays pointers rather than sediment, and every relative link

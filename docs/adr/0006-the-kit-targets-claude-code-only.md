@@ -10,6 +10,8 @@ code_refs:
 - path: hooks/hooks.json
 - path: .mcp.json
 - path: commands/auto-dev-worker.md
+parent: Architectural Decision Records
+nav_order: 6
 ---
 
 # The kit targets Claude Code only

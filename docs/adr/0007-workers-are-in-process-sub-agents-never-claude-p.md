@@ -9,6 +9,8 @@ tags:
 code_refs:
 - path: skills/auto-dev/SKILL.md
 - path: commands/auto-dev-worker.md
+parent: Architectural Decision Records
+nav_order: 7
 ---
 
 # Workers are in-process sub-agents, never claude -p

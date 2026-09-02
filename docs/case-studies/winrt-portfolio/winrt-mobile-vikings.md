@@ -1,3 +1,8 @@
+---
+title: Mobile Vikings
+parent: Case studies
+---
+
 # Audit — winrt-mobile-vikings
 
 **Client de compte Mobile Vikings** · WinRT 8.x · actif 2014-02 → dernier commit 2026-02

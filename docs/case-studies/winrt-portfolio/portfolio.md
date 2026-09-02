@@ -1,3 +1,9 @@
+---
+title: Case studies
+nav_order: 8
+has_children: true
+---
+
 # Synthèse portefeuille — WinRT/UWP/WP → Blazor
 
 **Audit exécutif du 2026-07-22** · 6 applications · ai-migration-kit `/migrate-audit` · chiffres issus de `scripts/audit-inventory.sh` (JSON reproductibles)

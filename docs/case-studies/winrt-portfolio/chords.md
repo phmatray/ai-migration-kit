@@ -1,3 +1,8 @@
+---
+title: Chords
+parent: Case studies
+---
+
 # Audit — chords
 
 **Accords de guitare (Windows Phone + WPF desktop + lib)** · multi-ère · actif 2015-02 → dernier commit 2026-03

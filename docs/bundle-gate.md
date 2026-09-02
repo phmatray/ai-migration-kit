@@ -1,3 +1,8 @@
+---
+title: The bundle gate
+nav_order: 6
+---
+
 # The bundle-gate — opt-in drift check for a committed front-end bundle
 
 `templates/ci-dotnet.yml` ships four steps (plus a fifth, unarmed detector — see *What arms it*

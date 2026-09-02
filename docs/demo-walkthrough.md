@@ -1,3 +1,8 @@
+---
+title: Demo walkthrough
+nav_order: 7
+---
+
 # Demo Walkthrough — LegacyShop, net6.0 → net10.0
 
 A **real** run of the ai-migration-kit pipeline (2026-07-22), executed with RoselineMCP against a scratch copy of `samples/LegacyShop`. Every number and diff below is captured tool output, not a mock-up.

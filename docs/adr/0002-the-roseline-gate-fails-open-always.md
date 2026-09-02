@@ -9,6 +9,8 @@ tags:
 code_refs:
 - path: hooks/roseline-gate.sh
 - path: hooks/git-write-gate.sh
+parent: Architectural Decision Records
+nav_order: 2
 ---
 
 # The roseline gate fails open, always

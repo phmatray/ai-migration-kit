@@ -1,3 +1,9 @@
+---
+title: Architectural Decision Records
+nav_order: 4
+has_children: true
+---
+
 # Architectural Decision Records
 
 > **When an ADR is warranted.** All three must hold: the decision is **hard to reverse**, it is

@@ -1,3 +1,8 @@
+---
+title: Pokédex G
+parent: Case studies
+---
+
 # Audit — pokedex
 
 > **✅ MIGRÉE ET DÉPLOYÉE (vague 3, 2026-07-23)** — https://phmatray.github.io/pokedexg/

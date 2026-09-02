@@ -1,3 +1,8 @@
+---
+title: The roseline gate
+nav_order: 5
+---
+
 # The roseline gate
 
 > Moved here from README.md's Prerequisites section (#325) — the essay is unchanged; the

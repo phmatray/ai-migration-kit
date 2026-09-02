@@ -6,6 +6,8 @@ date: 2026-07-23
 tags:
 - out-of-scope
 - arbor
+parent: Architectural Decision Records
+nav_order: 9
 ---
 
 # Interaction modes

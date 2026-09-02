@@ -1,3 +1,8 @@
+---
+title: Les Fleurs du Mal
+parent: Case studies
+---
+
 # Audit — fleurs-du-mal-winrt
 
 > **✅ MIGRÉE ET DÉPLOYÉE (2026-07-23)** — https://phmatray.github.io/fleurs-du-mal-winrt/ ·
