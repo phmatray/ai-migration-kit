@@ -1,3 +1,8 @@
+---
+title: Popcorn Time
+parent: Case studies
+---
+
 # Audit — popcorn-time
 
 **Navigateur de films UWP (YTS / TheMovieDB)** · UWP · actif 2016-07 → dernier commit 2026-02

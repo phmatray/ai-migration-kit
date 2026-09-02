@@ -1,3 +1,8 @@
+---
+title: Decisions
+nav_order: 3
+---
+
 # Decisions
 
 A **decision** is a control-flow choice the methodology makes — "is this branch green?", "what

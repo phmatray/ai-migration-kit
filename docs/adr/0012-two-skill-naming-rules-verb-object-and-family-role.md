@@ -20,6 +20,8 @@ code_refs:
 - path: skills/debug-issue/SKILL.md
 - path: skills/migrate-legacy/SKILL.md
 - path: tests/skills/check-frontmatter.py
+parent: Architectural Decision Records
+nav_order: 12
 ---
 
 # Two skill naming rules: verb-object, and family-role

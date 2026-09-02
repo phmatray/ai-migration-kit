@@ -9,6 +9,8 @@ tags:
 code_refs:
 - path: skills/profile-repo/SKILL.md
 - path: skills/setup-repo/SKILL.md
+parent: Architectural Decision Records
+nav_order: 13
 ---
 
 # profile-repo and setup-repo stay a reader and a writer

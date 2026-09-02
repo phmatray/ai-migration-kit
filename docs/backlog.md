@@ -1,3 +1,8 @@
+---
+title: Kit backlog
+nav_order: 9
+---
+
 # Backlog du kit
 
 Décisions notées, pas encore justifiées par l'échelle — chaque entrée dit le déclencheur qui la

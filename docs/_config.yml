@@ -1,0 +1,38 @@
+# docs/ is the GitHub Pages site (source: main / /docs), built by Pages' native Jekyll with the
+# just-the-docs remote theme — sidebar, search and mermaid without a build step (#401).
+title: AI Migration Kit
+description: A Claude Code plugin — a gate-verified methodology for legacy .NET migrations and a hands-off GitHub issue → PR lifecycle.
+remote_theme: just-the-docs/just-the-docs
+url: https://phmatray.github.io
+baseurl: /ai-migration-kit
+
+search_enabled: true
+heading_anchors: true
+color_scheme: light
+
+# The ```mermaid fences the guide and ARCHITECTURE.md already use render through the theme's
+# built-in mermaid support; the version is pinned so a theme update cannot change the diagrams.
+mermaid:
+  version: "10.9.0"
+
+aux_links:
+  Repository: https://github.com/phmatray/ai-migration-kit
+aux_links_new_tab: true
+
+# What must not become a page: the superpowers specs/plans (working documents), the case-study
+# inventories (JSON) and captures (PNG), and the generated dashboards (HTML that stands on its own).
+exclude:
+  - superpowers/
+  - case-studies/winrt-portfolio/inventory/
+  - case-studies/winrt-portfolio/captures/
+  - "*.html"
+  - Gemfile
+  - Gemfile.lock
+
+# Every page names its own title and nav_order in its front matter; a page without one drops out
+# of the sidebar silently, which is why tests/skills/test.sh refuses an untitled docs/ page.
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

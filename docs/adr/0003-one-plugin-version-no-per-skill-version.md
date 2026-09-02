@@ -9,6 +9,8 @@ tags:
 code_refs:
 - path: tests/skills/check-frontmatter.py
 - path: .claude-plugin/plugin.json
+parent: Architectural Decision Records
+nav_order: 3
 ---
 
 # One plugin version; no per-skill version

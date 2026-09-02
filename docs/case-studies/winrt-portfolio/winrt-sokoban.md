@@ -1,3 +1,8 @@
+---
+title: Sokoban
+parent: Case studies
+---
+
 # Audit — winrt-sokoban
 
 **Jeu de puzzle Sokoban** · WinRT 8.x · actif 2014-02 → dernier commit 2026-02

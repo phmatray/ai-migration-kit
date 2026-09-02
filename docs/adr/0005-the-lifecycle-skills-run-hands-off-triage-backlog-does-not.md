@@ -9,6 +9,8 @@ tags:
 code_refs:
 - path: skills/create-issue/SKILL.md
 - path: skills/triage-backlog/SKILL.md
+parent: Architectural Decision Records
+nav_order: 5
 ---
 
 # The lifecycle skills run hands-off; triage-backlog does not
