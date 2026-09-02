@@ -75,6 +75,7 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 | An idea to track | [`create-issue`](skills/create-issue/SKILL.md) |
 | An issue with a plan | [`implement-issue`](skills/implement-issue/SKILL.md) `#N` |
 | A PR to land | [`merge-pr`](skills/merge-pr/SKILL.md) `#N` |
+| One idea or issue to a merged PR, hands-off | [`deliver-issue`](skills/deliver-issue/SKILL.md) `<idea>` or `#N` |
 | A queue that never shrinks | [`triage-backlog`](skills/triage-backlog/SKILL.md) |
 | Many issues, hands-off | [`auto-dev`](skills/auto-dev/SKILL.md) |
 | A legacy .NET app | [`/migrate-assess`](commands/migrate-assess.md), then [`/migrate`](commands/migrate.md) |
@@ -259,6 +260,7 @@ skill is `verb-object` (`create-issue`, `profile-repo`, `debug-issue`), and a me
 | [`implement-issue`](skills/implement-issue/SKILL.md) | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
 | [`merge-pr`](skills/merge-pr/SKILL.md) | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
 | [`auto-dev`](skills/auto-dev/SKILL.md) | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
+| [`deliver-issue`](skills/deliver-issue/SKILL.md) | The single-item form of that chain: one idea or one planned issue to a merged PR, hands-off — files or seeds it through `create-issue`, then dispatches the same two worker commands `auto-dev` uses, each in a fresh sub-agent, waiting for CI in between. `--stop-at ready` leaves the merge to you. |
 | [`triage-backlog`](skills/triage-backlog/SKILL.md) | Re-decide the issues already open: verify what's been fixed, cluster by root cause, then propose keep / sharpen / fold / rescope / close-by-decision for each — and execute only what the owner confirms. The outlet the three inlets above don't have. |
 | [`profile-repo`](skills/profile-repo/SKILL.md) | Generate or read `.claude/skills/repo-profile.md` — the config the skills above consume. Run once per repo, commit the profile. |
 | [`setup-repo`](skills/setup-repo/SKILL.md) | The write half of the profile story: bring a repo to the configuration those skills assume — label taxonomy, `.github/ISSUE_TEMPLATE/` forms, repo settings — from a declarative manifest. `plan` prints the drift and writes nothing; `apply` converges it, idempotently and additively. |
@@ -323,6 +325,7 @@ skills/create-issue/     generic issue/PR lifecycle: seeded issue (brainstorm �
 skills/implement-issue/  generic issue/PR lifecycle: plan → draft PR → ready
 skills/merge-pr/         generic issue/PR lifecycle: CI wait, corrections loop, squash-merge, follow-ups
 skills/auto-dev/         fleet supervisor above the lifecycle skills: N parallel workers burning down the backlog
+skills/deliver-issue/    the single-item form: one idea or issue to a merged PR, each phase dispatched in a fresh sub-agent
 skills/triage-backlog/   the queue's outlet: verify, cluster and re-decide open issues — owner confirms every close
 skills/debug-issue/      root-cause-before-fix process, harness-agnostic
 skills/profile-repo/     the per-repo profile generator the lifecycle skills consume

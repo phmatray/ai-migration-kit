@@ -33,6 +33,7 @@ graph TD
 
     subgraph lifecycle ["Issue/PR lifecycle suite"]
         AD[auto-dev]
+        DL[deliver-issue]
         CI[create-issue]
         II[implement-issue]
         MP[merge-pr]
@@ -59,6 +60,11 @@ graph TD
     AD -- "off-scope finds" --> CI
     AD -. "held L/XL: /implement-issue #N" .-> II
     AD -- "reads at step 1" --> PROF
+    DL -- "files or seeds the one item" --> CI
+    DL -- "dispatches phase 1, waits for CI, dispatches phase 2" --> AW
+    DL -. "follow-up: /implement-issue #N" .-> II
+    DL -. "after --stop-at ready: /merge-pr #PR" .-> MP
+    DL -- "reads at step 1" --> PROF
     RP -- "generates (run once per repo)" --> PROF
     RP -. "names as the remedy for a missing label axis or issue-form dir" .-> SR
     RP -. "then: /create-issue <idea>" .-> CI
@@ -109,6 +115,7 @@ graph LR
         ML[migrate-legacy]
         RF[review-followups]
         AD[auto-dev]
+        DL[deliver-issue]
         CI[create-issue]
         II[implement-issue]
         MP[merge-pr]
@@ -176,6 +183,10 @@ graph LR
     AD --> GH
     AD --> GIT
     AD --> PY
+
+    DL --> GH
+    DL --> GIT
+    DL --> JQ
 ```
 
 `debug-issue` (DI) has no external dependency at all — it is a pure process skill, which is
@@ -191,6 +202,7 @@ why no arrow leaves it.
 | `implement-issue` | adr (rec.) | code-review (plan shape and TDD loop in `skills/_shared/plan-shape.md`, `tdd-loop.md`; worktrees via its own `make-worktree.sh`) | **gh**, **git**, **jq** (`tick-plan.sh`'s round-trip check) | — |
 | `merge-pr` | adr (rec.) | — | **gh** (merge rights), **git** | — |
 | `auto-dev` | — | drives create-issue, implement-issue, merge-pr · `loop` (heartbeat) | **gh** (merge rights), **git** · python3 (cost reports) | `survey.sh`, `reconcile.sh`, `wait-ci.sh`, `usage_report.py`, `analyze_cache.py`, `measure_phase2.py` (bundled in the skill) |
+| `deliver-issue` | — | dispatches create-issue, then the two `auto-dev` worker commands (implement-issue → merge-pr) in fresh sub-agents | **gh** (merge rights), **git**, **jq** (`wait-ci.sh` reads gh's check table with it) | `skills/auto-dev/scripts/wait-ci.sh` (borrowed; ships nothing of its own) |
 | `triage-backlog` | — | — | **gh** (issue write) | — |
 | `debug-issue` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
 | `profile-repo` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |

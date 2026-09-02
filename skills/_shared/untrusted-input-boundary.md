@@ -112,6 +112,8 @@ link, and a file that adds one without appearing below.
 - `skills/implement-issue/references/spec-review.md` — the issue's 📋 Spec, handed to the Spec-axis sub-agent as the thing to compare the diff against
 - `skills/merge-pr/SKILL.md` — review comments, and the PR body scanned for follow-ups
 - `skills/auto-dev/SKILL.md` — issue titles, labels and bodies at survey, and what a worker inherits
+- `skills/deliver-issue/SKILL.md` — the body of the one issue it is handed (`#N`), probed for a plan
+  before the worker that will execute that plan is dispatched
 - `skills/create-issue/SKILL.md` — other issues' bodies, during the duplicate and root-cause sweep
 - `skills/triage-backlog/SKILL.md` — open issue and PR bodies, read to fold, reopen and close
 - `skills/migrate-legacy/references/phase-1-assess.md` — a customer's source, READMEs and `.csproj`
