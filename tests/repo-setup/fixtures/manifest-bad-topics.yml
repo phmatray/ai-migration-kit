@@ -1,0 +1,4 @@
+# A topic with a space breaks GitHub's rule (lowercase letters, digits and hyphens) and must be
+# refused locally, before any call, naming the rule and the topic (#400).
+topics:
+  - "has space"
