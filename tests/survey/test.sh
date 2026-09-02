@@ -1064,7 +1064,12 @@ for token in 'deps=' 'blocked_by=' 'parent(' 'blocking='; do
 done
 # The trigger itself, not just the token: Step 4 must say to re-survey AT ONCE on a blocking= row.
 grep -qi 'blocking=' "$SKILL" || { echo "FAIL: SKILL.md does not name the blocking= re-survey trigger"; exit 1; }
-awk '/^## Step 4/,/^## Step 5/' "$SKILL" | grep -qF 'blocking=' || {
+# A here-string, not a pipe: `grep -q` exits on its first match and closes the pipe while awk's
+# range pattern is still reading the 750-line file to EOF, so awk dies of SIGPIPE (141) and under
+# pipefail that becomes the pipeline's status — this gate reported a failure that did not happen on
+# ~22% of runs (#391). Materialise the range first; grep then reads a string nobody can hang up on.
+step4=$(awk '/^## Step 4/,/^## Step 5/' "$SKILL")
+grep -qF 'blocking=' <<<"$step4" || {
   echo "FAIL: SKILL.md Step 4 does not carry the immediate re-survey trigger for a merged blocking= row"
   exit 1; }
 echo "ok: frontier — SKILL.md documents the deps= column and Step 4's blocking= re-survey trigger"
