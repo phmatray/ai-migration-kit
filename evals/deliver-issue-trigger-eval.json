@@ -1,0 +1,21 @@
+[
+  {"query": "deliver issue 47 end to end — file nothing, it already has a plan, just build it and get it merged", "should_trigger": true},
+  {"query": "take this idea all the way to a merged PR: the survey should print a SEED row for issues without a plan", "should_trigger": true, "note": "an idea, not an issue — the skill files it first"},
+  {"query": "run the full lifecycle on #12, hands-off, I'll check the merged result tomorrow", "should_trigger": true},
+  {"query": "livre l'issue 47 de bout en bout, sans t'arrêter avant le merge", "should_trigger": true},
+  {"query": "de l'idée à la PR mergée : ajoute un flag --json à survey.sh", "should_trigger": true},
+  {"query": "implement and merge issue 88 in one go, fresh context for the merge like auto-dev does", "should_trigger": true},
+  {"query": "deliver #61 but stop at ready, I want to read the diff before it lands", "should_trigger": true, "note": "--stop-at ready is still this skill"},
+  {"query": "https://github.com/phmatray/ai-migration-kit/issues/343 — go build it and land it", "should_trigger": true},
+  {"query": "plan, build and ship a single issue for me: the profile's Domain language line should read CONTEXT.md when one exists", "should_trigger": true},
+  {"query": "burn down the backlog with 3 agents, small issues first", "should_trigger": false, "note": "many issues → auto-dev"},
+  {"query": "merge PR 279 once CI is green", "should_trigger": false, "note": "a PR already open → merge-pr"},
+  {"query": "ship this PR", "should_trigger": false, "note": "'ship' on a PR is merge-pr's trigger"},
+  {"query": "open an issue for the flaky survey test, with a plan, I'll build it later", "should_trigger": false, "note": "filing only → create-issue"},
+  {"query": "implement issue 47 — I'll merge it myself after review", "should_trigger": false, "note": "build only → implement-issue"},
+  {"query": "resume issue #75 in its worktree and flip the PR ready", "should_trigger": false, "note": "implement-issue's resume path"},
+  {"query": "triage the backlog and tell me what to close", "should_trigger": false, "note": "triage-backlog"},
+  {"query": "vide le backlog avec 3 agents", "should_trigger": false, "note": "fleet → auto-dev"},
+  {"query": "migrate this app to .NET 10 end to end", "should_trigger": false, "note": "the migration pipeline, not the issue lifecycle"},
+  {"query": "give issue 42 a plan", "should_trigger": false, "note": "create-issue --seed"}
+]
