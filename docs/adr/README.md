@@ -30,3 +30,4 @@
 | 0010 | [Novelty search](0010-novelty-search.md) | rejected | 2026-07-23 |
 | 0011 | [Hook gates are recorded rather than registered decisions](0011-hook-gates-are-recorded-rather-than-registered-decisions.md) | accepted | 2026-08-31 |
 | 0012 | [Two skill naming rules: verb-object, and family-role](0012-two-skill-naming-rules-verb-object-and-family-role.md) | accepted | 2026-08-31 |
+| 0013 | [profile-repo and setup-repo stay a reader and a writer](0013-profile-repo-and-setup-repo-stay-a-reader-and-a-writer.md) | proposed | 2026-09-02 |

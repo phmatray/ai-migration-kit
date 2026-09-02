@@ -1110,6 +1110,47 @@ if missing:
 print("ok   README.md links every skills/*/SKILL.md and commands/*.md")
 PY
 
+# ------------------------------------------------------------------------------------------------
+# The methodology guide names every skill and every command (#398). docs/methodology.md is the one
+# document that reads the kit end to end; a skill added without a place in it is the README-links
+# failure one level up — the guard walks the same directories that case does and greps the guide.
+# Driven to red on a scratch copy of the tree with an extra skill folder, so the guard cannot go
+# silent by matching nothing.
+echo "== docs/methodology.md names every skill and command (#398) =="
+# ONE check, written to a file and run twice — on the real tree (must pass) and on a scratch tree
+# with an unnamed skills/zz-fake/ (must fail, and must NAME zz-fake). A second inline copy of the
+# check would prove the copy, not the case; the red half is the guard that proves the guard.
+_gscratch=$(kit_scratch)
+cat > "$_gscratch/guide-check.py" <<'PY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+guide = root / "docs/methodology.md"
+if not guide.exists():
+    print("FAIL: docs/methodology.md is missing"); sys.exit(1)
+text = guide.read_text(encoding="utf-8")
+missing = []
+for d in sorted(p for p in (root / "skills").iterdir() if p.is_dir() and p.name != "_shared"):
+    if d.name not in text:
+        missing.append("skills/" + d.name)
+for f in sorted((root / "commands").glob("*.md")):
+    if f.stem not in text:
+        missing.append("commands/" + f.name)
+if missing:
+    print("FAIL: docs/methodology.md never names: " + ", ".join(missing)); sys.exit(1)
+print("ok   docs/methodology.md names every skill folder and every command")
+PY
+python3 "$_gscratch/guide-check.py" "$KIT_ROOT" || exit 1
+mkdir -p "$_gscratch/tree/skills/zz-fake" "$_gscratch/tree/commands" "$_gscratch/tree/docs"
+cp "$KIT_ROOT/docs/methodology.md" "$_gscratch/tree/docs/"
+cp -R "$KIT_ROOT/skills/debug-issue" "$_gscratch/tree/skills/"
+: > "$_gscratch/tree/skills/zz-fake/SKILL.md"
+if python3 "$_gscratch/guide-check.py" "$_gscratch/tree" > "$_gscratch/guide-red.out" 2>&1; then
+  echo "FAIL: the guide-coverage check accepted a tree with skills/zz-fake/ unnamed"; exit 1
+fi
+grep -q 'skills/zz-fake' "$_gscratch/guide-red.out" \
+  || { echo "FAIL: the guide-coverage check refused the scratch tree without naming skills/zz-fake"; cat "$_gscratch/guide-red.out"; exit 1; }
+echo "ok   a skill folder the guide does not name is refused, by name"
+
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
 # locations, a line budget so it stays pointers rather than sediment, and every relative link

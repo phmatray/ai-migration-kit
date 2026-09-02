@@ -9,7 +9,7 @@ first.
 
 The kit's own skills come **first** here, before any third-party plugin's equivalent (`superpowers`):
 the kit is what is being dogfooded, and `skills/_shared/` is the one home of its doctrine (#324).
-Full table: the README's *Which command?*. Short form — broken/flaky → `debug-issue`; a new idea →
+Full guide: [`docs/methodology.md`](../docs/methodology.md). Short form — broken/flaky → `debug-issue`; a new idea →
 `create-issue` (`--seed #N` plans a raw issue); a planned issue → `implement-issue #N`; a ready PR →
 `merge-pr #N`; many issues hands-off → `auto-dev`; the queue → `triage-backlog`; profile/labels →
 `profile-repo` then `setup-repo`; a legacy .NET app → `/migrate-assess` then `/migrate`; a missing
