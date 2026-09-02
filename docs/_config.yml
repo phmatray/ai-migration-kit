@@ -8,7 +8,9 @@ baseurl: /ai-migration-kit
 
 search_enabled: true
 heading_anchors: true
-color_scheme: light
+# The site's own scheme — docs/_sass/color_schemes/kit.scss; its type and measure are in
+# docs/_sass/custom/setup.scss, the rest in docs/_sass/custom/custom.scss.
+color_scheme: kit
 
 # The ```mermaid fences the guide and ARCHITECTURE.md already use render through the theme's
 # built-in mermaid support; the version is pinned so a theme update cannot change the diagrams.
@@ -20,15 +22,20 @@ aux_links:
 aux_links_new_tab: true
 
 # What must not become a page: the superpowers specs/plans (working documents), the case-study
-# inventories (JSON) and captures (PNG), the generated dashboards (HTML that stands on its own),
+# inventories (JSON) and captures (PNG), the generated dashboard (HTML that stands on its own),
 # and the kit backlog — a development document review-followups reads at run time
 # (scripts/release-title-gate.sh's SHIPPED_ANYWAY), so it carries no site front matter.
+#
+# By PATH, never a bare glob: `"*.html"` here excluded the remote theme's own layouts — Jekyll 3's
+# entry filter fnmatches without FNM_PATHNAME and the layout reader runs through it — so every
+# page was published without a layout (measured 2026-09-02, the site's first build). The Pages
+# guard in tests/skills/test.sh refuses a glob entry for that reason.
 exclude:
   - superpowers/
   - backlog.md
   - case-studies/winrt-portfolio/inventory/
   - case-studies/winrt-portfolio/captures/
-  - "*.html"
+  - case-studies/winrt-portfolio/dashboard.html
   - Gemfile
   - Gemfile.lock
 

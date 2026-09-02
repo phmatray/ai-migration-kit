@@ -1,0 +1,241 @@
+// The AI Migration Kit site on top of just-the-docs (#401). Imported last, so plain selectors win
+// over the theme's. Font SIZES are set through the variables in custom/setup.scss — the theme's
+// fs- mixins carry !important — and only weights, case, spacing and the home page live here.
+//
+// The idea: legibility is the identity. No decoration, no cards, no motion. The gate mark between
+// pipeline stages is the one graphic motif; colour appears only where it means something.
+
+// ------------------------------------------------------------------------------------ headings
+h1,
+.text-alpha {
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+h2,
+.text-beta,
+#toctitle {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+h3,
+.text-gamma {
+  font-weight: 700;
+}
+
+// The theme sets h4 in tracked-out capitals below body size; the kit's h4s are sentences, so
+// they read as such, at body size. (The fs- mixins carry !important, hence the same here.)
+h4,
+.text-delta,
+h5,
+.text-epsilon,
+h6,
+.text-zeta {
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+h4,
+.text-delta {
+  font-size: 1rem !important;
+}
+
+h5,
+.text-epsilon,
+h6,
+.text-zeta {
+  font-size: 0.9375rem !important;
+}
+
+.main-content {
+  h2 {
+    margin-top: 2.25em;
+  }
+
+  h3 {
+    margin-top: 1.75em;
+  }
+
+  // The measure: about 72 characters. Tables and diagrams keep the full column.
+  p,
+  ul,
+  ol,
+  blockquote {
+    max-width: 44rem;
+  }
+
+  li {
+    line-height: $content-line-height;
+  }
+
+  a {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
+
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  // The theme fades a hovered underline to 45 %; a thicker line should not also be a paler one.
+  a:not([class]):hover {
+    text-decoration-color: $link-color;
+  }
+}
+
+// ---------------------------------------------------------------------------------- the root
+// The theme's html rule reads the fs-4 pair and reads $root-font-size nowhere (it is deprecated),
+// so the 17px root the scale is built on is set here, with the theme's own small breakpoint.
+html {
+  font-size: 16px !important;
+}
+
+@include mq(sm) {
+  html {
+    font-size: 17px !important;
+  }
+}
+
+// ------------------------------------------------------------------------------- the sidebar
+.site-title {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: $body-heading-color;
+}
+
+.site-title:hover {
+  background-image: none;
+  background-color: $feedback-color;
+}
+
+// Navigation reads in ink, not in the accent: a column of accent-coloured links would make the
+// accent mean "clickable" everywhere instead of marking a link in running text or a gate.
+.nav-list .nav-list-item .nav-list-link {
+  font-weight: 500;
+  color: $body-text-color;
+}
+
+.nav-list .nav-list-item .nav-list-link:hover {
+  color: $body-heading-color;
+}
+
+// The current page's link only: the theme's script also marks every enclosing item `.active`,
+// so an item selector would bold the whole ancestry on an ADR or a case-study page.
+.nav-list .nav-list-item .nav-list-link.active {
+  font-weight: 700;
+  color: $body-heading-color;
+}
+
+// -------------------------------------------------------------------------- tables and code
+.table-wrapper {
+  box-shadow: none;
+  border: $border $border-color;
+}
+
+th {
+  font-weight: 700;
+  color: $body-heading-color;
+  background-color: $sidebar-color;
+}
+
+// The theme's own selector for inline code, so this outranks its bordered default.
+:not(pre, figure) > code {
+  border: none;
+  padding: 0.1em 0.35em;
+}
+
+// The theme draws code blocks with an ink-coloured border — the one heavy line on a page whose
+// other rules are all the border grey. Same grey here.
+div.highlighter-rouge div.highlight,
+figure.highlight pre,
+figure.highlight :not(pre) > code {
+  border-color: $border-color;
+}
+
+// ------------------------------------------------------------------------------------ the hero
+// The home page opens on the two loops as they are: stage names in reading order, a gate between
+// each pair. Plain text and one mark.
+.kit-hero {
+  margin: 0 0 2.5rem;
+}
+
+.main-content .kit-hero-lead {
+  max-width: 34em;
+  margin: 0.5rem 0 2rem;
+  font-size: 1.25rem !important;
+  line-height: 1.45;
+  color: $body-heading-color;
+}
+
+.kit-loop {
+  margin: 0 0 1.5rem;
+}
+
+// The loop's name, as a sentence at body size — not a small grey label over a big value.
+.main-content .kit-loop-name {
+  margin: 0 0 0.3rem;
+  font-size: $font-size-5 !important;
+  font-weight: 500;
+  color: $body-text-color;
+}
+
+.main-content .kit-stages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: $body-heading-color;
+}
+
+// The theme numbers every ordered list through an absolutely positioned ::before counter; the
+// stages are a sequence, but the gate mark says so better than "1." would.
+.main-content .kit-stages > li {
+  position: static;
+  margin: 0.2rem 0;
+}
+
+.main-content .kit-stages > li::before {
+  content: none;
+}
+
+// The gate: a bar every stage passes through. It is the kit's one motif — the favicon is the same
+// mark — and the only place besides links where the accent appears.
+// Sized in rem: the theme's counter rule leaves a smaller !important font-size on this ::before,
+// so an em here would resolve against that, not against the stage text.
+.main-content .kit-stages > li + li::before {
+  content: "";
+  position: static;
+  display: inline-block;
+  width: 2px;
+  height: 1.2rem;
+  margin: 0 0.8rem;
+  vertical-align: -0.15rem;
+  background-color: $link-color;
+}
+
+// -------------------------------------------------------------------------------- the floor
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid $link-color;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

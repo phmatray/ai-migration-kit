@@ -1180,7 +1180,13 @@ if not re.search(r"^title:", itext, re.M) or "nav_order: 1" not in itext or "](m
     print("FAIL: docs/index.md must carry title:, nav_order: 1 and link methodology.md"); sys.exit(1)
 if re.search(r"\]\([^)]*\.html\)", itext):
     print("FAIL: docs/index.md links .html pages — link the .md source, which renders on GitHub and on Pages"); sys.exit(1)
-excluded = [e.rstrip("/") for e in cfg.get("exclude", []) if not e.startswith("*")]
+globs = [e for e in cfg.get("exclude", []) if any(ch in e for ch in "*?[")]
+if globs:
+    print("FAIL: docs/_config.yml excludes by glob (" + ", ".join(globs) + ") — Jekyll 3 applies exclude to the theme's layouts too, so a bare glob unpublishes every layout; name the file by path"); sys.exit(1)
+scheme = cfg.get("color_scheme")
+if scheme and scheme not in ("light", "dark") and not (docs / "_sass" / "color_schemes" / (scheme + ".scss")).exists():
+    print("FAIL: docs/_config.yml names color_scheme: " + scheme + " but docs/_sass/color_schemes/" + scheme + ".scss does not exist — the Pages build would fail"); sys.exit(1)
+excluded = [e.rstrip("/") for e in cfg.get("exclude", [])]
 untitled = []
 for p in sorted(docs.rglob("*.md")):
     rel = p.relative_to(docs).as_posix()
@@ -1192,11 +1198,12 @@ for p in sorted(docs.rglob("*.md")):
         untitled.append(rel)
 if untitled:
     print("FAIL: docs/ pages without a title: in their front matter: " + ", ".join(untitled)); sys.exit(1)
-print("ok   docs/_config.yml parses, docs/index.md links the guide, every non-excluded page is titled")
+print("ok   docs/_config.yml parses (no glob in exclude, the colour scheme exists), docs/index.md links the guide, every non-excluded page is titled")
 PY
 python3 "$_pscratch/pages-check.py" "$KIT_ROOT" || exit 1
-mkdir -p "$_pscratch/tree/docs"
+mkdir -p "$_pscratch/tree/docs/_sass/color_schemes"
 cp "$KIT_ROOT/docs/_config.yml" "$KIT_ROOT/docs/index.md" "$_pscratch/tree/docs/"
+cp "$KIT_ROOT"/docs/_sass/color_schemes/*.scss "$_pscratch/tree/docs/_sass/color_schemes/"
 printf -- '---\nnav_order: 9\n---\n\n# untitled\n' > "$_pscratch/tree/docs/untitled.md"
 if python3 "$_pscratch/pages-check.py" "$_pscratch/tree" > "$_pscratch/pages-red.out" 2>&1; then
   echo "FAIL: the titled-pages check accepted a page with no title:"; exit 1
@@ -1204,6 +1211,18 @@ fi
 grep -q 'untitled.md' "$_pscratch/pages-red.out" \
   || { echo "FAIL: the titled-pages check refused the scratch tree without naming untitled.md"; cat "$_pscratch/pages-red.out"; exit 1; }
 echo "ok   a docs/ page without a title is refused, by name"
+# The red half for the glob rule: the config that shipped in #407 — `"*.html"` in exclude — must
+# be refused now, naming the glob. One check file, third run.
+mkdir -p "$_pscratch/globtree/docs/_sass/color_schemes"
+cp "$KIT_ROOT/docs/index.md" "$_pscratch/globtree/docs/"
+cp "$KIT_ROOT"/docs/_sass/color_schemes/*.scss "$_pscratch/globtree/docs/_sass/color_schemes/"
+sed 's|^  - case-studies/winrt-portfolio/dashboard.html$|  - "*.html"|' "$KIT_ROOT/docs/_config.yml" > "$_pscratch/globtree/docs/_config.yml"
+if python3 "$_pscratch/pages-check.py" "$_pscratch/globtree" > "$_pscratch/pages-glob.out" 2>&1; then
+  echo "FAIL: the Pages check accepted a bare glob in exclude — the one that unpublished every layout"; exit 1
+fi
+grep -q '\*\.html' "$_pscratch/pages-glob.out" \
+  || { echo "FAIL: the Pages check refused the glob tree without naming the glob"; cat "$_pscratch/pages-glob.out"; exit 1; }
+echo "ok   a glob in docs/_config.yml's exclude is refused, by name"
 
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
