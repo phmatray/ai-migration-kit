@@ -34,7 +34,8 @@ check_skill() {
     grep -qF -- "$p" "$f" \
       || { echo "FAIL: $f never names $p — the phase must be dispatched through the existing file, not re-spelled"; return 1; }
   done
-  if grep -qE '^PHASE1 \|' "$f"; then
+  # Anchored at the start of a line's CONTENT — an indented, quoted or bulleted copy is a copy too.
+  if grep -qE '^[[:space:]>*-]*PHASE1 \|' "$f"; then
     echo "FAIL: $f carries its own 'PHASE1 |' report template — that contract has one home, commands/auto-dev-worker.md"
     return 1
   fi

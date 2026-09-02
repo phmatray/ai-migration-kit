@@ -103,7 +103,9 @@ Then classify the input: an issue number or URL (an anchor `…/issues/21#issuec
 
 ## Step 2 — Resolve the issue
 
-Three shapes, one outcome — an issue number `N` whose body carries a `🛠️ Implementation plan`:
+Three shapes, one outcome — an issue number `N` whose body carries a `🛠️ Implementation plan`.
+**A closed `#N` stops here with one sentence** (`gh issue view N --json state`): delivering a closed
+issue re-opens a decision the owner already made, and that is `triage-backlog`'s to revisit.
 
 - **Idea text** → dispatch `create-issue` in a **fresh sub-agent** (Agent tool, `subagent_type:
   general-purpose`, foreground — consume its result in this turn):
@@ -197,11 +199,12 @@ Agent(subagent_type: general-purpose, model: <the cheapest capable tier — this
 ```
 
 Read its final line — `STATUS: MERGED | BLOCKED | FAILED`, `DETAIL`, `FILED`, `WORKTREE`, `BASE` —
-and branch: `MERGED` → Step 6; `BLOCKED` for a reason that reads model-strength-shaped (design work
-the small tier declined, a red gate it could not interpret) → re-dispatch **once** on the strongest
-tier, then stop; a genuine hard blocker (an un-mergeable conflict, a missing approval) → stop with
-`DETAIL` quoted. `BASE:` is the CI run the merge itself triggered on the default branch — `green`,
-`RED #<bug>` or `unverified` — and it is **this run's finding**, reported as such, never upgraded.
+and branch: `MERGED` → Step 6; `BLOCKED` or `FAILED` → stop with `DETAIL` quoted and the PR named,
+so the human can finish it with `/merge-pr #<pr>` (a fleet re-dispatches a model-strength-shaped
+`BLOCKED` on a stronger tier — `auto-dev` Step 4 — but one item under a watching user is not a
+fleet, and the decision is theirs). `BASE:` is the CI run the merge itself triggered on the default
+branch — `green`, `RED #<bug>` or `unverified` — and it is **this run's finding**, reported as such,
+never upgraded.
 
 ## Step 6 — Recap
 
