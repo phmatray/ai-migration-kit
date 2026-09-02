@@ -216,11 +216,14 @@ count() {
 while read -r child blockers; do
   [ -n "$child" ] || continue
   verdict=$(post "repos/$REPO/issues/$PARENT/sub_issues" "sub_issue_id=$(id_of "$child")") || true
-  echo "SUB $PARENT←$child $verdict"
+  # Braced on purpose: macOS /bin/bash 3.2 reads the UTF-8 bytes of the arrow that follows a bare
+  # `$PARENT` as part of the variable name and dies under `set -u` ("PARENT�: unbound variable")
+  # — every edge, every run, while CI's bash 5 printed the line fine. `bash -n` cannot see this.
+  echo "SUB ${PARENT}←${child} $verdict"
   count "$verdict"
   for b in $blockers; do
     verdict=$(post "repos/$REPO/issues/$child/dependencies/blocked_by" "issue_id=$(id_of "$b")") || true
-    echo "DEP $child⇐$b $verdict"
+    echo "DEP ${child}⇐${b} $verdict"
     count "$verdict"
   done
 done <<EOF
