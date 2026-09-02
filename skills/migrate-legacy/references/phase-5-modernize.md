@@ -2,6 +2,14 @@
 
 **Entry criteria:** phase 4 gate green. This phase is optional — confirm scope with the user when interactive; default to the "safe set" below when running autonomously.
 
+**Before the first item, read the current idiom guidance for the TFM phase 3 chose, through the
+`context7` server** — `resolve-library-id` for the .NET / C# documentation, then `query-docs` on
+"what's new in C# <version>" and on the idiom about to be applied (nullable reference types,
+file-scoped namespaces, async guidance). The safe set names the *what*; the current docs settle the
+*how* for that exact version, which a training-time memory of the language does not. Without the
+server, name the fallback you read (the Microsoft Learn page, by URL) in the report — never silently
+(phase 0, rule 3).
+
 ## Safe set (default)
 
 Applied one item at a time, each followed by build + tests + commit:
