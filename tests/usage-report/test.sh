@@ -265,3 +265,58 @@ if grep -q 'pre-2.0' "$OUT4"; then
   cat "$OUT4"; exit 1
 fi
 echo "ok: 2.0 fleet — orchestrator is the only top-level transcript, both phase sub-agents count as workers, and measure_phase2.py pairs them by issue"
+
+# ------------------------------------------------------------- the no-positional forms (#354)
+#
+# The docstring's `--main <sid>` and `--top N` invocations, PROJECT_DIR auto-detected from $PWD:
+# the first argv parser collected every non-`--` token as a positional, so `<sid>` was read as the
+# project dir and the documented form failed with "project dir not found: <sid>". The fixture sits
+# under a fake HOME at the encoded path of THIS cwd, which is what detect_project_dir() computes.
+FAKEHOME=$(kit_scratch)
+PROJ4="$FAKEHOME/.claude/projects/$(pwd | tr '/.' '--')"
+mkdir -p "$PROJ4"
+write_usage_line "$PROJ4/sess-main.jsonl" "$MODEL" 1000 200 50 10
+write_usage_line "$PROJ4/sess-w1.jsonl"   "$MODEL" 300  60  0  0
+write_usage_line "$PROJ4/sess-w2.jsonl"   "$MODEL" 200  40  0  0
+OUT5=$(kit_scratch)/nopos.txt
+
+HOME="$FAKEHOME" python3 "$SCRIPT" --main sess-main > "$OUT5" 2>&1 || {
+  echo "FAIL: the documented \`--main <sid>\` form (no PROJECT_DIR) exited non-zero (#354)"; cat "$OUT5"; exit 1; }
+grep -q "SESSIONS: 3 in $PROJ4" "$OUT5" || {
+  echo "FAIL: --main <sid> without PROJECT_DIR did not auto-detect the project dir (#354)"; cat "$OUT5"; exit 1; }
+grep -qE 'sess-mai.*<<< ORCHESTRATOR' "$OUT5" || {
+  echo "FAIL: --main <sid> did not mark the orchestrator row"; cat "$OUT5"; exit 1; }
+grep -q '=== ORCHESTRATOR vs WORKERS ===' "$OUT5" || {
+  echo "FAIL: --main <sid> did not print the ORCHESTRATOR vs WORKERS split"; cat "$OUT5"; exit 1; }
+
+HOME="$FAKEHOME" python3 "$SCRIPT" --top 1 > "$OUT5" 2>&1 || {
+  echo "FAIL: \`--top 1\` without PROJECT_DIR exited non-zero (#354)"; cat "$OUT5"; exit 1; }
+rows=$(awk '/^----/ { n++; next } n == 1 { c++ } END { print c + 0 }' "$OUT5")
+[ "$rows" -eq 1 ] || { echo "FAIL: --top 1 listed $rows row(s) between the rules, expected exactly 1"; cat "$OUT5"; exit 1; }
+
+if HOME="$FAKEHOME" python3 "$SCRIPT" --main > "$OUT5" 2>&1; then
+  echo "FAIL: a bare --main (no value) must be a usage error, not a run"; cat "$OUT5"; exit 1; fi
+grep -q 'usage:' "$OUT5" || { echo "FAIL: a bare --main did not print the usage line"; cat "$OUT5"; exit 1; }
+if grep -q Traceback "$OUT5"; then echo "FAIL: a bare --main crashed with a traceback instead of a usage error"; cat "$OUT5"; exit 1; fi
+
+HOME="$FAKEHOME" python3 "$SCRIPT" --main sess-main "$PROJ4" > "$OUT5" 2>&1 || {
+  echo "FAIL: --main <sid> followed by an explicit PROJECT_DIR exited non-zero"; cat "$OUT5"; exit 1; }
+grep -q "SESSIONS: 3 in $PROJ4" "$OUT5" || {
+  echo "FAIL: --main <sid> <PROJECT_DIR> did not read the explicit dir"; cat "$OUT5"; exit 1; }
+echo "ok: usage_report.py consumes --main/--top values instead of reading them as PROJECT_DIR (#354)"
+
+# ------------------------------------------------- the prose agrees with the scan (#385)
+#
+# discover_transcripts() has reached workflow-nested transcripts (`subagents/workflows/wf_*/*.jsonl`)
+# since #382; the orchestrator's Cost accounting paragraph in SKILL.md must not keep telling it
+# they are uncounted, or the retro discounts a total that is complete.
+SKILL_MD="$KIT/skills/auto-dev/SKILL.md"
+if grep -q 'workflows", "wf_\*"' "$SCRIPT"; then
+  if grep -q 'not yet counted' "$SKILL_MD"; then
+    echo "FAIL: skills/auto-dev/SKILL.md still says workflow-nested sub-agents are 'not yet counted' while usage_report.py discovers them (#385)"; exit 1; fi
+  if grep -q 'at the layouts it does read' "$SKILL_MD"; then
+    echo "FAIL: skills/auto-dev/SKILL.md still hedges the header split with 'at the layouts it does read' (#385)"; exit 1; fi
+else
+  echo "FAIL: usage_report.py no longer carries the workflows/wf_* glob (#309) — this guard's premise is gone; re-decide it"; exit 1
+fi
+echo "ok: the Cost accounting paragraph agrees with usage_report.py's transcript discovery (#385)"
