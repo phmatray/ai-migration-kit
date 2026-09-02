@@ -1,0 +1,45 @@
+// Type and measure for the AI Migration Kit site (#401). The theme imports this file BEFORE its
+// colour scheme, so only non-colour variables belong here; colours live in color_schemes/kit.scss.
+//
+// One family, chosen for the subject: Atkinson Hyperlegible Next, drawn by the Braille Institute
+// so that no two letterforms can be mistaken for each other — for a methodology whose whole claim
+// is that every step is legible and every refusal is named. Its mono sibling carries the code.
+$body-font-family: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", roboto,
+  "Helvetica Neue", arial, sans-serif;
+$mono-font-family: "Atkinson Hyperlegible Mono", ui-monospace, "SFMono-Regular", menlo, consolas,
+  monospace;
+
+// A 17px root and a major-third scale. The theme's fs- mixins read these in pairs — the base
+// value, then the next one up from the small breakpoint on — so the pairs are set together.
+$root-font-size: 17px;
+$body-line-height: 1.5;
+$content-line-height: 1.6;
+$body-heading-line-height: 1.15;
+
+$font-size-1: 0.75rem;
+$font-size-1-sm: 0.8125rem;
+$font-size-2: 0.8125rem; // h4, h6, .text-small
+$font-size-3: 0.875rem; // h5
+$font-size-4: 0.9375rem; // body below the small breakpoint
+$font-size-5: 1rem; // body, h3
+$font-size-6: 1.1875rem; // h2 base, h3 from sm
+$font-size-7: 1.5rem; // h2 from sm
+$font-size-8: 1.875rem; // h1 base
+$font-size-9: 2.25rem; // h1 from sm
+$font-size-10: 2.5rem;
+$font-size-10-sm: 2.875rem;
+
+// Measure: the content column takes 54rem so tables and diagrams have room; running text is
+// capped at 44rem in custom/custom.scss, about 72 characters at this size. The breakpoints are
+// re-derived from the new widths, or the sidebar would appear before there is room for it.
+$content-width: 54rem;
+$nav-width: 17rem;
+$nav-width-md: 16rem;
+$border-radius: 3px;
+$media-queries: (
+  xs: 20rem,
+  sm: 31.25rem,
+  md: $content-width,
+  lg: $content-width + $nav-width,
+  xl: 87.5rem,
+);

@@ -1,0 +1,49 @@
+// Colour scheme "kit" (#401). The theme imports light.scss first and this file after it, so every
+// assignment below overrides the default. Named in docs/_config.yml as `color_scheme: kit`.
+//
+// Five colours, each with a job. Ink and paper carry the text. Slate is the quiet surface — the
+// sidebar, code, table heads. Verdigris is the one accent: the patina old copper takes on, for a
+// kit that gives legacy code a second life — it marks links and the gate between pipeline stages,
+// nothing else. Amber and refusal red exist for the day a page needs a verdict callout, and are
+// used nowhere as decoration.
+$ink: #1e2a32;
+$ink-soft: #2b3942;
+$paper: #ffffff;
+$slate: #edf1f3;
+$verdigris: #0f7b74;
+
+$body-background-color: $paper;
+$body-heading-color: $ink;
+$body-text-color: $ink-soft;
+$link-color: $verdigris;
+$nav-child-link-color: $ink-soft;
+$sidebar-color: $slate;
+$base-button-color: $slate;
+$btn-primary-color: $verdigris;
+$code-background-color: #f2f5f6;
+$feedback-color: #e2e8eb;
+$table-background-color: $paper;
+$search-background-color: $paper;
+$search-result-preview-color: $ink-soft;
+$border-color: #d7dee3;
+
+// The greys the theme reads for sidebar text, borders, code spans and disabled states, retuned
+// to the ink/slate pair so nothing on the page comes from the default purple-grey palette.
+$grey-dk-000: #6b7780;
+$grey-dk-100: #4a5560;
+$grey-dk-200: $ink-soft;
+$grey-dk-250: #22303a;
+$grey-dk-300: $ink;
+$grey-lt-000: #f2f5f6;
+$grey-lt-100: #e2e8eb;
+$grey-lt-200: #d7dee3;
+$grey-lt-300: #c9d2d8;
+
+// Semantic hues, in the 000 (fill) / 300 (ink) pairs the theme's callouts read, should a page
+// ever declare one: the gate, and the refusal.
+$amber-000: #fbf3e4;
+$amber-300: #8a5200;
+$refusal-000: #f9ebe8;
+$refusal-300: #a83a2c;
+$verdigris-000: #e6f2f0;
+$verdigris-300: $verdigris;
