@@ -129,6 +129,13 @@ Each reads *what it is* → *how to fix*; match against the diff, not the whole 
 | **(c) implemented but wrong** | fix it **before** the ready-flip | a commit on the branch |
 | **(b) not asked for** | the carve-out under SKILL.md's *Don't widen the blast radius* decides: **local and small** → fix it inline, in its own commit; anything else, do **not** widen this PR to justify it, and never delete a sibling's work on a hunch | inline: a line under `### Fixed along the way`; deferred: a `### Follow-ups` bullet — both in the **PR description**, the former placed above the latter |
 
+The carve-out's two halves are conjunctive on purpose. Small alone is not enough — a one-line fix in
+an untouched file still widens the diff's surface; local alone is not enough — a refactor of a file
+you happen to be editing is exactly the creep the rule exists to stop. The regression axis is left
+out because it measures severity, not review surface: a fleet run that used it as the test filed
+four small fixes in files its PRs already had open, and would have admitted a large regression
+(#410).
+
 Fixes commit through the guards, like every other write in Steps 5–9:
 
 ```bash

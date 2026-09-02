@@ -22,9 +22,11 @@ shipped guarantee is **not** part of the test. An inline fix is its **own commit
 the PR description under `### Fixed along the way`, so the trail survives without an issue. Put that
 heading **above** `### Follow-ups`: `merge-pr` harvests the lines after a Follow-ups heading, and a
 sibling placed below it would be read as deferred work and filed. Anything failing either half: FILE
-it as a new issue via `create-issue`, then continue your task. List anything filed, and anything fixed
-inline, in your report. **Never pass `--grill`** — it makes `create-issue`
-stop and interview the user, and you have nobody to interview.
+it as a new issue via `create-issue`, then continue your task. Name what you filed in the final line's
+`FILED:` field and what you fixed inline in its `DETAIL:` field — that line is the only part of your
+run anyone reads. The carve-out is phase 1's alone: the merge phase keeps filing, since no review pass
+follows a merge-phase fix. **Never pass `--grill`** — it makes `create-issue` stop and interview the
+user, and you have nobody to interview.
 
 ## Never wait — you are a background sub-agent
 
