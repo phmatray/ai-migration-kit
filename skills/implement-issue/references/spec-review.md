@@ -127,7 +127,7 @@ Each reads *what it is* → *how to fix*; match against the diff, not the whole 
 |---|---|---|
 | **(a) missing / partial** | fix it **before** the ready-flip | a commit on the branch |
 | **(c) implemented but wrong** | fix it **before** the ready-flip | a commit on the branch |
-| **(b) not asked for** | do **not** widen this PR to justify it, and do not delete a sibling's work on a hunch | a `### Follow-ups` bullet in the **PR description** |
+| **(b) not asked for** | the carve-out under SKILL.md's *Don't widen the blast radius* decides: **local and small** → fix it inline, in its own commit; anything else, do **not** widen this PR to justify it, and never delete a sibling's work on a hunch | inline: a line under `### Fixed along the way`; deferred: a `### Follow-ups` bullet — both in the **PR description**, the former placed above the latter |
 
 Fixes commit through the guards, like every other write in Steps 5–9:
 

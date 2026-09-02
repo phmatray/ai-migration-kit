@@ -21,13 +21,12 @@ should commit to doing?"**
 
 ## Before the bar: the inline-fix carve-out
 
-The bar decides whether a finding someone *deferred* earns an issue. One test runs before it, in
-`implement-issue` (*Don't widen the blast radius*, mirrored word for word in
-`commands/auto-dev-worker.md`'s off-scope protocol): a finding that is **local** (every file the fix
-touches is already modified by the PR) *and* **small** (no new file, no behaviour outside the Spec) is
-fixed inline, in its own commit, and never reaches this bar — there is nothing left to file. A finding
-that fails either half reaches the bar unchanged; the three gates and the veto below apply to it as
-they always did (#410).
+The bar decides whether a finding someone *deferred* earns an issue. One test runs before it, and it
+is stated in exactly one place — `implement-issue`'s *Don't widen the blast radius* bullet, mirrored
+word for word in `commands/auto-dev-worker.md`'s off-scope protocol, never paraphrased here: a finding
+that is both **local** and **small** in that bullet's sense is fixed inline, in its own commit, and
+never reaches this bar — there is nothing left to file. A finding that fails either half reaches the
+bar unchanged; the three gates and the veto below apply to it as they always did (#410).
 
 ## The bar: pass one of three, and file
 

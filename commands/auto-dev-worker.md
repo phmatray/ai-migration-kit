@@ -19,9 +19,11 @@ two exits it takes, and the test has two halves that must **both** hold: it is *
 is **local** (every file the fix touches is already modified by this PR) *and* **small** (the fix adds
 no file to the diff and no behaviour the Spec does not already cover). Whether it is a regression of a
 shipped guarantee is **not** part of the test. An inline fix is its **own commit** and gets a line in
-the PR description under `### Fixed along the way`, so the trail survives without an issue. Anything
-failing either half: FILE it as a new issue via `create-issue`, then continue your task. List anything
-filed, and anything fixed inline, in your report. **Never pass `--grill`** — it makes `create-issue`
+the PR description under `### Fixed along the way`, so the trail survives without an issue. Put that
+heading **above** `### Follow-ups`: `merge-pr` harvests the lines after a Follow-ups heading, and a
+sibling placed below it would be read as deferred work and filed. Anything failing either half: FILE
+it as a new issue via `create-issue`, then continue your task. List anything filed, and anything fixed
+inline, in your report. **Never pass `--grill`** — it makes `create-issue`
 stop and interview the user, and you have nobody to interview.
 
 ## Never wait — you are a background sub-agent
