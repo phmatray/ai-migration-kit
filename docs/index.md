@@ -11,7 +11,7 @@ analysis and transformation — and a **hands-off GitHub issue → PR lifecycle*
 `implement-issue`, `merge-pr`, a fleet supervisor above them, an outlet that prunes the queue, a
 retro that learns from the transcripts) that runs on any repository through one committed profile.
 
-**Start with [the methodology](methodology.html)** — the two loops, when to call which skill, one
+**Start with [the methodology](methodology.md)** — the two loops, when to call which skill, one
 page per skill, the machinery, where each MCP server is used, and how it compares to GSD, SpecKit
 and BMAD.
 
@@ -35,11 +35,11 @@ and BMAD.
 
 ## The rest of the site
 
-- [Decisions](decisions.html) — control-flow decisions have one program and one home.
-- [Architectural Decision Records](adr/) — the decisions that are hard to reverse, and the ones declined.
-- [The roseline gate](roseline-gate.html) · [The bundle gate](bundle-gate.html)
-- [Demo walkthrough](demo-walkthrough.html) — a real pipeline run on the bundled legacy fixture.
-- [Case studies](case-studies/winrt-portfolio/portfolio.html) — four dead-platform apps migrated and verified live.
+- [Decisions](decisions.md) — control-flow decisions have one program and one home.
+- [Architectural Decision Records](adr/README.md) — the decisions that are hard to reverse, and the ones declined.
+- [The roseline gate](roseline-gate.md) · [The bundle gate](bundle-gate.md)
+- [Demo walkthrough](demo-walkthrough.md) — a real pipeline run on the bundled legacy fixture.
+- [Case studies](case-studies/winrt-portfolio/portfolio.md) — four dead-platform apps migrated and verified live.
 
 On GitHub: [README](https://github.com/phmatray/ai-migration-kit#readme) ·
 [ARCHITECTURE.md](https://github.com/phmatray/ai-migration-kit/blob/main/ARCHITECTURE.md) ·

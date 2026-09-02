@@ -1157,7 +1157,11 @@ echo "ok   a skill folder the guide does not name is refused, by name"
 # exclude carries a `title:` — a page without one drops out of the sidebar silently. Driven to red
 # on a scratch copy with one page's title removed, so the check cannot pass vacuously.
 echo "== docs/ is a Pages site: config parses, index links the guide, every page is titled (#401) =="
-python3 - "$KIT_ROOT" <<'PY'
+# ONE check, written to a file and run twice — on the real tree (must pass) and on a scratch tree
+# with an untitled page (must fail, and must NAME the page). Links are `.md`, the form that works
+# on GitHub's renderer and on Pages alike (jekyll-relative-links rewrites them at build time).
+_pscratch=$(kit_scratch)
+cat > "$_pscratch/pages-check.py" <<'PY'
 import pathlib, re, sys, yaml
 root = pathlib.Path(sys.argv[1]); docs = root / "docs"
 cfg_path = docs / "_config.yml"
@@ -1172,8 +1176,10 @@ index = docs / "index.md"
 if not index.exists():
     print("FAIL: docs/index.md is missing"); sys.exit(1)
 itext = index.read_text(encoding="utf-8")
-if not re.search(r"^title:", itext, re.M) or "nav_order: 1" not in itext or "methodology" not in itext:
-    print("FAIL: docs/index.md must carry title:, nav_order: 1 and link the methodology guide"); sys.exit(1)
+if not re.search(r"^title:", itext, re.M) or "nav_order: 1" not in itext or "](methodology.md)" not in itext:
+    print("FAIL: docs/index.md must carry title:, nav_order: 1 and link methodology.md"); sys.exit(1)
+if re.search(r"\]\([^)]*\.html\)", itext):
+    print("FAIL: docs/index.md links .html pages — link the .md source, which renders on GitHub and on Pages"); sys.exit(1)
 excluded = [e.rstrip("/") for e in cfg.get("exclude", []) if not e.startswith("*")]
 untitled = []
 for p in sorted(docs.rglob("*.md")):
@@ -1188,23 +1194,16 @@ if untitled:
     print("FAIL: docs/ pages without a title: in their front matter: " + ", ".join(untitled)); sys.exit(1)
 print("ok   docs/_config.yml parses, docs/index.md links the guide, every non-excluded page is titled")
 PY
-# ...and the same check refuses a page whose title was removed.
-_pscratch=$(kit_scratch)
-mkdir -p "$_pscratch/docs"
-cp "$KIT_ROOT/docs/_config.yml" "$KIT_ROOT/docs/index.md" "$_pscratch/docs/"
-printf -- '---\nnav_order: 9\n---\n\n# untitled\n' > "$_pscratch/docs/untitled.md"
-if python3 - "$_pscratch" <<'PY' >/dev/null 2>&1
-import pathlib, re, sys
-docs = pathlib.Path(sys.argv[1]) / "docs"
-bad = []
-for p in docs.glob("*.md"):
-    m = re.match(r"\A---\n(.*?)\n---\n", p.read_text(encoding="utf-8"), re.S)
-    if not m or not re.search(r"^title:\s*\S", m.group(1), re.M):
-        bad.append(p.name)
-sys.exit(1 if bad else 0)
-PY
-then echo "FAIL: the titled-pages check accepted a page with no title:"; exit 1; fi
-echo "ok   a docs/ page without a title is refused"
+python3 "$_pscratch/pages-check.py" "$KIT_ROOT" || exit 1
+mkdir -p "$_pscratch/tree/docs"
+cp "$KIT_ROOT/docs/_config.yml" "$KIT_ROOT/docs/index.md" "$_pscratch/tree/docs/"
+printf -- '---\nnav_order: 9\n---\n\n# untitled\n' > "$_pscratch/tree/docs/untitled.md"
+if python3 "$_pscratch/pages-check.py" "$_pscratch/tree" > "$_pscratch/pages-red.out" 2>&1; then
+  echo "FAIL: the titled-pages check accepted a page with no title:"; exit 1
+fi
+grep -q 'untitled.md' "$_pscratch/pages-red.out" \
+  || { echo "FAIL: the titled-pages check refused the scratch tree without naming untitled.md"; cat "$_pscratch/pages-red.out"; exit 1; }
+echo "ok   a docs/ page without a title is refused, by name"
 
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
