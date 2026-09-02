@@ -17,7 +17,7 @@ metadata:
   suite: ai-migration-kit
 ---
 
-# Legacy Upgrade Pipeline
+# Migrate a legacy application — the seven-phase pipeline
 
 Upgrade a legacy application completely, verifiably, easily, and fast. You are the orchestrator: drive the phases **in order**, never advancing past a red gate.
 
