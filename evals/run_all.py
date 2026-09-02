@@ -19,7 +19,7 @@ import trigger_eval as te
 # one is missing, so the "! skipping" branch below can no longer fire for a real skill (#331).
 SKILLS = ["auto-dev", "create-issue", "debug-issue", "deliver-issue", "implement-issue",
           "merge-pr", "migrate-legacy", "profile-repo", "review-followups",
-          "setup-repo", "triage-backlog"]
+          "review-sessions", "setup-repo", "triage-backlog"]
 EVALS_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EVALS_DIR / "results"
 

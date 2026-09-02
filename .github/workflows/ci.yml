@@ -535,6 +535,9 @@ jobs:
       - name: Systematic-debugging feedback-loop golden test (the reference, the HITL template, the eval, the two pointers)
         run: ./tests/hitl-loop/test.sh
 
+      - name: Review-sessions golden test (harvest.py over planted transcripts — exactly the planted set, refusals, the skill's prose, #397)
+        run: ./tests/review-sessions/test.sh
+
       - name: Deliver-issue golden test (dispatches the two worker command files, never a copied template; its three decisions, #396)
         run: ./tests/deliver-issue/test.sh
 
