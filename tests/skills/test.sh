@@ -1110,6 +1110,46 @@ if missing:
 print("ok   README.md links every skills/*/SKILL.md and commands/*.md")
 PY
 
+# ------------------------------------------------------------------------------------------------
+# The methodology guide names every skill and every command (#398). docs/methodology.md is the one
+# document that reads the kit end to end; a skill added without a place in it is the README-links
+# failure one level up — the guard walks the same directories that case does and greps the guide.
+# Driven to red on a scratch copy of the tree with an extra skill folder, so the guard cannot go
+# silent by matching nothing.
+echo "== docs/methodology.md names every skill and command (#398) =="
+python3 - "$KIT_ROOT" <<'PY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+guide = root / "docs/methodology.md"
+if not guide.exists():
+    print("FAIL: docs/methodology.md is missing"); sys.exit(1)
+text = guide.read_text(encoding="utf-8")
+missing = []
+for d in sorted(p for p in (root / "skills").iterdir() if p.is_dir() and p.name != "_shared"):
+    if d.name not in text:
+        missing.append("skills/" + d.name)
+for f in sorted((root / "commands").glob("*.md")):
+    if f.stem not in text:
+        missing.append("commands/" + f.name)
+if missing:
+    print("FAIL: docs/methodology.md never names: " + ", ".join(missing)); sys.exit(1)
+print("ok   docs/methodology.md names every skill folder and every command")
+PY
+# ...and the same check refuses a tree with a skill the guide does not know.
+_gscratch=$(kit_scratch)
+mkdir -p "$_gscratch/skills/zz-fake" "$_gscratch/commands" "$_gscratch/docs"
+cp "$KIT_ROOT/docs/methodology.md" "$_gscratch/docs/"
+cp -R "$KIT_ROOT/skills/debug-issue" "$_gscratch/skills/"
+: > "$_gscratch/skills/zz-fake/SKILL.md"
+if python3 - "$_gscratch" <<'PY' >/dev/null 2>&1
+import pathlib, sys
+root = pathlib.Path(sys.argv[1]); text = (root / "docs/methodology.md").read_text(encoding="utf-8")
+missing = [d.name for d in (root / "skills").iterdir() if d.is_dir() and d.name != "_shared" and d.name not in text]
+sys.exit(1 if missing else 0)
+PY
+then echo "FAIL: the guide-coverage check accepted a tree with skills/zz-fake/ unnamed"; exit 1; fi
+echo "ok   a skill folder the guide does not name is refused"
+
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
 # locations, a line budget so it stays pointers rather than sediment, and every relative link
