@@ -1,0 +1,20 @@
+[
+  {"query": "review my previous sessions on this repo and extract every error the kit itself caused — hook denials, dead workers, guard refusals — then file the real ones", "should_trigger": true},
+  {"query": "what went wrong in my last runs? read the transcripts under ~/.claude/projects for this repo and tell me which kit scripts failed", "should_trigger": true},
+  {"query": "analyse mes sessions précédentes et ouvre une issue pour chaque erreur du kit qui revient", "should_trigger": true},
+  {"query": "qu'est-ce qui a foiré dans mes dernières sessions avec le kit ? je veux la liste des échecs, pas des impressions", "should_trigger": true},
+  {"query": "learn from the transcripts: the auto-dev fleet on 08-19 lost two workers, harvest the failure signals and cluster them", "should_trigger": true},
+  {"query": "run review-sessions --dry-run since 2026-08-17 so I can see what it would file before it files anything", "should_trigger": true},
+  {"query": "the last three implement-issue sessions all hit the git write-gate — pull those denials out of the session logs and turn the pattern into an issue", "should_trigger": true},
+  {"query": "retro on my sessions from last week: which kit skill failed most, and did those failures already get fixed on main?", "should_trigger": true},
+  {"query": "mine the .jsonl transcripts for tick-plan.sh errors and file whatever passes the filing bar", "should_trigger": true},
+  {"query": "review PR 399 for correctness and reuse", "should_trigger": false, "note": "code review of a diff → code-review"},
+  {"query": "triage the open issues and tell me which ones are already fixed", "should_trigger": false, "note": "the issue queue → triage-backlog"},
+  {"query": "fais le point sur les suivis des repos migrés", "should_trigger": false, "note": "migration follow-ups → review-followups"},
+  {"query": "what's still open across the migrated apps' report.json files?", "should_trigger": false, "note": "review-followups"},
+  {"query": "run usage_report.py on the last fleet run and tell me the token split", "should_trigger": false, "note": "cost accounting, auto-dev's own script"},
+  {"query": "this test is flaky, find the root cause before fixing it", "should_trigger": false, "note": "one live failure → debug-issue"},
+  {"query": "write the lessons block for the auto-dev run that just finished", "should_trigger": false, "note": "auto-dev Step 6's own retro"},
+  {"query": "summarise what we did in this conversation so far", "should_trigger": false, "note": "the current session, not past transcripts, and no kit-failure lens"},
+  {"query": "clean up the stale worktree branches from last month's fleet runs", "should_trigger": false, "note": "git hygiene, not transcript review"}
+]
