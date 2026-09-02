@@ -19,6 +19,16 @@ So the bar is not a quality judgement on the finding. A true, well-argued, genui
 observation can fail it. The question is never *"is this real?"* — it is **"is this work someone
 should commit to doing?"**
 
+## Before the bar: the inline-fix carve-out
+
+The bar decides whether a finding someone *deferred* earns an issue. One test runs before it, in
+`implement-issue` (*Don't widen the blast radius*, mirrored word for word in
+`commands/auto-dev-worker.md`'s off-scope protocol): a finding that is **local** (every file the fix
+touches is already modified by the PR) *and* **small** (no new file, no behaviour outside the Spec) is
+fixed inline, in its own commit, and never reaches this bar — there is nothing left to file. A finding
+that fails either half reaches the bar unchanged; the three gates and the veto below apply to it as
+they always did (#410).
+
 ## The bar: pass one of three, and file
 
 **1. Consequence — someone gets a wrong result.** You can name, in one sentence, what breaks for a
