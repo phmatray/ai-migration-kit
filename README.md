@@ -72,6 +72,7 @@ A situational way in, folded from a router-skill proposal declined in the v2 met
 
 | Situation | Reach for |
 |---|---|
+| New here — how the whole thing fits together | [`docs/methodology.md`](docs/methodology.md) — the two loops, when to call which skill, where each MCP server is used |
 | An idea to track | [`create-issue`](skills/create-issue/SKILL.md) |
 | An issue with a plan | [`implement-issue`](skills/implement-issue/SKILL.md) `#N` |
 | A PR to land | [`merge-pr`](skills/merge-pr/SKILL.md) `#N` |
@@ -338,6 +339,7 @@ scripts/                 preflight.sh (phase-0 gate) · run-all-tests.sh (one co
 templates/               ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies · bundle-gate.json.example — copy-pasteable config for the opt-in committed-bundle drift gate
 tests/                   one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired. Run them all with `./scripts/run-all-tests.sh`
 samples/LegacyShop/      deliberately-legacy .NET solution (demo fixture, CI-guarded)
+docs/methodology.md      the user guide: the two loops, when to call which skill, one page per skill, the machinery, MCP usage, how it compares to GSD · SpecKit · BMAD
 docs/adr/                the kit's own architectural decisions (MADR 4.0) — index in docs/adr/README.md, served by AdrMcp
 docs/case-studies/       real audits and migrations, with generated dashboards
 docs/demo-walkthrough.md a real pipeline run, with captured RoselineMCP output

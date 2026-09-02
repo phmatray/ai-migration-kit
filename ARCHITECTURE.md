@@ -4,7 +4,9 @@ One plugin, two cooperating suites — the **migration pipeline** (migrate-legac
 and the **issue/PR lifecycle** (create-issue, implement-issue, merge-pr, profile-repo, setup-repo,
 and the `auto-dev` fleet supervisor above them) — bridged where a migration's deferred work becomes
 tracked GitHub issues. Every skill carries `metadata.suite: ai-migration-kit` in its frontmatter; in
-Claude Code the plugin namespaces them as `ai-migration-kit:<skill>`.
+Claude Code the plugin namespaces them as `ai-migration-kit:<skill>`. The graphs below are the map;
+the narrative that reads them in order — the two loops, when to call which skill, the machinery, where
+each MCP server is used — is [`docs/methodology.md`](docs/methodology.md).
 
 Every folder under `skills/` is named by one of two rules, so the inventory below is predictable
 rather than arbitrary: a **standalone** skill is `verb-object`, and a **member of a family** is
