@@ -2,13 +2,13 @@
 name: triage-backlog
 description: >-
   Prune and re-decide an EXISTING GitHub issue backlog: verifies which open issues are already fixed
-  or superseded, clusters the rest by root cause, proposes ONE disposition each (keep · sharpen ·
-  fold into a root · rescope a failing root · close by decision) and executes only what the owner
-  confirms. ALWAYS reach for this when the user wants to prune, triage, groom, re-decide, or take
-  stock of open issues, or says the queue never shrinks: "triage the backlog", "clean up the open
-  issues", "what should we close?", « fais le tri dans les issues », « le backlog ne descend jamais
-  ». Does NOT apply to filing a NEW issue (create-issue), building one (implement-issue), landing a
-  PR (merge-pr), or migration follow-ups in report.json (review-followups).
+  or superseded, clusters the rest by root cause, proposes ONE disposition each and executes only
+  what the owner confirms. ALWAYS reach for this when the user wants to prune, triage, groom,
+  re-decide, or take stock of open issues, or says the queue never shrinks: "triage the backlog",
+  "clean up the open issues", "what should we close?", « fais le tri dans les issues », « le
+  backlog ne descend jamais ». Does NOT apply to filing a NEW issue (create-issue), building one
+  (implement-issue), landing a PR (merge-pr), or migration follow-ups in report.json
+  (review-followups).
 license: MIT
 compatibility: >-
   Requires an authenticated gh CLI with issue-write access. Reads the committed repo profile
