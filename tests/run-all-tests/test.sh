@@ -93,8 +93,10 @@ with open(f"{kit}/.github/workflows/ci.yml") as f:
     doc = yaml.safe_load(f)
 steps = doc["jobs"]["kit"]["steps"]
 
+# `--with-network` so the plan lists the renovate acceptance suite too: it is opt-in at run time
+# (it needs npx and RE2), but CI runs it, and the drift check is about what the plan CAN run.
 listing = subprocess.run(
-    [f"{kit}/scripts/run-all-tests.sh", "--list"],
+    [f"{kit}/scripts/run-all-tests.sh", "--list", "--with-network"],
     cwd=kit, capture_output=True, text=True, check=True,
 ).stdout
 
