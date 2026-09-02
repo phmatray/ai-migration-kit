@@ -79,40 +79,45 @@ Parse these from the request as prose, the way `create-issue` reads its own flag
 
 Create a task per item and work them in order.
 
-1. **Preconditions** — the profile, python3, and which project directories exist for this repo.
-2. **Harvest** — run the script; keep the JSON records and the markdown tally.
-3. **Cluster by root cause** — one cluster per cause, tagged with a taxonomy category and the skills it spans.
-4. **Verify against the tree** — mark each cluster *still present* or *already fixed*, with the evidence.
-5. **Apply the filing bar and the prior-rejection lookup** — per cluster, never per signal.
-6. **File** — one `create-issue` per cluster that passes (or list them, with `--dry-run`).
-7. **Recap** — the shared shape, with the tally line.
+1. **Preconditions** — the profile, `gh` authentication (for `create-issue`), python3.
+2. **Locate the transcripts** — which project directories exist for this repo; named in the recap.
+3. **Harvest** — run the script; keep the JSON records and the markdown tally.
+4. **Cluster by root cause** — one cluster per cause, tagged with a taxonomy category and the skills it spans.
+5. **Verify against the tree** — mark each cluster *still present* or *already fixed*, with the evidence.
+6. **Apply the filing bar and the prior-rejection lookup** — per cluster, never per signal.
+7. **File** — one `create-issue` per cluster that passes (or list them, with `--dry-run`).
+8. **Recap** — the shared shape, with the tally line.
 
 ---
 
 ## Step 1 — Preconditions
 
 **Follow the shared preconditions reference** at [`../_shared/preconditions.md`](../_shared/preconditions.md)
-to load the repo profile (the *ADRs* root feeds Step 5's lookup; the *Identity* slug feeds Step 4's
+to load the repo profile (the *ADRs* root feeds Step 6's lookup; the *Identity* slug feeds Step 5's
 `gh issue` searches) and verify `gh` authentication — needed by `create-issue`, so a missing token
 is discovered here rather than after the harvest. Confirm `python3` runs.
 
-Then locate the transcripts. `harvest.py` detects them from the cwd — the directory encoding this
+## Step 2 — Locate the transcripts
+
+`harvest.py` detects them from the cwd — the directory encoding this
 checkout, plus every `--claude-worktrees-*` sibling, since a worktree session writes to its own
 directory — and refuses with exit 2 when a named directory does not exist. Name the directories the
 run will read in the recap; a review of "my sessions" that silently read one of three is the
 degradation this line exists to end.
 
-## Step 2 — Harvest
+## Step 3 — Harvest
 
 ```bash
 python3 skills/review-sessions/scripts/harvest.py [project-dir …] --since <date> --json > /tmp/review-sessions-<date>.jsonl
 python3 skills/review-sessions/scripts/harvest.py [project-dir …] --since <date> --markdown
 ```
 
-The JSON is what Step 3 clusters; the markdown tally (skill × kind, counts, first/last timestamps,
-one excerpt per cell) is what the recap quotes. Both end with the same line —
-`signals: N across S sessions (skipped K unparseable line(s); never-wait phrases: kit|builtin)` —
-and `no signals` is a result, not an error.
+The JSON is what Step 4 clusters; the markdown tally (skill × kind, counts, first/last timestamps,
+one excerpt per cell) is what the recap quotes. The tally ends with `signals: N across S sessions`,
+preceded by one info line — `skipped K unparseable line(s) · never-wait phrases: kit|none` — and
+`no signals` is a result, not an error. `none` means the kit's `tests/auto-dev-never-wait/test.sh`
+was not readable from the script's own checkout, so no `forbidden-wait` record could be emitted:
+say so in the recap rather than reading its absence as "no worker died waiting".
 
 What a record is, and what it is not, is the script's contract (its header): a `tool-error` counts
 only when the tool call named a kit path or script; a `hook-deny` only for the kit's own gates; a
@@ -121,7 +126,7 @@ the harness's own worktree refusal is dropped, because it is not the kit's. Do n
 by hand while reading — a signal the script does not collect is an issue on the script, filed like
 any other.
 
-## Step 3 — Cluster by root cause
+## Step 4 — Cluster by root cause
 
 A cluster is **one cause**, not one kind and not one skill: the same `guarded-push.sh` exit 4 under
 `implement-issue` and under `merge-pr` is one cluster; a `forbidden-wait` and the `worker-report`
@@ -139,7 +144,7 @@ each cluster:
 A record collapsed with a `count` (the same excerpt repeated) is one polled command, not many
 failures; say so in the cluster rather than counting it as volume.
 
-## Step 4 — Verify against the tree
+## Step 5 — Verify against the tree
 
 Most of what the transcripts hold is history: the failure was real, and the fix landed weeks ago.
 For each cluster, decide *still present* or *already fixed*, with evidence a reader can check:
@@ -158,7 +163,7 @@ the recap reports and what keeps this inlet from re-filing the kit's own history
 heuristic, and the recap says so: a fix that landed under a different vocabulary can be missed, which
 is why a filed issue leads with the excerpts and the dates rather than with a claim.
 
-## Step 5 — The filing bar, and the prior-rejection lookup
+## Step 6 — The filing bar, and the prior-rejection lookup
 
 Every *still present* cluster faces [`../_shared/filing-bar.md`](../_shared/filing-bar.md) —
 **after** clustering, never per signal: a cluster of three symptoms is one finding, and it is the
@@ -176,7 +181,7 @@ ADR id, never filed.
 Dispositions, one per cluster: **file** · **record** (fails the bar — kept in the recap, retrievable)
 · **already fixed** · **declined (ADR-N)**.
 
-## Step 6 — File, through create-issue only
+## Step 7 — File, through create-issue only
 
 For each cluster to file, invoke **`create-issue`** with the cluster as the idea — never a bare
 `gh issue` write of your own, so the body gets its brainstorm, spec and plan, its labels from the profile, and
@@ -195,7 +200,7 @@ With `--dry-run`, print the same list — cluster, disposition, the issue title 
 file nothing. The first runs of this skill on a repository should be dry: the verify step's
 heuristic is calibrated against the tree by reading its misses.
 
-## Step 7 — Recap
+## Step 8 — Recap
 
 Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
 blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped · unverified**, where

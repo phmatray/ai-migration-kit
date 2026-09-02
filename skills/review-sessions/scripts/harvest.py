@@ -9,18 +9,19 @@ clusters the records, verifies them against the tree and applies the filing bar;
 reports what is there, the way `survey.sh` reports a queue and the supervisor decides.
 
 Usage:
-    python3 harvest.py [PROJECT_DIR ...] [--since YYYY-MM-DD] [--json | --markdown]
-                       [--kit-name NAME] [--kit-root PATH]
+    python3 harvest.py [PROJECT_DIR ...] [--since YYYY-MM-DD] [--json | --markdown] [--kit-name NAME]
 
   PROJECT_DIR   one or more ~/.claude/projects/<encoded-cwd> directories. Default: the directory
                 encoding THIS cwd, plus its `--claude-worktrees-*` siblings (a worktree session
                 writes to its own directory, and a review of "this repo's sessions" wants both).
   --since       keep only records stamped on or after that date (UTC date of the transcript line).
-  --json        one JSON object per line (the record shape below). Default: the markdown tally.
+  --json        one JSON object per line (the record shape below). --markdown: the tally (default).
+                The two are exclusive.
   --kit-name    the plugin's name as it appears in skill ids and cache paths (default: ai-migration-kit).
-  --kit-root    the kit's own checkout, used to read the never-wait phrase list the kit already
-                pins in tests/auto-dev-never-wait/test.sh (default: three directories above this
-                file; a built-in copy is used when the suite is not there, and the tally says so).
+
+The never-wait phrase list is READ from the kit's own tests/auto-dev-never-wait/test.sh (three
+directories above this file), never copied here: when that file is not there, no forbidden-wait
+record is emitted and the tally's last-but-one line says so.
 
 A record:
     {"kind", "skill", "session", "path", "ts", "excerpt", "tool", "detail", "count"}
@@ -67,14 +68,8 @@ KIT_DIRS_IN_KIT = ("scripts/", "tests/", "evals/")
 HOOK_DENY_PREFIXES = (
     "Blocked by the git write-gate",
     "Blocked by the roseline gate",
-    "roseline-gate:",
 )
 HARNESS_REFUSAL_PREFIX = "This session is isolated in the worktree"
-BUILTIN_NEVER_WAIT = (
-    "I'll pause here and wait for",
-    "I'll pick this back up automatically once it completes",
-    "I'll stop issuing further tool calls now and wait",
-)
 NUDGES = ("[Request interrupted", "[Your previous response had no visible output")
 WORKER_REPORT_RE = re.compile(r"\bSTATUS:\s*(PARTIAL|BLOCKED|FAILED)\b")
 SUITE_FAIL_RE = re.compile(r"^FAIL[: \[].*", re.M)
@@ -84,15 +79,19 @@ GUARD_RE = re.compile(
 
 
 def never_wait_phrases(kit_root):
-    """The phrase list tests/auto-dev-never-wait/test.sh pins — read, never copied, when present."""
+    """The phrase list tests/auto-dev-never-wait/test.sh pins — read at run time, never copied.
+
+    Returns (phrases, source): source is `kit` when the suite was read, `none` when it is not there
+    or pins nothing — then no forbidden-wait record can be emitted, and the tally says so rather
+    than matching a phrase list this file would otherwise have to carry as a second copy."""
     suite = os.path.join(kit_root or "", "tests", "auto-dev-never-wait", "test.sh")
     try:
         with open(suite, encoding="utf-8") as f:
             text = f.read()
     except OSError:
-        return list(BUILTIN_NEVER_WAIT), "builtin"
+        return [], "none"
     found = re.findall(r'^\s*"(I\'ll [^"]+)"\s*$', text, re.M)
-    return (found or list(BUILTIN_NEVER_WAIT)), ("kit" if found else "builtin")
+    return found, ("kit" if found else "none")
 
 
 def default_project_dirs(kit_name):
@@ -226,9 +225,12 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
                         if m:
                             emit("worker-report", excerpt_of(txt, "STATUS:"), None, m.group(1))
             elif t == "user":
+                # A nudge (an interrupt, a "no visible output") counts only while a kit skill is
+                # active: it is the kit's failure to attribute, not a user's change of mind in a
+                # session the kit was never driving.
                 if isinstance(content, str):
                     for n in NUDGES:
-                        if n in content:
+                        if n in content and active:
                             emit("harness-nudge", excerpt_of(content, n), None, n)
                     continue
                 if not isinstance(content, list):
@@ -238,7 +240,7 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
                         continue
                     if b.get("type") == "text" and isinstance(b.get("text"), str):
                         for n in NUDGES:
-                            if n in b["text"]:
+                            if n in b["text"] and active:
                                 emit("harness-nudge", excerpt_of(b["text"], n), None, n)
                         continue
                     if b.get("type") != "tool_result":
@@ -272,8 +274,9 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
 
 
 def tally_markdown(records, sessions, skipped, source):
+    info = f"skipped {skipped} unparseable line(s) · never-wait phrases: {source}"
     if not records:
-        return f"no signals across {sessions} session(s)  (skipped {skipped} unparseable line(s); never-wait phrases: {source})\n"
+        return f"{info}\nno signals across {sessions} session(s)\n"
     out = []
     by_skill = {}
     for r in records:
@@ -292,7 +295,8 @@ def tally_markdown(records, sessions, skipped, source):
             out.append(f"| {kind} | {n} | {first} | {last} | {ex} |")
         out.append("")
     total = sum(r["count"] for r in records)
-    out.append(f"signals: {total} across {sessions} sessions  (skipped {skipped} unparseable line(s); never-wait phrases: {source})")
+    out.append(info)
+    out.append(f"signals: {total} across {sessions} sessions")
     return "\n".join(out) + "\n"
 
 
@@ -303,7 +307,6 @@ def main(argv):
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--markdown", action="store_true")
     ap.add_argument("--kit-name", default="ai-migration-kit")
-    ap.add_argument("--kit-root", default=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
     try:
         args = ap.parse_args(argv)
     except SystemExit as e:
@@ -312,6 +315,10 @@ def main(argv):
         sys.stdout.reconfigure(encoding="utf-8", newline="\n")
     except Exception:
         pass
+    kit_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    if args.json and args.markdown:
+        print("usage: --json and --markdown are exclusive — pick one", file=sys.stderr)
+        return 2
     if args.since:
         try:
             dt.date.fromisoformat(args.since)
@@ -323,10 +330,12 @@ def main(argv):
         print("usage: no PROJECT_DIR given and none detected for this cwd under ~/.claude/projects", file=sys.stderr)
         return 2
     for d in dirs:
-        if not os.path.isdir(d):
+        # A directory that exists but cannot be listed would make glob() swallow the
+        # PermissionError and report "no signals" with exit 0 — a missing answer read as a clean one.
+        if not os.path.isdir(d) or not os.access(d, os.R_OK | os.X_OK):
             print(f"unreadable project dir: {d}", file=sys.stderr)
             return 2
-    phrases, source = never_wait_phrases(args.kit_root)
+    phrases, source = never_wait_phrases(kit_root)
     records, skipped, sessions = [], 0, 0
     for d in dirs:
         in_kit_repo = args.kit_name in os.path.basename(os.path.abspath(d))
@@ -336,7 +345,7 @@ def main(argv):
             records.extend(rs)
             skipped += sk
     records.sort(key=lambda r: (r["skill"], r["kind"], r["ts"]))
-    if args.json and not args.markdown:
+    if args.json:
         for r in records:
             print(json.dumps(r, ensure_ascii=False))
         if not records:

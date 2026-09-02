@@ -128,10 +128,21 @@ rc=0; python3 "$SCRIPT" "$PROJ/does-not-exist" --json > "$OUT.missing" 2>&1 || r
 if grep -q Traceback "$OUT.missing"; then echo "FAIL: a missing project dir produced a traceback"; cat "$OUT.missing"; exit 1; fi
 rc=0; python3 "$SCRIPT" "$PROJ" --since not-a-date > "$OUT.date" 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || { echo "FAIL: a malformed --since must exit 2, got $rc"; exit 1; }
+rc=0; python3 "$SCRIPT" "$PROJ" --json --markdown > "$OUT.both" 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || { echo "FAIL: --json and --markdown together must exit 2 (they are exclusive), got $rc"; exit 1; }
+# An EXISTING directory that cannot be listed is not "no signals": glob() would swallow the
+# PermissionError and the run would answer clean with exit 0. Skipped as root, who can read anything.
+if [ "$(id -u)" -ne 0 ]; then
+  LOCKED=$(kit_scratch)/-Users-me-repo-ai-migration-kit-locked; mkdir -p "$LOCKED"; chmod 000 "$LOCKED"
+  rc=0; python3 "$SCRIPT" "$LOCKED" --json > "$OUT.locked" 2>&1 || rc=$?
+  chmod 755 "$LOCKED"
+  [ "$rc" -eq 2 ] || { echo "FAIL: an unreadable (chmod 000) project dir must exit 2, got $rc"; cat "$OUT.locked"; exit 1; }
+  if grep -q Traceback "$OUT.locked"; then echo "FAIL: an unreadable project dir produced a traceback"; cat "$OUT.locked"; exit 1; fi
+fi
 EMPTY=$(kit_scratch)/-Users-me-repo-other; mkdir -p "$EMPTY"
 python3 "$SCRIPT" "$EMPTY" --markdown > "$OUT.empty" 2>&1 || { echo "FAIL: an empty project dir must exit 0"; exit 1; }
 grep -q '^no signals' "$OUT.empty" || { echo "FAIL: an empty project dir must print the explicit 'no signals' line"; cat "$OUT.empty"; exit 1; }
-echo "ok   refusals: missing dir → 2 without a traceback, bad --since → 2, empty dir → 0 and 'no signals'"
+echo "ok   refusals: missing or unreadable dir → 2 without a traceback, bad --since → 2, --json --markdown → 2, empty dir → 0 and 'no signals'"
 
 # ------------------------------------------------------------------------- the never-wait phrases are READ from the kit's suite
 grep -q 'auto-dev-never-wait' "$SCRIPT" || { echo "FAIL: harvest.py does not read the never-wait phrases from tests/auto-dev-never-wait/test.sh"; exit 1; }
