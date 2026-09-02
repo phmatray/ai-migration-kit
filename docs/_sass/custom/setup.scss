@@ -9,9 +9,10 @@ $body-font-family: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Sego
 $mono-font-family: "Atkinson Hyperlegible Mono", ui-monospace, "SFMono-Regular", menlo, consolas,
   monospace;
 
-// A 17px root and a major-third scale. The theme's fs- mixins read these in pairs — the base
-// value, then the next one up from the small breakpoint on — so the pairs are set together.
-$root-font-size: 17px;
+// A 17px root and a major-third scale. The root itself is set in custom/custom.scss — the theme's
+// $root-font-size is deprecated and read nowhere. The fs- mixins read the sizes below in pairs,
+// the base value and then the next one up from the small breakpoint on, so the pairs are set
+// together.
 $body-line-height: 1.5;
 $content-line-height: 1.6;
 $body-heading-line-height: 1.15;
@@ -35,6 +36,7 @@ $font-size-10-sm: 2.875rem;
 $content-width: 54rem;
 $nav-width: 17rem;
 $nav-width-md: 16rem;
+$search-results-width: $content-width - $nav-width;
 $border-radius: 3px;
 $media-queries: (
   xs: 20rem,

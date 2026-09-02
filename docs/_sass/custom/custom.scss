@@ -79,6 +79,24 @@ h6,
   a:hover {
     text-decoration-thickness: 2px;
   }
+
+  // The theme fades a hovered underline to 45 %; a thicker line should not also be a paler one.
+  a:not([class]):hover {
+    text-decoration-color: $link-color;
+  }
+}
+
+// ---------------------------------------------------------------------------------- the root
+// The theme's html rule reads the fs-4 pair and reads $root-font-size nowhere (it is deprecated),
+// so the 17px root the scale is built on is set here, with the theme's own small breakpoint.
+html {
+  font-size: 16px !important;
+}
+
+@include mq(sm) {
+  html {
+    font-size: 17px !important;
+  }
 }
 
 // ------------------------------------------------------------------------------- the sidebar
@@ -100,7 +118,13 @@ h6,
   color: $body-text-color;
 }
 
-.nav-list .nav-list-item.active > .nav-list-link {
+.nav-list .nav-list-item .nav-list-link:hover {
+  color: $body-heading-color;
+}
+
+// The current page's link only: the theme's script also marks every enclosing item `.active`,
+// so an item selector would bold the whole ancestry on an ADR or a case-study page.
+.nav-list .nav-list-item .nav-list-link.active {
   font-weight: 700;
   color: $body-heading-color;
 }
@@ -117,7 +141,8 @@ th {
   background-color: $sidebar-color;
 }
 
-code {
+// The theme's own selector for inline code, so this outranks its bordered default.
+:not(pre, figure) > code {
   border: none;
   padding: 0.1em 0.35em;
 }
@@ -137,7 +162,7 @@ figure.highlight :not(pre) > code {
   margin: 0 0 2.5rem;
 }
 
-.kit-hero-lead {
+.main-content .kit-hero-lead {
   max-width: 34em;
   margin: 0.5rem 0 2rem;
   font-size: 1.25rem !important;
@@ -149,11 +174,12 @@ figure.highlight :not(pre) > code {
   margin: 0 0 1.5rem;
 }
 
-.kit-loop-name {
-  margin: 0 0 0.35rem;
-  font-size: $font-size-3 !important;
-  font-weight: 600;
-  color: $grey-dk-100;
+// The loop's name, as a sentence at body size — not a small grey label over a big value.
+.main-content .kit-loop-name {
+  margin: 0 0 0.3rem;
+  font-size: $font-size-5 !important;
+  font-weight: 500;
+  color: $body-text-color;
 }
 
 .main-content .kit-stages {
@@ -183,14 +209,16 @@ figure.highlight :not(pre) > code {
 
 // The gate: a bar every stage passes through. It is the kit's one motif — the favicon is the same
 // mark — and the only place besides links where the accent appears.
+// Sized in rem: the theme's counter rule leaves a smaller !important font-size on this ::before,
+// so an em here would resolve against that, not against the stage text.
 .main-content .kit-stages > li + li::before {
   content: "";
   position: static;
   display: inline-block;
   width: 2px;
-  height: 1.05em;
+  height: 1.2rem;
   margin: 0 0.8rem;
-  vertical-align: -0.12em;
+  vertical-align: -0.15rem;
   background-color: $link-color;
 }
 
