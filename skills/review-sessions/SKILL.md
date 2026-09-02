@@ -1,15 +1,15 @@
 ---
 name: review-sessions
 description: >-
-  Read the transcripts of PREVIOUS sessions and pull out the failures the kit itself caused or
-  mis-handled — tool errors on kit scripts, gate denials, workers that died waiting, guard refusals,
-  red kit suites — then cluster them by root cause, drop what main already fixed, and file what earns
-  an issue through create-issue. Use when the user asks what went wrong in past runs, wants the kit's
-  own errors extracted from session logs, or wants a retro across sessions: "review my previous
-  sessions", "what went wrong in my last runs", "learn from the transcripts", « analyse mes sessions
-  précédentes », « qu'est-ce qui a foiré dans mes dernières sessions ». `--dry-run` lists without
-  filing. Does NOT apply to reviewing a diff (code-review), pruning open issues (triage-backlog),
-  migration follow-ups (review-followups), or one live failure (debug-issue).
+  Read the transcripts of PREVIOUS sessions and pull out the failures the kit itself caused —
+  errors on kit scripts, gate denials, workers that died waiting, red kit suites — then cluster
+  them by root cause, drop what main already fixed, and file what earns an issue through
+  create-issue. Use when the user asks what went wrong in past runs: "review my previous
+  sessions", "what went wrong in my last runs", "learn from the transcripts", « analyse mes
+  sessions précédentes », « qu'est-ce qui a foiré dans mes dernières sessions ». `--dry-run` lists
+  without filing. Does NOT apply to reviewing a diff (code-review),
+  pruning open issues (triage-backlog), migration follow-ups (review-followups), or one live
+  failure (debug-issue).
 license: MIT
 compatibility: >-
   Requires python3 (scripts/harvest.py, stdlib only) and read access to ~/.claude/projects/. Files
@@ -178,8 +178,8 @@ Dispositions, one per cluster: **file** · **record** (fails the bar — kept in
 
 ## Step 6 — File, through create-issue only
 
-For each cluster to file, invoke **`create-issue`** with the cluster as the idea — never a raw
-`gh issue create`, so the body gets its brainstorm, spec and plan, its labels from the profile, and
+For each cluster to file, invoke **`create-issue`** with the cluster as the idea — never a bare
+`gh issue` write of your own, so the body gets its brainstorm, spec and plan, its labels from the profile, and
 the duplicate/root-cause sweep `create-issue` Step 3 runs (a cluster may be an instance of an open
 root, which that step folds rather than files). The idea text leads with the evidence:
 
