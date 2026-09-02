@@ -339,21 +339,32 @@ p.write_text("[]\n", encoding="utf-8")
 '
 
 run_eval_case "T8 a skill drops out of SKILLS     " fail "must list every skill" '
-import pathlib, sys
+import pathlib, re, sys
 # A skill with a valid set that run_all.py never runs: CI reports the contract present, the bench
 # silently measures nine of ten. That is the exact failure #331 closed, one edit away from coming back.
+# The mutation locates the SKILLS block and drops its first quoted entry whatever the wrapping,
+# order or quoting: a literal-substring replace went silently no-op the day the list was re-wrapped
+# (#394), and this guard was then never exercised at all. The assert is what makes that loud.
 p = pathlib.Path(sys.argv[1]) / "evals/run_all.py"
 t = p.read_text(encoding="utf-8")
-p.write_text(t.replace("\"setup-repo\", ", "", 1), encoding="utf-8")
+m = re.search(r"SKILLS\s*=\s*\[(.*?)\]", t, re.S)
+assert m, "run_all.py has no SKILLS = [...] block"
+block = re.sub(r"\"[^\"]+\",\s*", "", m.group(1), count=1)
+assert block != m.group(1), "mutation had no effect (#394)"
+p.write_text(t[:m.start(1)] + block + t[m.end(1):], encoding="utf-8")
 '
 
 run_eval_case "T9 DEFAULT_KNOWN names a non-skill" fail "must list every skill" '
-import pathlib, sys
+import pathlib, re, sys
 # A stale name in DEFAULT_KNOWN cannot be attributed to any sibling, so a near-miss histogram
-# would report a skill that does not exist.
+# would report a skill that does not exist. Same format-agnostic mutation as T8 (#394).
 p = pathlib.Path(sys.argv[1]) / "evals/trigger_eval.py"
 t = p.read_text(encoding="utf-8")
-p.write_text(t.replace("\"triage-backlog\"]", "\"triage-backlog\", \"revise-claude-md\"]", 1), encoding="utf-8")
+m = re.search(r"DEFAULT_KNOWN\s*=\s*\[(.*?)\]", t, re.S)
+assert m, "trigger_eval.py has no DEFAULT_KNOWN = [...] block"
+block = m.group(1).rstrip().rstrip(",") + ", \"revise-claude-md\""
+assert block != m.group(1), "mutation had no effect (#394)"
+p.write_text(t[:m.start(1)] + block + t[m.end(1):], encoding="utf-8")
 '
 
 run_eval_case "T10 an entry has a non-string note" fail "non-string .note." '
