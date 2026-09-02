@@ -103,15 +103,15 @@ triggering contract, measured by `evals/`.
 | an idea, a defect, a task to track | `create-issue <idea>` — "track this idea", « ouvre une issue pour X » | a seeded issue: template fields, brainstorm, spec with a contract, a tickable plan; large work becomes a parent plus children | the issue filed (or seeded in place with `--seed #N`) | manage existing issues; brainstorm with nothing to file | `/implement-issue #<issue>` |
 | an issue that carries a `🛠️ Implementation plan` | `implement-issue #N` — "implement issue 47", « implémente l'issue 47 » | its own worktree, a draft PR, one commit per task with the issue's boxes ticked live, a two-axis review, a sync with `main` | the PR **ready**, not landed | plan a new issue; land a PR; ad-hoc coding | `/merge-pr #<pr>` |
 | a ready PR | `merge-pr #N` — "merge PR 279", « fais atterrir la 281 » | CI waited for, blockers corrected in a loop, squash-merged, follow-ups triaged and filed, branch and worktree torn down | merged, follow-ups filed | open or build a PR; sync one still being built; review without merging | `/implement-issue #<next-issue>` |
-| one idea or issue you want merged, hands-off | `deliver-issue <idea>` or `#N` — "deliver issue 47 end to end", « de l'idée à la PR mergée » | the three above, each phase in a fresh sub-agent; `--stop-at ready` leaves the merge to you | merged (or ready) | many issues; a PR already open; filing only | `/implement-issue #<follow-up>` if one was filed, `/merge-pr #<pr>` after `--stop-at ready`, else — |
+| one idea or issue you want merged, hands-off | `deliver-issue <idea>` or `#N` — "deliver issue 47 end to end", « de l'idée à la PR mergée » | the three above, each phase in a fresh sub-agent; `--stop-at ready` leaves the merge to you | merged (or ready) | many issues; a PR already open; filing only | `/implement-issue #<follow-up>` for a follow-up the merge filed — or `/implement-issue #<issue>` to resume a draft a stopped phase 1 left; `/merge-pr #<pr>` only for a PR reported READY under `--stop-at ready`; else — |
 | many planned issues | `auto-dev` — "burn down the backlog with 3 agents", « vide le backlog avec 3 agents » | a fleet of N area-isolated workers, each issue implement → merge, CI waited for by the supervisor, verified merge state, a retro | the eligible queue drained | build one issue; land one PR; file one issue | `/implement-issue #<held-issue>` for L/XL held back, else — |
 | an open queue that never shrinks | `triage-backlog` — "what should we close?", « le backlog ne descend jamais » | every open issue verified, clustered by root cause, one disposition proposed each — executed only on your confirmation | every issue re-decided | file a new issue; build one; migration follow-ups | `/implement-issue #<kept-issue>` |
-| past sessions to learn from | `review-sessions` — "what went wrong in my last runs", « analyse mes sessions précédentes » | the kit's own failures harvested from the transcripts, clustered, checked against `main`, filed through `create-issue` (`--dry-run` lists) | the clusters filed or recorded | review a diff; prune issues; one live failure | `/implement-issue #<filed>` |
+| past sessions to learn from | `review-sessions` — "what went wrong in my last runs", « analyse mes sessions précédentes » | the kit's own failures harvested from the transcripts, clustered, checked against `main`, filed through `create-issue` (`--dry-run` lists) | the clusters filed or recorded | review a diff; prune issues; one live failure | `/implement-issue #<filed>` for a cluster it filed, else — |
 | something broken, flaky, "worked before" | `debug-issue` — fires on its own before any fix | a red-capable command, a root cause with evidence, then one fix | the cause identified | new features; refactoring working code | — (returns to whatever called it) |
-| a repository these skills have never run in | `profile-repo`, then `setup-repo` | the committed profile the skills read; the labels, issue forms and settings they assume, converged from a manifest | the profile written; the repo converged | file, build or merge anything | `/setup-repo` when a label axis or form dir is missing, then `/create-issue`; `/profile-repo --refresh` after setup |
-| a legacy .NET app | `/migrate-assess`, then `/migrate` (`migrate-legacy`) | phase 1's read-only assessment with a verdict; then phases 1–7 to verified production | phase 7 delivered | non-.NET code paths without their own tooling (the method applies, RoselineMCP does not) | `/migrate-followups` |
+| a repository these skills have never run in | `profile-repo` — "set up the repo profile", « configure le profil du repo » | the committed profile every lifecycle skill reads: identity, build/test, gates, labels, hot-spots, tracker, ADR root | the profile written, or read back | file, build or merge anything; write labels or settings | `/setup-repo` when it named a missing label axis or issue-form dir, then `/create-issue <idea>` |
+| a repository whose labels, forms or settings drifted | `setup-repo` — "set up the labels", « configure les labels du repo » | the label taxonomy, the issue forms and the settings converged from a manifest — `plan` prints the drift, `apply` converges it | the repo converged on its manifest | file, build or merge anything | `/profile-repo --refresh` |
+| a legacy .NET app (or a portfolio to cost first) | `/migrate-assess`, then `/migrate` (`migrate-legacy`); `/migrate-audit` for the read-only, costed executive report per app and the portfolio synthesis | phase 1's read-only assessment with a verdict; then phases 1–7 to verified production | phase 7 delivered | non-.NET code paths without their own tooling (the method applies, RoselineMCP does not) | `/migrate-followups` |
 | open follow-ups across migrated repos | `/migrate-followups` (`review-followups`) — « fais le point », "what's still open" | the consolidated open tail, updated at the source (`migration/report.json`), owner decisions as a questionnaire | the open tail presented | GitHub issue triage | `/create-issue <entry>` to convert an entry |
-| a portfolio to cost | `/migrate-audit` | a costed executive report per app, a portfolio synthesis | the synthesis presented | any change to the apps | `/migrate-assess` on the first wave |
 
 ## Each skill, one page
 
@@ -198,14 +198,14 @@ on an enhancement also writes a rejected ADR, so the next inlet's prior-rejectio
 
 ### review-sessions
 
-The retro across sessions. Step 2 runs `harvest.py` over the repository's transcript directories —
-one record per signal: a tool error on a kit script, a gate's deny, a worker that ended its turn in
-the never-wait shape, a `STATUS: BLOCKED` report, a red kit suite, a guard refusal, a harness nudge —
-attributed to the skill active at that point. Step 3 clusters by root cause with the retro
-taxonomy; Step 4 checks each cluster against the tree (a fix that landed after the cluster's last
-signal makes it *already fixed*, recorded and never filed); Step 5 applies the filing bar and the
-prior-rejection lookup; Step 6 files each surviving cluster through `create-issue`, or lists them
-under `--dry-run`. It never closes or edits an issue.
+The retro across sessions. Step 2 locates the repository's transcript directories and Step 3 runs
+`harvest.py` over them — one record per signal: a tool error on a kit script, a gate's deny, a
+worker that ended its turn in the never-wait shape, a `STATUS: BLOCKED` report, a red kit suite, a
+guard refusal, a harness nudge — attributed to the skill active at that point. Step 4 clusters by
+root cause with the retro taxonomy; Step 5 checks each cluster against the tree (a fix that landed
+after the cluster's last signal makes it *already fixed*, recorded and never filed); Step 6 applies
+the filing bar and the prior-rejection lookup; Step 7 files each surviving cluster through
+`create-issue`, or lists them under `--dry-run`. It never closes or edits an issue.
 
 ### debug-issue
 
@@ -301,22 +301,8 @@ repeatable — with different shapes. This maps concepts; it does not rank.
 | Learning from runs | retrospectives | — | retrospective workflow | `auto-dev`'s lessons block; `review-sessions` over the transcripts |
 | Where it runs | Claude Code, others | Claude Code, Copilot, Gemini, Cursor, … | many IDEs | Claude Code only (ADR 0006): the hooks, the plugin `.mcp.json`, the Agent tool are the mechanisms |
 
-What the kit deliberately does not do, and why:
-
-- **A router skill.** Declined in the v2 meta review: the table above *is* the router, as a
-  document, and `ARCHITECTURE.md`'s graph is the map.
-- **Interactive approval gates in the lifecycle skills.** They run hands-off (ADR 0005) because
-  their irreversible act is gated by CI; the one skill whose act is a judgement about intent —
-  closing an issue — asks. `--grill` is the single sanctioned interview, and only when the user
-  passed it.
-- **Per-skill versions.** One plugin, one version (ADR 0003); a per-skill number would communicate a
-  granularity that does not exist.
-- **`claude -p` workers.** In-process sub-agents are addressable, resumable and observable
-  (ADR 0007).
-- **A second home for anything.** A rule that lives in two places drifts, and this repository has
-  paid for that enough times to make it a CI failure: the recap table, the decision registry, the
-  boundary's consumer list, the eval rosters, the profile's gate list are all checked against what
-  they describe.
+What the kit deliberately does not do — and why each is a recorded decision rather than a gap — is
+the last section of this guide.
 
 ## Two worked examples
 
@@ -355,7 +341,25 @@ the same recap at the end.
 
 ## What the kit deliberately does not do
 
-Stated once more, in one place, because a reader who arrives with another framework's habits will
-look for these: no router skill, no approval gates in the hands-off skills, no per-skill versions,
-no `claude -p` workers, no second home for a rule, and no harness other than Claude Code. Each is a
-decision with a record — `docs/adr/` — and each record names what would reopen it.
+A reader who arrives with another framework's habits will look for these; each is a decision with a
+record under `docs/adr/`, and each record names what would reopen it.
+
+- **A router skill.** Declined in the v2 meta review: the *when to call* table above *is* the
+  router, as a document, and `ARCHITECTURE.md`'s graph is the map.
+- **Interactive approval gates in the lifecycle skills.** They run hands-off (ADR 0005) because
+  their irreversible act is gated by CI; the one skill whose act is a judgement about intent —
+  closing an issue — asks. `--grill` is the single sanctioned interview, and only when the user
+  passed it.
+- **Per-skill versions.** One plugin, one version (ADR 0003); a per-skill number would communicate a
+  granularity that does not exist.
+- **`claude -p` workers.** In-process sub-agents are addressable, resumable and observable
+  (ADR 0007).
+- **A merged `profile-repo` + `setup-repo`.** A reader and a writer with different rights stay two
+  skills for this major (ADR 0013, proposed); the merge into `configure-repo` with three verbs is
+  the shape to take if the boundary keeps confusing users, in the next major.
+- **Any harness other than Claude Code.** The hooks, the plugin's `.mcp.json` and the Agent tool
+  are the mechanisms (ADR 0006).
+- **A second home for anything.** A rule that lives in two places drifts, and this repository has
+  paid for that enough times to make it a CI failure: the recap table, the decision registry, the
+  boundary's consumer list, the eval rosters, the profile's gate list are all checked against what
+  they describe.

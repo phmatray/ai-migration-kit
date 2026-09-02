@@ -1117,7 +1117,11 @@ PY
 # Driven to red on a scratch copy of the tree with an extra skill folder, so the guard cannot go
 # silent by matching nothing.
 echo "== docs/methodology.md names every skill and command (#398) =="
-python3 - "$KIT_ROOT" <<'PY'
+# ONE check, written to a file and run twice — on the real tree (must pass) and on a scratch tree
+# with an unnamed skills/zz-fake/ (must fail, and must NAME zz-fake). A second inline copy of the
+# check would prove the copy, not the case; the red half is the guard that proves the guard.
+_gscratch=$(kit_scratch)
+cat > "$_gscratch/guide-check.py" <<'PY'
 import pathlib, sys
 root = pathlib.Path(sys.argv[1])
 guide = root / "docs/methodology.md"
@@ -1135,20 +1139,17 @@ if missing:
     print("FAIL: docs/methodology.md never names: " + ", ".join(missing)); sys.exit(1)
 print("ok   docs/methodology.md names every skill folder and every command")
 PY
-# ...and the same check refuses a tree with a skill the guide does not know.
-_gscratch=$(kit_scratch)
-mkdir -p "$_gscratch/skills/zz-fake" "$_gscratch/commands" "$_gscratch/docs"
-cp "$KIT_ROOT/docs/methodology.md" "$_gscratch/docs/"
-cp -R "$KIT_ROOT/skills/debug-issue" "$_gscratch/skills/"
-: > "$_gscratch/skills/zz-fake/SKILL.md"
-if python3 - "$_gscratch" <<'PY' >/dev/null 2>&1
-import pathlib, sys
-root = pathlib.Path(sys.argv[1]); text = (root / "docs/methodology.md").read_text(encoding="utf-8")
-missing = [d.name for d in (root / "skills").iterdir() if d.is_dir() and d.name != "_shared" and d.name not in text]
-sys.exit(1 if missing else 0)
-PY
-then echo "FAIL: the guide-coverage check accepted a tree with skills/zz-fake/ unnamed"; exit 1; fi
-echo "ok   a skill folder the guide does not name is refused"
+python3 "$_gscratch/guide-check.py" "$KIT_ROOT" || exit 1
+mkdir -p "$_gscratch/tree/skills/zz-fake" "$_gscratch/tree/commands" "$_gscratch/tree/docs"
+cp "$KIT_ROOT/docs/methodology.md" "$_gscratch/tree/docs/"
+cp -R "$KIT_ROOT/skills/debug-issue" "$_gscratch/tree/skills/"
+: > "$_gscratch/tree/skills/zz-fake/SKILL.md"
+if python3 "$_gscratch/guide-check.py" "$_gscratch/tree" > "$_gscratch/guide-red.out" 2>&1; then
+  echo "FAIL: the guide-coverage check accepted a tree with skills/zz-fake/ unnamed"; exit 1
+fi
+grep -q 'skills/zz-fake' "$_gscratch/guide-red.out" \
+  || { echo "FAIL: the guide-coverage check refused the scratch tree without naming skills/zz-fake"; cat "$_gscratch/guide-red.out"; exit 1; }
+echo "ok   a skill folder the guide does not name is refused, by name"
 
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented

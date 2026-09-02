@@ -73,15 +73,18 @@ transcriptions) · 57 suites golden exécutées localement · 23 issues ouvertes
 
 ### Info
 
-- [ ] **Hygiène git** : 24 branches locales `worktree-wf_*` et 2 worktrees (17–21 août), 14
-  branches distantes jamais supprimées après merge (antérieures à #196). Signalé, non touché.
+- [x] **Hygiène git** : 24 branches locales `worktree-wf_*` et 2 worktrees (17–21 août), 14
+  branches distantes jamais supprimées après merge (antérieures à #196). Non touché ; consigné en
+  commentaire sur la PR #395 (filing bar : une observation, pas une issue).
 - [ ] **La description, les topics, la homepage et Pages du dépôt sont vides** — `setup-repo` ne
   couvre pas ces quatre surfaces (#400) ; `docs/` n'est pas un site (#401).
 - [ ] **Fusionner `profile-repo` et `setup-repo` ?** Non pour ce majeur — ADR 0013 (`proposed`).
-- [ ] **Le harnais et le kit isolent différemment** : une session isolée dans un worktree ne peut
+- [x] **Le harnais et le kit isolent différemment** : une session isolée dans un worktree ne peut
   pas utiliser le worktree par issue de `make-worktree.sh` (le hook du harnais refuse tout `git -C
-  <autre>`). Contourné en branchant dans le worktree de la session ; à documenter dans
-  `implement-issue` si le cas se reproduit.
+  <autre>`). Contourné en branchant dans le worktree de la session ; porté par la mémoire de projet
+  de la session (`project-harness-worktree-vs-kit-worktrees`), pas par une issue — le comportement
+  est celui du harnais, à documenter dans `implement-issue` si le cas se reproduit chez un autre
+  utilisateur.
 
 ## Ce que disaient les 36 sessions précédentes
 
