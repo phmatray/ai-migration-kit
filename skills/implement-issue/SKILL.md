@@ -540,11 +540,12 @@ Then act on the disposition (the full table is in the reference):
 | Finding | What happens |
 |---|---|
 | Standards findings, and Spec **(a) missing** / **(c) wrong** | fix **before** the ready-flip, commit on this branch |
-| Spec **(b) not asked for** (scope creep) | a bullet under `### Follow-ups` in the **PR description** — create the section if absent |
+| Spec **(b) not asked for** (scope creep) | the carve-out under *Don't widen the blast radius* (Notes on quality) decides: **local and small** → fix it inline, in its own commit, with a line under `### Fixed along the way`; anything else → a bullet under `### Follow-ups` in the **PR description** — create the section if absent |
 
 `### Follow-ups` and not the session report: that heading is where `merge-pr` Step 6 harvests deferred
 work and files it as tracked issues, so a creep finding recorded anywhere else is lost at merge. Do not
-widen this PR to justify the creep, and do not delete a sibling PR's work on a hunch.
+widen this PR to justify the creep beyond what the carve-out admits, and do not delete a sibling PR's
+work on a hunch.
 
 Triage the findings — implement the real ones, push back (in your report) on the wrong ones with
 technical reasoning rather than performatively complying. Then commit and push:
@@ -648,4 +649,4 @@ branch/worktree.
 - **A zero exit is not a receipt.** `git commit` does not check you are still on the branch you created, and `git push -u` prints "branch … set up to track …" whether or not your commit reached your branch. Both are claims about *what git attempted*, not about *where the work is*. That is why Steps 5–9 go through the guards and why the guards re-read state instead of trusting the return code — the same reason `tick-plan.sh` reads the issue back after PATCHing it. Step 8's merge — the largest write in the flow, and the one with the widest window, since conflict resolution sits inside it — goes through `guarded-merge.sh` on the same terms (#41).
 - **One commit per task, message from the plan** (its final step) — verbatim, so git history mirrors the plan and the issue.
 - **Stay resumable.** Everything keys off the issue's checkbox state and the existing branch/PR, so a re-run picks up where it left off.
-- **Don't widen the blast radius.** Implement the plan, not your own ideas. Record adjacent work under a `## Follow-ups` heading in the **PR description** (and call it out in the report) — that's where `/merge-pr` harvests deferred work and files it as tracked issues; noting it only in the ephemeral report would lose it. Don't smuggle the work into this PR.
+- **Don't widen the blast radius.** Implement the plan, not your own ideas. A finding you discover on the way takes one of two exits, and the test has two halves that must **both** hold: it is **fixed inline** when it is **local** (every file the fix touches is already modified by this PR) *and* **small** (the fix adds no file to the diff and no behaviour the Spec does not already cover). Whether it is a regression of a shipped guarantee is **not** part of the test. An inline fix is its **own commit** and gets a line in the PR description under `### Fixed along the way`, so the trail survives without an issue. The regression axis is left out on purpose — it measures severity, not review surface, and a fleet run that used it as the test filed four two-line fixes in files its PRs already had open while it would have admitted a large regression (#410). Small alone is not enough (a one-line fix in an untouched file still widens the diff's surface) and local alone is not enough (a refactor of a file you happen to be editing is exactly the creep this rule exists to stop). Anything failing either half is deferred as before: a bullet under `### Follow-ups` in the **PR description** (and called out in the report) — that heading is where `/merge-pr` harvests deferred work and files it as tracked issues; noting it only in the ephemeral report would lose it. Don't smuggle that work into this PR.
