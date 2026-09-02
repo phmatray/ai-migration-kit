@@ -3,18 +3,20 @@ name: setup-repo
 description: >-
   Bring a GitHub repository to the configuration the issue/PR lifecycle skills assume — label
   taxonomy, issue forms under .github/ISSUE_TEMPLATE/, repository settings (delete-branch-on-merge,
-  squash-only merges) — deterministic and idempotent: `plan` prints drift, `apply` converges it. Use
-  when a repo needs configuring or has drifted: "set up the labels", "create the issue templates",
-  "turn on auto-delete merged branches", "configure this repository the way the kit expects", "why
-  does auto-dev ignore my effort labels", « configure les labels du repo », « crée les templates
-  d'issue », « supprime automatiquement les branches mergées ». It WRITES what profile-repo only
-  READS. Does NOT file issues, implement code, or merge PRs.
+  squash-only merges, description, homepage), topics and the GitHub Pages source — deterministic
+  and idempotent: `plan` prints drift, `apply` converges it. Use when a repo needs configuring or
+  has drifted: "set up the labels", "create the issue templates", "turn on auto-delete merged
+  branches", "set the repo description and topics", "enable GitHub Pages from docs/", "configure
+  this repository the way the kit expects", « configure les labels du repo », « crée les templates
+  d'issue », « active GitHub Pages ». It WRITES what profile-repo only READS. Does NOT file issues,
+  implement code, or merge PRs.
 license: MIT
 compatibility: >-
   Requires git, python3 with PyYAML, jq, and an authenticated gh CLI. Without gh the label and
   settings surfaces are reported as refused and the run exits 3 with the local issue-form copy
   still applied. The settings surface additionally needs a token with admin rights on the target
-  repository; without one it is refused by name rather than silently skipped.
+  repository; without one it is refused by name rather than silently skipped. The topics and Pages
+  surfaces need the same admin rights, and Pages must be available on the repository's plan.
 metadata:
   author: Philippe Matray
   suite: ai-migration-kit
@@ -35,6 +37,12 @@ one for a **configuration the repo does not have**, which is what four of its TO
 | no `.github/ISSUE_TEMPLATE/` | the directory was never created | `create-issue` has no form to obey |
 
 This skill is the missing verb. It does not describe a repo; it makes one.
+
+The same manifest also carries the four surfaces a **public** repository is judged by before
+anyone opens a file (#400): `settings.description`, `settings.homepage`, `topics:` and `pages:`.
+The description and homepage ride the settings PATCH; topics are one `PUT` that replaces the
+whole set, so `apply` writes the union of live and declared; the Pages source is one `POST` to
+create the site or one `PUT` to update it — never a `DELETE`.
 
 ## Do this
 
@@ -68,7 +76,7 @@ Read the exit code — it is the report, and each value means one thing:
 committing its own `.github/repo-setup.yml`, which `repo-setup.sh` prefers — so a consumer's
 taxonomy survives a kit upgrade. `--manifest <path>` overrides both.
 
-Four rules govern what `apply` will and will not do, and they are worth relaying to the operator
+Six rules govern what `apply` will and will not do, and they are worth relaying to the operator
 before the first run against a repo that already has labels:
 
 - **Additive.** A live label the manifest does not declare is reported `!EXTRA` and **kept**. Only
@@ -85,6 +93,12 @@ before the first run against a repo that already has labels:
   as drift** on every run (`plan` exits 1), so an unfilled axis stays visible instead of looking
   converged (#198). The `area:` axis ships this way because it names the consumer's code, not the
   kit's: fill it in before `auto-dev` runs a fleet — `apply` will not resolve this one for you.
+- **Topics are additive, like labels** — and only when the manifest declares `topics:` at all. A
+  live topic the manifest does not name is reported `!EXTRA` and kept; `--prune` drops it. A
+  manifest silent on topics never reads or writes them, `--prune` included.
+- **The Pages site is created or updated, never disabled.** A 404 on the read means *no site
+  yet* and plans a `+ADD`; a 403 is a refusal by name, like every other surface. Disabling a
+  site is not a converge, so this skill never issues that `DELETE`.
 
 ## Autonomy contract
 
@@ -114,7 +128,8 @@ blocks (verdict · **What happened** · **Artifacts** · **Assumed · skipped ·
 skill's row in that file's hand-off table instead of being decided again here. Everything below is
 only what **setup-repo** adds on top of them.
 
-- Name each surface separately — labels, issue forms, repository settings — and whether it
+- Name each surface separately — labels, issue forms, repository settings, topics, the Pages
+  site — and whether it
   converged, was already converged, or was **refused** (and by what: missing admin rights, an
   unfilled `area:` placeholder, `gh` unauthenticated). A partially configured repo with a named gap
   is a result; an unqualified "done" over a refused surface is not.

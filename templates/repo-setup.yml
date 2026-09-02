@@ -93,6 +93,10 @@ issueTemplates:
 # token; without one this surface is reported as refused and the run exits 3 with the label and
 # template halves still applied.
 settings:
+  # Two string settings the same PATCH carries (#400) — the repository's public face. The
+  # description is capped at 350 characters and refused locally past it. Uncomment and fill in:
+  # description: "<one sentence: what this repository is>"
+  # homepage: "https://<owner>.github.io/<repo>/"
   # GitHub's default is false. On a repo without it, every merge run from an implement-issue
   # worktree leaks the remote branch permanently — see #185, which this setting is the cause of.
   delete_branch_on_merge: true
@@ -101,3 +105,19 @@ settings:
   allow_squash_merge: true
   allow_merge_commit: false
   allow_rebase_merge: false
+
+# Two more surfaces the same manifest converges (#400), commented out so the shipped default
+# applies nothing a consumer did not choose. Topics are a list GitHub validates (lowercase
+# letters, digits and hyphens, <= 50 characters each, <= 20 in all — refused locally otherwise).
+# `PUT …/topics` REPLACES the set, so `apply` writes the union of live and declared, and only
+# `--prune` drops one the manifest does not name; a manifest silent on `topics:` never touches
+# them. `pages.source` (or `pages.build_type: workflow`) creates the GitHub Pages site or updates
+# its source, and never disables it.
+#
+# topics:
+#   - <your-topic>
+#
+# pages:
+#   source:
+#     branch: main
+#     path: /docs
