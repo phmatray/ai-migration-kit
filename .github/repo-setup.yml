@@ -139,3 +139,30 @@ settings:
   allow_squash_merge: true
   allow_merge_commit: false
   allow_rebase_merge: false
+  # The repository's public face (#400): what GitHub shows above the file list, and the site
+  # docs/ publishes (#401). Converged here, never edited in the GitHub UI.
+  description: "A Claude Code plugin with two loops: a gate-verified pipeline that migrates legacy .NET applications with RoselineMCP, and a hands-off GitHub issue → PR lifecycle (create-issue, implement-issue, merge-pr, auto-dev) that runs on any repository through one committed profile."
+  homepage: "https://phmatray.github.io/ai-migration-kit/"
+
+# Topics (#400): how the repository is found. `apply` writes the union of these and whatever is
+# live; only `--prune` drops one this list does not name.
+topics:
+  - claude-code
+  - claude-code-plugin
+  - agent-skills
+  - ai-agents
+  - dotnet
+  - csharp
+  - roslyn
+  - legacy-migration
+  - github-issues
+  - developer-workflow
+  - methodology
+  - mcp
+
+# The GitHub Pages site (#400, #401): docs/ on main, built natively by GitHub Pages with the
+# just-the-docs remote theme docs/_config.yml names — the methodology guide as its home page.
+pages:
+  source:
+    branch: main
+    path: /docs

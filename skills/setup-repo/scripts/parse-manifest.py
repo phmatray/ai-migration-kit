@@ -16,6 +16,9 @@ separator (requirements.json says so, and forbids tabs in values for exactly thi
     T <TAB> filename                                an issue-form file
     S <TAB> key <TAB> value                         a repository setting
     K <TAB> glob                                    a label --prune must never delete
+    O <TAB> name                                    a topic (#400)
+    G <TAB> field <TAB> value                       a Pages field: source.branch, source.path,
+                                                    build_type (#400)
 
 Colours are normalised (leading '#' dropped, lower-cased) so that `d93f0b`, `#d93f0b` and
 `#D93F0B` cannot read as three different desired states and produce a permanent ~EDIT that never
@@ -26,6 +29,7 @@ Exit codes:
   0  parsed
   2  unreadable or not valid YAML, or not a mapping (the caller turns this into its own exit 2)
 """
+import re
 import sys
 
 try:
@@ -49,6 +53,14 @@ def die(message):
 # before any network round-trip, so refuse it locally with a message pointing at the manifest
 # rather than let it reach `gh` and be misread as a permissions problem (#200).
 LABEL_DESCRIPTION_LIMIT = 100
+
+# GitHub's rules for the two surfaces #400 adds, checked here for the same reason the label cap
+# is: a refusal that names the manifest line beats a 422 misread as a permissions problem.
+# Topics: lowercase letters, digits and hyphens, 1-50 characters, at most 20 per repository.
+# A repository description is capped at 350 characters by the PATCH endpoint.
+TOPIC_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,49}$")
+TOPICS_LIMIT = 20
+REPO_DESCRIPTION_LIMIT = 350
 
 
 def norm_scalar(value):
@@ -118,7 +130,65 @@ def main(argv):
     # Sorted so the emitted plan is stable run to run: an unstable order would make a converged
     # repo's report differ between runs, and a diff that changes on its own teaches nothing.
     for key in sorted(settings):
-        out.append("S\t%s\t%s" % (key, norm_scalar(settings[key])))
+        value = norm_scalar(settings[key])
+        if "\t" in value:
+            die("setting %r contains a tab, which is this format's field separator" % key)
+        # `description` is the one string setting with a documented cap (#400); the others the
+        # PATCH accepts are booleans or short strings GitHub does not bound this way.
+        if key == "description" and len(value) > REPO_DESCRIPTION_LIMIT:
+            die(
+                "settings.description is %d characters, over GitHub's %d-character limit"
+                % (len(value), REPO_DESCRIPTION_LIMIT)
+            )
+        out.append("S\t%s\t%s" % (key, value))
+
+    # Two more surfaces a public repository is judged by (#400). `O` and `G` rather than the
+    # issue's `T`/`P`: `T` is already the issue-form record above, and a record letter that
+    # reads two ways is the drift this format exists to prevent. The description and homepage
+    # ride the `S` record — they are two more PATCH fields — with the cap checked just above.
+    seen_topics = set()
+    topics = data.get("topics") or []
+    if not isinstance(topics, list):
+        die("topics must be a list of names, got %s" % type(topics).__name__)
+    if len(topics) > TOPICS_LIMIT:
+        die("topics lists %d names, over GitHub's %d-topic limit" % (len(topics), TOPICS_LIMIT))
+    for entry in topics:
+        name = norm_scalar(entry)
+        if not name:
+            continue
+        if not TOPIC_RE.match(name):
+            die(
+                "topic %r breaks GitHub's rule: lowercase letters, digits and hyphens, 1-50 "
+                "characters, starting with a letter or digit" % name
+            )
+        if name in seen_topics:
+            die("topic %r is listed twice" % name)
+        seen_topics.add(name)
+        out.append("O\t%s" % name)
+
+    pages = data.get("pages")
+    if pages is not None:
+        if not isinstance(pages, dict):
+            die("pages must be a mapping, got %s" % type(pages).__name__)
+        source = pages.get("source")
+        build_type = norm_scalar(pages.get("build_type"))
+        if source is not None:
+            if not isinstance(source, dict):
+                die("pages.source must be a mapping with branch and path, got %s" % type(source).__name__)
+            branch = norm_scalar(source.get("branch"))
+            spath = norm_scalar(source.get("path")) or "/"
+            if not branch:
+                die("pages.source needs a branch")
+            if spath not in ("/", "/docs"):
+                die("pages.source.path must be / or /docs (GitHub accepts nothing else), got %r" % spath)
+            out.append("G\tsource.branch\t%s" % branch)
+            out.append("G\tsource.path\t%s" % spath)
+        if build_type:
+            if build_type not in ("legacy", "workflow"):
+                die("pages.build_type must be legacy or workflow, got %r" % build_type)
+            out.append("G\tbuild_type\t%s" % build_type)
+        if source is None and not build_type:
+            die("pages declares neither a source nor a build_type")
 
     if out:
         # Newlines are pinned to LF rather than left to `print`. On Windows, text-mode stdout

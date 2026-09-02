@@ -219,7 +219,7 @@ why no arrow leaves it.
 | `review-sessions` | adr (rec., the prior-rejection lookup) | files through create-issue | **python3** (`harvest.py`, stdlib) · **gh** (via create-issue) | `harvest.py` (bundled in the skill) |
 | `debug-issue` | — | — | — | `find-polluter.sh`, `scripts/hitl-loop.template.sh` (bundled in the skill) |
 | `profile-repo` | — | — | **git**, bash · gh (degraded TODOs without) | `repo-profile.sh` (bundled in the skill) |
-| `setup-repo` | — | — | **git**, **python3** (PyYAML), **jq**, **gh** (admin rights on the settings surface; refused by name without it) | `repo-setup.sh`, `parse-manifest.py`, `project-area-options.py` (bundled in the skill) |
+| `setup-repo` | — | — | **git**, **python3** (PyYAML), **jq**, **gh** (admin rights on the settings, topics and Pages surfaces; each refused by name without it) | `repo-setup.sh`, `parse-manifest.py`, `project-area-options.py` (bundled in the skill) |
 
 **Bold = required.** The lifecycle trio — and `auto-dev` above them — additionally *reads*
 `.claude/skills/repo-profile.md` in the target repo — generated once by `profile-repo`,

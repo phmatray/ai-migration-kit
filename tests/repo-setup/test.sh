@@ -246,11 +246,78 @@ case "$*" in
     for a in "$@"; do
       case "$a" in
         *=*) k="${a%%=*}"; v="${a#*=}"
-             jq --arg k "$k" --argjson v "$v" '.[$k] = $v' "$GH_SETTINGS_JSON" > "$GH_SETTINGS_JSON.tmp" \
-               && mv "$GH_SETTINGS_JSON.tmp" "$GH_SETTINGS_JSON" ;;
+             # A typed value (-F: true/false/number) lands as JSON; a raw string (-f: the
+             # description, the homepage — #400) as a JSON string, the way the real API stores it.
+             # `jq .`, not `jq -e .`: -e exits 1 on a JSON `false` or `null`, which would store
+             # `allow_merge_commit=false` as the STRING "false" — masked by `tostring` in every
+             # assertion, so nothing would go red (spec review of #400). A parse error still exits 2.
+             if printf '%s' "$v" | jq . >/dev/null 2>&1; then
+               jq --arg k "$k" --argjson v "$v" '.[$k] = $v' "$GH_SETTINGS_JSON" > "$GH_SETTINGS_JSON.tmp" \
+                 && mv "$GH_SETTINGS_JSON.tmp" "$GH_SETTINGS_JSON"
+             else
+               jq --arg k "$k" --arg v "$v" '.[$k] = $v' "$GH_SETTINGS_JSON" > "$GH_SETTINGS_JSON.tmp" \
+                 && mv "$GH_SETTINGS_JSON.tmp" "$GH_SETTINGS_JSON"
+             fi ;;
       esac
     done
     exit 0 ;;
+  # Topics (#400): the GET answers {"names":[…]} from $GH_TOPICS_JSON, honouring the `--jq
+  # .names[]` repo-setup.sh passes; the PUT REPLACES the set and is recorded, so the next read
+  # reflects the write and an idempotence case can count zero second PUTs. Matched on the path,
+  # not on "api repos/": a write is `api -X PUT repos/…`, and the catch-all below would otherwise
+  # answer a topics read with the settings JSON.
+  *"repos/acme/widgets/topics"*)
+    case "$*" in
+      *"-X PUT"*)
+        if [ "${GH_TOPICS_PUT_FAILS:-0}" = 1 ]; then
+          gh_fail_body "${GH_TOPICS_PUT_FAIL_STATUS:-403}" "topics"
+          exit 1
+        fi
+        names='[]'
+        for a in "$@"; do
+          case "$a" in
+            "names[]="*) names=$(printf '%s' "$names" | jq --arg n "${a#"names[]="}" '. + [$n]') ;;
+          esac
+        done
+        printf '{"names":%s}\n' "$names" > "$GH_TOPICS_JSON"; exit 0 ;;
+      *)
+        if [ "${GH_TOPICS_READ_FAILS:-0}" = 1 ]; then
+          gh_fail_body "${GH_TOPICS_READ_FAIL_STATUS:-403}" "topics"
+          exit 1
+        fi
+        for a in "$@"; do
+          case "$a" in ".names[]") jq -r '.names[]' "$GH_TOPICS_JSON"; exit 0 ;; esac
+        done
+        cat "$GH_TOPICS_JSON"; exit 0 ;;
+    esac ;;
+  # The Pages site (#400): the GET answers 404 — the real API's "no site" — until a POST creates
+  # it; a PUT updates it; both are recorded.
+  *"repos/acme/widgets/pages"*)
+    case "$*" in
+      *"-X POST"*|*"-X PUT"*)
+        if [ "${GH_PAGES_WRITE_FAILS:-0}" = 1 ]; then
+          gh_fail_body "${GH_PAGES_WRITE_FAIL_STATUS:-403}" "pages"
+          exit 1
+        fi
+        branch=""; path=""; bt=""
+        for a in "$@"; do
+          case "$a" in
+            "source[branch]="*) branch="${a#"source[branch]="}" ;;
+            "source[path]="*)   path="${a#"source[path]="}" ;;
+            "build_type="*)     bt="${a#build_type=}" ;;
+          esac
+        done
+        jq -n --arg b "$branch" --arg p "$path" --arg t "$bt" \
+          '{source: (if $b == "" then null else {branch: $b, path: $p} end), build_type: (if $t == "" then "legacy" else $t end), html_url: "https://acme.github.io/widgets/"}' \
+          > "$GH_PAGES_JSON"; exit 0 ;;
+      *)
+        if [ "${GH_PAGES_READ_FAILS:-0}" = 1 ]; then
+          gh_fail_body "${GH_PAGES_READ_FAIL_STATUS:-403}" "pages"
+          exit 1
+        fi
+        if [ -s "$GH_PAGES_JSON" ]; then cat "$GH_PAGES_JSON"; exit 0; fi
+        echo "HTTP 404: Not Found (https://api.github.com/repos/acme/widgets/pages)" >&2; exit 1 ;;
+    esac ;;
   *"api repos/"*)
     if [ "${GH_SETTINGS_READ_FAILS:-0}" = 1 ]; then
       gh_fail_body "${GH_SETTINGS_READ_FAIL_STATUS:-403}" "acme/widgets"
@@ -265,6 +332,12 @@ export PATH="$WORK/bin:$PATH"
 export GH_LABELS_JSON="$WORK/labels.json"
 export GH_SETTINGS_JSON="$WORK/settings.json"
 export GH_CALL_LOG="$WORK/gh-calls.log"
+# Topics and the Pages site (#400): empty topics, no site — the state a fresh repository is in.
+# Every fixture below except §15's declares neither, so neither file is read before §15.
+export GH_TOPICS_JSON="$WORK/topics.json"
+export GH_PAGES_JSON="$WORK/pages.json"
+printf '{"names":[]}\n' > "$GH_TOPICS_JSON"
+: > "$GH_PAGES_JSON"
 
 FIXTURE="$KIT_ROOT/tests/repo-setup/fixtures/manifest.yml"
 [ -r "$FIXTURE" ] || fail "fixture manifest missing at $FIXTURE"
@@ -363,7 +436,7 @@ bash "$SCRIPT" plan "$repo" --manifest "$FIXTURE" >/dev/null 2>&1 || true
 after=$(git -C "$repo" status --porcelain)
 [ "$before" = "$after" ] || fail "plan modified the working tree: '$before' -> '$after'"
 [ ! -d "$repo/.github/ISSUE_TEMPLATE" ] || fail "plan created .github/ISSUE_TEMPLATE/"
-for forbidden in "label create" "label edit" "label delete" "PATCH"; do
+for forbidden in "label create" "label edit" "label delete" "PATCH" "PUT" "POST"; do
   n=$(gh_calls_matching "$forbidden")
   [ "$n" -eq 0 ] || fail "plan issued $n '$forbidden' call(s) — it must write nothing"
 done
@@ -1135,5 +1208,231 @@ for shipped_form in templates/issue-forms/feature_request.yml templates/issue-fo
   esac
 done
 echo "  ok: shipped default — both shipped forms keep the lone Area placeholder"
+
+
+# ------------------------- 15. description, homepage, topics and the Pages source (#400)
+#
+# Four surfaces a public repository is judged by before anyone opens a file. The description and
+# homepage ride the settings PATCH §10 already exercises — the new fact is a STRING value with a
+# dash and a colon surviving the TAB-separated record and comparing equal on the second run.
+# Topics and the Pages site are their own endpoints with their own shapes: a set the PUT replaces
+# wholesale, and a resource that answers 404 until a POST creates it.
+
+META_FIXTURE="$KIT_ROOT/tests/repo-setup/fixtures/manifest-meta.yml"
+BAD_TOPICS_FIXTURE="$KIT_ROOT/tests/repo-setup/fixtures/manifest-bad-topics.yml"
+[ -r "$META_FIXTURE" ] || fail "fixture $META_FIXTURE missing"
+[ -r "$BAD_TOPICS_FIXTURE" ] || fail "fixture $BAD_TOPICS_FIXTURE missing"
+PARSER="$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py"
+META_TAB=$(printf '\t')
+
+# 15a. the parser emits the records, and refuses GitHub's rules locally — before any call.
+meta_parsed=$(python3 "$PARSER" "$META_FIXTURE") || fail "the meta fixture does not parse"
+for want in "O${META_TAB}alpha-one" "O${META_TAB}beta2" \
+            "G${META_TAB}source.branch${META_TAB}main" "G${META_TAB}source.path${META_TAB}/docs" \
+            "S${META_TAB}description${META_TAB}The widgets kit — a description with a dash: and a colon" \
+            "S${META_TAB}homepage${META_TAB}https://acme.github.io/widgets/"; do
+  has_line "^$want\$" "$meta_parsed" || fail "parser: no record '$want' — got: $meta_parsed"
+done
+echo "  ok: parser — topics emit O records, the Pages source emits G records, the two string settings ride S"
+
+rc=0; out=$(python3 "$PARSER" "$BAD_TOPICS_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "a topic with a space: expected exit 2, got $rc — $out"
+case "$out" in *"lowercase letters, digits and hyphens"*) ;; *) fail "the topic refusal does not name the rule — $out" ;; esac
+case "$out" in *"has space"*) ;; *) fail "the topic refusal does not name the topic — $out" ;; esac
+echo "  ok: parser — a topic with a space is refused, naming the rule and the topic"
+
+meta_scratch=$(kit_scratch)
+printf 'topics:\n  - Uppercase\n' > "$meta_scratch/upper.yml"
+rc=0; out=$(python3 "$PARSER" "$meta_scratch/upper.yml" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "an uppercase topic: expected exit 2, got $rc — $out"
+case "$out" in *"Uppercase"*) ;; *) fail "the uppercase refusal does not name the topic — $out" ;; esac
+echo "  ok: parser — an uppercase topic is refused"
+
+{ echo 'topics:'; i=1; while [ "$i" -le 21 ]; do echo "  - topic-$i"; i=$((i + 1)); done; } > "$meta_scratch/many.yml"
+rc=0; out=$(python3 "$PARSER" "$meta_scratch/many.yml" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "21 topics: expected exit 2, got $rc — $out"
+case "$out" in *"21"*"20"*) ;; *) fail "the count refusal does not name 21 and the 20-topic limit — $out" ;; esac
+echo "  ok: parser — 21 topics are refused, naming the count and GitHub's limit"
+
+printf 'topics:\n  - twice\n  - twice\n' > "$meta_scratch/dup.yml"
+rc=0; out=$(python3 "$PARSER" "$meta_scratch/dup.yml" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "a duplicated topic: expected exit 2, got $rc — $out"
+case "$out" in *"twice"*) ;; *) fail "the duplicate refusal does not name the topic — $out" ;; esac
+echo "  ok: parser — a topic listed twice is refused"
+
+long_desc=$(printf '%*s' 351 '' | tr ' ' 'x')
+printf 'settings:\n  description: "%s"\n' "$long_desc" > "$meta_scratch/long-desc.yml"
+rc=0; out=$(python3 "$PARSER" "$meta_scratch/long-desc.yml" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "a 351-character description: expected exit 2, got $rc — $out"
+case "$out" in *"351"*"350"*) ;; *) fail "the description refusal does not name the length and the limit — $out" ;; esac
+echo "  ok: parser — a repository description over 350 characters is refused locally"
+
+printf 'pages:\n  source:\n    branch: main\n    path: /site\n' > "$meta_scratch/badpath.yml"
+rc=0; out=$(python3 "$PARSER" "$meta_scratch/badpath.yml" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "a Pages path GitHub does not accept: expected exit 2, got $rc — $out"
+case "$out" in *"/docs"*) ;; *) fail "the Pages path refusal does not name the accepted values — $out" ;; esac
+echo "  ok: parser — a Pages source path other than / or /docs is refused"
+
+# 15b. plan reads the drift: a missing topic, an undeclared live one, no site yet, two strings.
+repo15=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":true,"description":"","homepage":null}\n' > "$GH_SETTINGS_JSON"
+printf '{"names":["beta2","legacy-topic"]}\n' > "$GH_TOPICS_JSON"
+: > "$GH_PAGES_JSON"     # empty = the stub answers 404: no site yet
+
+fresh_log meta_plan
+rc=0; out=$(bash "$SCRIPT" plan "$repo15" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "plan on the meta fixture: expected exit 1 (drift), got $rc — $out"
+has_line "^+ADD .*topic .*alpha-one" "$out" || fail "plan: no +ADD for the missing topic — $out"
+has_line "^=OK .*topic .*beta2" "$out" || fail "plan: the live declared topic is not =OK — $out"
+has_line "^!EXTRA .*topic .*legacy-topic" "$out" || fail "plan: the undeclared live topic is not reported !EXTRA — $out"
+! has_line "^-DEL .*topic" "$out" || fail "plan queued a topic for deletion without --prune — $out"
+has_line "^+ADD .*pages .*source.branch: main" "$out" || fail "plan: no +ADD pages on a 404 — $out"
+has_line "^+ADD .*pages .*source.path: /docs" "$out" || fail "plan: no +ADD pages for the path — $out"
+has_line "^~EDIT .*setting .*description: <absent> -> The widgets kit — a description with a dash: and a colon" "$out" \
+  || fail "plan: the empty live description is not ~EDIT against the manifest's string — $out"
+has_line "^~EDIT .*setting .*homepage: <absent> -> https://acme.github.io/widgets/" "$out" \
+  || fail "plan: a null live homepage is not <absent> -> the manifest's URL — $out"
+echo "  ok: plan — +ADD topic, !EXTRA for an undeclared live topic, +ADD pages on a 404, ~EDIT on both string settings"
+
+fresh_log meta_prune_plan
+rc=0; out=$(bash "$SCRIPT" plan "$repo15" --manifest "$META_FIXTURE" --prune 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "plan --prune on the meta fixture: expected exit 1, got $rc — $out"
+has_line "^-DEL .*topic .*legacy-topic" "$out" || fail "plan --prune: the undeclared topic is not queued -DEL — $out"
+for forbidden in "PUT" "POST" "PATCH"; do
+  n=$(gh_calls_matching "$forbidden")
+  [ "$n" -eq 0 ] || fail "plan --prune issued $n '$forbidden' call(s) — it must write nothing"
+done
+echo "  ok: plan — --prune queues the undeclared topic for deletion, and still writes nothing"
+
+# A manifest silent on topics and pages never reads them, --prune included: the shared fixture
+# declares neither, so its --prune run must not even ask.
+fresh_log meta_silent
+rc=0; out=$(bash "$SCRIPT" plan "$repo15" --manifest "$FIXTURE" --prune 2>&1) || rc=$?
+for surface in "topics" "pages"; do
+  n=$(gh_calls_matching "$surface")
+  [ "$n" -eq 0 ] || fail "a manifest silent on $surface still read it under --prune ($n call(s))"
+done
+echo "  ok: plan — a manifest silent on topics and pages leaves them alone, --prune included"
+
+# 15c. apply converges, once: one PUT with the union, one POST, the strings inside the one PATCH.
+fresh_log meta_apply1
+rc=0; out=$(bash "$SCRIPT" apply "$repo15" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply on the meta fixture: expected exit 0, got $rc — $out"
+n=$(gh_calls_matching "PUT repos/acme/widgets/topics")
+[ "$n" -eq 1 ] || fail "expected exactly 1 topics PUT, got $n — log: $(cat "$GH_CALL_LOG")"
+put_line=$(grep -- "PUT repos/acme/widgets/topics" "$GH_CALL_LOG")
+for name in alpha-one beta2 legacy-topic; do
+  case "$put_line" in *"names[]=$name"*) ;; *) fail "the topics PUT does not carry $name — the union — $put_line" ;; esac
+done
+n=$(gh_calls_matching "POST repos/acme/widgets/pages")
+[ "$n" -eq 1 ] || fail "expected exactly 1 pages POST on a 404, got $n"
+grep -q 'source\[branch\]=main' "$GH_CALL_LOG" || fail "the pages POST does not carry source[branch]=main"
+grep -q 'source\[path\]=/docs' "$GH_CALL_LOG" || fail "the pages POST does not carry source[path]=/docs"
+n=$(gh_calls_matching "PATCH")
+[ "$n" -eq 1 ] || fail "expected exactly 1 settings PATCH, got $n"
+grep -q -- '-f description=The widgets kit — a description with a dash: and a colon' "$GH_CALL_LOG" \
+  || fail "the PATCH does not carry the description as a raw string — log: $(cat "$GH_CALL_LOG")"
+grep -q -- '-f homepage=https://acme.github.io/widgets/' "$GH_CALL_LOG" \
+  || fail "the PATCH does not carry the homepage as a raw string"
+echo "  ok: apply — one topics PUT carrying the union, one pages POST, the description and homepage inside the one PATCH"
+
+fresh_log meta_apply2
+rc=0; out=$(bash "$SCRIPT" apply "$repo15" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "second apply: expected exit 0, got $rc — $out"
+for w in "PUT" "POST" "PATCH"; do
+  n=$(gh_calls_matching "$w")
+  [ "$n" -eq 0 ] || fail "second apply issued $n $w call(s) — the surface is not idempotent"
+done
+fresh_log meta_plan2
+rc=0; out=$(bash "$SCRIPT" plan "$repo15" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "plan after apply: expected converged exit 0, got $rc — $out"
+has_line "^!EXTRA .*topic .*legacy-topic" "$out" || fail "the undeclared topic vanished from a converged plan — $out"
+echo "  ok: apply — a second apply issues no PUT, POST or PATCH; plan reports converged with the extra topic still kept"
+
+# 15d. an existing site with a different source is ~EDIT and gets one PUT, never a POST.
+printf '{"source":{"branch":"main","path":"/"},"build_type":"legacy","html_url":"https://acme.github.io/widgets/"}\n' > "$GH_PAGES_JSON"
+fresh_log meta_pages_edit
+rc=0; out=$(bash "$SCRIPT" plan "$repo15" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "plan with a differing Pages source: expected exit 1, got $rc — $out"
+has_line "^~EDIT .*pages .*source.path: / -> /docs" "$out" || fail "plan: the differing path is not ~EDIT — $out"
+has_line "^=OK .*pages .*source.branch: main" "$out" || fail "plan: the matching branch is not =OK — $out"
+fresh_log meta_pages_put
+rc=0; out=$(bash "$SCRIPT" apply "$repo15" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply over an existing site: expected exit 0, got $rc — $out"
+n=$(gh_calls_matching "PUT repos/acme/widgets/pages")
+[ "$n" -eq 1 ] || fail "expected exactly 1 pages PUT on an existing site, got $n"
+n=$(gh_calls_matching "POST repos/acme/widgets/pages")
+[ "$n" -eq 0 ] || fail "apply POSTed over an existing site ($n call(s))"
+echo "  ok: apply — an existing site with a different source is ~EDIT and gets one PUT, never a POST"
+
+# 15e. --prune writes the declared set alone.
+printf '{"names":["beta2","legacy-topic"]}\n' > "$GH_TOPICS_JSON"
+fresh_log meta_prune_apply
+rc=0; out=$(bash "$SCRIPT" apply "$repo15" --manifest "$META_FIXTURE" --prune 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "apply --prune on the meta fixture: expected exit 0, got $rc — $out"
+put_line=$(grep -- "PUT repos/acme/widgets/topics" "$GH_CALL_LOG")
+case "$put_line" in *"legacy-topic"*) fail "apply --prune still sent the undeclared topic — $put_line" ;; esac
+case "$put_line" in *"names[]=alpha-one"*) ;; *) fail "apply --prune dropped a declared topic — $put_line" ;; esac
+case "$put_line" in *"names[]=beta2"*) ;; *) fail "apply --prune dropped a declared topic — $put_line" ;; esac
+echo "  ok: apply — --prune writes the declared topics alone"
+
+# 15f. every refusal is per surface and named — the other surfaces still land (exit 3).
+repo15b=$(new_repo) || fail "could not create a scratch git repo"
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":true,"description":"","homepage":null}\n' > "$GH_SETTINGS_JSON"
+printf '{"names":[]}\n' > "$GH_TOPICS_JSON"
+: > "$GH_PAGES_JSON"
+fresh_log meta_topics_403
+rc=0; out=$(GH_TOPICS_PUT_FAILS=1 bash "$SCRIPT" apply "$repo15b" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "a refused topics PUT: expected exit 3, got $rc — $out"
+has_line "^!REFUSED .*topics.*admin" "$out" || fail "the refused topics surface is not named with its cause — $out"
+n=$(gh_calls_matching "label create")
+[ "$n" -eq 1 ] || fail "a refused topics PUT stopped the label surface: expected 1 create, got $n"
+n=$(gh_calls_matching "POST repos/acme/widgets/pages")
+[ "$n" -eq 1 ] || fail "a refused topics PUT stopped the Pages surface: expected 1 POST, got $n"
+n=$(gh_calls_matching "PATCH")
+[ "$n" -eq 1 ] || fail "a refused topics PUT stopped the settings surface: expected 1 PATCH, got $n"
+[ -f "$repo15b/.github/ISSUE_TEMPLATE/feature_request.yml" ] || fail "a refused topics PUT stopped the form copy"
+echo "  ok: degrade — a refused topics PUT names the cause, exits 3, and labels, forms, settings and Pages still land"
+
+fresh_log meta_topics_422
+rc=0; out=$(GH_TOPICS_PUT_FAILS=1 GH_TOPICS_PUT_FAIL_STATUS=422 bash "$SCRIPT" apply "$repo15b" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "a 422 on the topics PUT: expected exit 3, got $rc — $out"
+has_line "^!REFUSED .*topics.*refused (422)" "$out" || fail "a 422 on the topics PUT was not echoed as GitHub's own refusal — $out"
+echo "  ok: degrade — a 422 on the topics PUT echoes GitHub's field message, not the token sentence"
+
+fresh_log meta_pages_403
+rc=0; out=$(GH_PAGES_READ_FAILS=1 bash "$SCRIPT" plan "$repo15b" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "a 403 on the Pages read: expected exit 3, got $rc — $out"
+has_line "^!REFUSED .*pages" "$out" || fail "the refused Pages read is not named — $out"
+! has_line "^+ADD .*pages" "$out" || fail "a refused Pages read was diffed as a missing site — $out"
+echo "  ok: degrade — a 403 on the Pages read is refused by name; only a 404 means no site"
+
+: > "$GH_PAGES_JSON"
+fresh_log meta_pages_write_403
+rc=0; out=$(GH_PAGES_WRITE_FAILS=1 bash "$SCRIPT" apply "$repo15b" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 3 ] || fail "a refused Pages POST: expected exit 3, got $rc — $out"
+has_line "^!REFUSED .*pages.*admin" "$out" || fail "the refused Pages POST is not named with its cause — $out"
+echo "  ok: degrade — a refused Pages POST names the cause and exits 3"
+
+# 15g. the shipped default documents the surfaces and applies none; this repository declares all four.
+n_meta=$(printf '%s\n' "$parsed" | awk -F'\t' '$1 == "O" || $1 == "G" { n++ } END { print n+0 }')
+[ "$n_meta" -eq 0 ] \
+  || fail "templates/repo-setup.yml declares $n_meta topic/Pages record(s) — the shipped default must apply nothing a consumer did not choose"
+for key in "topics:" "pages:"; do
+  grep -q "^# *$key" "$MANIFEST" \
+    || fail "templates/repo-setup.yml does not document '$key' (commented out) — a consumer cannot discover the surface"
+done
+echo "  ok: shipped default — templates/repo-setup.yml documents topics: and pages: and declares neither"
+
+has_line "^S${META_TAB}description${META_TAB}." "$repo_parsed" || fail "this repo's manifest declares no description (#400)"
+has_line "^S${META_TAB}homepage${META_TAB}https://phmatray.github.io/ai-migration-kit/" "$repo_parsed" \
+  || fail "this repo's manifest does not declare the Pages URL as its homepage (#400)"
+has_line "^G${META_TAB}source.branch${META_TAB}main" "$repo_parsed" || fail "this repo's manifest declares no Pages source branch (#400)"
+has_line "^G${META_TAB}source.path${META_TAB}/docs" "$repo_parsed" || fail "this repo's manifest does not publish docs/ (#400, #401)"
+n_topics=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "O" { n++ } END { print n+0 }')
+[ "$n_topics" -ge 8 ] || fail "this repo's manifest declares only $n_topics topic(s) — the repository is judged bare (#400)"
+echo "  ok: repo manifest — description, homepage, $n_topics topics and the docs/ Pages source are declared"
 
 echo "PASS: tests/repo-setup"

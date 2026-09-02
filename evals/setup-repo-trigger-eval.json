@@ -12,6 +12,9 @@
   {"query": "configure les labels du repo", "should_trigger": true, "note": "FR — 'configure les labels'"},
   {"query": "cree les templates d'issue", "should_trigger": true, "note": "FR — 'cree les templates'"},
   {"query": "supprime automatiquement les branches mergees", "should_trigger": true, "note": "FR — the auto-delete setting"},
+  {"query": "set the repository description and topics", "should_trigger": true, "note": "two of the four public-face surfaces the manifest converges (#400)"},
+  {"query": "enable GitHub Pages from the docs folder", "should_trigger": true, "note": "the Pages source — a repository configuration, converged from the manifest (#400)"},
+  {"query": "active GitHub Pages sur ce repo", "should_trigger": true, "note": "FR — the Pages source"},
 
   {"query": "set up the repo profile", "should_trigger": false, "note": "→ profile-repo; that READS and records, this one WRITES"},
   {"query": "what labels does this repo have?", "should_trigger": false, "note": "a plain `gh label list` — no configuration change"},
@@ -19,6 +22,7 @@
   {"query": "create an issue for the CSV export", "should_trigger": false, "note": "→ create-issue"},
   {"query": "merge PR 279 and delete the branch", "should_trigger": false, "note": "→ merge-pr; deleting ONE branch, not the repository setting"},
   {"query": "set up branch protection rules", "should_trigger": false, "note": "not in the manifest — it declares labels, issue forms and merge settings, never branch protection, which needs org policy and admin rights; a close near-miss"},
+  {"query": "write the landing page of the docs site", "should_trigger": false, "note": "the site's CONTENT (#401) — a docs change, not the repository's Pages configuration"},
   {"query": "configure my git user.name", "should_trigger": false, "note": "local git config, not the repository's GitHub configuration"},
   {"query": "install the plugin", "should_trigger": false, "note": "kit installation, not repo configuration"}
 ]
