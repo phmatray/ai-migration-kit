@@ -20,9 +20,12 @@ aux_links:
 aux_links_new_tab: true
 
 # What must not become a page: the superpowers specs/plans (working documents), the case-study
-# inventories (JSON) and captures (PNG), and the generated dashboards (HTML that stands on its own).
+# inventories (JSON) and captures (PNG), the generated dashboards (HTML that stands on its own),
+# and the kit backlog — a development document review-followups reads at run time
+# (scripts/release-title-gate.sh's SHIPPED_ANYWAY), so it carries no site front matter.
 exclude:
   - superpowers/
+  - backlog.md
   - case-studies/winrt-portfolio/inventory/
   - case-studies/winrt-portfolio/captures/
   - "*.html"

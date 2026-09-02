@@ -40,7 +40,6 @@ and BMAD.
 - [The roseline gate](roseline-gate.html) · [The bundle gate](bundle-gate.html)
 - [Demo walkthrough](demo-walkthrough.html) — a real pipeline run on the bundled legacy fixture.
 - [Case studies](case-studies/winrt-portfolio/portfolio.html) — four dead-platform apps migrated and verified live.
-- [Kit backlog](backlog.html) — the YAGNI debts, each with the trigger that makes it worth paying.
 
 On GitHub: [README](https://github.com/phmatray/ai-migration-kit#readme) ·
 [ARCHITECTURE.md](https://github.com/phmatray/ai-migration-kit/blob/main/ARCHITECTURE.md) ·
