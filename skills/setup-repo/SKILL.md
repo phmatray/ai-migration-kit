@@ -5,11 +5,10 @@ description: >-
   taxonomy, issue forms under .github/ISSUE_TEMPLATE/, repository settings (delete-branch-on-merge,
   squash-only merges, description, homepage), topics and the GitHub Pages source — deterministic
   and idempotent: `plan` prints drift, `apply` converges it. Use when a repo needs configuring or
-  has drifted: "set up the labels", "create the issue templates", "turn on auto-delete merged
-  branches", "set the repo description and topics", "enable GitHub Pages from docs/", "configure
-  this repository the way the kit expects", « configure les labels du repo », « crée les templates
-  d'issue », « active GitHub Pages ». It WRITES what profile-repo only READS. Does NOT file issues,
-  implement code, or merge PRs.
+  has drifted: "set up the labels", "create the issue templates", "set the repo description and
+  topics", "enable GitHub Pages from docs/", "configure this repository the way the kit expects",
+  « configure les labels du repo », « active GitHub Pages ». It WRITES what profile-repo only
+  READS. Does NOT file issues, implement code, or merge PRs.
 license: MIT
 compatibility: >-
   Requires git, python3 with PyYAML, jq, and an authenticated gh CLI. Without gh the label and

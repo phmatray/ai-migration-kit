@@ -248,7 +248,10 @@ case "$*" in
         *=*) k="${a%%=*}"; v="${a#*=}"
              # A typed value (-F: true/false/number) lands as JSON; a raw string (-f: the
              # description, the homepage — #400) as a JSON string, the way the real API stores it.
-             if printf '%s' "$v" | jq -e . >/dev/null 2>&1; then
+             # `jq .`, not `jq -e .`: -e exits 1 on a JSON `false` or `null`, which would store
+             # `allow_merge_commit=false` as the STRING "false" — masked by `tostring` in every
+             # assertion, so nothing would go red (spec review of #400). A parse error still exits 2.
+             if printf '%s' "$v" | jq . >/dev/null 2>&1; then
                jq --arg k "$k" --argjson v "$v" '.[$k] = $v' "$GH_SETTINGS_JSON" > "$GH_SETTINGS_JSON.tmp" \
                  && mv "$GH_SETTINGS_JSON.tmp" "$GH_SETTINGS_JSON"
              else
