@@ -217,9 +217,9 @@ if ! GH_ERR_FILE="$(mktemp 2>/dev/null)"; then
 fi
 GH_RC=0
 if [ -n "$GH_ERR_FILE" ]; then
-  ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$DEP_FIELDS" 2>"$GH_ERR_FILE")" || GH_RC=$?
+  ISSUES_JSON="$(gh issue list --state open --paginate --json "$DEP_FIELDS" 2>"$GH_ERR_FILE")" || GH_RC=$?
 else
-  ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$DEP_FIELDS")" || GH_RC=$?
+  ISSUES_JSON="$(gh issue list --state open --paginate --json "$DEP_FIELDS")" || GH_RC=$?
 fi
 
 if [ "$GH_RC" -ne 0 ]; then
@@ -234,7 +234,7 @@ if [ "$GH_RC" -ne 0 ]; then
       GH_ERR_TEXT="<stderr not captured: mktemp failed>"
     fi
     echo "survey.sh: this gh cannot serve the dependency fields (blockedBy/blocking/subIssues) — falling back to $BASE_FIELDS. Every row then reads deps=-, so the frontier rule holds NOTHING and a blocked child can be dispatched ahead of its blocker (#317). Upgrade gh to restore it. gh said: $GH_ERR_TEXT" >&2
-    ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$BASE_FIELDS")"
+    ISSUES_JSON="$(gh issue list --state open --paginate --json "$BASE_FIELDS")"
   else
     cat "$GH_ERR_FILE" >&2
     exit "$GH_RC"
@@ -297,10 +297,12 @@ printf '%s\n' "$ISSUES_JSON" \
       | map(select(.number != null));
     # An edge counts as still-open when the node SAYS so — the connection carries each linked
     # issue'"'"'s `state` — and only otherwise falls back to membership in the open set this same call
-    # returned. That ordering matters: `--limit 300` bounds the open set, so an OPEN blocker sitting
-    # outside the window would look closed under membership alone and its blockee would be
-    # dispatched. Reading `state` fails safe; membership is the fallback for the plain-array shape,
-    # which carries no state, and for the body-line refs, which are bare numbers.
+    # returned. That ordering matters: `$open` comes from a `--paginate`d `gh issue list`, so it is
+    # the FULL open set rather than a single bounded page (#367 — a `--limit 300` window used to let
+    # an OPEN blocker sitting past the cut look closed under membership alone, dispatching its
+    # blockee). Reading `state` fails safe; membership is the fallback for the plain-array shape,
+    # which carries no state, and for the body-line refs, which are bare numbers and have no other
+    # signal to fall back from at all.
     def openedges($open):
       edgenums
       # `.number as $num` first: `index(f)` evaluates f against ITS OWN input ($open, an array), so
