@@ -210,6 +210,32 @@ verdict "R12 a heredoc body is not a command" pass "" \
 git commit -m x
 SH" "$PROF")"
 
+# --------------------------------------------------- 2c. the write is BEFORE the `<<` (#440)
+# The bail-out above discarded the WHOLE command on any `<<`, including the visible git verb before
+# it — laundering the natural long-message commit form (`git commit -F - <<'MSG'`) and any other
+# destructive write sharing a line with a heredoc straight past the gate. These pin the opening line
+# as judged exactly as it would be without the heredoc, while R12 above (unchanged) proves the body
+# itself is still never read.
+verdict "H1  commit -F - before a heredoc"  deny "guarded-commit.sh" \
+  "$(pay Bash "git commit -F - <<'MSG'
+a long commit message
+MSG" "$PROF")"
+verdict "H2  push before a heredoc"    deny "guarded-push.sh" \
+  "$(pay Bash "git push origin main <<X
+body
+X" "$PROF")"
+verdict "H3  checkout . before a heredoc" deny "checkout -- <path>" \
+  "$(pay Bash "git checkout HEAD -- . <<X
+body
+X" "$PROF")"
+verdict "H4  push before a here-string" deny "guarded-push.sh" "$(pay Bash 'git push <<< x' "$PROF")"
+# The guard whitelist (:162) matches on the RAW command before truncation, and the guard's own name
+# sits before the `<<` in every call shape the skills use — truncation must not blind it.
+verdict "H5  a guarded call surviving truncation" pass "" \
+  "$(pay Bash "\"\$GUARDS/guarded-commit.sh\" -C \"\$WORKTREE\" -c user.email=a@b -c user.name=\"A B\" main -- -F - <<'MSG'
+a long commit message
+MSG" "$PROF")"
+
 # ---------------------------------------------------- 3. inert where the guards cannot exist
 # The probe's whole argument (the `dnx` argument of #112, transposed): a denial names a
 # `guarded-*.sh` replacement, so it must not fire where that replacement does not exist.
