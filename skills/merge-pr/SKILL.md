@@ -548,9 +548,16 @@ BASE_SHA=$(printf '%s' "$MERGE_OUT" | awk '$1 == "MERGED" { print $2 }')
 case "$BASE_SHA" in
   *[!0-9a-fA-F]*|"") BASE_SHA=$(gh pr view "$PR" --json mergeCommit --jq '.mergeCommit.oid // ""') ;;
 esac
-[ -n "$BASE_SHA" ] || echo "report: base unverified — the merge landed but no merge sha could be read"
 
-BASE_LINE=$(skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" --timeout 240 --report-line)
+# An empty $BASE_SHA has nothing to resolve, and the helper refuses it (exit 64, no stdout) rather
+# than answer — the one case where it does NOT answer. Don't call it: that would leave $BASE_LINE
+# empty, breaking the "BASE: field IS $BASE_LINE" guarantee below. Compose the non-verdict directly,
+# in the same grammar, instead.
+if [ -n "$BASE_SHA" ]; then
+  BASE_LINE=$(skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" --timeout 240 --report-line)
+else
+  BASE_LINE="unverified (no-sha)"
+fi
 base_verdict_word=${BASE_LINE%% *}                                # green | RED | unverified — for
                                                                    # branching only; never re-derived
 ```

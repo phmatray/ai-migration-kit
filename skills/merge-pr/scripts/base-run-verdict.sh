@@ -156,7 +156,14 @@ answer() {
   if [ "$REPORT_LINE" -eq 1 ]; then
     local word="$verdict"
     [ "$word" = "red" ] && word="RED"
-    printf '%s (%s)\n' "$word" "$reason"
+    # Defensive sanitization: the grammar promises `[a-z-]+` for the reason even on the
+    # `unexpected-ci-verdict:$ci` catch-all below (unreachable today — decide.sh's own vocabulary
+    # restriction keeps `$ci` inside the known set — but a caller regex-matching this line should
+    # never have to read this script's source to know it holds). A no-op on every known reason,
+    # which is already lowercase a-z and `-` only.
+    local safe_reason
+    safe_reason=$(printf '%s' "$reason" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z-' '-')
+    printf '%s (%s)\n' "$word" "$safe_reason"
     exit 0
   fi
   jq -cn --arg v "$verdict" --arg r "$reason" --arg s "$SHA" --argjson runs "$runs" \
