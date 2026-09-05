@@ -941,6 +941,30 @@ else
   printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
 fi
 
+# The REFERENCE bash reader for scripts/tracked-exec-globs.txt — the shape #144's
+# parse-sweep.sh consumer will copy (#307). It must honor `#` as a comment starter ANYWHERE on
+# the line, exactly like decision-check.py's `line.split("#", 1)[0].strip()`: strip everything
+# from the first `#` onward, trim trailing whitespace, then drop blank lines (#384 finding 2 — a
+# whole-line-only comment strip let `#`, `PreToolUse` and `gates` reach `git ls-files` as three
+# extra pathspecs). A future consumer copying this must match that split exactly, not merely
+# "look similar".
+read_tracked_exec_globs() {
+  sed 's/#.*//' "$1" 2>/dev/null | sed 's/[[:space:]]*$//' | grep -v '^[[:space:]]*$'
+}
+
+# The format documents `#` as starting a comment ANYWHERE on the line, and decision-check.py's
+# reader honors that mid-line. The divergence, expressed as a test (#384 finding 2): a line
+# carrying a trailing inline comment must read as the pathspec alone, not the comment text as
+# extra pathspecs `git ls-files` would then receive.
+fixture_list=$(kit_scratch)/fixture-globs.txt
+printf 'hooks/*.sh   # PreToolUse gates\n' > "$fixture_list"
+fixture_read=$(read_tracked_exec_globs "$fixture_list")
+if [ "$fixture_read" = 'hooks/*.sh' ]; then
+  ok "the bash reference reader strips a mid-line # comment, like decision-check.py's reader (#384)"
+else
+  bad "the bash reference reader kept trailing text after # — got: '$fixture_read'"
+fi
+
 # `E`'s pathspecs are DATA in one file, not a literal inside one guard, so a second consumer can
 # read the same answer instead of keeping a copy that drifts. #144 widens `scripts/parse-sweep.sh`
 # past `tests/*/test.sh` to exactly these paths, and #307's triage asked that whichever half landed
@@ -948,7 +972,7 @@ fi
 # language of that other consumer — and that it really enumerates the two files #307 was filed about
 # — plus a regression check (#384 Task 1 Step 5): the new exclude lines must not have eaten a real
 # script.
-globs=$(grep -v '^[[:space:]]*#' "$REPO/scripts/tracked-exec-globs.txt" 2>/dev/null | grep -v '^[[:space:]]*$')
+globs=$(read_tracked_exec_globs "$REPO/scripts/tracked-exec-globs.txt")
 if [ -z "$globs" ]; then
   bad "scripts/tracked-exec-globs.txt is missing or declares no pathspecs — R10's E is unanswerable"
 else
