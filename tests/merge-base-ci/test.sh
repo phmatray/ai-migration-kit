@@ -456,4 +456,22 @@ out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
 [ "$out" = "unverified (no-ci)" ] || { echo "FAIL [report-line-no-ci]: expected 'unverified (no-ci)', got '$out'"; exit 1; }
 echo "  ok: report-line-no-ci — a sha with no check-runs prints exactly 'unverified (no-ci)'"
 
+# ---------------------------------------------------------------- 18. Step 5b quotes the literal
+# line and names the forbidden shortcuts (#455 Task 3, AC3)
+#
+# A structural check on the prose, not the script: Step 5b's `BASE:` value must be the literal
+# `--report-line` output, and the step must name the two specific anti-patterns the #429/#449
+# incident measured — `gh run list` and inferring status from another workflow's job names.
+grep -q -- '--report-line' skills/merge-pr/SKILL.md || {
+  echo "FAIL: skills/merge-pr/SKILL.md never mentions --report-line — Step 5b must call it, not"
+  echo "      compose its own sentence around the JSON verdict/reason"
+  exit 1; }
+grep -qi 'never.*gh run list' skills/merge-pr/SKILL.md || {
+  echo "FAIL: skills/merge-pr/SKILL.md does not forbid 'gh run list' for Step 5b's BASE: value"
+  exit 1; }
+grep -q 'pages-build-deployment' skills/merge-pr/SKILL.md || {
+  echo "FAIL: skills/merge-pr/SKILL.md does not name the pages-build-deployment trap (#429/#449)"
+  exit 1; }
+echo "  ok: merge-pr-skill-prose — Step 5b quotes --report-line and names the forbidden shortcuts"
+
 echo "merge-base-ci golden test OK"
