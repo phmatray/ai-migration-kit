@@ -279,4 +279,20 @@ grep -qi 'sub-agent' "$WAIT" || {
 }
 echo "  ok: header — reasons from sub-agents (no 'claude -p'), still names the dispatch-timing bug"
 
+# ---------------------------------------------------------------- 11. the header must document
+# WHY final alone isn't enough (a `needs:`-gated aggregate check doesn't exist until its
+# dependencies finish) and the happy-path cost of fixing it (one extra poll) — so nobody reads
+# "final" as sufficient again, and nobody "optimises away" the confirmation poll as waste (#413).
+
+grep -qi 'needs:' "$WAIT" || {
+  echo "FAIL [header-stability]: wait-ci.sh's header does not name the \`needs:\`-gated-aggregate cause"; exit 1
+}
+grep -qi 'stable\|stability' "$WAIT" || {
+  echo "FAIL [header-stability]: wait-ci.sh's header does not name the stability requirement"; exit 1
+}
+grep -qi 'one extra poll\|extra poll' "$WAIT" || {
+  echo "FAIL [header-stability]: wait-ci.sh's header does not name the one-extra-poll cost"; exit 1
+}
+echo "  ok: header-stability — header names the needs:-gated-aggregate cause and the one-extra-poll cost"
+
 echo "wait-ci golden test OK"

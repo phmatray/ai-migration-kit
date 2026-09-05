@@ -41,6 +41,19 @@
 # get wrong again. `--json name,state,bucket` names each field, so there is nothing left to
 # misalign no matter how a check is named. `jq` is a `required` prerequisite (requirements.json).
 #
+# FINAL IS NECESSARY BUT NOT SUFFICIENT (#413). "Every reported check left `pending`" only holds if
+# the reported set is complete — and GitHub creates a check run when its job STARTS, not when the
+# workflow is queued. A `needs:`-gated aggregate job (e.g. a `coverage-gate` that `needs:` two test
+# jobs and reports under its own name) does not exist at all until its dependencies finish, so a
+# poll landing in that window sees every check it CAN see as final and misses the one that matters
+# most — aggregation is exactly what makes a check worth requiring in the first place. So this also
+# requires the check SET to be stable: on top of "final", the total check count must match the
+# previous poll's count before returning 0. That costs exactly one extra `POLL_SECONDS` on every
+# run, including one that was already all-final on its first poll — cheap against a wait that is
+# minutes long, and not something to "optimise away", because that confirmation poll is the only
+# thing standing between this script and the false green a late-materializing required check would
+# otherwise produce.
+#
 # Usage:
 #   scripts/wait-ci.sh <pr> [pr...]                # waits on every check GitHub reports
 #   CHECK="kit,title-gate" scripts/wait-ci.sh 42    # optional allow-list: ignore any check whose
