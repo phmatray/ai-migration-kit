@@ -1,13 +1,15 @@
 ---
 name: debug-issue
 description: >-
-  Use BEFORE proposing or applying any fix when something is already broken or behaving unexpectedly
-  — a bug, failing or flaky test, crash, exception, stack trace, regression, build break, or
-  integration failure, i.e. any time guessing at a fix is tempting; « ce test est flaky, corrige-le
-  », « ça marchait avant, maintenant ça plante ». Enforces finding the root cause first, so the fix
-  addresses the real problem instead of masking a symptom. Not for writing new code, adding features
-  or error handling, refactoring code that works, setting up CI/tooling, or reviewing code that
-  already works.
+  Use the moment a user reports something broken or behaving unexpectedly — a bug, failing or flaky
+  test, crash, exception, stack trace, regression, build break, or integration failure — and use it
+  BEFORE the first command you would run to investigate, not just before the fix. That first look is
+  where the symptom gets patched and the cause survives. It applies even when the report is thin
+  ("this stack trace", "the deploy fails") and even when the next step seems obvious: gathering what
+  is missing is the skill's own first step. Triggers on "fix it", "patch it", "find out why", "get
+  to the bottom of it", « ce test est flaky, corrige-le », « ça marchait avant, maintenant ça plante
+  ». Not for new code, features, error handling, refactoring code that works, CI/tooling setup, or
+  reviewing code that already works.
 license: MIT
 compatibility: >-
   Harness-agnostic: no tools, MCP servers or repo state required. Ported from the superpowers skill

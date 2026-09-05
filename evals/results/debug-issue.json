@@ -7,13 +7,13 @@
       "query": "I get a NullReferenceException here, patch it",
       "note": "'patch it' \u2014 must fire BEFORE the fix is proposed",
       "should_trigger": true,
-      "trigger_rate": 0.0,
-      "triggers": 0,
+      "trigger_rate": 1.0,
+      "triggers": 3,
       "runs": 3,
       "fired": {
-        "(none)": 3
+        "debug-issue": 3
       },
-      "pass": false
+      "pass": true
     },
     {
       "query": "ca marchait avant, maintenant ca plante au demarrage",
@@ -43,11 +43,12 @@
       "query": "the app segfaults on startup since we upgraded, find out why",
       "note": "crash + a suspected trigger \u2014 carries migrate-legacy's word 'upgraded'; check the fired histogram before blaming the description",
       "should_trigger": true,
-      "trigger_rate": 0.0,
-      "triggers": 0,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
       "runs": 3,
       "fired": {
-        "(none)": 3
+        "debug-issue": 1,
+        "(none)": 2
       },
       "pass": false
     },
@@ -67,14 +68,13 @@
       "query": "the deploy fails with an exception I don't understand, fix it",
       "note": "'fix it' over an unexplained exception",
       "should_trigger": true,
-      "trigger_rate": 0.3333333333333333,
-      "triggers": 1,
+      "trigger_rate": 1.0,
+      "triggers": 3,
       "runs": 3,
       "fired": {
-        "(none)": 2,
-        "debug-issue": 1
+        "debug-issue": 3
       },
-      "pass": false
+      "pass": true
     },
     {
       "query": "the migration worked yesterday and now 500s",
@@ -92,17 +92,30 @@
       "query": "this stack trace is from production, get to the bottom of it",
       "note": "'get to the bottom of it' \u2014 root cause explicitly asked for",
       "should_trigger": true,
-      "trigger_rate": 0.0,
-      "triggers": 0,
+      "trigger_rate": 1.0,
+      "triggers": 3,
       "runs": 3,
       "fired": {
-        "(none)": 3
+        "debug-issue": 3
       },
-      "pass": false
+      "pass": true
     },
     {
       "query": "this test fails intermittently, can you fix it?",
       "note": "a flaky test \u2014 guessing at a fix is exactly the temptation",
+      "should_trigger": true,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 2,
+        "(none)": 1
+      },
+      "pass": true
+    },
+    {
+      "query": "we shipped a regression: orders over 1000 now round wrong",
+      "note": "a wrong-output bug, not a crash",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
@@ -113,28 +126,14 @@
       "pass": true
     },
     {
-      "query": "we shipped a regression: orders over 1000 now round wrong",
-      "note": "a wrong-output bug, not a crash",
-      "should_trigger": true,
-      "trigger_rate": 0.6666666666666666,
-      "triggers": 2,
-      "runs": 3,
-      "fired": {
-        "debug-issue": 2,
-        "(none)": 1
-      },
-      "pass": true
-    },
-    {
       "query": "why does this integration test hang in CI but pass locally?",
       "note": "environment-dependent failure",
       "should_trigger": true,
-      "trigger_rate": 0.6666666666666666,
-      "triggers": 2,
+      "trigger_rate": 1.0,
+      "triggers": 3,
       "runs": 3,
       "fired": {
-        "debug-issue": 2,
-        "(none)": 1
+        "debug-issue": 3
       },
       "pass": true
     },
@@ -237,11 +236,11 @@
   ],
   "summary": {
     "total": 19,
-    "passed": 15,
-    "failed": 4,
+    "passed": 18,
+    "failed": 1,
     "should_trigger": 11,
     "should_not": 8,
-    "recall": 0.6363636363636364,
+    "recall": 0.9090909090909091,
     "specificity": 1.0
   }
 }
