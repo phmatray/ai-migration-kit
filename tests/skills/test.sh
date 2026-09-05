@@ -1256,6 +1256,35 @@ grep -q '\*\.html' "$_pscratch/pages-glob.out" \
 echo "ok   a glob in docs/_config.yml's exclude is refused, by name"
 
 # ---------------------------------------------------------------------------------------------
+# docs/journal/ is a Journal section (#443): one article per published release, rendered as a
+# just-the-docs child section, and held to the journal's two prose rules by a gate rather than by
+# review. Same shape as the Pages guard above: ONE check file, run on the real tree (must pass) and
+# once per scratch tree (must fail, and must NAME the offending file).
+echo "== docs/journal/ is a Journal section: parented, ordered, English, em dash free (#443) =="
+_jscratch=$(kit_scratch)
+cat > "$_jscratch/journal-check.py" <<'PY'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1]); jdir = root / "docs" / "journal"
+if not jdir.is_dir():
+    print("FAIL: docs/journal/ is missing"); sys.exit(1)
+idx = jdir / "index.md"
+if not idx.exists():
+    print("FAIL: docs/journal/index.md is missing"); sys.exit(1)
+itext = idx.read_text(encoding="utf-8")
+if "has_children: true" not in itext[:2000]:
+    print("FAIL: docs/journal/index.md does not carry has_children: true, so the section renders no child list")
+    sys.exit(1)
+for needle in ("Adding the next article", "Never renumber"):
+    if needle not in itext:
+        print("FAIL: docs/journal/index.md does not carry the recipe needle %r" % needle); sys.exit(1)
+home = (root / "docs" / "index.md").read_text(encoding="utf-8")
+if "](journal/index.md)" not in home:
+    print("FAIL: docs/index.md does not link journal/index.md"); sys.exit(1)
+print("ok   docs/journal/ exists, is a has_children section, carries the recipe, and is linked from the home page")
+PY
+python3 "$_jscratch/journal-check.py" "$KIT_ROOT" || exit 1
+
+# ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
 # locations, a line budget so it stays pointers rather than sediment, and every relative link
 # actually resolves — a link that used to work but now 404s is worse than no pointer at all.
