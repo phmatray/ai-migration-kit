@@ -117,29 +117,24 @@ SEP=$'\001'
 TASK=""
 SEEN_TASK=0
 MISSING=0
+IN_FIELD=0
+PAYLOAD=""
 
-while IFS= read -r line || [ -n "$line" ]; do
-  line=$(trim "$line")
-  case "$line" in
-    '### Task '*)
-      rest=${line#'### Task '}
-      num=${rest%%[!0-9]*}
-      [ -n "$num" ] && TASK="$num" || TASK="?"
-      SEEN_TASK=1
-      continue
-      ;;
-    # Both spellings of the bold marker. A `**Files**:` line matching nothing would report its whole
-    # task fresh without resolving a single path — a silent un-gating, which is the failure shape
-    # this script exists to remove rather than reproduce one line further in.
-    '**Files:**'*) payload=$(trim "${line#'**Files:**'}") ;;
-    '**Files**:'*) payload=$(trim "${line#'**Files**:'}") ;;
-    *) continue ;;
-  esac
-
+# A **Files:** field is prose meant to be soft-wrapped (`create-issue`'s own template writes it that
+# way, and issue #412's own plan wrapped mid-parenthetical). Reading one physical line at a time made
+# the verdict depend on where the source happened to wrap: the first line's now-unbalanced aside
+# corrupted the comma-split into bogus fragments (a false MISSING), and the continuation line —
+# starting with neither `### Task` nor `**Files:**` — matched no case at all and vanished with NO
+# verdict at all (#419). So the field is ACCUMULATED across physical lines first, terminated by a
+# blank line, a new `### Task`, a new `**Files:**`/`**Files**:` line, or end of file, and only then
+# handed to the same parsing logic that always ran on a single line.
+flush_files_field() {
+  local payload item verb
+  payload=$(trim "$1")
   # A `**Files:**` line above the first `### Task` belongs to no task, so there is nothing to
   # report it against and nothing for Step 2 to re-anchor through. Skipping it is deliberate.
-  [ "$SEEN_TASK" -eq 1 ] || continue
-  [ -n "$payload" ] || continue
+  [ "$SEEN_TASK" -eq 1 ] || return 0
+  [ -n "$payload" ] || return 0
 
   # Parenthetical asides come out BEFORE the split, not after. `create-issue`'s own template writes
   # them — `modify \`Program.cs\` (DI registration)` — and an aside containing a comma would
@@ -207,7 +202,49 @@ while IFS= read -r line || [ -n "$line" ]; do
         ;;
     esac
   done
+}
+
+while IFS= read -r line || [ -n "$line" ]; do
+  line=$(trim "$line")
+  case "$line" in
+    '### Task '*)
+      if [ "$IN_FIELD" -eq 1 ]; then flush_files_field "$PAYLOAD"; IN_FIELD=0; PAYLOAD=""; fi
+      rest=${line#'### Task '}
+      num=${rest%%[!0-9]*}
+      [ -n "$num" ] && TASK="$num" || TASK="?"
+      SEEN_TASK=1
+      continue
+      ;;
+    # Both spellings of the bold marker. A `**Files**:` line matching nothing would report its whole
+    # task fresh without resolving a single path — a silent un-gating, which is the failure shape
+    # this script exists to remove rather than reproduce one line further in. Starting a new field
+    # flushes whatever field was already accumulating (a malformed plan with two `**Files:**` lines
+    # under one task reads as two separate fields, never a merge of both).
+    '**Files:**'*)
+      if [ "$IN_FIELD" -eq 1 ]; then flush_files_field "$PAYLOAD"; fi
+      PAYLOAD=$(trim "${line#'**Files:**'}")
+      IN_FIELD=1
+      continue
+      ;;
+    '**Files**:'*)
+      if [ "$IN_FIELD" -eq 1 ]; then flush_files_field "$PAYLOAD"; fi
+      PAYLOAD=$(trim "${line#'**Files**:'}")
+      IN_FIELD=1
+      continue
+      ;;
+    '')
+      if [ "$IN_FIELD" -eq 1 ]; then flush_files_field "$PAYLOAD"; IN_FIELD=0; PAYLOAD=""; fi
+      continue
+      ;;
+    *)
+      # A continuation line of the field currently accumulating; joined with a single space, trimmed
+      # like every other line. Outside a field, an ordinary prose line — ignored, as before.
+      [ "$IN_FIELD" -eq 1 ] && PAYLOAD="$PAYLOAD $line"
+      continue
+      ;;
+  esac
 done < "$PLAN"
+[ "$IN_FIELD" -eq 1 ] && flush_files_field "$PAYLOAD"
 
 # No `### Task` anywhere is not "a fresh plan"; it is a file that is not a plan. Exit 2 — the
 # no-verdict code — so a caller cannot read the silence as an all-clear.
