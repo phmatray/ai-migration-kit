@@ -42,7 +42,7 @@ WORK=$(kit_scratch)
 
 # ------------------------------------------------------------------------------------ the gh stub
 #
-# survey.sh makes exactly one gh call: `gh issue list --state open --paginate --json ...`. The
+# survey.sh makes exactly one gh call: `gh issue list --state open --limit <N> --json ...`. The
 # stub serves whatever fixture the case points it at, and — because real `gh issue list` applies
 # a `--jq EXPRESSION` argument itself, raw-printing the result — the stub does too. That is not
 # incidental: it is what lets this suite catch the ORIGINAL bug fairly. The pre-fix script filters
@@ -50,17 +50,32 @@ WORK=$(kit_scratch)
 # plain `gh issue list --json ...` call with no `--jq` at all. A stub that only ever `cat`s the
 # fixture would silently skip the pre-fix script's filtering step entirely and could not fail
 # against it — this one runs whichever shape the caller used.
+#
+# The allow-list below is what #452 was missing: `--paginate` is not a flag `gh issue list`
+# supports (only `gh api`/`gh api graphql` have it), and this stub used to accept ANY flag
+# unconditionally, including that one — so the suite stayed green while #367's actual fix broke
+# every real invocation. Any flag not in the list is rejected exactly the way real `gh` rejects an
+# unknown one (`unknown flag: <flag>`, non-zero exit), which is what pins this regression class
+# instead of only this one instance of it.
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "issue" ] && [ "${2:-}" = "list" ]; then
-  [ -n "${GH_ISSUES_FIXTURE:-}" ] || { echo "GH_ISSUES_FIXTURE not set" >&2; exit 1; }
   jq_expr=""
   prev=""
   for a in "$@"; do
+    case "$a" in
+      --state|--json|--limit|--jq) ;;
+      -q) ;;
+      --*)
+        echo "unknown flag: $a" >&2
+        exit 1
+        ;;
+    esac
     if [ "$prev" = "--jq" ] || [ "$prev" = "-q" ]; then jq_expr="$a"; fi
     prev="$a"
   done
+  [ -n "${GH_ISSUES_FIXTURE:-}" ] || { echo "GH_ISSUES_FIXTURE not set" >&2; exit 1; }
   if [ -n "$jq_expr" ]; then
     jq -r "$jq_expr" "$GH_ISSUES_FIXTURE"
   else
@@ -72,6 +87,19 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 STUB
 chmod +x "$WORK/bin/gh"
+
+# ------------------------------------- 0. the stub rejects a flag real gh does not support (#452)
+#
+# Direct assertion against the stub itself, not through survey.sh: this is what would have caught
+# #367's `--paginate` before it ever shipped. If a future call site adds another flag `gh issue
+# list` does not support, this fails here instead of only downstream in a real `gh` invocation.
+if OUT0=$(PATH="$WORK/bin:$PATH" gh issue list --state open --paginate --json number,title 2>&1); then
+  echo "FAIL: the gh stub accepted --paginate — gh issue list does not support that flag"
+  echo "$OUT0"; exit 1
+fi
+echo "$OUT0" | grep -qF -- '--paginate' || {
+  echo "FAIL: the stub's rejection did not name the offending flag"; echo "$OUT0"; exit 1; }
+echo "ok: gh-stub-rejects-unknown-flag — --paginate is rejected the way real gh rejects it (#452)"
 
 # Literal two-character `\n` (not a real newline) — this is embedded directly into a JSON string
 # literal below, and `\n` is JSON's own escape for a newline, so it decodes correctly on the jq
