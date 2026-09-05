@@ -359,9 +359,10 @@ _and_ a `(#<issue>)` suffix — two independent constraints, both enforced, e.g.
 Pick the **type** from the change, not a guess: the issue's type label maps cleanly (`bug` → `fix`,
 `enhancement` → `feat`) — use it. When it doesn't map cleanly, build a candidate type from the plan's
 own shape as before (`docs:` for prose, `ci:`/`build:` for CI plumbing, `refactor:`/`test:` for a pure
-refactor or tests-only change), then **dry-run the real gate against the touched-paths list this step
-already needs for `gh pr create`**:
-`scripts/release-title-gate.sh "<candidate-type>(<scope>): <subject> (#$ISSUE)" <touched paths>`.
+refactor or tests-only change), then **dry-run the real gate against the touched-paths list from the
+plan's own `Files` lines** (already parsed in Step 2 — no real diff exists yet at this point, since
+the PR opens off an empty scaffold commit with no file changes of its own):
+`scripts/release-title-gate.sh "<candidate-type>(<scope>): <subject> (#$ISSUE)" <the plan's Files paths>`.
 Never hand-classify a path as "genuinely non-shipped" against a memorized example list — the gate's
 actual `NON_SHIPPED`/`SHIPPED_ANYWAY` rules are longer than any such list and carve specific paths
 back into "shipped" by name, and a hand-copied approximation has already drifted from them twice
