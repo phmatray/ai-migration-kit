@@ -295,4 +295,19 @@ grep -qi 'one extra poll\|extra poll' "$WAIT" || {
 }
 echo "  ok: header-stability — header names the needs:-gated-aggregate cause and the one-extra-poll cost"
 
+# ---------------------------------------------------------------- 12. a same-COUNT swap: one check
+# disappears while a different one appears in the same poll, net count unchanged. Comparing raw
+# counts alone would read this as "stable" even though the set never actually stopped changing —
+# found by code review on PR #451 (#413). Comparing the check NAMES (not just how many) closes it.
+
+reset_case same-count-swap \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"old-check","state":"SUCCESS","bucket":"pass"}]' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"Build & Test","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=6 "$WAIT" 55 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [same-count-swap]: expected exit 0 once the swapped set is itself stable, got $rc"; echo "$out"; exit 1; }
+has_poll "$out" 3 || { echo "FAIL [same-count-swap]: exited before poll 3 — a same-count swap ('old-check' -> 'Build & Test') was wrongly read as stable at poll 2"; echo "$out"; exit 1; }
+has_poll "$out" 4 && { echo "FAIL [same-count-swap]: polled a 4th time — should have stopped once the swapped set repeated unchanged at poll 3"; echo "$out"; exit 1; }
+echo "  ok: same-count-swap — a same-size swap of check names is not read as stable; the identity, not just the count, must repeat"
+
 echo "wait-ci golden test OK"

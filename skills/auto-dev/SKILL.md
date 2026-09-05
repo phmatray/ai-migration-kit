@@ -560,10 +560,12 @@ false-green past the others.
 run when its job *starts*, so a `needs:`-gated aggregate check (a `coverage-gate` job that `needs:`
 two test jobs and reports under its own name) does not exist until its dependencies finish — and
 the required check is the one most likely to be late, because aggregation is what makes a check
-worth requiring. So `wait-ci.sh` also requires the total check count to match the previous poll's
-before returning 0, costing exactly one extra `POLL_SECONDS` even on a run that was already
-all-final on its first poll. Don't "optimise away" that confirmation poll — it is the only thing
-that catches a check materializing after every check GitHub reported *at the time* looked done.
+worth requiring. So `wait-ci.sh` also requires the *set of check names* to match the previous
+poll's — not just the count, so a same-size swap (one check replaced by a different one within one
+poll) can't read as stable either — before returning 0, costing exactly one extra `POLL_SECONDS`
+even on a run that was already all-final on its first poll. Don't "optimise away" that confirmation
+poll — it is the only thing that catches a check materializing after every check GitHub reported
+*at the time* looked done.
 
 ## Step 4 — Supervise (the loop)
 
