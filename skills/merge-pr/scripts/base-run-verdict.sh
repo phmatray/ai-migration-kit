@@ -79,7 +79,7 @@ set -euo pipefail
 TOOL="base-run-verdict"
 
 usage() {
-  echo "usage: $TOOL.sh [-R <owner/repo>] <base-sha> [--timeout <s>] [--poll-seconds <s>] [--settle <s>]" >&2
+  echo "usage: $TOOL.sh [-R <owner/repo>] <base-sha> [--timeout <s>] [--poll-seconds <s>] [--settle <s>] [--report-line]" >&2
 }
 refuse() { echo "$TOOL: $1" >&2; usage; exit 64; }
 
@@ -106,6 +106,7 @@ REPO=""
 TIMEOUT=600
 POLL_SECONDS=15
 SETTLE=90
+REPORT_LINE=0
 
 is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
@@ -116,6 +117,7 @@ while [ $# -gt 0 ]; do
     --timeout)      TIMEOUT="${2:-}"; is_uint "$TIMEOUT" || refuse "--timeout needs a whole number of seconds, got '${2:-}'"; shift 2 ;;
     --poll-seconds) POLL_SECONDS="${2:-}"; is_uint "$POLL_SECONDS" || refuse "--poll-seconds needs a whole number of seconds, got '${2:-}'"; shift 2 ;;
     --settle)       SETTLE="${2:-}"; is_uint "$SETTLE" || refuse "--settle needs a whole number of seconds, got '${2:-}'"; shift 2 ;;
+    --report-line)  REPORT_LINE=1; shift ;;
     --)             shift ;;
     -*)             refuse "unexpected option: $1" ;;
     *)
@@ -144,8 +146,19 @@ OWNER_REPO="{owner}/{repo}"
 # Printed through jq so the object is always valid JSON whatever the reason text holds, and always
 # on ONE line: the caller reads it with `jq -r .verdict`, and a caller that captures it into a
 # shell variable must not have to care about embedded newlines.
+#
+# `--report-line` (#455) formats the SAME two fields — no second data source, no re-poll — into
+# the one-line grammar `^(green|RED|unverified) \([a-z-]+\)$` a caller can copy verbatim instead of
+# composing its own sentence around the JSON. `red` is the only word capitalized, matching the
+# capitalization `auto-dev`'s report-line convention already uses for that word.
 answer() {
   local verdict="$1" reason="$2" runs="${3:-[]}"
+  if [ "$REPORT_LINE" -eq 1 ]; then
+    local word="$verdict"
+    [ "$word" = "red" ] && word="RED"
+    printf '%s (%s)\n' "$word" "$reason"
+    exit 0
+  fi
   jq -cn --arg v "$verdict" --arg r "$reason" --arg s "$SHA" --argjson runs "$runs" \
     '{verdict: $v, reason: $r, sha: $s, runs: $runs}'
   exit 0

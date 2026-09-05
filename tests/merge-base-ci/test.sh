@@ -396,4 +396,42 @@ expect_verdict late-job red "$v"
   echo "FAIL [late-job]: the helper called it on the first reading, before the graph had posted"; exit 1; }
 echo "  ok: late-job — a green first reading is re-derived, so a job that posts a beat later still counts"
 
+# ---------------------------------------------------------------- 13. --report-line: the literal
+# grammar, never JSON, never a paraphrase (#455)
+#
+# The whole point of this mode: `merge-pr` Step 5b's `BASE:` field must be able to COPY this
+# output verbatim rather than compose its own sentence around the JSON verdict/reason. A clean
+# success set becomes exactly `green (clear)` on stdout — nothing else.
+reset_case report-line-green
+SHA=7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e
+arm "$SHA" "$(page "$(run_obj kit 980 success)")"
+out=$("$HELPER" "$SHA" --report-line --timeout 60 --poll-seconds 0)
+[ "$out" = "green (clear)" ] || { echo "FAIL [report-line-green]: expected 'green (clear)', got '$out'"; exit 1; }
+echo "  ok: report-line-green — --report-line prints exactly 'green (clear)' for a clean success set"
+
+# ---------------------------------------------------------------- 15. --report-line: cancelled-only
+reset_case report-line-cancelled
+SHA=9090909090909090909090909090909090909090
+arm "$SHA" "$(page "$(run_obj kit 991 cancelled)")"
+out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "unverified (cancelled)" ] || { echo "FAIL [report-line-cancelled]: expected 'unverified (cancelled)', got '$out'"; exit 1; }
+echo "  ok: report-line-cancelled — a cancelled-only sha prints exactly 'unverified (cancelled)'"
+
+# ---------------------------------------------------------------- 16. --report-line: a pending
+# set that never settles before --timeout
+reset_case report-line-timeout
+SHA=a1b2a1b2a1b2a1b2a1b2a1b2a1b2a1b2a1b2a1b2
+arm "$SHA" "$(page "$(run_obj kit 992 queued)")"
+out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "unverified (timeout)" ] || { echo "FAIL [report-line-timeout]: expected 'unverified (timeout)', got '$out'"; exit 1; }
+echo "  ok: report-line-timeout — a run that never settles prints exactly 'unverified (timeout)'"
+
+# ---------------------------------------------------------------- 17. --report-line: no CI posted
+# at all
+reset_case report-line-no-ci
+SHA=c3d4c3d4c3d4c3d4c3d4c3d4c3d4c3d4c3d4c3d4
+out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "unverified (no-ci)" ] || { echo "FAIL [report-line-no-ci]: expected 'unverified (no-ci)', got '$out'"; exit 1; }
+echo "  ok: report-line-no-ci — a sha with no check-runs prints exactly 'unverified (no-ci)'"
+
 echo "merge-base-ci golden test OK"
