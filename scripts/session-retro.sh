@@ -19,6 +19,11 @@
 #   session-retro.sh install   write and enable the weekly systemd user timer that calls `run`
 #   session-retro.sh uninstall stop and remove it
 #
+# Linux only, and deliberately: `install` writes a systemd user unit and `run` uses GNU
+# `date -d`. A macOS user schedules `run` with launchd instead — the harvest half is portable,
+# the scheduling half is not, and faking that with a second code path nobody runs would be worse
+# than saying so here.
+#
 # Environment:
 #   KIT_RETRO_DAYS  lookback window in days (default 7)
 #   KIT_RETRO_DIR   where reports land (default $XDG_STATE_HOME/ai-migration-kit/retro)

@@ -7,11 +7,12 @@
       "query": "keep PR 376 mergeable as I build it: merge the latest main in and fix the conflicts",
       "note": "IN-FLIGHT keep-mergeable \u2192 implement-issue",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "implement-issue": 2,
+        "(none)": 1
       },
       "pass": true
     },
@@ -31,13 +32,13 @@
       "query": "rebase my in-flight feature branch on main and resolve the conflicts while I keep adding tasks",
       "note": "IN-FLIGHT rebase \u2192 implement-issue",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.0,
+      "triggers": 0,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "(none)": 3
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "land #281: fix the conflicts with main and squash-merge it",
@@ -78,11 +79,11 @@
   ],
   "summary": {
     "total": 6,
-    "passed": 6,
-    "failed": 0,
+    "passed": 5,
+    "failed": 1,
     "should_trigger": 3,
     "should_not": 3,
-    "recall": 1.0,
+    "recall": 0.6666666666666666,
     "specificity": 1.0
   }
 }

@@ -60,6 +60,31 @@ uuid-suffixed name is absent. The stream event *shapes* — `stream_event` / `co
 synthetic uuid-suffixed one. Detection then registers real triggers. The runner also records *which*
 skill fired, so the `implement-issue` vs `merge-pr` boundary can be read off a single run.
 
+## What recall here actually measures
+
+**"Does the description win the model's FIRST tool call"** — not "does the skill ever fire". The
+runner kills the subprocess at the first tool-use *intent* (that is what makes it safe to point at
+the action skills), so a query the model answers by orienting itself first — a `Grep` for the
+symbol, a `Read` of the file — is recorded as a miss even when the skill would have fired on the
+very next turn. Measured on two of `debug-issue`'s zeros: *"the deploy fails with an exception I
+don't understand, fix it"* stops at `first_tool: Grep`, and *"this stack trace is from production,
+get to the bottom of it"* uses no tool at all (the model asks for the trace).
+
+So read a low recall as **"another action outranks the skill on the opening move"**, which is
+worth fixing — a skill that loses turn 1 loses the framing for the whole session — but is not the
+same claim as "the skill never fires". A specificity below 1.00 is the unambiguous half: that one
+means the description is genuinely over-firing.
+
+Two shapes of row cannot pass at all, and they are noise rather than signal:
+
+- **A slash-command query** (`/migrate`, `/migrate-assess`, `/migrate-verify`,
+  `/migrate-followups` — four rows across `migrate-legacy` and `review-followups`). A command is
+  expanded into the prompt by the client, not invoked as a tool, so there is no tool-use intent to
+  observe. `SKILL_COMMANDS` maps a command a skill owns back to the skill, which covers the model
+  *reaching for* the command file; it cannot cover the user typing one.
+- **A skill the running Claude Code has no plugin for.** `run_all.py` closes that one by linking
+  every skill under test into `.claude/skills/` for the run — see `skills_visible`.
+
 ## Safety (why this is safe even for the action skills)
 
 A should-trigger query like *"merge PR 279"* makes the model invoke the **real** `merge-pr` skill — we

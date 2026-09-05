@@ -127,11 +127,36 @@
       "query": "work through the implementation plan on issue 150",
       "note": "'work through the plan'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "(none)": 1,
+        "implement-issue": 2
+      },
+      "pass": true
+    },
+    {
+      "query": "add error handling to utils.py",
+      "note": "ad-hoc coding, no issue plan to drive it",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "edit the implementation plan on issue 47",
+      "note": "editing the plan, not executing it",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
       },
       "pass": true
     },
@@ -143,7 +168,7 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "create-issue": 3
+        "(none)": 3
       },
       "pass": true
     },
@@ -191,7 +216,20 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "profile-repo": 3
+        "profile-repo": 2,
+        "(none)": 1
+      },
+      "pass": true
+    },
+    {
+      "query": "sync PR 281 so we can land it now",
+      "note": "sync in order to LAND \u2192 merge-pr (boundary)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "merge-pr": 3
       },
       "pass": true
     },
@@ -221,11 +259,11 @@
     }
   ],
   "summary": {
-    "total": 18,
-    "passed": 18,
+    "total": 21,
+    "passed": 21,
     "failed": 0,
     "should_trigger": 11,
-    "should_not": 7,
+    "should_not": 10,
     "recall": 1.0,
     "specificity": 1.0
   }

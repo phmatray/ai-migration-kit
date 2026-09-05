@@ -1,144 +1,132 @@
 {
-  "skill_name": "merge-pr",
+  "skill_name": "deliver-issue",
   "runs_per_query": 3,
   "threshold": 0.5,
   "results": [
     {
-      "query": "can you get that PR merged once CI's green \u2014 it's #281",
-      "note": "loose 'get merged once CI green'",
+      "query": "de l'id\u00e9e \u00e0 la PR merg\u00e9e : ajoute un flag --json \u00e0 survey.sh",
+      "note": "",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "deliver-issue": 3
       },
       "pass": true
     },
     {
-      "query": "close out PR 281 by squash-merging it",
-      "note": "'close out ... squash-merge'",
+      "query": "deliver #61 but stop at ready, I want to read the diff before it lands",
+      "note": "--stop-at ready is still this skill",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "deliver-issue": 3
       },
       "pass": true
     },
     {
-      "query": "finish landing PR 281 \u2014 fix the red CI and merge it",
-      "note": "'finish landing ... fix red CI'",
+      "query": "deliver issue 47 end to end \u2014 file nothing, it already has a plan, just build it and get it merged",
+      "note": "",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "deliver-issue": 3
       },
       "pass": true
     },
     {
-      "query": "get 281 in",
-      "note": "loose 'get N in'",
+      "query": "https://github.com/phmatray/ai-migration-kit/issues/343 \u2014 go build it and land it",
+      "note": "",
       "should_trigger": true,
-      "trigger_rate": 0.6666666666666666,
-      "triggers": 2,
+      "trigger_rate": 0.0,
+      "triggers": 0,
       "runs": 3,
       "fired": {
-        "merge-pr": 2,
+        "implement-issue": 2,
         "(none)": 1
       },
-      "pass": true
+      "pass": false
     },
     {
-      "query": "land #281",
-      "note": "'land #N'",
+      "query": "implement and merge issue 88 in one go, fresh context for the merge like auto-dev does",
+      "note": "",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "deliver-issue": 3
       },
       "pass": true
     },
     {
-      "query": "land PR 281: resolve its conflicts with main as part of merging it now",
-      "note": "land-now conflict sync (boundary, \u2192 merge-pr)",
+      "query": "livre l'issue 47 de bout en bout, sans t'arr\u00eater avant le merge",
+      "note": "",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "deliver-issue": 3
       },
       "pass": true
     },
     {
-      "query": "merge 281 and tear down its branch afterward",
-      "note": "'merge ... tear down branch'",
+      "query": "plan, build and ship a single issue for me: the profile's Domain language line should read CONTEXT.md when one exists",
+      "note": "",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "deliver-issue": 3
       },
       "pass": true
     },
     {
-      "query": "merge PR 281",
-      "note": "'merge PR N'",
+      "query": "run the full lifecycle on #12, hands-off, I'll check the merged result tomorrow",
+      "note": "",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "deliver-issue": 3
       },
       "pass": true
     },
     {
-      "query": "ship this PR: https://github.com/Atypical-Consulting/Koine/pull/300",
-      "note": "bare PR link + 'ship'",
+      "query": "take this idea all the way to a merged PR: the survey should print a SEED row for issues without a plan",
+      "note": "an idea, not an issue \u2014 the skill files it first",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "deliver-issue": 3
       },
       "pass": true
     },
     {
-      "query": "wrap up PR 281 and open follow-ups for the deferred bits",
-      "note": "'wrap up ... open follow-ups'",
-      "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
-      "runs": 3,
-      "fired": {
-        "merge-pr": 3
-      },
-      "pass": true
-    },
-    {
-      "query": "build the feature from issue 129 and open the PR",
-      "note": "\u2192 implement-issue",
+      "query": "burn down the backlog with 3 agents, small issues first",
+      "note": "many issues \u2192 auto-dev",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "file an issue to track a parser bug",
-      "note": "\u2192 create-issue",
+      "query": "give issue 42 a plan",
+      "note": "create-issue --seed",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
@@ -149,20 +137,8 @@
       "pass": true
     },
     {
-      "query": "git merge these two branches locally",
-      "note": "a local git operation, no PR",
-      "should_trigger": false,
-      "trigger_rate": 0.0,
-      "triggers": 0,
-      "runs": 3,
-      "fired": {
-        "(none)": 3
-      },
-      "pass": true
-    },
-    {
-      "query": "implement issue 47",
-      "note": "\u2192 implement-issue",
+      "query": "implement issue 47 \u2014 I'll merge it myself after review",
+      "note": "build only \u2192 implement-issue",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
@@ -173,86 +149,99 @@
       "pass": true
     },
     {
-      "query": "merge main into my branch",
-      "note": "syncing a PR still being built \u2192 implement-issue",
+      "query": "merge PR 279 once CI is green",
+      "note": "a PR already open \u2192 merge-pr",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "(none)": 3
+        "merge-pr": 3
       },
       "pass": true
     },
     {
-      "query": "my in-flight PR conflicts with main \u2014 sync it while I keep building the feature",
-      "note": "in-flight sync (boundary, \u2192 implement-issue)",
+      "query": "migrate this app to .NET 10 end to end",
+      "note": "the migration pipeline, not the issue lifecycle",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "implement-issue": 2,
+        "(none)": 2,
+        "migrate-legacy": 1
+      },
+      "pass": true
+    },
+    {
+      "query": "open an issue for the flaky survey test, with a plan, I'll build it later",
+      "note": "filing only \u2192 create-issue",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "create-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "resume issue #75 in its worktree and flip the PR ready",
+      "note": "implement-issue's resume path",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "implement-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "ship this PR",
+      "note": "'ship' on a PR is merge-pr's trigger",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "merge-pr": 2,
         "(none)": 1
       },
       "pass": true
     },
     {
-      "query": "open a PR for issue 47",
-      "note": "\u2192 implement-issue (open, not land)",
+      "query": "triage the backlog and tell me what to close",
+      "note": "triage-backlog",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "triage-backlog": 3
       },
       "pass": true
     },
     {
-      "query": "review PR 281 but don't merge it",
-      "note": "\u2192 review/code-review",
+      "query": "vide le backlog avec 3 agents",
+      "note": "fleet \u2192 auto-dev",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "(none)": 3
-      },
-      "pass": true
-    },
-    {
-      "query": "set up the repo profile",
-      "note": "\u2192 profile-repo",
-      "should_trigger": false,
-      "trigger_rate": 0.0,
-      "triggers": 0,
-      "runs": 3,
-      "fired": {
-        "profile-repo": 3
-      },
-      "pass": true
-    },
-    {
-      "query": "what's the squash-merge title convention here?",
-      "note": "doc question \u2014 no lifecycle skill",
-      "should_trigger": false,
-      "trigger_rate": 0.0,
-      "triggers": 0,
-      "runs": 3,
-      "fired": {
-        "(none)": 3
+        "auto-dev": 3
       },
       "pass": true
     }
   ],
   "summary": {
-    "total": 20,
-    "passed": 20,
-    "failed": 0,
-    "should_trigger": 10,
+    "total": 19,
+    "passed": 18,
+    "failed": 1,
+    "should_trigger": 9,
     "should_not": 10,
-    "recall": 1.0,
+    "recall": 0.8888888888888888,
     "specificity": 1.0
   }
 }
