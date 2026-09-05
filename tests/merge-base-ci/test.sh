@@ -409,6 +409,28 @@ out=$("$HELPER" "$SHA" --report-line --timeout 60 --poll-seconds 0)
 [ "$out" = "green (clear)" ] || { echo "FAIL [report-line-green]: expected 'green (clear)', got '$out'"; exit 1; }
 echo "  ok: report-line-green — --report-line prints exactly 'green (clear)' for a clean success set"
 
+# ---------------------------------------------------------------- 14. --report-line: the
+# wrong-workflow trap (AC2) — the literal shape of the #429/#449 incident
+#
+# The target sha's OWN check-runs are failed. `gh run list` is armed to answer a fabricated,
+# COMPLETED, SUCCESSFUL run named after a different workflow (`pages-build-deployment`), with the
+# exact job names the incident's agents cited as their (wrong) evidence: build/deploy/
+# report-build-status. `--report-line` must never let that leak in — it prints `RED (failed)`,
+# derived only from the real check-runs for this sha.
+reset_case report-line-wrong-workflow
+SHA=8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f
+arm "$SHA" "$(page "$(run_obj kit 990 failure)")"
+export RUN_LIST_TRAP='[{"databaseId":90000000001,"headSha":"'"$SIBLING_SHA"'","conclusion":"success","status":"completed","name":"pages-build-deployment","jobs":["build","deploy","report-build-status"],"url":"https://github.invalid/run/90000000001"}]'
+out=$("$HELPER" "$SHA" --report-line --timeout 60 --poll-seconds 0)
+[ "$out" = "RED (failed)" ] || { echo "FAIL [report-line-wrong-workflow]: expected 'RED (failed)', got '$out'"; exit 1; }
+if grep -qF 'run list' "$GH_CALL_LOG"; then
+  echo "FAIL [report-line-wrong-workflow]: the helper asked a recency-shaped question (\`gh run list\`)."
+  echo "      --report-line must derive its answer only from the check-runs endpoint for this sha:"
+  sed 's/^/      /' "$GH_CALL_LOG"; exit 1
+fi
+export RUN_LIST_TRAP='[{"databaseId":33346395704,"headSha":"'"$SIBLING_SHA"'","conclusion":"failure","status":"completed","name":"kit","url":"https://github.invalid/run/33346395704"}]'
+echo "  ok: report-line-wrong-workflow — a wrong-workflow 'green' from gh run list never leaks into the line"
+
 # ---------------------------------------------------------------- 15. --report-line: cancelled-only
 reset_case report-line-cancelled
 SHA=9090909090909090909090909090909090909090
