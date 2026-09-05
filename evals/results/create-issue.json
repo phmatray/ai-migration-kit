@@ -7,14 +7,14 @@
       "query": "I have three ideas, please open issues for each with a plan",
       "note": "batch of ideas",
       "should_trigger": true,
-      "trigger_rate": 0.3333333333333333,
-      "triggers": 1,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "(none)": 2,
-        "create-issue": 1
+        "create-issue": 2,
+        "(none)": 1
       },
-      "pass": false
+      "pass": true
     },
     {
       "query": "add an issue for cross-file context-map imports",
@@ -56,14 +56,14 @@
       "query": "file an issue for adding a Rust code formatter to the CLI",
       "note": "plain 'file an issue'",
       "should_trigger": true,
-      "trigger_rate": 0.3333333333333333,
-      "triggers": 1,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "(none)": 2,
-        "create-issue": 1
+        "create-issue": 2,
+        "(none)": 1
       },
-      "pass": false
+      "pass": true
     },
     {
       "query": "log a feature request for TypeScript enum emission",
@@ -81,12 +81,11 @@
       "query": "make a ticket for the missing PHP value-object equality",
       "note": "'make a ticket'",
       "should_trigger": true,
-      "trigger_rate": 0.6666666666666666,
-      "triggers": 2,
+      "trigger_rate": 1.0,
+      "triggers": 3,
       "runs": 3,
       "fired": {
-        "(none)": 1,
-        "create-issue": 2
+        "create-issue": 3
       },
       "pass": true
     },
@@ -286,11 +285,11 @@
   ],
   "summary": {
     "total": 23,
-    "passed": 19,
-    "failed": 4,
+    "passed": 21,
+    "failed": 2,
     "should_trigger": 11,
     "should_not": 12,
-    "recall": 0.6363636363636364,
+    "recall": 0.8181818181818182,
     "specificity": 1.0
   }
 }

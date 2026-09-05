@@ -167,6 +167,33 @@ def _fired_name(acc: str, tool: str, candidates: list[str]) -> str | None:
     return None
 
 
+# How many non-skill tool calls a query may make before the answer is "no skill".
+#
+# The bench used to stop at the FIRST tool-use intent, which made `recall` mean "the
+# description wins the model's opening move" — not "the skill fires". Measured on
+# debug-issue's zeros: "the deploy fails with an exception I don't understand, fix it"
+# stopped at first_tool=Grep, and the run was recorded as a miss although nothing had
+# yet decided against the skill. A query that invites orientation ("this stack trace is
+# from production, get to the bottom of it") is exactly the query that loses that way,
+# and those are the queries a debugging skill exists for.
+#
+# Three, not more: the window has to stay small enough that a model wandering off is
+# still recorded as a miss rather than eventually stumbling into the skill and scoring
+# a pass. Three is one orienting read, one refinement, one last chance.
+MAX_TOOLS = 3
+
+# The tools the CLI is actually given (see the `cmd` list in run_single_query). A call to
+# anything else is REFUSED by the harness, so it costs the model a turn it never got to
+# take — and must not be spent from the MAX_TOOLS budget.
+#
+# Measured, and the reason this exists: "build the feature from issue #129 and open a PR"
+# makes the model reach for `Bash` to run `gh issue view 129` before deciding. That is a
+# sensible opening move. Denied, it retries, the budget empties on calls that never ran,
+# and the run is scored a miss — a number about the harness wearing a description's name.
+# The tool is still reported as `first_tool`; it just does not pay.
+BUDGETED_TOOLS = ("Read", "Grep", "Glob")
+
+
 def run_single_query(
     query: str,
     skill_name: str,
@@ -178,20 +205,29 @@ def run_single_query(
 ) -> dict:
     """Run one `claude -p <query>` and report what skill (if any) it invoked.
 
-    Returns {"triggered": bool, "fired": str|None, "first_tool": str|None}.
-    `triggered` is True iff the TARGET skill (`skill_name`) was the one invoked.
-    `fired` is whichever known skill the model invoked (for boundary analysis).
-    The subprocess is killed at the first tool-use intent — before any tool runs.
+    Returns {"triggered": bool, "fired": str|None, "first_tool": str|None,
+    "tools_seen": int}. `triggered` is True iff the TARGET skill (`skill_name`) was
+    invoked. `fired` is whichever known skill the model invoked (for boundary analysis).
+    `first_tool` is the first non-skill tool it reached for, and `tools_seen` how many
+    it spent before the verdict — the two fields that say WHY a miss was a miss.
+
+    The model may make up to MAX_TOOLS non-skill calls before the answer is "no skill";
+    those tools really run, which is why the CLI is given an allowlist of four read-only
+    tools rather than a denylist (see the `cmd` list below).
     """
     unique_id = uuid.uuid4().hex[:8]
     clean_name = f"{skill_name}-skill-{unique_id}"
     project_commands_dir = Path(project_root) / ".claude" / "commands"
     command_file = project_commands_dir / f"{clean_name}.md"
 
-    def result(triggered: bool, fired: str | None, first_tool: str | None,
+    tools_seen = 0
+    first_tool = None
+
+    def result(triggered: bool, fired: str | None, tool: str | None,
                timed_out: bool = False) -> dict:
         return {"triggered": triggered, "fired": fired,
-                "first_tool": first_tool, "timed_out": timed_out}
+                "first_tool": first_tool or tool, "tools_seen": tools_seen,
+                "timed_out": timed_out}
 
     try:
         project_commands_dir.mkdir(parents=True, exist_ok=True)
@@ -205,13 +241,21 @@ def run_single_query(
             "claude", "-p", query,
             "--output-format", "stream-json",
             "--verbose", "--include-partial-messages",
-            # Defense-in-depth: even if the early kill ever lost the race (e.g. a
-            # future CLI stopped emitting partial tool_use events, so detection
-            # fell to the buffered `assistant` fallback), the action skills could
-            # not actually mutate anything — the tools that do are denied. This
-            # does not change which *skill* the model invokes (what we measure);
-            # the Skill tool itself stays allowed and fires before any of these.
-            "--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit",
+            # An ALLOWLIST, not a denylist, and that is load-bearing since #450.
+            #
+            # The run used to be killed at the FIRST tool-use intent, so nothing ever
+            # executed and a denylist of the four mutating tools was defence-in-depth.
+            # MAX_TOOLS now lets the model orient before it picks a skill, which means
+            # tools really do run — and a denylist would have silently admitted every
+            # tool nobody thought to name: Task (spawns a sub-agent and spends tokens),
+            # WebFetch and WebSearch (network egress from a bench), Artifact (publishes
+            # a page). A bench must not be able to do any of those, and it must not
+            # depend on this list being updated when a new tool ships.
+            #
+            # So: the four below are all a query can reach. Read/Grep/Glob are the
+            # orienting moves we now want to SEE rather than prevent; Skill is what is
+            # being measured. Everything else, present or future, is refused by the CLI.
+            "--allowedTools", "Skill", "Read", "Grep", "Glob",
         ]
         if model:
             cmd.extend(["--model", model])
@@ -274,10 +318,14 @@ def run_single_query(
                                 if tool in ("Skill", "Read"):
                                     pending_tool, acc = tool, ""
                                 else:
-                                    # Model reached for a non-skill tool first: it
-                                    # did not invoke a skill. Stop now (and kill),
-                                    # before that tool can execute.
-                                    return result(False, None, tool)
+                                    # An orienting move, not a verdict. Spend one of the
+                                    # MAX_TOOLS and keep watching; the skill may still be
+                                    # the next thing it reaches for.
+                                    first_tool = first_tool or tool
+                                    if tool in BUDGETED_TOOLS:
+                                        tools_seen += 1
+                                        if tools_seen >= MAX_TOOLS:
+                                            return result(False, None, tool)
                         elif se_type == "content_block_delta" and pending_tool:
                             delta = se.get("delta", {})
                             if delta.get("type") == "input_json_delta":
@@ -288,7 +336,18 @@ def run_single_query(
                             if pending_tool:
                                 m = matched(acc, pending_tool)
                                 fired = skill_name if m else _fired_name(acc, pending_tool, known)
-                                return result(m, fired, pending_tool)
+                                # A KNOWN skill firing is decisive either way — the target
+                                # won, or a sibling did, which is what the boundary sets
+                                # are for. Only a Skill/Read resolving to nothing known
+                                # (a Read of an unrelated file) is another orienting move.
+                                if m or fired:
+                                    return result(m, fired, pending_tool)
+                                tools_seen += 1
+                                first_tool = first_tool or pending_tool
+                                if tools_seen >= MAX_TOOLS:
+                                    return result(False, None, pending_tool)
+                                pending_tool, acc = None, ""
+                                continue
                             if se_type == "message_stop":
                                 return result(False, None, None)
 
@@ -301,8 +360,16 @@ def run_single_query(
                             inp = json.dumps(c.get("input", {}))
                             if tool in ("Skill", "Read"):
                                 m = matched(inp, tool)
-                                return result(m, skill_name if m else _fired_name(inp, tool, known), tool)
-                            return result(False, None, tool)
+                                fired = skill_name if m else _fired_name(inp, tool, known)
+                                if m or fired:
+                                    return result(m, fired, tool)
+                            # Same budget as the streaming branch above, so the two
+                            # paths cannot disagree about what counts as a miss.
+                            first_tool = first_tool or tool
+                            if tool in BUDGETED_TOOLS:
+                                tools_seen += 1
+                                if tools_seen >= MAX_TOOLS:
+                                    return result(False, None, tool)
                     elif etype == "result":
                         return result(False, None, None)
         finally:

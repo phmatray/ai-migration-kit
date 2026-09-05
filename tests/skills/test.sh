@@ -410,12 +410,63 @@ p = pathlib.Path(sys.argv[1]) / "commands/migrate.md"
 p.write_text(p.read_text(encoding="utf-8").replace("migrate-legacy", "the pipeline"), encoding="utf-8")
 '
 
+run_eval_case "E1 a result is stale vs its set  " fail "does not cover" '
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+# Exactly the drift #450 found: the set grows, the committed recall does not, and the
+# published number silently stops covering the queries added under it.
+p = root / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+entries.append({"query": "a query nobody has measured yet", "should_trigger": True})
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "E2 a contract was never measured  " fail "never been measured" '
+import pathlib, sys
+# Deleting the result must NOT be the cheap way past S1 — absence fails for the same
+# reason staleness does. Silence is not a verdict.
+(pathlib.Path(sys.argv[1]) / "evals/results/create-issue.json").unlink()
+'
+
 run_eval_case "N4 untouched baseline             " pass "" 'import sys'
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1
 fi
+# ---------------------------------------------------------------------------
+# run_all.py refuses to PUBLISH a result that measured nothing (#450).
+#
+# On 2026-09-05 a 5-runs-per-query sweep degraded partway through and reported recall
+# 0.0 for six consecutive skills. Every one of them fired first try when probed by hand
+# a minute later. The runner wrote all six to disk, overwrote baseline.json, and exited
+# 0 — and evals/README.md had documented that exact fingerprint as a broken detector
+# since #370. A predicate nothing drives is a predicate that stops working quietly, so
+# the four shapes are pinned here: the two it must refuse, and the two it must not.
+#
+# PYTHONPATH, because run_all.py imports its sibling trigger_eval by bare name.
+# ---------------------------------------------------------------------------
+echo "== run_all.py refuses an unbelievable result (#450) =="
+kit_source "$KIT_ROOT/tests/_lib/py.sh"
+got=$(cd "$KIT_ROOT" && PYTHONPATH="$KIT_ROOT/evals" py_module "$KIT_ROOT/evals/run_all.py" <<'PY'
+pos = [{"should_trigger": True}] * 10 + [{"should_trigger": False}] * 10
+
+# 1. The poisoned shape: every positive missed, every negative passed.
+assert mod.broken_detector({"recall": 0.0, "specificity": 1.0}, pos), "poisoned result accepted"
+# 2. A starved run: more than a quarter of the queries never answered.
+starved = [{"should_trigger": True, "timed_out": True}] * 6 + [{"should_trigger": True}] * 14
+assert mod.broken_detector({"recall": 0.9, "specificity": 1.0}, starved), "starved run accepted"
+# 3. A genuinely weak description is NOT refused — the guard must not eat real findings.
+assert mod.broken_detector({"recall": 0.33, "specificity": 1.0}, pos) is None, "real low recall refused"
+# 4. A set with no positives cannot have a recall to be suspicious about.
+assert mod.broken_detector({"recall": 0.0, "specificity": 1.0},
+                           [{"should_trigger": False}] * 5) is None, "all-negative set refused"
+print("ok")
+PY
+)
+[ "$got" = "ok" ] || { echo "FAIL: broken_detector did not behave as specified (got '$got')"; exit 1; }
+echo "  ok: a 0.0-recall/1.0-specificity result and a starved run are refused; a real low recall is not"
+
 echo "check-frontmatter golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
