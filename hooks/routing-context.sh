@@ -9,9 +9,11 @@
 # them (#416) — measured: a headless session outside this repo, with the plugin installed, quotes
 # no routing line at all.
 #
-# This hook is how the table travels instead. It fires once per session (SessionStart), reads the
-# section straight out of the shipped CLAUDE.md and prints it as `additionalContext` — never a
-# second copy of the text, which would desynchronise the moment either drifts (#324's whole premise).
+# This hook is how the table travels instead. It fires on SessionStart — start, resume, clear or
+# compact, per Claude Code's own event — reads the section straight out of the shipped CLAUDE.md and
+# prints it as `additionalContext` — never a second copy of the text, which would desynchronise the
+# moment either drifts (#324's whole premise). Re-injecting on resume/compact is harmless repetition,
+# not a bug: the table is idempotent context, not a one-time side effect.
 #
 # ADR 0002 (fail open, always) applies verbatim: a third hook takes the same terms and gets no
 # second record. There is no deny path here to fail open FROM — every non-print branch below is

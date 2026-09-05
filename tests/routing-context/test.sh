@@ -22,12 +22,14 @@ HOOK="$KIT/hooks/routing-context.sh"
 [ -x "$HOOK" ] || { echo "FAIL: $HOOK missing or not executable"; exit 1; }
 
 # A PATH holding exactly what the hook shells out to, plus whichever stubs are named — built by
-# NAMING the tools rather than by subtracting one from $PATH (tests/git-gate/test.sh's shape),
-# so the "jq absent" case holds on every host regardless of what else is installed there.
+# NAMING the tools rather than by subtracting one from $PATH, the same shape tests/git-gate/test.sh
+# uses for its own shim, so the "jq absent" case holds on every host regardless of what else is
+# installed there. Only `bash` (to invoke the hook) and `awk` (its extraction) are symlinked real —
+# the hook shells out to nothing else.
 shim_path() { # $1 destination dir; $2… stub names (empty, always-exit-0 executables)
   local d="$1" c p; shift
   mkdir -p "$d"
-  for c in bash cat awk sed printf; do
+  for c in bash awk; do
     p=$(command -v "$c" 2>/dev/null) || continue
     ln -s "$p" "$d/$c" 2>/dev/null || true
   done
