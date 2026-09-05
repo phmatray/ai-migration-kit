@@ -37,6 +37,8 @@
 #   U. a boundary-findings-block entry whose skill never links the block             -> REFUSE, named
 #   V. a skill that links the block without being named in it                        -> REFUSE, named
 #   W. a listed, linked entry absent from untrusted-input-boundary.md's Consumers    -> REFUSE, named
+#   X. a Consumer per untrusted-input-boundary.md missing from the boundary-findings   -> REFUSE, named
+#      block's own list (#431's own direction — the third one #387 left unchecked)
 #
 # The refusal cases are the point: exit 1 is a VERDICT and exit 2 is the absence of one, and a guard
 # that cannot tell them apart is the "silent green" shape #45 and #72 were written for. D and K are
@@ -372,6 +374,14 @@ link_boundary "$F" alpha
 append_boundary_block "$F" alpha
 write_boundary_doc "$F" beta
 expect "the Consumers mismatch is named" 1 "$F" "REFUSE" "alpha" "Consumers"
+
+# ------------------------- X. a Consumer missing from the boundary-findings block's own list
+echo "X. a Consumer per untrusted-input-boundary.md missing from the block's list"
+F="$WORK/x"; scaffold "$F"
+link_boundary "$F" alpha
+append_boundary_block "$F" alpha
+write_boundary_doc "$F" alpha beta
+expect "the missing Consumer is named" 1 "$F" "REFUSE" "beta"
 
 # ------------------------------------------------------------------------------------------ verdict
 echo
