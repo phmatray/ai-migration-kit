@@ -262,6 +262,49 @@ for rel_path, var in (("evals/run_all.py", "SKILLS"), ("evals/trigger_eval.py", 
         errors.append(f"{rel_path}: {var} must list every skill — {', '.join(unknown)} "
                       f"names no skills/*/ folder")
 
+# evals/results/<skill>.json ↔ the contract it was measured against (#450).
+#
+# This is the drift that made the whole "measured, not assumed" claim untrue without a
+# single red build. Four skills carried a committed recall of 1.00 — measured over 18
+# queries each, while their sets had since grown to 23, 21, 20 and 22. The other eight
+# had no result at all. Nothing compared the two numbers, so a published 1.00 could sit
+# on top of five queries it had never seen.
+#
+# An ABSENT result fails for the same reason a stale one does: if absence were merely a
+# warning, the cheapest way past a stale number would be to delete it. Silence is not a
+# verdict here either.
+#
+# The cost is deliberate and worth naming: adding a query to a contract now turns CI red
+# until an owner runs the bench. That is the point — an unmeasured query is a claim, and
+# this repository's rule is that a claim nothing maintains does not get to be green.
+results_dir = ROOT / "evals" / "results"
+for skill in sorted(skill_names):
+    eval_path = ROOT / "evals" / f"{skill}-trigger-eval.json"
+    result_path = results_dir / f"{skill}.json"
+    if not eval_path.exists():
+        continue                      # already reported, by name, above
+    try:
+        contract_size = len(json.loads(eval_path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, TypeError):
+        continue                      # already reported, by name, above
+    if not result_path.exists():
+        errors.append(
+            f"{skill}: evals/results/{skill}.json is missing — the contract exists and has "
+            f"never been measured, so nothing backs it. Run "
+            f"`python3 evals/run_all.py --skills {skill}` and commit the result")
+        continue
+    try:
+        measured = json.loads(result_path.read_text(encoding="utf-8"))["summary"]["total"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        errors.append(f"{skill}: evals/results/{skill}.json has no readable summary.total ({exc})")
+        continue
+    if measured != contract_size:
+        errors.append(
+            f"{skill}: evals/results/{skill}.json was measured over {measured} queries but "
+            f"the contract now holds {contract_size} — the committed recall does not cover "
+            f"{abs(contract_size - measured)} of them. Run "
+            f"`python3 evals/run_all.py --skills {skill}` and commit the result")
+
 # commands/*.md ↔ the skill each one dispatches to.
 #
 # This is what the deleted slash-command eval rows were reaching for (#436). `/migrate` reaching

@@ -62,18 +62,52 @@ skill fired, so the `implement-issue` vs `merge-pr` boundary can be read off a s
 
 ## What recall here actually measures
 
-**"Does the description win the model's FIRST tool call"** — not "does the skill ever fire". The
-runner kills the subprocess at the first tool-use *intent* (that is what makes it safe to point at
-the action skills), so a query the model answers by orienting itself first — a `Grep` for the
-symbol, a `Read` of the file — is recorded as a miss even when the skill would have fired on the
-very next turn. Measured on two of `debug-issue`'s zeros: *"the deploy fails with an exception I
-don't understand, fix it"* stops at `first_tool: Grep`, and *"this stack trace is from production,
-get to the bottom of it"* uses no tool at all (the model asks for the trace).
+**"Does the skill fire within the model's first `MAX_TOOLS` moves"** — three, as of #450.
 
-So read a low recall as **"another action outranks the skill on the opening move"**, which is
-worth fixing — a skill that loses turn 1 loses the framing for the whole session — but is not the
-same claim as "the skill never fires". A specificity below 1.00 is the unambiguous half: that one
-means the description is genuinely over-firing.
+It used to mean less than that. The runner killed the subprocess at the *first* tool-use intent, so
+a query the model answered by orienting itself — a `Grep` for the symbol, a `Read` of the file —
+was recorded as a miss although nothing had yet decided against the skill. That penalised exactly
+the queries a debugging or migration skill exists for, the ones that invite a look before a plan:
+*"this test fails intermittently, can you fix it?"* scored a hard zero under the old rule and
+**triggers** under this one, unchanged description.
+
+Three moves, not more: the window has to stay small enough that a model wandering off is still a
+miss rather than eventually stumbling into the skill and scoring a pass.
+
+The tools really run now, so the CLI is given an **allowlist** — `Skill`, `Read`, `Grep`, `Glob` —
+rather than the old denylist of the four mutating tools. A denylist was sound while nothing ever
+executed; the moment something does, it silently admits every tool nobody thought to name (`Task`
+spends tokens on a sub-agent, `WebFetch`/`WebSearch` are network egress from a bench, `Artifact`
+publishes a page). Measured: a query instructed to create a file has its `Bash` call refused and the
+file is never created.
+
+A specificity below 1.00 is still the unambiguous half: that one means the description is genuinely
+over-firing, and no window size excuses it.
+
+## The noise floor — read differences, not digits
+
+The entrance is **intrinsically stochastic**, and the bench cannot hide it. Measured on the
+committed sets: **19 of 253 queries (8%) did not agree with themselves across three runs**. Each of
+those is a coin flip at `threshold 0.5`, so a set of ~20 queries carries roughly **±2 to ±3
+queries — about ±0.10 of recall — from nothing but re-running it**.
+
+The cleanest demonstration is `implement-issue`'s *"build the feature from issue #129 and open a
+PR"*, run five times against one unchanged description: **2 fired, 3 did not**. Widening the
+observation window from one tool call to three moved the twelve sets by +2 and −7 queries in total,
+under a strictly more permissive rule — which is only possible if the −7 was noise.
+
+So:
+
+- **Act on gaps, not on digits.** 1.00 versus 0.55 is a finding. 0.82 versus 0.73 is the same
+  number measured twice.
+- **`--runs-per-query 5` for a committed baseline**, 3 for a quick look. More runs narrow the
+  interval; nothing makes it zero.
+- **Specificity is the exception.** It sits at 1.00 across every set and has never moved, so a
+  single point below it is signal on its first appearance.
+
+The consequence worth stating plainly: no amount of description tuning makes skill entry
+deterministic. It shifts a probability. A mechanism that does not depend on the model choosing is a
+different design question, and it is not this bench's to answer.
 
 Two shapes of row cannot pass at all, and they are noise rather than signal:
 

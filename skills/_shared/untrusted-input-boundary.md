@@ -4,8 +4,9 @@ This reference is used by every skill that ingests text it did not author. One b
 because each ingest point inventing its own is how a rule stops meaning anything.
 
 **The inventory of who reads this is [`## Consumers`](#consumers) at the foot of this file — one
-list, and the only one.** `tests/skills/check-untrusted-boundary.py` verifies it in both directions,
-so it is the section to edit when a new ingest point appears; nothing above restates it.
+list, and the only one.** `tests/skills/check-shared-refs.py` verifies it in both directions (this
+document is one of several `skills/_shared/*.md` references it checks — #269), so it is the section
+to edit when a new ingest point appears; nothing above restates it.
 
 ## Why there is a boundary at all
 
@@ -94,7 +95,7 @@ nothing here blocks anything: the boundary works by being read at the moment for
 That is a real limit and it is stated here rather than implied away — a document that oversells its
 own guarantees stops being believed at the first counter-example.
 
-What is mechanical is the *linking*: `tests/skills/check-untrusted-boundary.py` fails CI when a
+What is mechanical is the *linking*: `tests/skills/check-shared-refs.py` fails CI when a
 consumer below stops pointing here, or when a file starts pointing here without being listed. The
 rule cannot be enforced; its presence at every ingest point can.
 

@@ -3,21 +3,21 @@
   "threshold": 0.5,
   "skills": {
     "create-issue": {
-      "passed": 19,
+      "passed": 21,
       "total": 23,
-      "recall": 0.6363636363636364,
+      "recall": 0.8181818181818182,
       "specificity": 1.0
     },
     "implement-issue": {
-      "passed": 21,
+      "passed": 18,
       "total": 21,
-      "recall": 1.0,
+      "recall": 0.7272727272727273,
       "specificity": 1.0
     },
     "merge-pr": {
-      "passed": 20,
+      "passed": 19,
       "total": 20,
-      "recall": 1.0,
+      "recall": 0.9,
       "specificity": 1.0
     },
     "profile-repo": {
@@ -39,9 +39,9 @@
       "specificity": 1.0
     },
     "debug-issue": {
-      "passed": 14,
+      "passed": 15,
       "total": 19,
-      "recall": 0.5454545454545454,
+      "recall": 0.6363636363636364,
       "specificity": 1.0
     },
     "deliver-issue": {
@@ -51,9 +51,9 @@
       "specificity": 1.0
     },
     "migrate-legacy": {
-      "passed": 12,
+      "passed": 11,
       "total": 17,
-      "recall": 0.4444444444444444,
+      "recall": 0.3333333333333333,
       "specificity": 1.0
     },
     "review-followups": {
@@ -63,9 +63,9 @@
       "specificity": 1.0
     },
     "setup-repo": {
-      "passed": 23,
+      "passed": 22,
       "total": 25,
-      "recall": 0.875,
+      "recall": 0.8125,
       "specificity": 1.0
     },
     "triage-backlog": {
@@ -78,11 +78,11 @@
   "boundary": {
     "implement-issue": {
       "total": 6,
-      "passed": 5,
-      "failed": 1,
+      "passed": 4,
+      "failed": 2,
       "should_trigger": 3,
       "should_not": 3,
-      "recall": 0.6666666666666666,
+      "recall": 0.3333333333333333,
       "specificity": 1.0
     },
     "merge-pr": {

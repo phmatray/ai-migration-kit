@@ -64,6 +64,33 @@ def skills_visible(project_root, skills):
             dest.unlink(missing_ok=True)
 
 
+def broken_detector(summary, results) -> str | None:
+    """Say why this result cannot be believed, or None if it can.
+
+    A run that measures nothing looks EXACTLY like a description that fires nothing:
+    every positive misses, every negative passes, `recall 0.0` beside `specificity 1.0`.
+    evals/README.md has documented that fingerprint since #370 as the signature of a
+    broken detector — and the runner still wrote it to disk and exited 0. Measured on
+    2026-09-05: a 5-runs-per-query sweep degraded partway through and reported recall
+    0.0 for SIX consecutive skills; every one of them fired first try when probed by
+    hand a minute later. Nothing in the run said so, and `baseline.json` was overwritten
+    with the lot.
+
+    So the run refuses to publish a result of that shape. The cost of being wrong is
+    asymmetric and not close: a false alarm costs one re-run, while a published 0.0
+    sends someone to rewrite a description that was never the problem.
+    """
+    positives = [r for r in results if r["should_trigger"]]
+    if positives and summary["recall"] == 0.0 and summary["specificity"] == 1.0:
+        return (f"recall 0.0 beside specificity 1.0 over {len(positives)} positives — the "
+                f"documented fingerprint of a detector that measured nothing, not of a "
+                f"description that fires nothing")
+    timed_out = sum(1 for r in results if r.get("timed_out"))
+    if timed_out and timed_out > len(results) // 4:
+        return f"{timed_out} of {len(results)} queries timed out — the run was starved, not measured"
+    return None
+
+
 def _run(skill, eval_set, project_root, runs, workers, timeout, threshold, model, known=None):
     description = te.read_skill_description(project_root, skill)
     return te.run_eval(
@@ -96,6 +123,7 @@ def main():
     baseline["runs_per_query"] = args.runs_per_query
     baseline["threshold"] = args.threshold
     baseline.setdefault("skills", {})
+    refused = []
 
     # Every skill is linked in, not just the selected ones, so a scoped run and a full run
     # measure the same environment.
@@ -108,6 +136,12 @@ def main():
             eval_set = json.loads(eval_path.read_text())
             out = _run(skill, eval_set, project_root, args.runs_per_query, args.workers,
                        args.timeout, args.threshold, args.model)
+            why = broken_detector(out["summary"], out["results"])
+            if why:
+                print(f"! REFUSED [{skill}]: {why}")
+                print(f"  Nothing written; evals/results/{skill}.json keeps its committed value.")
+                refused.append(skill)
+                continue
             (RESULTS_DIR / f"{skill}.json").write_text(json.dumps(out, indent=2) + "\n")
             s = out["summary"]
             baseline["skills"][skill] = {
@@ -138,6 +172,13 @@ def main():
 
         (RESULTS_DIR / "baseline.json").write_text(json.dumps(baseline, indent=2) + "\n")
     print(f"\nWrote {RESULTS_DIR}/baseline.json")
+    if refused:
+        # Non-zero, because a sweep that could not measure part of what it was asked to
+        # measure did not succeed — and a caller that reads only the exit code must not
+        # be told otherwise.
+        print(f"\n! {len(refused)} skill(s) unmeasurable this run: {', '.join(refused)}")
+        print("  Re-run them alone (--skills …); a starved sweep is the usual cause.")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

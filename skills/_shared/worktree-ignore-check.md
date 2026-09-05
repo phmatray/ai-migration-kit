@@ -156,3 +156,10 @@ correct — but the repository carries no such rule, and every teammate's and CI
 stages the worktree. The guard prints a `note:` naming that case. Do not promote a `0` carrying such a
 note into a durable claim about the repo (`profile-repo` records exactly that, so it repeats the
 note rather than the verdict alone).
+
+## Consumers
+
+- `skills/implement-issue/SKILL.md` — Step 4 proves the worktree home is ignored before creating or reusing one
+- `skills/merge-pr/SKILL.md` — proves the home is ignored before creating a worktree (Step 2) and before reusing one already on disk (Step 4)
+- `skills/merge-pr/references/merge-mechanics.md` — states the exact check merge-pr's Steps 2 and 4 are followed through
+- `skills/_shared/preconditions.md` — cites this file as sharing the same `<kit>` root placeholder convention

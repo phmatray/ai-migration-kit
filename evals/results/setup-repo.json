@@ -79,11 +79,12 @@
       "query": "cree les templates d'issue",
       "note": "FR \u2014 'cree les templates'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "setup-repo": 3
+        "setup-repo": 2,
+        "(none)": 1
       },
       "pass": true
     },
@@ -115,14 +116,14 @@
       "query": "make this repo squash-only and delete branches on merge",
       "note": "two repository settings the manifest declares",
       "should_trigger": true,
-      "trigger_rate": 0.3333333333333333,
-      "triggers": 1,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "(none)": 2,
-        "setup-repo": 1
+        "setup-repo": 2,
+        "(none)": 1
       },
-      "pass": false
+      "pass": true
     },
     {
       "query": "set the repository description and topics",
@@ -152,25 +153,25 @@
       "query": "supprime automatiquement les branches mergees",
       "note": "FR \u2014 the auto-delete setting",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.0,
+      "triggers": 0,
       "runs": 3,
       "fired": {
-        "setup-repo": 3
+        "(none)": 3
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "turn on auto-delete for merged branches",
       "note": "a repository setting",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.0,
+      "triggers": 0,
       "runs": 3,
       "fired": {
-        "setup-repo": 3
+        "(none)": 3
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "we need priority and effort labels before running auto-dev",
@@ -260,11 +261,12 @@
       "query": "set up branch protection rules",
       "note": "not in the manifest \u2014 it declares labels, issue forms and merge settings, never branch protection, which needs org policy and admin rights; a close near-miss",
       "should_trigger": false,
-      "trigger_rate": 0.0,
-      "triggers": 0,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
       "runs": 3,
       "fired": {
-        "(none)": 3
+        "setup-repo": 1,
+        "(none)": 2
       },
       "pass": true
     },
@@ -307,11 +309,11 @@
   ],
   "summary": {
     "total": 25,
-    "passed": 23,
-    "failed": 2,
+    "passed": 22,
+    "failed": 3,
     "should_trigger": 16,
     "should_not": 9,
-    "recall": 0.875,
+    "recall": 0.8125,
     "specificity": 1.0
   }
 }
