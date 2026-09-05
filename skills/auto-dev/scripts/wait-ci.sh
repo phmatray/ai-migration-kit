@@ -86,6 +86,11 @@ fi
 PRS=("$@")
 ZERO_POLLS=()
 for _pr in "${PRS[@]}"; do ZERO_POLLS+=(0); done
+# Previous poll's (possibly CHECK-filtered) check count per PR, -1 = no real poll yet. A
+# `needs:`-gated aggregate check does not exist until its dependencies finish, so "final" alone
+# (no check pending) is not enough — the set itself must also have stopped growing (#413).
+PREV_COUNT=()
+for _pr in "${PRS[@]}"; do PREV_COUNT+=(-1); done
 
 # Captures each `gh pr checks --json` call's stderr so a genuine "no checks reported" can be told
 # apart from any other failure (see the header). Guarded the way survey.sh/guarded-push.sh capture
@@ -109,6 +114,7 @@ JQ_SUMMARY='
 
 for i in $(seq 1 "$MAX_POLLS"); do
   all_final=1
+  all_stable=1
   line=""
   idx=0
   for pr in "${PRS[@]}"; do
@@ -135,6 +141,7 @@ for i in $(seq 1 "$MAX_POLLS"); do
       # blip can't manufacture progress toward MAX_ZERO_POLLS, and can't erase real progress either.
       line="${line} PR${pr}=[gh error, retrying: ${gh_err:-<no output>}]"
       all_final=0
+      all_stable=0
       idx=$((idx + 1))
       continue
     fi
@@ -153,6 +160,15 @@ for i in $(seq 1 "$MAX_POLLS"); do
       line="${line} PR${pr}=[${checkline}]"
       [ "${pending:-0}" -eq 0 ] || all_final=0
     fi
+
+    # Stability: this poll's count must equal the PREVIOUS poll's count for this PR — not just
+    # "not smaller", since a re-run/cancelled check can also shrink the set, and either direction
+    # costs one extra poll rather than a false green. -1 (no prior real poll yet) never matches,
+    # so the very first poll can never satisfy stability on its own.
+    if [ "${PREV_COUNT[$idx]}" -ne "${count:-0}" ]; then
+      all_stable=0
+    fi
+    PREV_COUNT[$idx]="${count:-0}"
     idx=$((idx + 1))
   done
 
@@ -167,7 +183,7 @@ for i in $(seq 1 "$MAX_POLLS"); do
     idx=$((idx + 1))
   done
 
-  if [ "$all_final" -eq 1 ]; then
+  if [ "$all_final" -eq 1 ] && [ "$all_stable" -eq 1 ]; then
     if [ -n "$CHECK" ]; then
       echo "=== ALL CHECKS IN ALLOW-LIST FINAL (CHECK=${CHECK}) ==="
     else

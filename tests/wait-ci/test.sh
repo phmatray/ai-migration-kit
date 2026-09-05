@@ -139,8 +139,11 @@ rc=0
 out=$(POLL_SECONDS=0 MAX_POLLS=5 "$WAIT" 77 2>&1) || rc=$?
 [ "$rc" -eq 0 ] || { echo "FAIL [default-check]: expected exit 0 with CHECK unset, got $rc"; echo "$out"; exit 1; }
 has_poll "$out" 1 || { echo "FAIL [default-check]: missing poll 1"; echo "$out"; exit 1; }
-has_poll "$out" 2 && { echo "FAIL [default-check]: polled again after poll 1 was already all-final"; echo "$out"; exit 1; }
-echo "  ok: default-check — unset CHECK waits on every check by default and returns as soon as they are all final"
+# One confirmation poll is required even when everything is final on poll 1 — stability can't be
+# judged from a single poll with no prior count to compare against (#413).
+has_poll "$out" 2 || { echo "FAIL [default-check]: missing the stability-confirmation poll 2"; echo "$out"; exit 1; }
+has_poll "$out" 3 && { echo "FAIL [default-check]: polled a 3rd time — the set was already final and unchanged by poll 2"; echo "$out"; exit 1; }
+echo "  ok: default-check — unset CHECK waits on every check by default and returns once final and stable"
 
 # ---------------------------------------------------------------- 3. checks not yet registered:
 # zero checks on poll 1, then they appear (already final) on poll 2 — no premature error.
