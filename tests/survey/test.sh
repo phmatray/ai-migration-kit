@@ -86,14 +86,17 @@ NO_PLAN_BODY='## context only, nothing to execute'
 # to a worker, and this body shape is the whole mechanism that keeps it out.
 PARENT_BODY='## Problem\n\nthe whole job\n\n## Destination\n\nwhat done looks like\n\n## Notes\n\ninvariants every child obeys\n\n## Decisions so far\n\n- none yet\n\n## Not yet ticketed\n\nnone\n\n## Out of scope\n\n- nothing adjacent'
 
-# $1 output path, remaining args "number|title|effort-or-empty|plan(0/1/parent)" quads
+# $1 output path, remaining args "number|title|effort-or-empty|plan(0/1/parent)[|comment-body]"
+# quints — the 5th field is optional (#343: a fixture can pin a plan that lives in a COMMENT,
+# not the body) and every pre-existing 4-field call site is unaffected: `read` leaves an unmatched
+# trailing variable empty.
 mkissues() {
   local out="$1"; shift
   {
     printf '['
-    local first=1 rec num title eff plan body labels
+    local first=1 rec num title eff plan comment body labels comments_json
     for rec in "$@"; do
-      IFS='|' read -r num title eff plan <<<"$rec"
+      IFS='|' read -r num title eff plan comment <<<"$rec"
       [ "$first" = 1 ] || printf ','
       first=0
       case "$plan" in
@@ -102,7 +105,8 @@ mkissues() {
         *)      body="$NO_PLAN_BODY" ;;
       esac
       if [ -n "$eff" ]; then labels="[{\"name\":\"effort: $eff\"}]"; else labels="[]"; fi
-      printf '{"number":%s,"title":"%s","labels":%s,"body":"%s"}' "$num" "$title" "$labels" "$body"
+      if [ -n "$comment" ]; then comments_json="[{\"body\":\"$comment\"}]"; else comments_json="[]"; fi
+      printf '{"number":%s,"title":"%s","labels":%s,"body":"%s","comments":%s}' "$num" "$title" "$labels" "$body" "$comments_json"
     done
     printf ']'
   } > "$out"
@@ -266,6 +270,49 @@ if grep -F "$(printf '\t#107\t')" "$O1b" | grep -q 'plan=false'; then
 else
   echo "FAIL: the tracking parent's row does not read plan=false"; cat "$O1b"; exit 1
 fi
+
+# -------------------------------------------------------------- 1c. comment-hosted plan (#343)
+#
+# `create-issue` writes a fresh issue's plan into the BODY, but `implement-issue`'s locator falls
+# back to the latest plan COMMENT for older issues (SKILL.md Step 2), and `create-issue --seed`'s
+# own guard already reads body-and-comments (#312/#334). survey.sh must agree: an issue whose body
+# carries no plan token but whose comment does is exactly what `implement-issue <N>` would execute
+# today, so it must QUEUE (given a first-tier effort label) and drop out of the SEED tail — not be
+# advertised for a seed that create-issue --seed then refuses with no explanation of the disagreement.
+
+F1C="$WORK/comment-plan-issues.json"
+mkissues "$F1C" \
+  "110|Body has no plan, comment does|small|0|$PLAN_BODY"
+O1C="$WORK/comment-plan.out"
+run_survey "$W1" "$F1C" "$O1C"
+
+assert_bucket QUEUE 110 "$O1C"
+echo "ok: comment-plan — an issue queues when its COMMENT carries the plan its body lacks (AC1)"
+
+assert_seed_row "$O1C" 0 "-"
+echo "ok: comment-plan — a comment-planned issue is not counted in the SEED row (AC2)"
+
+# ------------------------------------------------ 1d. a tracking parent stays plan-less through a
+#                                                   comment (regression pinned by code-review on #343)
+#
+# 1b already proves the tracking-parent BODY convention keeps it out of QUEUE. Widening haveplan to
+# scan comments (1c above) opens a second door: an ordinary comment on the PARENT (a status update, a
+# stray checklist, someone pasting a child's plan for reference) must not be read as granting the
+# parent a plan — that would dispatch the whole decomposed job to one worker, the exact failure the
+# parent/child split exists to prevent. The parent's body still carries the `## Destination` heading
+# and none of the three plan tokens; only the COMMENT does.
+
+F1D="$WORK/tracking-parent-comment-issues.json"
+mkissues "$F1D" \
+  "111|Tracking parent, plan leaks in via a comment|medium|parent|$PLAN_BODY"
+O1D="$WORK/tracking-parent-comment.out"
+run_survey "$W1" "$F1D" "$O1D"
+
+assert_bucket SKIP 111 "$O1D"
+echo "ok: tracking-parent-comment — a comment carrying plan tokens does not grant the PARENT a plan"
+
+assert_seed_row "$O1D" 1 "waiting for a seed: #111"
+echo "ok: tracking-parent-comment — the parent still reads plan=false for the SEED tail, comment notwithstanding"
 
 # ------------------------------------------------------------------- 2. letter-vocab (no regress)
 

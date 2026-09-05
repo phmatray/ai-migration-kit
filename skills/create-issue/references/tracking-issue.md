@@ -13,7 +13,8 @@ kit charts work to build, not decisions to make.
 
 ## Why the parent has no plan
 
-`auto-dev`'s `survey.sh` decides what a worker may be handed with one regex over the body:
+`auto-dev`'s `survey.sh` decides what a worker may be handed with one regex, tested against the body
+and — since #343 — every comment too:
 
 ```
 haveplan: test("Implementation plan|### Task|- \\[ \\]")
@@ -29,10 +30,14 @@ the very reason it was split — so its body carries **none of the three tokens*
 - no `- [ ]` checkbox anywhere, which is why *Decisions so far* below is a plain bullet list and why
   the parent's 📋 Spec keeps its acceptance criteria numbered, as the Spec contract already requires.
 
-This is **load-bearing, never to be relaxed**: it is the whole mechanism by which the parent stays
-out of the queue with zero change to `survey.sh`. `tests/survey/test.sh` carries a parent-shaped
-fixture asserted `SKIP` so a later edit to the jq cannot break it silently, and Step 7's readback
-counts the parent's checkboxes and refuses anything but `0`.
+This is **load-bearing, never to be relaxed** — but the body-only property is a fact about the BODY,
+and once `haveplan` also reads comments (#343) a stray comment on the parent (a status update, a
+pasted child plan) could otherwise grant it one by accident. `survey.sh` guards this explicitly: a
+body carrying the `## Destination` heading below with none of the three tokens is read as a tracking
+parent, and no comment may grant such an issue a plan — only the body can. `tests/survey/test.sh`
+carries two parent-shaped fixtures asserted `SKIP` (one plain, one with a plan-bearing comment) so a
+later edit to the jq cannot break either silently, and Step 7's readback counts the parent's
+checkboxes and refuses anything but `0`.
 
 ## The body
 

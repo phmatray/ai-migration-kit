@@ -204,7 +204,7 @@ fi
 # loudly to the pre-#317 field list instead: every row then reads `deps=-`, the frontier rule holds
 # nothing, and the operator is told so on stderr. A `// []` guard cannot cover this — it guards a
 # field that is ABSENT from the JSON, not a CLI that refuses to produce the JSON at all.
-BASE_FIELDS=number,title,labels,body
+BASE_FIELDS=number,title,labels,body,comments
 DEP_FIELDS=$BASE_FIELDS,blockedBy,blocking,subIssues,assignees
 
 # gh's output is held in a shell variable, not a temp file: case 9 of the golden suite proves this
@@ -244,7 +244,28 @@ fi
 printf '%s\n' "$ISSUES_JSON" \
   | jq -r --argjson vocab "$VOCAB_JSON" '
     def eff:       (.labels | map(.name) | map(select(startswith("effort:"))) | (.[0] // "effort: ?"));
-    def haveplan:  ((.body  // "") | test("Implementation plan|### Task|- \\[ \\]"));
+    # `create-issue` writes a fresh issue plan into the BODY, but `implement-issue`s own locator
+    # (references/github-mechanics.md §2) falls back to the latest plan COMMENT for older issues,
+    # and `create-issue --seed`s own guard (#312/#334) already reads body-and-comments — so this
+    # must too, or an issue executable today reads as unplanned and the SEED row advertises it for
+    # a seed that create-issue --seed then refuses (#343). The regex itself is shared vocabulary
+    # with those two other readers own plan-detection strings — it moves in all three or none.
+    def bodyplan:  ((.body // "") | test("Implementation plan|### Task|- \\[ \\]"));
+    # A tracking parent (the shape create-issue writes for a decomposed job, and the same shape
+    # create-issue --seed refuses to seed: the body carries a ## Destination heading and no plan) is
+    # plan-less ON PURPOSE — skills/create-issue/references/tracking-issue.md calls its body-carries-
+    # zero-plan-tokens property load-bearing. That property is a fact about the BODY only, so an
+    # ordinary COMMENT (a status update, a stray checklist, a pasted snippet) must never be allowed to
+    # grant the parent a plan and dispatch the whole decomposed job to one worker (#343 review).
+    def istrackingparent: (bodyplan | not) and ((.body // "") | test("## Destination"));
+    # `gh issue list --json comments` returns at most the first ~100 comments (oldest-first) in this
+    # one call, with no totalCount to detect truncation the way blockedBy/blocking/subIssues below
+    # do — a plan comment past that cap stays invisible here. Left as a known limit (the issue Spec
+    # calls bounding/measuring the comment payload a separate change if it turns out to matter);
+    # `or` below short-circuits so a body match never pays the join at all.
+    def haveplan:  bodyplan or ((istrackingparent | not)
+                    and (((.comments // []) | map(.body) | join("\n"))
+                         | test("Implementation plan|### Task|- \\[ \\]")));
     def manualqa:  ((.title // "") | test("visually|verify by hand|manual QA|by hand"; "i"));
     # Dependency edges (#317). `gh issue list --json blockedBy,blocking,subIssues` serves GraphQL
     # CONNECTIONS — {"nodes":[…],"totalCount":N} — measured on gh 2.98.0, while this repo'"'"'s own
