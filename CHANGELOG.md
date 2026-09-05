@@ -8,6 +8,28 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [2.2.0](https://github.com/phmatray/ai-migration-kit/compare/v2.1.0...v2.2.0) (2026-09-05)
+
+
+### Features
+
+* **evals:** let the bench see past the opening move, refuse a result it did not measure, and gate a stale one ([#461](https://github.com/phmatray/ai-migration-kit/issues/461)) ([566c47f](https://github.com/phmatray/ai-migration-kit/commit/566c47f2b034bbcfe71a630d717938d5edbe5d4e))
+* **retro:** put review-sessions' harvest on a weekly timer, and measure all twelve trigger contracts ([#436](https://github.com/phmatray/ai-migration-kit/issues/436)) ([c141420](https://github.com/phmatray/ai-migration-kit/commit/c14142093fb42b66095bb1cf30a995c409c056b9))
+* **skills:** extend the shared Boundary findings block to deliver-issue, review-sessions and review-followups ([#431](https://github.com/phmatray/ai-migration-kit/issues/431)) ([#456](https://github.com/phmatray/ai-migration-kit/issues/456)) ([fff03f3](https://github.com/phmatray/ai-migration-kit/commit/fff03f320620d3a149628b2b07c85028914598c1))
+* **skills:** guard every shared reference that declares its consumers ([#269](https://github.com/phmatray/ai-migration-kit/issues/269)) ([#460](https://github.com/phmatray/ai-migration-kit/issues/460)) ([f485288](https://github.com/phmatray/ai-migration-kit/commit/f485288606f6375fc65c53fe827a30988deb648e))
+
+
+### Bug Fixes
+
+* **auto-dev:** paginate survey.sh's open-issue window so a body-line blocker outside 300 rows still resolves ([#367](https://github.com/phmatray/ai-migration-kit/issues/367)) ([#437](https://github.com/phmatray/ai-migration-kit/issues/437)) ([b422dc9](https://github.com/phmatray/ai-migration-kit/commit/b422dc9b0d030d51cb69687fd36e0c63c8f1524c))
+* **auto-dev:** survey.sh pages gh issue list with --limit, not the gh-api-only --paginate ([#452](https://github.com/phmatray/ai-migration-kit/issues/452)) ([#458](https://github.com/phmatray/ai-migration-kit/issues/458)) ([fefa82d](https://github.com/phmatray/ai-migration-kit/commit/fefa82df4596fa5518836761d6067f576f6e4cce))
+* **auto-dev:** wait-ci.sh requires a stable check set, not just a final one ([#413](https://github.com/phmatray/ai-migration-kit/issues/413)) ([#451](https://github.com/phmatray/ai-migration-kit/issues/451)) ([4f61f8f](https://github.com/phmatray/ai-migration-kit/commit/4f61f8f98e15377b94fc2f82d53fe5ea923a2b77))
+* **evals:** drop the four trigger-contract rows no harness can observe, and assert their routing where it can be ([#450](https://github.com/phmatray/ai-migration-kit/issues/450)) ([3cefb95](https://github.com/phmatray/ai-migration-kit/commit/3cefb95228e28d084634cc0a0b70f1fbd20a02cb))
+* **hooks:** the write-gate judges the line that opens a heredoc, not nothing at all ([#440](https://github.com/phmatray/ai-migration-kit/issues/440)) ([#449](https://github.com/phmatray/ai-migration-kit/issues/449)) ([e8454c7](https://github.com/phmatray/ai-migration-kit/commit/e8454c7953e0366cf8ffa27bbe983e2614b06198))
+* **implement-issue:** plan-freshness.sh reads a "(new)" marker as a create, on any verb ([#433](https://github.com/phmatray/ai-migration-kit/issues/433)) ([#439](https://github.com/phmatray/ai-migration-kit/issues/439)) ([75550f4](https://github.com/phmatray/ai-migration-kit/commit/75550f4c976460925f1fdd1cd8eae406f8fe6c60))
+* **merge-pr:** base-run-verdict.sh's literal --report-line, not a paraphrase ([#455](https://github.com/phmatray/ai-migration-kit/issues/455)) ([#459](https://github.com/phmatray/ai-migration-kit/issues/459)) ([b62ef2b](https://github.com/phmatray/ai-migration-kit/commit/b62ef2be3fbc86e7aa68ac2785544ce540cd31fb))
+* **tests:** gate a positive-match grep -q fed by a streaming producer under pipefail ([#391](https://github.com/phmatray/ai-migration-kit/issues/391)) ([#434](https://github.com/phmatray/ai-migration-kit/issues/434)) ([971d641](https://github.com/phmatray/ai-migration-kit/commit/971d6413c9d11e9b10ff27283cd5d12ce49704cf))
+
 ## [2.1.0](https://github.com/phmatray/ai-migration-kit/compare/v2.0.0...v2.1.0) (2026-09-05)
 
 
