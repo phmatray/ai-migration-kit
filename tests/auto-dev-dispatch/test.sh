@@ -72,18 +72,43 @@ for f in "$WORKER_MD" "$MERGE_MD"; do
 done
 
 # --- Task 3: the toplevel assertion, and what a refusal does --------------------------------
+#
+# 3a. Prose, scoped to the actual new sections — NOT a whole-file grep. A whole-file grep for
+#     common words like "re-dispatch" or "BLOCKED" is satisfied by unrelated pre-existing prose
+#     elsewhere in this long document (Step 3's tier-escalation note, Step 4's PARTIAL/BLOCKED
+#     handling) regardless of whether the NEW guard section says anything at all, which would let
+#     this suite pass even if the new prose were deleted outright.
+GUARD_SECTION=$(awk '
+  /^### ⛔ Dispatch-time guard — confirm the worker actually got its own worktree/ { flag=1 }
+  flag { print }
+  /^\*\*Pick each worker.s model from its labels\*\*/ { exit }
+' "$SKILL_MD")
+[ -n "$GUARD_SECTION" ] \
+  || fail "skills/auto-dev/SKILL.md has no '### ⛔ Dispatch-time guard — confirm the worker actually got its own worktree' section"
 
-# 3a. Prose: the doc names the first-act check and the refusal behaviour.
-grep -q "git rev-parse --show-toplevel" "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md does not document the first-act 'git rev-parse --show-toplevel' assertion"
-grep -qi "re-dispatch" "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md does not say the supervisor re-dispatches on a refusal"
-grep -Eqi "not.{0,15}BLOCKED|never.{0,15}BLOCKED" "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md does not say a same-cwd refusal is NOT counted as a BLOCKED issue"
-grep -qi "auto-clean" "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md does not state the auto-clean-only-if-unchanged cleanup nuance for isolation: \"worktree\""
-grep -qi "Needs manual sweep" "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md does not point a leftover worker worktree at '## Needs manual sweep'"
+printf '%s\n' "$GUARD_SECTION" | grep -q "git rev-parse --show-toplevel" \
+  || fail "the new guard section does not document the first-act 'git rev-parse --show-toplevel' assertion"
+printf '%s\n' "$GUARD_SECTION" | grep -qi "re-dispatch" \
+  || fail "the new guard section does not say the supervisor re-dispatches on a refusal"
+printf '%s\n' "$GUARD_SECTION" | grep -Eqi "not.{0,40}BLOCKED|never.{0,40}BLOCKED" \
+  || fail "the new guard section does not say a same-cwd refusal is NOT counted as a BLOCKED issue"
+printf '%s\n' "$GUARD_SECTION" | grep -qi "auto-clean" \
+  || fail "the new guard section does not state the auto-clean-only-if-unchanged cleanup nuance for isolation: \"worktree\""
+printf '%s\n' "$GUARD_SECTION" | grep -qi "Needs manual sweep" \
+  || fail "the new guard section does not point a leftover worker worktree at '## Needs manual sweep'"
+
+# 3a'. The plan also asks Step 4's per-slot handling to say what happens on a refusal — a second,
+# separately-scoped location, so a future edit that removes it from ONE of the two homes is caught.
+STEP4_INTRO=$(awk '
+  /^## Step 4 —/ { flag=1 }
+  flag { print }
+  /^You.re woken by a worker.s report/ { exit }
+' "$SKILL_MD")
+[ -n "$STEP4_INTRO" ] || fail "skills/auto-dev/SKILL.md has no '## Step 4 —' section"
+printf '%s\n' "$STEP4_INTRO" | grep -qi "re-dispatch" \
+  || fail "Step 4's intro does not say the supervisor re-dispatches a worker-toplevel guard refusal"
+printf '%s\n' "$STEP4_INTRO" | grep -Eqi "not.{0,40}BLOCKED|never.{0,40}BLOCKED" \
+  || fail "Step 4's intro does not say a same-cwd refusal is NOT counted as a BLOCKED issue"
 
 # 3b. The decision itself, extracted and RUN — not just grepped for — same discipline as
 #     tests/pr-existence-guard/test.sh.
