@@ -47,7 +47,8 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "implement-issue": 2,
+        "(none)": 1
       },
       "pass": true
     },
@@ -71,7 +72,7 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "(none)": 3
       },
       "pass": true
     }

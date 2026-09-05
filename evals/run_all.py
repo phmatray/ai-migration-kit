@@ -10,6 +10,7 @@ safety model, and how the numbers are read.
 
 import argparse
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import trigger_eval as te
@@ -22,6 +23,45 @@ SKILLS = ["auto-dev", "create-issue", "debug-issue", "deliver-issue", "implement
           "review-sessions", "setup-repo", "triage-backlog"]
 EVALS_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EVALS_DIR / "results"
+
+
+@contextmanager
+def skills_visible(project_root, skills):
+    """Link every skill under test into `<project_root>/.claude/skills/` for the run.
+
+    Why the bench cannot be left to whatever is installed. Detection matches the CANONICAL
+    installed skill name as well as the synthetic command file (see README, "Why a local
+    runner"), so a skill this machine's plugin cache does not carry can only ever fire through
+    the synthetic half — and measures far lower for that reason alone, with nothing in the
+    numbers to say so. Measured on `review-sessions`, which the installed 2.0.0 plugin predates:
+    recall **0.11** uninstalled, **1.00** the moment it was linked in. Same description, same
+    queries, same day; the only variable was the plugin version in the cache.
+
+    A specificity of 1.00 next to a collapsed recall is that fingerprint, and it is
+    indistinguishable by eye from a genuinely weak description — which is how a stale cache
+    would get a good description rewritten. So the bench stops asking the environment: the
+    repo's own `skills/<name>/SKILL.md` is what runs, always.
+
+    Only links this created are removed. A real directory, or a link somebody else put there,
+    is left exactly as found.
+    """
+    dest_dir = Path(project_root) / ".claude" / "skills"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    made = []
+    for skill in skills:
+        source = Path(project_root) / "skills" / skill
+        dest = dest_dir / skill
+        if not source.is_dir() or dest.exists() or dest.is_symlink():
+            continue
+        dest.symlink_to(Path("../..") / "skills" / skill)
+        made.append(dest)
+    if made:
+        print(f"linked {len(made)} skill(s) into .claude/skills/ for the run")
+    try:
+        yield
+    finally:
+        for dest in made:
+            dest.unlink(missing_ok=True)
 
 
 def _run(skill, eval_set, project_root, runs, workers, timeout, threshold, model, known=None):
@@ -57,43 +97,46 @@ def main():
     baseline["threshold"] = args.threshold
     baseline.setdefault("skills", {})
 
-    for skill in skills:
-        eval_path = EVALS_DIR / f"{skill}-trigger-eval.json"
-        if not eval_path.exists():
-            print(f"! skipping {skill}: no {eval_path.name}")
-            continue
-        eval_set = json.loads(eval_path.read_text())
-        out = _run(skill, eval_set, project_root, args.runs_per_query, args.workers,
-                   args.timeout, args.threshold, args.model)
-        (RESULTS_DIR / f"{skill}.json").write_text(json.dumps(out, indent=2) + "\n")
-        s = out["summary"]
-        baseline["skills"][skill] = {
-            "passed": s["passed"], "total": s["total"],
-            "recall": s["recall"], "specificity": s["specificity"],
-        }
-        print(f"[{skill}] {s['passed']}/{s['total']}  recall={s['recall']}  specificity={s['specificity']}")
-
-    # Boundary: same queries, both skills. Each query carries a per-skill expectation.
-    # Skip it on a scoped run that excludes both boundary skills, so `--skills
-    # create-issue` doesn't fire the real boundary queries or churn its artifacts.
-    boundary_path = EVALS_DIR / "boundary-trigger-eval.json"
-    run_boundary = boundary_path.exists() and (
-        not selected or bool({"implement-issue", "merge-pr"} & set(skills)))
-    if run_boundary:
-        boundary = json.loads(boundary_path.read_text())
-        bres = {}
-        for skill in ("implement-issue", "merge-pr"):
-            eval_set = [{"query": q["query"], "should_trigger": q["expect"][skill], "note": q.get("note", "")}
-                        for q in boundary]
+    # Every skill is linked in, not just the selected ones, so a scoped run and a full run
+    # measure the same environment.
+    with skills_visible(project_root, SKILLS):
+        for skill in skills:
+            eval_path = EVALS_DIR / f"{skill}-trigger-eval.json"
+            if not eval_path.exists():
+                print(f"! skipping {skill}: no {eval_path.name}")
+                continue
+            eval_set = json.loads(eval_path.read_text())
             out = _run(skill, eval_set, project_root, args.runs_per_query, args.workers,
-                       args.timeout, args.threshold, args.model,
-                       known=["implement-issue", "merge-pr", "create-issue", "profile-repo"])
-            (RESULTS_DIR / f"boundary-{skill}.json").write_text(json.dumps(out, indent=2) + "\n")
-            bres[skill] = out["summary"]
-            print(f"[boundary→{skill}] {out['summary']['passed']}/{out['summary']['total']}")
-        baseline["boundary"] = bres
+                       args.timeout, args.threshold, args.model)
+            (RESULTS_DIR / f"{skill}.json").write_text(json.dumps(out, indent=2) + "\n")
+            s = out["summary"]
+            baseline["skills"][skill] = {
+                "passed": s["passed"], "total": s["total"],
+                "recall": s["recall"], "specificity": s["specificity"],
+            }
+            print(f"[{skill}] {s['passed']}/{s['total']}  recall={s['recall']}  specificity={s['specificity']}")
 
-    (RESULTS_DIR / "baseline.json").write_text(json.dumps(baseline, indent=2) + "\n")
+        # Boundary: same queries, both skills. Each query carries a per-skill expectation.
+        # Skip it on a scoped run that excludes both boundary skills, so `--skills
+        # create-issue` doesn't fire the real boundary queries or churn its artifacts.
+        boundary_path = EVALS_DIR / "boundary-trigger-eval.json"
+        run_boundary = boundary_path.exists() and (
+            not selected or bool({"implement-issue", "merge-pr"} & set(skills)))
+        if run_boundary:
+            boundary = json.loads(boundary_path.read_text())
+            bres = {}
+            for skill in ("implement-issue", "merge-pr"):
+                eval_set = [{"query": q["query"], "should_trigger": q["expect"][skill], "note": q.get("note", "")}
+                            for q in boundary]
+                out = _run(skill, eval_set, project_root, args.runs_per_query, args.workers,
+                           args.timeout, args.threshold, args.model,
+                           known=["implement-issue", "merge-pr", "create-issue", "profile-repo"])
+                (RESULTS_DIR / f"boundary-{skill}.json").write_text(json.dumps(out, indent=2) + "\n")
+                bres[skill] = out["summary"]
+                print(f"[boundary→{skill}] {out['summary']['passed']}/{out['summary']['total']}")
+            baseline["boundary"] = bres
+
+        (RESULTS_DIR / "baseline.json").write_text(json.dumps(baseline, indent=2) + "\n")
     print(f"\nWrote {RESULTS_DIR}/baseline.json")
 
 
