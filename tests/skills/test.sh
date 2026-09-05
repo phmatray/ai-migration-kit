@@ -487,7 +487,7 @@ import pathlib, sys
 # A THROWAWAY file, deliberately not a real skill: any real one is a plausible next consumer, and
 # a fixture that hard-codes "this file must never be declared" turns red the day someone correctly
 # declares it — a red build caused by closing the very reach gap the boundary exists for.
-# Deliberately OUTSIDE skills/_shared/: #269s sibling-reference exclusion (see check-shared-refs.py)
+# Deliberately OUTSIDE skills/_shared/: the #269 sibling-reference exclusion (see check-shared-refs.py)
 # skips every skills/_shared/*.md candidate in the reverse scan, so a fixture placed there would no
 # longer be caught — this is a plain skill-tree file, exactly the shape a real regression takes.
 p = pathlib.Path(sys.argv[1]) / "skills/zz-unlisted-fixture.md"

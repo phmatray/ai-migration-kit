@@ -55,6 +55,7 @@ silently stops matching cannot pass CI.
 """
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,12 +75,16 @@ LINK_TARGET_RE = re.compile(r'\]\(([^)\s]+)')
 errors = []
 
 
+@lru_cache(maxsize=None)
 def read(path: Path):
     """File text, or None when it cannot be decoded or read.
 
     A single stray non-UTF-8 byte anywhere under the scanned tree would otherwise turn this gate
     into a Python traceback instead of a verdict. tests/skills/test.sh's sibling scanner over the
     same tree takes the same precaution.
+
+    Memoized: the reverse scan below re-visits the same candidate once per declaring document, and
+    nothing on disk changes within a run — so N documents cost one read per file, not N.
     """
     try:
         return path.read_text(encoding="utf-8")
