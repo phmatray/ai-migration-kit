@@ -303,7 +303,10 @@ run_survey "$W1" "$F1b" "$O1b"
 assert_bucket SKIP  107 "$O1b"
 assert_bucket HOLD  108 "$O1b"
 assert_bucket QUEUE 109 "$O1b"
-if grep -F "$(printf '\t#107\t')" "$O1b" | grep -q 'plan=false'; then
+# Herestring, not a pipe into `grep -q` (#391): `grep -F` over the output file is itself a producer
+# that can still be writing when the second grep's match closes the read end.
+row107=$(grep -F "$(printf '\t#107\t')" "$O1b")
+if grep -q 'plan=false' <<<"$row107"; then
   echo "ok: tracking-parent — a Destination/Notes/Decisions body reads plan=false and is SKIP at a dispatchable tier; its planned child queues"
 else
   echo "FAIL: the tracking parent's row does not read plan=false"; cat "$O1b"; exit 1

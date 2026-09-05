@@ -97,8 +97,10 @@ verdict() {
     echo "FAIL [$name]: expected $want, got $decision"; echo "$out"; exit 1
   fi
   if [ -n "$want_msg" ]; then
-    printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' \
-      | grep -qF "$want_msg" || { echo "FAIL [$name]: reason lacks '$want_msg'"; echo "$out"; exit 1; }
+    # Herestring, not a pipe into `grep -q` (#391): `jq` can still be writing when the match
+    # closes the read end.
+    reason=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+    grep -qF "$want_msg" <<<"$reason" || { echo "FAIL [$name]: reason lacks '$want_msg'"; echo "$out"; exit 1; }
   fi
   echo "ok: $name -> $decision"
 }
@@ -201,9 +203,13 @@ ONREPO=$(csharp_repo)
 ONP=$(pay Read "$ONREPO/Forced.cs" "$ONREPO" force-session)
 
 out=$(printf '%s' "$ONP" | env PATH="$NODNX" ROSELINE_GATE=on bash "$GATE" 2>/dev/null || true)
-printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null | grep -qx deny \
+# Herestrings, not pipes into `grep -q` (#391): `jq` can still be writing when the match closes
+# the read end, and under pipefail that SIGPIPE becomes this check's verdict.
+decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null)
+grep -qx deny <<<"$decision" \
   || { echo "FAIL: ROSELINE_GATE=on did not enforce past the failed probe"; echo "$out"; exit 1; }
-printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' | grep -qF search_symbols \
+reason=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+grep -qF search_symbols <<<"$reason" \
   || { echo "FAIL: the forced deny does not name the roseline tool that replaces the Read"; exit 1; }
 echo "ok: ROSELINE_GATE=on enforces where the probe cannot see the server"
 
@@ -289,7 +295,11 @@ esac
 # Comment lines are stripped before matching: a gate that merely MENTIONS the probe in prose while
 # testing something else would satisfy a plain grep, which is precisely the drift being guarded.
 gate_probes() { # $1 gate file  $2 launcher name
-  grep -v '^[[:space:]]*#' "$1" | grep -qF "command -v $2"
+  # Herestring, not a pipe into `grep -q` (#391): `grep -v` is itself a producer that can still be
+  # writing when the second grep's match closes the read end.
+  local uncommented
+  uncommented=$(grep -v '^[[:space:]]*#' "$1")
+  grep -qF "command -v $2" <<<"$uncommented"
 }
 gate_probes "$GATE" "$launcher" || {
   echo "FAIL: hooks/roseline-gate.sh does not probe 'command -v $launcher', the launcher requirements.json declares"
