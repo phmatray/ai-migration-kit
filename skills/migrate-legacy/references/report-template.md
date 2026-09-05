@@ -52,13 +52,16 @@ publish two contradictory coverage figures.
 The tile can declare what it renders, and that is the preferred form:
 
 ```json
-{ "v": "0", "unit": "%", "label": "couverture mesurée (lignes)", "source": "line_pct" }
+{ "v": "0", "unit": "%", "label": "measured coverage (lines)", "source": "line_pct" }
 ```
 
 `source` is either `line_pct` or `branch_pct`. Without it — the case for every `report.json`
 written before — the tile is recognized by its label: a `%` unit and a label naming *coverage*,
 which renders lines, or branches if the label speaks of branches. A tile that is not a coverage
-figure (`green tests`, a business figure) is never touched.
+figure (`green tests`, a business figure) is never touched. **Declare `source` explicitly** rather
+than relying on this fallback: `report-dashboard.py` still matches the label against the French
+substring `couvertur` (#432 tracks translating the generator itself), so an English-only label with
+no `source` field is not recognized yet.
 
 ⚠ **An unmeasured quantity displays `n/a`, never `0%`.** A zero is a number, and on this page a
 number reads as a measurement. Two cases:
