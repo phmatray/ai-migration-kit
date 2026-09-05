@@ -9,6 +9,11 @@ tags:
 code_refs:
 - path: skills/create-issue/SKILL.md
 - path: skills/triage-backlog/SKILL.md
+sources:
+- skills/create-issue/SKILL.md
+- skills/implement-issue/SKILL.md
+- skills/merge-pr/SKILL.md
+- skills/triage-backlog/SKILL.md
 parent: Architectural Decision Records
 nav_order: 5
 ---

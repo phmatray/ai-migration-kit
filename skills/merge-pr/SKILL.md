@@ -35,9 +35,10 @@ blockers and re-waiting until GitHub reports the PR `CLEAN`, then merge.
 
 ## Autonomy contract
 
-Run **hands-off** once started — the user points at a PR and walks away. Whenever a step *could* stop
-for a question, pick the reasonable default, state the assumption, keep going. Stop only for a genuine
-blocker:
+Run **hands-off** once started — the user points at a PR and walks away. See
+[ADR 0005](../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) for the
+decision scope. Whenever a step *could* stop for a question, pick the reasonable default, state the
+assumption, keep going. Stop only for a genuine blocker:
 
 - `gh` not authenticated, or no merge/push rights.
 - The PR doesn't exist, is already merged/closed, or the number is ambiguous.

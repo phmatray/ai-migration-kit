@@ -48,7 +48,9 @@ body, where ticking a task moves the needle.
 
 ## Autonomy contract
 
-Run **hands-off**. The doctrine in `_shared/brainstorm-and-spec.md` descends from an interactive
+Run **hands-off**. See
+[ADR 0005](../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) for the
+decision and its scope. The doctrine in `_shared/brainstorm-and-spec.md` descends from an interactive
 process (ask one question at a time, stop at approval gates); here you run it in **one-shot
 autonomous mode**. Whenever the process would ask or wait for sign-off, **pick the most reasonable default**, state the assumption inline (a short
 "Assumptions" note), and keep going. Only stop for a genuine blocker you can't assume past (`gh` not

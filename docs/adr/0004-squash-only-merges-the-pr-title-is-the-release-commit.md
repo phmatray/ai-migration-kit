@@ -9,6 +9,8 @@ tags:
 code_refs:
 - path: release-please-config.json
 - path: scripts/release-title-gate.sh
+sources:
+- release-please-config.json
 parent: Architectural Decision Records
 nav_order: 4
 ---

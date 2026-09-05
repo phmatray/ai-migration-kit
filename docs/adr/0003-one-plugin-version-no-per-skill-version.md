@@ -9,6 +9,8 @@ tags:
 code_refs:
 - path: tests/skills/check-frontmatter.py
 - path: .claude-plugin/plugin.json
+sources:
+- ARCHITECTURE.md
 parent: Architectural Decision Records
 nav_order: 3
 ---

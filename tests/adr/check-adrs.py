@@ -254,8 +254,16 @@ def check(adr_root):
                             f"{type(links).__name__}")
             links = []
 
+        sources = data.get("sources", [])
+        if sources is None:
+            sources = []
+        if not isinstance(sources, list):
+            failures.append(f"{name}: malformed sources — `sources` must be a list of file paths, "
+                            f"got {type(sources).__name__}")
+            sources = []
+
         records.append({"name": name, "path": path, "id": adr_id, "status": status,
-                        "links": links})
+                        "links": links, "sources": sources, "filename": path.name})
 
     # Pass 2: the rules that need the whole root.
     known_ids = set(r["id"] for r in records if r["id"] is not None)
@@ -308,6 +316,37 @@ def check(adr_root):
             failures.append(f"{name}: superseded without superseded-by — a superseded ADR must "
                             f"carry a link of type `superseded-by` naming what replaced it, or the "
                             f"trail stops here")
+
+    # Rule for sources: verify declared source files exist and mention the ADR back
+    for record in records:
+        name = record["name"]
+        sources = record.get("sources", [])
+        if not sources:
+            continue  # No sources: key, so this rule does not apply
+
+        for source_path in sources:
+            if not isinstance(source_path, str):
+                failures.append(f"{name}: malformed source — each entry in `sources` must be a "
+                                f"string (file path), got {source_path!r}")
+                continue
+
+            source_file = ROOT / source_path
+            if not source_file.is_file():
+                failures.append(f"{name}: dangling source — {source_path} does not exist or is not "
+                                f"a file")
+                continue
+
+            # Check that the source file mentions the ADR filename
+            try:
+                source_text = source_file.read_text(encoding="utf-8")
+            except Exception as e:
+                failures.append(f"{name}: could not read source file {source_path}: {e}")
+                continue
+
+            adr_filename = record["filename"]
+            if adr_filename not in source_text:
+                failures.append(f"{name}: pointer missing at source — {source_path} does not "
+                                f"mention {adr_filename}")
 
     # Rule 7: the rendered index is not stale.
     readme = adr_root / "README.md"

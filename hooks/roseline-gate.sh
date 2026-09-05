@@ -1,21 +1,8 @@
 #!/usr/bin/env bash
 # RoselineMCP enforcement gate (Claude Code PreToolUse, matcher: Read).
 #
-# requirements.json makes RoselineMCP `level: required`, but preflight only proves the server is
-# CONNECTED. This proves it is USED: a Read of a C# file is denied and the reason names the
-# roseline tool that replaces it. Blocking is the point — an advisory reminder loses because the
-# Read still returns the file, so the model is already paid by the time the advice lands.
-#
-# Every failure path exits 0 with no output, which lets the Read through. That direction is
-# deliberate and absolute: the plugin installs globally, so a gate that failed *closed* would
-# deadlock repositories it was never meant to touch. Set ROSELINE_GATE=off to disable it outright.
-#
-# "Cannot enforce" is one of those failure paths, not an exception to them: the gate only blocks
-# where roseline's shipped launcher exists to have started the server (see the `dnx` probe below)
-# — UNLESS the user declares otherwise with ROSELINE_GATE=on. The probe answers "can the shipped
-# launcher have started it?", which is not the same question as "is it running?", and the gap
-# between them belongs to whoever runs roseline by some other route. `off` is still checked first
-# and still wins; `on` only overrides the probe, never the off-switch.
+# Decision: this gate fails open, always. See docs/adr/0002-the-roseline-gate-fails-open-always.md
+# for the context and consequences — do not re-argue it here.
 
 case "${ROSELINE_GATE:-}" in off|0|false|no|disabled) exit 0 ;; esac
 

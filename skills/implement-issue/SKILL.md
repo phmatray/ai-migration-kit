@@ -41,9 +41,11 @@ This skill owns the GitHub/worktree/PR bookkeeping around that doctrine.
 
 ## Autonomy contract
 
-Run **hands-off** once started — the user watches, doesn't babysit. Whenever a step (a dispatched
-sub-agent, the code-review pass, a merge) would pause for a question or sign-off, **pick the reasonable default,
-state the assumption, keep going.** Stop only for a genuine blocker:
+Run **hands-off** once started — the user watches, doesn't babysit. See
+[ADR 0005](../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) for the
+decision scope. Whenever a step (a dispatched sub-agent, the code-review pass, a merge) would pause
+for a question or sign-off, **pick the reasonable default, state the assumption, keep going.** Stop
+only for a genuine blocker:
 
 - `gh` not authenticated, or no push access.
 - No `🛠️ Implementation plan` on the issue — not in body, not in a comment (nothing to execute).

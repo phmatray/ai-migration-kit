@@ -41,11 +41,11 @@ GitHub issues, where until now the only documented way out was to build the thin
 
 ## Autonomy contract
 
-Unlike its siblings, this skill is **not** hands-off, and deliberately so. `merge-pr` runs unattended
-because its irreversible act (the merge) is gated by CI — something objective says yes. Deciding a
-piece of work will not be done has no such gate: it is a judgement about intent, and intent belongs
-to the owner. A fleet that could close its own backlog would report a drained queue it drained by
-declining it.
+Unlike its siblings, this skill is **not** hands-off, and deliberately so. See
+[ADR 0005](../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) for why:
+its irreversible act (closing an issue) is a judgement about intent, and intent belongs to the owner —
+unlike a merge, which is gated by CI, something objective saying yes. A fleet that could close its own
+backlog would report a drained queue it drained by declining it.
 
 So: **propose everything, execute only what's confirmed.** Investigation, clustering, verification
 and the proposal all run without asking. The confirmation is one batched pass, not a question per
