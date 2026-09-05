@@ -292,8 +292,16 @@ declares, in the order it declares them, not a hardcoded S/M/L/XL spelling (#213
 The **one judgment left to you is area-tagging** the QUEUE rows (infer from title/labels: `compiler`,
 `php`, `website`, `studio-frontend`, `tests`, `ci/build`) — enough to tell "these two would fight."
 
-Persist a **state file** outside the repo (a scratch/temp dir, not a tracked path) so the fleet
-survives compaction and `loop` re-fires. Keep it small and current:
+Persist a **state file** at the pinned, derivable path
+
+```
+${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev-<owner>-<repo>.md
+```
+
+(`mkdir -p` its parent directory first) — still outside the repo and never a tracked path, so the
+fleet survives compaction and `loop` re-fires, and now at a location `hooks/autodev-stop-gate.sh`
+(#417) can compute from `git remote` without being told, so two repositories cannot contend for one
+path. Keep it small and current:
 
 ```markdown
 # auto-dev state — <repo>, N=<concurrency> · merges: <total> · queue last refreshed @ <merge# of last refresh> · last compacted @ <merge# of last compact>
@@ -752,7 +760,15 @@ finish and land, retire them, then summarize: issues merged (with PR numbers), f
 blocked or skipped (with reasons), what remains (e.g. held L/XL items), and any `## Needs manual
 sweep` entries still on the state file — that section has no automated reader anywhere else in this
 skill, so the final summary is the only place a human reliably sees a leftover worktree/branch before
-the (untracked) state file is discarded.
+the state file is discarded.
+
+**Remove the state file** at its pinned path (Step 2) once the queue has fully drained — `rm -f
+"${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev-<owner>-<repo>.md"`.
+This is what `hooks/autodev-stop-gate.sh` (#417) reads as "no fleet is running here": its positive
+evidence is the file's presence, so leaving a drained fleet's file behind would leave the gate
+believing work is still undrained the next time a session tries to stop in this repo. Don't remove it
+on a mid-run stop (the user says stop while workers are still in flight) — only once the drain above
+is actually complete.
 
 **Boundary findings** — the shared block ([`../_shared/recap.md#the-boundary-findings-block`](../_shared/recap.md#the-boundary-findings-block)), collected from the workers: every `DETAIL:` field
 that reported a passage failing the boundary goes in this summary, by issue number, or `None`. A
