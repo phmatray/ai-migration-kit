@@ -39,23 +39,42 @@ command -v git >/dev/null 2>&1 || exit 0
 command -v awk >/dev/null 2>&1 || exit 0
 command -v find >/dev/null 2>&1 || exit 0
 
-active=$(jq -r '.stop_hook_active // false' <<<"$payload" 2>/dev/null) || exit 0
+# One jq invocation for both fields — this runs on every Stop event in every repo the plugin is
+# installed in (the common case has no fleet at all), so the universal hot path is worth not
+# forking jq twice for it. The `||` guards jq's own exit status on the assignment itself — putting
+# it on a `read <<EOF` heredoc line instead (an earlier draft did) makes it dead text fed to `read`
+# as data, not a shell operator, so a failed jq call falls through with `cwd` corrupted rather than
+# actually exiting.
+tsv=$(jq -r '[(.stop_hook_active // false), (.cwd // "")] | @tsv' <<<"$payload" 2>/dev/null) || exit 0
+read -r active cwd <<<"$tsv"
 [ "$active" = "true" ] && exit 0
-
-cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null) || exit 0
 [ -n "$cwd" ] && [ -d "$cwd" ] || exit 0
 
 # ---------------------------------------------------------------- which repository is this?
 # The state file is keyed by owner/repo, not by worktree path, so every worktree of the same
 # repository resolves to the SAME file (skills/auto-dev/SKILL.md Step 2). A repo with no `origin`
 # remote, or no git at all at this cwd, gives the hook nothing to key the file on — fail open.
+# skills/auto-dev/SKILL.md's Step 2 spells this SAME derivation for whatever writes the file, so
+# the two sides of the key agree by construction rather than by two authors reading one template.
 remote_url=$(git -C "$cwd" remote get-url origin 2>/dev/null) || exit 0
 [ -n "$remote_url" ] || exit 0
-# Strip a trailing `.git`, then take the last two `/`- or `:`-separated segments — matches
+# One sed, two edits: drop a trailing `.git` AND any trailing slash first (`https://host/owner/repo/`
+# — a bare trailing slash otherwise survives to the capture below and the whole URL falls through as
+# "unparsed" instead of resolving), then take the last two `/`- or `:`-separated segments — matches
 # `https://host/owner/repo(.git)`, `git@host:owner/repo(.git)` and `ssh://git@host/owner/repo(.git)`.
-owner_repo=$(printf '%s' "$remote_url" | sed -E 's#\.git$##' | sed -E 's#.*[:/]([^/:]+/[^/:]+)$#\1#')
+owner_repo=$(printf '%s' "$remote_url" | sed -E -e 's#(\.git)?/*$##' -e 's#.*[:/]([^/:]+)/([^/:]+)$#\1/\2#')
+# Both halves must be non-empty and free of the two characters the join below relies on being
+# absent — `/` (the field separator this line just removed) and NUL. A malformed remote (no `:` or
+# `/` before the capture, or a capture that swallowed the whole string) leaves `owner_repo` equal to
+# the untouched `$remote_url`, which is exactly what `*/*` alone let through when the URL itself
+# still contained a `/` (a bare `https://github.com/acme/widgets/` matched `*/*` on its own trailing
+# slash before this fix). Splitting and checking each half is what a single `*/*` cannot do.
+owner="${owner_repo%%/*}"
+repo="${owner_repo#*/}"
 case "$owner_repo" in */*) ;; *) exit 0 ;; esac
-owner_repo_dash=$(printf '%s' "$owner_repo" | tr '/' '-')
+[ -n "$owner" ] && [ -n "$repo" ] || exit 0
+case "$repo" in */*) exit 0 ;; esac
+owner_repo_dash="$owner-$repo"
 
 state_base="${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}"
 state_file="$state_base/ai-migration-kit/auto-dev-${owner_repo_dash}.md"
