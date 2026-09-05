@@ -37,10 +37,6 @@ rendra rentable (YAGNI sinon).
   fait pas. Dû avant la prochaine release : `python3 evals/run_all.py --runs-per-query 3`, comparaison
   à `evals/results/baseline.json` (frontière `implement-issue` ↔ `merge-pr` : 6/6 de chaque côté).
   Tant que ce n'est pas fait, le plafond souple reste à 700 et la cible ~450 de #323 attend.
-- **Traduction anglaise des 4 references françaises de `migrate-legacy`** (audit-executive,
-  delivery-playbook, report-template, rewrite-playbook) : la surface distribuée est anglaise
-  depuis v1.7.0 (SKILL.md, commandes), ces references restent françaises. Déclencheur : premier
-  utilisateur non francophone du kit, ou première retouche de fond d'une de ces references.
 - **Optimisation du déclenchement du skill `review-followups`** : la boucle skill-creator (5 itérations,
   20 requêtes, 3 mesures chacune) n'a départagé aucune variante — en sonde headless sans contexte
   de repo, le skill ne se déclenche presque jamais (positifs ≈ 0/3), donc la mesure est au
