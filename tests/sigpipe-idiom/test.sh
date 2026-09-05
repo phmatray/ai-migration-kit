@@ -14,6 +14,7 @@
 #   i. `find … | grep -q .` present under BOTH tests/ and scripts/ -> both REFUSED
 #   j. a clean tree (no offending files at all)            -> exit 0, silent
 #   k. a directory that does not exist                     -> exit 2, no verdict
+#   l. a pipeline spanning a `\` line continuation          -> REFUSED, on the grep -q line
 #
 # Sections are labelled, never fractioned -- a denominator goes stale the moment a case is added.
 #
@@ -142,6 +143,16 @@ out=$(run_check "$WORK/does-not-exist"); rc=$?
 [ "$rc" -eq 2 ] \
   && ok "k. a directory that does not exist -- exit 2, no verdict" \
   || { bad "k. expected rc=2, got rc=$rc: $out"; }
+
+# ------------------------------------------- l. line continuation, joined before matching (#391)
+# A physical-line-only scan misses this shape entirely: neither line alone carries both a
+# producer and a `grep -q` — the reader is where the Spec says to report it (the line it sits on).
+scaffold
+printf '%s\n%s\n' "awk '/a/,/b/' f | \\" "  grep -q x" > "$WORK/repo/tests/fixture/l.sh"
+out=$(run_check "$WORK/repo"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/l.sh:2' \
+  && ok "l. a pipeline spanning a \\ line continuation -- REFUSED, on line 2 (the grep -q line)" \
+  || { bad "l. expected rc=1 naming tests/fixture/l.sh:2, got rc=$rc: $out"; }
 
 echo
 if [ "$fails" -eq 0 ]; then

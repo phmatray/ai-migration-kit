@@ -97,8 +97,10 @@ verdict() {
     echo "FAIL [$name]: expected $want, got $decision"; echo "$out"; exit 1
   fi
   if [ -n "$want_msg" ]; then
-    printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' \
-      | grep -qF "$want_msg" || { echo "FAIL [$name]: reason lacks '$want_msg'"; echo "$out"; exit 1; }
+    # Herestring, not a pipe into `grep -q` (#391): `jq` can still be writing when the match
+    # closes the read end.
+    reason=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+    grep -qF "$want_msg" <<<"$reason" || { echo "FAIL [$name]: reason lacks '$want_msg'"; echo "$out"; exit 1; }
   fi
   echo "ok: $name -> $decision"
 }

@@ -187,6 +187,49 @@ def offending_line(line):
     return False
 
 
+def _trailing_backslash_count(s):
+    n = 0
+    for ch in reversed(s):
+        if ch != "\\":
+            break
+        n += 1
+    return n
+
+
+def _is_continuation(line):
+    # A line ending in an ODD run of backslashes is a real shell line continuation; an even run
+    # is that many literal backslashes (the last one escaped by its neighbour), continuing
+    # nothing. A comment line's trailing `\` continues no shell statement either.
+    if line.strip().startswith("#"):
+        return False
+    return _trailing_backslash_count(line) % 2 == 1
+
+
+def logical_lines(text):
+    """Yield (reporting_lineno, joined_text) -- a line-continued pipeline is joined into ONE
+    logical line before matching, and reported at the line carrying the tail of the pipeline
+    (where `grep -q` actually sits), per the shape a continued `producer | \\` / `  grep -q x`
+    pipeline has: the reader is what closes early, and the reader is always last."""
+    lines = text.splitlines()
+    i, n = 0, len(lines)
+    while i < n:
+        if not _is_continuation(lines[i]):
+            yield (i + 1, lines[i])
+            i += 1
+            continue
+        group = []
+        j = i
+        while j < n and _is_continuation(lines[j]):
+            seg = lines[j]
+            group.append(seg[: -1] if seg.endswith("\\") else seg)
+            j += 1
+        if j < n:
+            group.append(lines[j])
+        last_idx = min(j, n - 1)
+        yield (last_idx + 1, " ".join(group))
+        i = j + 1
+
+
 def tracked_files(repo):
     gitbin = "git"
     try:
@@ -231,9 +274,9 @@ def main():
             text = path.read_text(encoding="utf-8", errors="strict")
         except (OSError, UnicodeDecodeError):
             continue
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if offending_line(line):
-                findings.append((rel, lineno, line.strip()))
+        for lineno, joined in logical_lines(text):
+            if offending_line(joined):
+                findings.append((rel, lineno, joined.strip()))
 
     if not findings:
         return 0
