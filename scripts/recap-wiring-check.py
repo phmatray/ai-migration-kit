@@ -449,7 +449,7 @@ def check_boundary_block(repo):
             refusals.append(
                 "REFUSE: %s's boundary-findings block lists `%s`, but %s's ## Consumers names no "
                 "skills/%s/SKILL.md — either it reads no untrusted text and the entry is stale, "
-                "or the Consumers list is" % (RECAP_REL, name, BOUNDARY_DOC_REL, name))
+                "or the Consumers list is out of date" % (RECAP_REL, name, BOUNDARY_DOC_REL, name))
 
     listed_set = set(listed)
     for name in skill_dirs(repo):
