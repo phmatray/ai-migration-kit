@@ -212,6 +212,11 @@ DEP_FIELDS=$BASE_FIELDS,blockedBy,blocking,subIssues,assignees
 # would have turned that infra fallback into an outright abort. The stderr capture below is the one
 # thing that genuinely needs a file (a pipeline cannot separate a command's two streams into two
 # variables in one run), so it is optional and its absence is a named, degraded path.
+#
+# `--paginate`, not `--limit 300` (#367): a bounded page let an OPEN body-line blocker sitting past
+# the cut read as closed, since membership in `$open` is the only signal a bare `#n` ref has. This
+# call therefore has no cap on how large a single run can grow — that is deliberate, not an oversight
+# to tighten later: a truncated `$open` is the bug this fixes, not a performance knob worth keeping.
 if ! GH_ERR_FILE="$(mktemp 2>/dev/null)"; then
   GH_ERR_FILE=""
 fi
