@@ -98,3 +98,12 @@ This ensures commits are authored with the canonical identity (usually GitHub, n
 ---
 
 **Each lifecycle skill's Step 1 links to this file and adds only its own required profile sections.**
+
+## Consumers
+
+- `skills/create-issue/SKILL.md` — Step 1 loads the repo profile and verifies authentication
+- `skills/deliver-issue/SKILL.md` — Step 1 loads the repo profile and verifies authentication
+- `skills/implement-issue/SKILL.md` — Step 1 loads the repo profile, verifies authentication, and prepares the commit-identity shorthand
+- `skills/merge-pr/SKILL.md` — Step 1 loads the repo profile, verifies authentication, and prepares the commit-identity shorthand
+- `skills/review-sessions/SKILL.md` — Step 1 loads the repo profile (the *ADRs* root and the *Identity* slug feed later steps)
+- `skills/triage-backlog/SKILL.md` — Step 1 loads the repo profile, verifies authentication, and prepares the commit-identity shorthand
