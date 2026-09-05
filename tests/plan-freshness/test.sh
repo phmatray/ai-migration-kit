@@ -230,7 +230,7 @@ want_line "C18 …and its stale path is named " "MISSING modify gone.sh (Task 1)
 
 echo "== a task's own \"no file\" idiom is not a path (#403) =="
 #
-# \`create-issue\`'s own doctrine (skills/_shared/plan-shape.md) writes \`**Files:** none expected.\`
+# `create-issue`'s own doctrine (skills/_shared/plan-shape.md) writes `**Files:** none expected.`
 # on a verification-only task — every issue filed under it does, #396's Task 4 and #372's Task 4
 # among them. Treating that phrase as a path name reports a fresh plan STALE on every such task.
 cat > "$WORK/no-file.md" <<'PLAN'
@@ -252,7 +252,7 @@ fi
 
 echo "== …but a real-looking path is still checked, not waved through (#403) =="
 #
-# The negative: one word changed (\`none expected\` -> \`none-such.md\`) must flip exit 0 back to 5 —
+# The negative: one word changed (`none expected` -> `none-such.md`) must flip exit 0 back to 5 —
 # proving "none" did not become a magic word that hides a typo.
 cat > "$WORK/no-file-typo.md" <<'PLAN'
 ## 🛠️ Implementation plan
@@ -265,6 +265,29 @@ cat > "$WORK/no-file-typo.md" <<'PLAN'
 PLAN
 run_case "C26 a real-looking path still stales" 5 "$WORK/no-file-typo.md"
 want_line "C27 …and is named MISSING          " "MISSING modify none-such.md (Task 1)"
+
+echo "== a parenthetical after the no-file phrase is still no-file (#403 Spec edge case) =="
+#
+# create-issue's own template pattern for asides (proven above at C11/C12) composes with this
+# idiom too: `none expected (the PR description records the check).` The payload-level
+# parenthetical strip (the C11/C12 machinery) removes the aside before the no-file list is ever
+# consulted, so the leading `none expected` is what the list actually sees.
+cat > "$WORK/no-file-aside.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: verify the fix
+
+**Files:** none expected (the PR description records the check).
+
+- [ ] **Step 1:** run the suite and confirm it is green.
+PLAN
+run_case "C28 'none expected (aside)' exits 0 " 0 "$WORK/no-file-aside.md"
+if grep -Eq 'MISSING|^OK |^SKIP' "$OUT"; then
+  note_fail "C29 …and prints no verdict line   — got:"
+  sed 's/^/      /' "$OUT"
+else
+  note_ok "C29 …and prints no verdict line   "
+fi
 
 echo "== every no-verdict condition is exit 2 — none of them may read as 'fresh' =="
 #
