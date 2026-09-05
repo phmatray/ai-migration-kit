@@ -53,6 +53,21 @@ iso_count=$(printf '%s\n' "$STEP3" | grep -cF 'isolation: "worktree"' || true)
 grep -qF 'Agent(subagent_type: general-purpose, model: <tier>, run in background,' "$SKILL_MD" \
   || fail "the phase-1 spawn block's opening line moved or was reworded — check it still carries isolation: \"worktree\""
 
+# 1'. The guard needs two ends wired, not just documented: the supervisor captures its OWN
+# toplevel once (Step 1), and BOTH dispatch prompts hand it to the worker as a per-dispatch fact
+# (Step 3) — a Spec-review finding on this issue caught the guard prose existing with neither end
+# actually wired, which no earlier version of this suite could have caught.
+STEP1=$(awk '/^## Step 1 —/{flag=1} /^## Step 2 —/{flag=0} flag' "$SKILL_MD")
+[ -n "$STEP1" ] || fail "skills/auto-dev/SKILL.md has no '## Step 1 —' section"
+printf '%s\n' "$STEP1" | grep -q "git rev-parse --show-toplevel" \
+  || fail "Step 1 does not capture the supervisor's own toplevel"
+printf '%s\n' "$STEP1" | grep -qi "SUPERVISOR_TOPLEVEL" \
+  || fail "Step 1 does not name the SUPERVISOR_TOPLEVEL value the guard compares against"
+
+toplevel_fact_count=$(printf '%s\n' "$STEP3" | grep -cF 'SUPERVISOR_TOPLEVEL=' || true)
+[ "$toplevel_fact_count" -ge 2 ] \
+  || fail "Step 3's dispatch prompts pass 'SUPERVISOR_TOPLEVEL=' $toplevel_fact_count time(s); expected at least 2 (phase-1 AND phase-2 prompts)"
+
 # Gotchas names the cwd-inheritance hazard, so the next reader doesn't rediscover it cold.
 GOTCHAS=$(awk '/^## Gotchas /{flag=1} flag' "$SKILL_MD")
 [ -n "$GOTCHAS" ] || fail "skills/auto-dev/SKILL.md has no '## Gotchas' section"
@@ -69,6 +84,14 @@ for f in "$WORKER_MD" "$MERGE_MD"; do
     || fail "$f does not warn against calling make-worktree.sh for another worktree"
   grep -qi "never touch\|do not touch\|outside your own\|outside its own\|outside the worktree" "$f" \
     || fail "$f does not forbid touching a path outside its own worktree"
+  # The command file must instruct the WORKER to actually run the check, not just document that
+  # the check exists elsewhere (SKILL.md) — this is the exact gap the Spec review found.
+  grep -q "git rev-parse --show-toplevel" "$f" \
+    || fail "$f does not instruct the worker to run 'git rev-parse --show-toplevel' as its first act"
+  grep -qi "SUPERVISOR_TOPLEVEL" "$f" \
+    || fail "$f does not tell the worker to compare against the prompt's SUPERVISOR_TOPLEVEL value"
+  grep -qi "worker-toplevel guard" "$f" \
+    || fail "$f does not point the worker at the worker-toplevel guard block to run the comparison"
 done
 
 # --- Task 3: the toplevel assertion, and what a refusal does --------------------------------
