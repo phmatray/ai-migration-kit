@@ -81,10 +81,24 @@ case "$cmd" in *git*) ;; *) exit 0 ;; esac
 # are folded to `;` below, so `cat > x.sh <<'SH'` … `git commit -m x` … `SH` would be judged as a
 # real commit and denied — blocking the writing of any script, doc or test whose text contains one
 # of these lines, which this repository's own suites do. A parse it cannot trust is fail-open (the
-# same rule the unterminated-quote branch below follows), so a command carrying `<<` (heredoc) or
-# `<<<` (here-string) is let through whole. The cost is a real `git commit` sharing a line with a
-# heredoc; the alternative is a gate that makes `Write`-by-heredoc impossible in every profiled repo.
-case "$cmd" in *'<<'*) exit 0 ;; esac
+# same rule the unterminated-quote branch below follows), so the BODY is discarded outright. But the
+# line that OPENS the heredoc is not the body — it is ordinary, parseable shell sitting before the
+# `<<`, and it is exactly where a destructive git write lives when the message or ref list is spelled
+# as a heredoc (`git commit -F - <<'MSG'`, the natural long-message form). Discarding the whole
+# command, opener included, let that write launder straight past the gate (#440): two real commits
+# landed unguarded in the session that found it, denied correctly the one time `-m` was used instead.
+# So the command is truncated at the first `<<` and only the discarded TAIL is ever unparsed — the
+# opener is judged exactly as it would be with no heredoc at all. `${cmd%%<<*}` cuts at the first `<<`
+# (a second heredoc later on the same line sits inside the discarded tail and cannot resurrect the
+# problem), and it runs BEFORE the quote/comment stripping below, so an unterminated quote inside the
+# discarded body can never make the awk stripper fail and re-trigger the fail-open path on its own.
+# `<<<` (here-string) is a prefix of `<<` and is truncated the same way — a behaviour change from
+# letting it through whole, and the correct one: `git push <<< x` is a push. A command that is only a
+# heredoc opener (`cat <<X`) truncates to `cat `, which carries no `git` token and exits at the cheap
+# reject above. The residual gap: a SECOND command sharing the line after the heredoc's terminator is
+# still never judged — strictly no worse than today, and the trigger for a real heredoc parser
+# (tracking the terminator, excising just the body) if that tail is ever seen carrying a write.
+case "$cmd" in *'<<'*) cmd="${cmd%%<<*}" ;; esac
 
 cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null) || exit 0
 
