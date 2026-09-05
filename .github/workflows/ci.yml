@@ -394,14 +394,15 @@ jobs:
       - name: Skill frontmatter conforms to the guide (limits, fields, trigger eval sets, requirements cross-check)
         run: python3 tests/skills/check-frontmatter.py
 
-      # #266. The boundary itself is prose and cannot go red; its REACH can. This asserts both
-      # directions — every consumer the doc names still links it (and the link RESOLVES), and
-      # nothing in skills/, commands/, templates/, docs/ or the repo root links it without being
-      # named — so a rewrite that drops the reminder from an ingest point fails here rather than
-      # silently leaving that step reading foreign text with no boundary stated. The golden cases
-      # that prove this checker can still refuse ride in the suite step below.
-      - name: Untrusted-input boundary is linked from every ingest point (and nothing links it unlisted)
-        run: python3 tests/skills/check-untrusted-boundary.py
+      # #266, generalized to every skills/_shared/*.md document by #269. Each is prose and cannot
+      # go red; its REACH can. This asserts both directions for every document that opts in with
+      # its own '## Consumers' section — every consumer it names still links it (and the link
+      # RESOLVES), and nothing in skills/, commands/, templates/, docs/ or the repo root links it
+      # without being named — so a rewrite that drops the reminder from an ingest point fails here
+      # rather than silently leaving that step reading foreign text with no reference stated. The
+      # golden cases that prove this checker can still refuse ride in the suite step below.
+      - name: Every declaring shared reference is linked from every consumer (and nothing links it unlisted)
+        run: python3 tests/skills/check-shared-refs.py
 
       # The frontmatter checker asserts a key is ABSENT, which the six real skills already
       # satisfy — so its pass path proves nothing and a guard that stopped matching would

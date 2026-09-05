@@ -40,7 +40,12 @@ mkdir -p "$WORK/root"
 # evals/<skill>-trigger-eval.json, so a root without evals/ answers "trigger eval set missing"
 # for every skill. Unlike commands/ it IS mutated — by run_eval_case below, which restores it
 # from $PRISTINE the same way run_case restores skills/.
-cp -R skills tests commands evals requirements.json "$WORK/root/"
+# docs/, ARCHITECTURE.md and README.md join the scratch world for #269: check-shared-refs.py now
+# checks every skills/_shared/*.md document that declares '## Consumers', not just the boundary,
+# and several of those declared consumers live outside skills/ (docs/methodology.md,
+# ARCHITECTURE.md, README.md) — a root without them answers NO SUCH CONSUMER on the untouched
+# baseline itself. Never mutated, same reasoning as commands/.
+cp -R skills tests commands evals requirements.json docs ARCHITECTURE.md README.md "$WORK/root/"
 ROOT="$WORK/root"
 PRISTINE="$WORK/pristine"
 mkdir -p "$PRISTINE"
@@ -395,24 +400,29 @@ fi
 echo "check-frontmatter golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
-# check-untrusted-boundary.py (#266) — the same ABSENCE-rule problem, in both directions.
+# check-shared-refs.py (#266, generalized by #269) — the same ABSENCE-rule problem, in both
+# directions, over every `skills/_shared/*.md` document that opts in with a `## Consumers`
+# section — not just the untrusted-input boundary #266 first wrote it for.
 #
-# The real tree satisfies the guard by construction: five consumers, all linked, none unlisted.
-# So its pass path proves nothing on its own — narrow a pattern, mistype the marker, or drop the
-# rule-4 glob and it keeps printing "boundary OK" while enforcing less and less. These cases are
-# the missing witness, one per refusal the checker claims to make.
+# The real tree satisfies the guard by construction: every declaring document's consumers are all
+# linked, none unlisted. So its pass path proves nothing on its own — narrow a pattern, mistype the
+# marker, or drop the rule-4 glob and it keeps printing "OK" while enforcing less and less. These
+# cases are the missing witness, one per refusal the checker claims to make.
 #
 # The reverse rule (UNLISTED LINKER) is the one that matters most here and the one no fixture-free
-# run can ever exercise: it fires only when a file points at the boundary WITHOUT being declared,
-# which by definition never happens in a tree that is passing. Without case B3 it could stop
-# matching entirely and every CI run would still be green.
+# run can ever exercise: it fires only when a file points at a declaring document WITHOUT being
+# declared, which by definition never happens in a tree that is passing. Without case B3 it could
+# stop matching entirely and every CI run would still be green.
 #
-# Each of the six error markers gets its own case, and the two that mean "the inventory could not
-# be read" additionally assert that UNLISTED LINKER is ABSENT. That second half is not padding: the
-# first version of this checker answered a deleted boundary file with five "absent from ## Consumers
-# in <the file that does not exist>" lines — a refusal contradicting itself — and a suite that only
-# greps for the expected marker certifies that output as correct (#266 review).
-echo "== the untrusted-input boundary must stay linked, in both directions (#266) =="
+# Each error marker gets its own case, driven against the boundary doc — its original and
+# best-populated witness. B5/B6 used to be two more refusals (NO CONSUMERS SECTION / NO BOUNDARY
+# FILE); #269's opt-in rule retires both as errors — see the comment above them.
+#
+# Cases S1/S2 are the multi-document behaviour #269 added: an undeclared `skills/_shared/*.md` is
+# skipped rather than refused (the opt-in rule), and a SECOND declaring document is actually
+# checked — under the pre-#269 single-document checker, S2's fixture would pass, since only the
+# boundary was ever read.
+echo "== every declaring shared reference must stay linked, in both directions (#266, #269) =="
 
 # run_boundary_case <label> <expect: pass|fail> <expected marker> <forbidden marker|""> <mutator>
 # Same shape as run_case: restore skills/ from $PRISTINE, mutate, run the checker over $ROOT.
@@ -424,7 +434,7 @@ run_boundary_case() {
   python3 -c "$mutator" "$ROOT"
   local out rc
   set +e
-  out=$(python3 "$ROOT/tests/skills/check-untrusted-boundary.py" 2>&1)
+  out=$(python3 "$ROOT/tests/skills/check-shared-refs.py" 2>&1)
   rc=$?
   set -e
   if [ "$expect" = fail ]; then
@@ -477,8 +487,11 @@ import pathlib, sys
 # A THROWAWAY file, deliberately not a real skill: any real one is a plausible next consumer, and
 # a fixture that hard-codes "this file must never be declared" turns red the day someone correctly
 # declares it — a red build caused by closing the very reach gap the boundary exists for.
-p = pathlib.Path(sys.argv[1]) / "skills/_shared/zz-unlisted-fixture.md"
-p.write_text("Read it under [the boundary](./untrusted-input-boundary.md).\n", encoding="utf-8")
+# Deliberately OUTSIDE skills/_shared/: #269s sibling-reference exclusion (see check-shared-refs.py)
+# skips every skills/_shared/*.md candidate in the reverse scan, so a fixture placed there would no
+# longer be caught — this is a plain skill-tree file, exactly the shape a real regression takes.
+p = pathlib.Path(sys.argv[1]) / "skills/zz-unlisted-fixture.md"
+p.write_text("Read it under [the boundary](./_shared/untrusted-input-boundary.md).\n", encoding="utf-8")
 '
 
 run_boundary_case "B4 a listed link is wrong-depth   " fail "BROKEN LINK:" "" '
@@ -492,7 +505,14 @@ t = t.replace("](../../_shared/untrusted-input-boundary.md)", "](../_shared/untr
 p.write_text(t, encoding="utf-8")
 '
 
-run_boundary_case "B5 the Consumers section is gone  " fail "NO CONSUMERS SECTION:" "UNLISTED LINKER:" '
+# B5 and B6 used to be FAIL cases (NO CONSUMERS SECTION / NO BOUNDARY FILE): the single-document
+# checker treated the boundary as mandatory, so losing its section or the file itself was a hard
+# refusal. #269's opt-in rule (S1 above) is universal — it does not carve out an exception for a
+# document that HAD declared and stopped — so both mutations now make this document silently
+# SKIPPED like any other undeclared one, never refused. That is a deliberate consequence of
+# generalizing the mechanism, not a loosened guard: the design explicitly treats every
+# skills/_shared/*.md document as equally optional-until-declared, the boundary included.
+run_boundary_case "B5 the Consumers section is gone  " pass "" "" '
 import pathlib, re, sys
 p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
 t = p.read_text(encoding="utf-8")
@@ -502,7 +522,7 @@ t = p.read_text(encoding="utf-8")
 p.write_text(re.split(r"(?m)^## Consumers\s*$", t, maxsplit=1)[0], encoding="utf-8")
 '
 
-run_boundary_case "B6 the boundary file is deleted   " fail "NO BOUNDARY FILE:" "UNLISTED LINKER:" '
+run_boundary_case "B6 the boundary file is deleted   " pass "" "" '
 import pathlib, sys
 (pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md").unlink()
 '
@@ -527,11 +547,32 @@ p.write_text(t + "\n- Anything else that grows an ingest point belongs on this l
 
 run_boundary_case "B9 untouched baseline             " pass "" "" 'import sys'
 
+run_boundary_case "S1 undeclared doc is skipped      " pass "" "" '
+import pathlib, sys
+# No ## Consumers section, and nothing links it — the opt-in rule (#269): a shared reference that
+# has not declared its reach yet must never fail CI for existing, or adopting the section anywhere
+# would train people to delete it rather than fill it in.
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/zz-fixture-ref.md"
+p.write_text("# A fixture shared reference\n\nNo Consumers section, and nothing links it.\n", encoding="utf-8")
+'
+
+run_boundary_case "S2 a second declaring doc checked  " fail "MISSING LINK:" "" '
+import pathlib, sys
+# Under the pre-#269, single-document checker this fixture PASSES — only the boundary was ever
+# read. Declaring ## Consumers here must make this second document checked in its own right.
+p = pathlib.Path(sys.argv[1]) / "skills/_shared/zz-fixture-ref.md"
+p.write_text(
+    "# A fixture shared reference\n\n"
+    "## Consumers\n\n"
+    "- `skills/merge-pr/SKILL.md` - a fixture entry naming a real file that never links back\n",
+    encoding="utf-8")
+'
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1
 fi
-echo "check-untrusted-boundary golden test: all cases behaved as specified"
+echo "check-shared-refs golden test: all cases behaved as specified"
 
 # ---------------------------------------------------------------------------------------------
 # skills/_shared/test-seams.md must exist and create-issue must link it (#310). The Spec
