@@ -103,7 +103,12 @@ section() { # $1 file  $2 heading regex (anchored at line start)
 in_flight=$(section "$state_file" '^## In flight')
 queue=$(section "$state_file" '^## Queue')
 
-in_flight_count=$(printf '%s\n' "$in_flight" | grep -oE '#[0-9]+' | wc -l | tr -d ' ')
+# In flight is counted by SLOT LINE (`grep -c '^- '`), not by `#NNN` token: a slot's phase can
+# legitimately carry two — "PR #<pr> ready→merging" names both the issue and the PR on one line
+# (skills/auto-dev/SKILL.md Step 2's own template) — and counting tokens double-counts that slot.
+# Queue rows carry exactly one issue ref each with no PR-number companion, so token-counting is
+# still correct there.
+in_flight_count=$(printf '%s\n' "$in_flight" | grep -c '^- ' || true)
 queue_count=$(printf '%s\n' "$queue" | grep -oE '#[0-9]+' | wc -l | tr -d ' ')
 
 [ "$((in_flight_count + queue_count))" -gt 0 ] || exit 0

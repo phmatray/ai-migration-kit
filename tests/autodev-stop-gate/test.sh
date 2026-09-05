@@ -103,6 +103,19 @@ write_state "- Slot A → #123 (auto-dev) — implementing" ""
 verdict "AC3 one in-flight slot refuses" 2 "$(pay "$REPO" false)" "$SDIR" "" \
   "acme/widgets" "1" "AUTODEV_GATE=off"
 
+# --------------------------------------- 3b. a slot line naming TWO #NNN tokens counts as ONE slot
+# skills/auto-dev/SKILL.md's own template lets a slot's phase read "PR #<pr> ready→merging" — the
+# issue number and the PR number on the SAME line. in_flight_count must count slot LINES, not `#`
+# tokens, or this one slot reports as two.
+write_state "- Slot A → #123 (auto-dev) — PR #456 ready→merging" ""
+out=$(printf '%s' "$(pay "$REPO" false)" | env AUTODEV_STATE_DIR="$SDIR" AUTODEV_GATE="" bash "$GATE" 2>&1 1>/dev/null) || true
+grep -qF '1 in-flight slot(s)' <<<"$out" \
+  || { echo "FAIL [two-# slot line]: expected '1 in-flight slot(s)', got: $out"; exit 1; }
+grep -qF '2 in-flight slot(s)' <<<"$out" \
+  && { echo "FAIL [two-# slot line]: overcounted — a slot naming issue+PR read as two slots: $out"; exit 1; }
+echo "ok: a slot naming both #issue and #PR counts as one in-flight slot"
+write_state "- Slot A → #123 (auto-dev) — implementing" ""  # restore for what follows
+
 # ----------------------------------------------- 4. same state, AUTODEV_GATE=off -> allow (AC4)
 verdict "AC4 AUTODEV_GATE=off allows"  0 "$(pay "$REPO" false)" "$SDIR" off
 
