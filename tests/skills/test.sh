@@ -1280,9 +1280,95 @@ for needle in ("Adding the next article", "Never renumber"):
 home = (root / "docs" / "index.md").read_text(encoding="utf-8")
 if "](journal/index.md)" not in home:
     print("FAIL: docs/index.md does not link journal/index.md"); sys.exit(1)
-print("ok   docs/journal/ exists, is a has_children section, carries the recipe, and is linked from the home page")
+articles = sorted(p for p in jdir.glob("*.md") if p.name != "index.md")
+if not articles:
+    print("FAIL: docs/journal/ holds no articles"); sys.exit(1)
+
+# ponytail: rule 2 is a French function-word scan, not a language detector — a French article
+# written without any of these markers would pass. Swap in a detector only if one ever slips through.
+MARKERS = ["le", "la", "les", "des", "une", "pour", "avec", "dans", "qui", "pas", "nous", "cette",
+           "sont", "mais", "leur", "aux", "ses", "sans", "donc", "ainsi", "chaque", "parce"]
+MARKER_RE = re.compile(r"\b(" + "|".join(MARKERS) + r")\b", re.I)
+FENCE_RE = re.compile(r"^```.*?^```", re.M | re.S)
+SPAN_RE = re.compile(r"`[^`\n]*`")
+bad = []
+orders = {}
+for p in articles:
+    rel = p.relative_to(root).as_posix()
+    text = p.read_text(encoding="utf-8")
+    for i, line in enumerate(text.splitlines(), 1):
+        col = line.find("—")
+        if col >= 0:
+            bad.append("%s:%d:%d holds an em dash (U+2014)" % (rel, i, col + 1))
+    prose = SPAN_RE.sub(" ", FENCE_RE.sub(" ", text))
+    found = sorted({m.group(1).lower() for m in MARKER_RE.finditer(prose)})
+    if len(found) >= 3:
+        bad.append("%s reads as French, not English (markers: %s)" % (rel, ", ".join(found)))
+    if not re.search(r"^parent:\s*Journal\s*$", text, re.M):
+        bad.append("%s does not carry 'parent: Journal'" % rel)
+    m = re.search(r"^nav_order:\s*(\d+)\s*$", text, re.M)
+    if not m:
+        bad.append("%s does not carry a numeric nav_order" % rel)
+    else:
+        orders.setdefault(m.group(1), []).append(rel)
+for order, owners in sorted(orders.items()):
+    if len(owners) > 1:
+        bad.append("nav_order %s is claimed by %s" % (order, ", ".join(owners)))
+if bad:
+    print("FAIL: docs/journal/ articles must be English, free of the em dash, and correctly ordered:")
+    for b in bad:
+        print("  " + b)
+    sys.exit(1)
+print("ok   %d journal articles, all English, em dash free, parented and uniquely ordered" % len(articles))
 PY
 python3 "$_jscratch/journal-check.py" "$KIT_ROOT" || exit 1
+# Red path 1: an em dash anywhere in an article body. The natural draft of any prose in this repo
+# contains one, which is why this rule is a gate rather than a review note.
+mkdir -p "$_jscratch/emtree/docs/journal"
+cp "$KIT_ROOT/docs/index.md" "$_jscratch/emtree/docs/"
+cp "$KIT_ROOT/docs/journal/index.md" "$KIT_ROOT/docs/journal/v2.1.0.md" "$_jscratch/emtree/docs/journal/"
+printf 'The gate refused \xe2\x80\x94 loudly.\n' >> "$_jscratch/emtree/docs/journal/v2.1.0.md"
+if python3 "$_jscratch/journal-check.py" "$_jscratch/emtree" > "$_jscratch/journal-em.out" 2>&1; then
+  echo "FAIL: the journal check accepted an article containing an em dash"; exit 1
+fi
+grep -q 'em dash' "$_jscratch/journal-em.out" \
+  || { echo "FAIL: the em dash refusal does not say 'em dash'"; cat "$_jscratch/journal-em.out"; exit 1; }
+grep -q 'v2\.1\.0\.md' "$_jscratch/journal-em.out" \
+  || { echo "FAIL: the em dash refusal does not name v2.1.0.md"; cat "$_jscratch/journal-em.out"; exit 1; }
+echo "ok   an em dash in a journal article is refused, by name"
+
+# Red path 2: an article written in French. The front matter is kept, so what is refused is the
+# prose and not a missing parent: or nav_order:.
+mkdir -p "$_jscratch/frtree/docs/journal"
+cp "$KIT_ROOT/docs/index.md" "$_jscratch/frtree/docs/"
+cp "$KIT_ROOT/docs/journal/index.md" "$_jscratch/frtree/docs/journal/"
+awk '/^---$/{n++} {print} n==2{exit}' "$KIT_ROOT/docs/journal/v2.1.0.md" \
+  > "$_jscratch/frtree/docs/journal/v2.1.0.md"
+printf '\nCette version corrige les blocages dans la file, avec une garde pour les workers.\n' \
+  >> "$_jscratch/frtree/docs/journal/v2.1.0.md"
+if python3 "$_jscratch/journal-check.py" "$_jscratch/frtree" > "$_jscratch/journal-fr.out" 2>&1; then
+  echo "FAIL: the journal check accepted an article written in French"; exit 1
+fi
+grep -q 'French' "$_jscratch/journal-fr.out" \
+  || { echo "FAIL: the French refusal does not say 'French'"; cat "$_jscratch/journal-fr.out"; exit 1; }
+grep -q 'v2\.1\.0\.md' "$_jscratch/journal-fr.out" \
+  || { echo "FAIL: the French refusal does not name v2.1.0.md"; cat "$_jscratch/journal-fr.out"; exit 1; }
+echo "ok   a French journal article is refused, by name"
+
+# Red path 3: two articles claiming one nav_order, which is what renumbering, or copying an article
+# without editing its front matter, produces. just-the-docs would then order them arbitrarily.
+mkdir -p "$_jscratch/duptree/docs/journal"
+cp "$KIT_ROOT/docs/index.md" "$_jscratch/duptree/docs/"
+cp "$KIT_ROOT/docs/journal/index.md" "$KIT_ROOT/docs/journal/v2.1.0.md" "$_jscratch/duptree/docs/journal/"
+cp "$_jscratch/duptree/docs/journal/v2.1.0.md" "$_jscratch/duptree/docs/journal/v2.0.0.md"
+if python3 "$_jscratch/journal-check.py" "$_jscratch/duptree" > "$_jscratch/journal-dup.out" 2>&1; then
+  echo "FAIL: the journal check accepted two articles claiming one nav_order"; exit 1
+fi
+grep -q 'nav_order 18' "$_jscratch/journal-dup.out" \
+  || { echo "FAIL: the duplicate-order refusal does not name the number"; cat "$_jscratch/journal-dup.out"; exit 1; }
+grep -q 'v2\.1\.0\.md' "$_jscratch/journal-dup.out" && grep -q 'v2\.0\.0\.md' "$_jscratch/journal-dup.out" \
+  || { echo "FAIL: the duplicate-order refusal does not name both files"; cat "$_jscratch/journal-dup.out"; exit 1; }
+echo "ok   two journal articles claiming one nav_order are refused, by number"
 
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
