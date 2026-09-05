@@ -8,6 +8,33 @@ versionnage sémantique. La question à laquelle ce fichier répond : « qu'est-
 elles adoptent son format (sections *Features* / *Bug Fixes*, lien de comparaison, sha par entrée)
 plutôt que la rédaction manuelle ci-dessous. Les entrées antérieures sont conservées telles quelles.
 
+## [2.1.0](https://github.com/phmatray/ai-migration-kit/compare/v2.0.0...v2.1.0) (2026-09-05)
+
+
+### Features
+
+* **adr:** the ADR is the decision, the call site is a pointer ([#357](https://github.com/phmatray/ai-migration-kit/issues/357)) ([#424](https://github.com/phmatray/ai-migration-kit/issues/424)) ([097cca5](https://github.com/phmatray/ai-migration-kit/commit/097cca5c0d0e13f9030645fb6e1a73d3c0be87b8))
+* **hooks:** make the kit's skill-routing table travel via a SessionStart hook ([#416](https://github.com/phmatray/ai-migration-kit/issues/416)) ([#421](https://github.com/phmatray/ai-migration-kit/issues/421)) ([c21a868](https://github.com/phmatray/ai-migration-kit/commit/c21a8685be649f8917fc5a2108c97907deb89189))
+* **implement-issue:** fix small already-local findings inline instead of filing them ([#410](https://github.com/phmatray/ai-migration-kit/issues/410)) ([#411](https://github.com/phmatray/ai-migration-kit/issues/411)) ([c8c8381](https://github.com/phmatray/ai-migration-kit/commit/c8c83815ce1d15406de32ba61b940cf8614c99ba))
+* **setup-repo:** converge the repository's description, homepage, topics and Pages source ([#400](https://github.com/phmatray/ai-migration-kit/issues/400)) ([#408](https://github.com/phmatray/ai-migration-kit/issues/408)) ([2de4a0a](https://github.com/phmatray/ai-migration-kit/commit/2de4a0a43c20a564281abecf8f7e5002b4927258))
+* **skills:** deliver-issue takes one idea or issue to a merged PR, each phase in a fresh sub-agent ([#396](https://github.com/phmatray/ai-migration-kit/issues/396)) ([#399](https://github.com/phmatray/ai-migration-kit/issues/399)) ([218e53a](https://github.com/phmatray/ai-migration-kit/commit/218e53a28a579220f5eb8597c8e64d60d8d64844))
+* **skills:** fold the hand-written Boundary findings bullet into the shared recap reference ([#387](https://github.com/phmatray/ai-migration-kit/issues/387)) ([#430](https://github.com/phmatray/ai-migration-kit/issues/430)) ([3c46a63](https://github.com/phmatray/ai-migration-kit/commit/3c46a637c26dc4bae1d923a98a7d271fb4a698e6))
+* **skills:** review-sessions harvests the kit's failures from past transcripts and files what earns an issue ([#397](https://github.com/phmatray/ai-migration-kit/issues/397)) ([#405](https://github.com/phmatray/ai-migration-kit/issues/405)) ([9954d86](https://github.com/phmatray/ai-migration-kit/commit/9954d86435abbd618611824e2877d0af599aab82))
+
+
+### Bug Fixes
+
+* **auto-dev:** bound survey's comment-cap blind spot instead of guessing unplanned ([#426](https://github.com/phmatray/ai-migration-kit/issues/426)) ([#435](https://github.com/phmatray/ai-migration-kit/issues/435)) ([c1cbca3](https://github.com/phmatray/ai-migration-kit/commit/c1cbca3f38e97683ac8d16dd9d303feeea512066))
+* **auto-dev:** dispatch workers with isolation: "worktree" so area isolation holds ([#412](https://github.com/phmatray/ai-migration-kit/issues/412)) ([#420](https://github.com/phmatray/ai-migration-kit/issues/420)) ([8c9e55c](https://github.com/phmatray/ai-migration-kit/commit/8c9e55c5eee80c7d926d52978db12c7b592ac8d4))
+* **auto-dev:** survey sees a plan that lives in a comment ([#343](https://github.com/phmatray/ai-migration-kit/issues/343)) ([#423](https://github.com/phmatray/ai-migration-kit/issues/423)) ([5acb842](https://github.com/phmatray/ai-migration-kit/commit/5acb842362a51b1583d685e8f441c44646474e00))
+* **create-issue:** a flag is a standalone token, never a word inside the idea ([#404](https://github.com/phmatray/ai-migration-kit/issues/404)) ([#418](https://github.com/phmatray/ai-migration-kit/issues/418)) ([094758e](https://github.com/phmatray/ai-migration-kit/commit/094758ef5b8f07c7e17cff0fb9048d93c985ef86))
+* **decisions:** align tracked-exec-globs pathspecs, header and readers ([#384](https://github.com/phmatray/ai-migration-kit/issues/384)) ([#428](https://github.com/phmatray/ai-migration-kit/issues/428)) ([be6cbfa](https://github.com/phmatray/ai-migration-kit/commit/be6cbfa880d58b478fa373d3ea83d6aadb894eba))
+* **implement-issue:** document how to invoke the guards when $GUARDS is refused ([#414](https://github.com/phmatray/ai-migration-kit/issues/414)) ([#427](https://github.com/phmatray/ai-migration-kit/issues/427)) ([c8b25d6](https://github.com/phmatray/ai-migration-kit/commit/c8b25d6a7781d94574f874a3fff67a46a2a87a65))
+* **implement-issue:** plan-freshness.sh joins a wrapped **Files:** field before parsing it ([#419](https://github.com/phmatray/ai-migration-kit/issues/419)) ([#425](https://github.com/phmatray/ai-migration-kit/issues/425)) ([00c54d3](https://github.com/phmatray/ai-migration-kit/commit/00c54d35262d1fa7f693704451684352599d9d59))
+* **implement-issue:** plan-freshness.sh no longer reads "none expected" as a path ([#403](https://github.com/phmatray/ai-migration-kit/issues/403)) ([#422](https://github.com/phmatray/ai-migration-kit/issues/422)) ([520b0f2](https://github.com/phmatray/ai-migration-kit/commit/520b0f22de97424e043646133c717880265dd573))
+* **kit:** close the 2026-09 review's open defects and wire the declared MCP servers into the methodology ([#372](https://github.com/phmatray/ai-migration-kit/issues/372)) ([#395](https://github.com/phmatray/ai-migration-kit/issues/395)) ([3d3a820](https://github.com/phmatray/ai-migration-kit/commit/3d3a8208068393aa2b0b5f6a9ae1f394a8f689a9))
+* **migrate-legacy:** translate the French references to English ([#105](https://github.com/phmatray/ai-migration-kit/issues/105)) ([#429](https://github.com/phmatray/ai-migration-kit/issues/429)) ([3046794](https://github.com/phmatray/ai-migration-kit/commit/3046794ca00299e345877536ac5e82d1562f987a))
+
 ## [2.0.0](https://github.com/phmatray/ai-migration-kit/compare/v1.16.0...v2.0.0) (2026-08-31)
 
 
