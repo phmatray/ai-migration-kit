@@ -1484,6 +1484,62 @@ for cmd in auto-dev-worker auto-dev-merge; do
   fi
 done
 
+echo "== the inline-fix carve-out is stated once and repeated word for word in the worker command (#410) =="
+# implement-issue's *Don't widen the blast radius* bullet is the normative home; commands/auto-dev-worker.md
+# repeats the block because fleet workers read the command, not the skill. A repeated block drifts unless
+# something reads both — this does: the sentences from the first marker to the second, whitespace-
+# normalised, must be byte-identical in the two files. Written to a file first, never a heredoc inside
+# `$( … )` (#131, the bash 3.2 scanner hazard parse-sweep exists to catch).
+_cscratch=$(kit_scratch)
+cat > "$_cscratch/carve-out-check.py" <<'PY'
+import pathlib, re, sys
+kit = pathlib.Path(sys.argv[1])
+start = "it is **fixed inline** when it is **local**"
+end = "read as deferred work and filed."
+def block(rel):
+    text = re.sub(r"\s+", " ", (kit / rel).read_text(encoding="utf-8"))
+    i = text.find(start)
+    if i < 0:
+        sys.exit("%s: the carve-out block is missing (no %r)" % (rel, start))
+    j = text.find(end, i)
+    if j < 0:
+        sys.exit("%s: the carve-out block is unterminated (no %r)" % (rel, end))
+    return text[i:j + len(end)]
+a = block("skills/implement-issue/SKILL.md")
+b = block("commands/auto-dev-worker.md")
+if a != b:
+    sys.exit("the carve-out block differs between skills/implement-issue/SKILL.md and "
+             "commands/auto-dev-worker.md — edit both or neither")
+print("%d characters, identical" % len(a))
+PY
+set +e
+c_out=$(python3 "$_cscratch/carve-out-check.py" "$KIT_ROOT" 2>&1)
+c_rc=$?
+set -e
+if [ "$c_rc" -eq 0 ]; then
+  echo "ok   [C1 carve-out block identical in SKILL.md and auto-dev-worker.md — $c_out]"
+else
+  echo "FAIL: [C1 carve-out block identical in SKILL.md and auto-dev-worker.md] $c_out"
+  fails=$((fails + 1))
+fi
+# The red half: a one-word drift in a scratch copy of the worker command must be refused, naming both files.
+mkdir -p "$_cscratch/drift/skills/implement-issue" "$_cscratch/drift/commands"
+cp "$KIT_ROOT/skills/implement-issue/SKILL.md" "$_cscratch/drift/skills/implement-issue/SKILL.md"
+# The drifted phrase sits on one line of the wrapped command file, so sed can reach it.
+sed 's/survives without an issue/survives without any issue/' "$KIT_ROOT/commands/auto-dev-worker.md" > "$_cscratch/drift/commands/auto-dev-worker.md"
+cmp -s "$KIT_ROOT/commands/auto-dev-worker.md" "$_cscratch/drift/commands/auto-dev-worker.md" \
+  && { echo "FAIL: [C2] the drift fixture did not drift — the phrase moved; pick one that sits on a single line"; fails=$((fails + 1)); }
+set +e
+c_red=$(python3 "$_cscratch/carve-out-check.py" "$_cscratch/drift" 2>&1)
+c_red_rc=$?
+set -e
+if [ "$c_red_rc" -ne 0 ] && printf '%s' "$c_red" | grep -q 'auto-dev-worker.md'; then
+  echo "ok   [C2 a drifted worker copy is refused, naming both files]"
+else
+  echo "FAIL: [C2 a drifted worker copy is refused, naming both files] rc=$c_red_rc $c_red"
+  fails=$((fails + 1))
+fi
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1
