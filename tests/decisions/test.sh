@@ -995,6 +995,122 @@ else
   fi
 fi
 
+# --- tracked_exec_globs()'s two Unanswerable branches are driven to red, not trusted (#384) -----
+#
+# tracked_exec_globs() raises on an unreadable list and on a comment-only one — its own docstring
+# says why: "A missing or comment-only list would otherwise make R10 enumerate NOTHING and report
+# every executable in the repo as covered — the #45 shape, a guard serving 'all clean' over an
+# empty set." Both work by hand today, but nothing above drives either branch: this suite's own
+# rule is "every rule ... is asserted by BREAKING a working kit ... never by reading the guard and
+# believing it", and until now these two raises were read and believed.
+#
+# TRACKED_EXEC_GLOBS_FILE resolves against decision-check.py's OWN location, never `--repo`
+# (tracked_exec_globs()'s own docstring) — deliberately, since a scratch kit built by make_kit
+# carries no copy of the list. So neither branch can be reached by pointing $CHECK at a scratch
+# kit; the harness below copies decision-check.py itself into the kit (decide.sh is already there,
+# from make_kit) alongside a list under test, then runs THAT COPY with --repo <kit>, the only way
+# the resolution lines up with the fixture rather than this repo's own real list.
+
+# guard_copy_with_list <dir> <list-content|--absent> — drops a private copy of decision-check.py
+# into $dir/scripts/, plus a tracked-exec-globs.txt holding <list-content> (or no file at all, for
+# --absent, the "unreadable" case).
+guard_copy_with_list() {
+  local dir="$1" content="$2"
+  cp "$CHECK" "$dir/scripts/decision-check.py"
+  if [ "$content" = --absent ]; then
+    rm -f "$dir/scripts/tracked-exec-globs.txt"
+  else
+    printf '%s\n' "$content" > "$dir/scripts/tracked-exec-globs.txt"
+  fi
+}
+
+# Like unanswerable(), but drives the COPY of the guard guard_copy_with_list placed inside the
+# kit, rather than $CHECK — which would resolve TRACKED_EXEC_GLOBS_FILE against THIS repo's own
+# list and never see the fixture at all.
+unanswerable_copy() {
+  local k="$1" needle="$2" label="$3"
+  CHECK_OUT=$(python3 "$k/scripts/decision-check.py" --repo "$k" 2>&1)
+  CHECK_RC=$?
+  if [ "$CHECK_RC" -ne 2 ]; then
+    bad "$label — expected exit 2 (unanswerable), got $CHECK_RC"
+    return
+  fi
+  case "$CHECK_OUT" in
+    *"$needle"*) ok "$label" ;;
+    *) bad "$label — exited 2, but never named '$needle':"
+       printf '%s\n' "$CHECK_OUT" | sed 's/^/          /' ;;
+  esac
+}
+
+# The comment-only list.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+guard_copy_with_list "$k" '# just a comment, no pathspecs'
+unanswerable_copy "$k" "declares no pathspecs" \
+  "tracked_exec_globs() — a comment-only list is Unanswerable, not an empty E that passes everything (#384)"
+
+# The unreadable list — here, entirely absent, which reaches the same OSError branch as a
+# permission-denied read.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+guard_copy_with_list "$k" --absent
+unanswerable_copy "$k" "could not read R10's pathspec list" \
+  "tracked_exec_globs() — a missing list is Unanswerable, not an empty E that passes everything (#384)"
+
+# Both raises just asserted are LOAD-BEARING, not merely present: mutate a fresh copy so each
+# `raise Unanswerable(...)` becomes `return ()`, and require the unanswerable verdict to disappear.
+# A raise a maintainer could silently delete without a single test noticing is the same defect
+# this whole suite exists to close, one level up. The mutation touches only a disposable copy of
+# decision-check.py inside the scratch kit — never the real, tracked one.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+guard_copy_with_list "$k" '# just a comment, no pathspecs'
+python3 - "$k/scripts/decision-check.py" <<'MUTATE'
+import re, sys
+p = sys.argv[1]
+text = open(p, encoding="utf-8").read()
+text, n = re.subn(
+    r'raise Unanswerable\(\s*\n\s*f"\{path\} declares no pathspecs.*?\n\s*\)',
+    'return ()',
+    text,
+    count=1,
+    flags=re.S,
+)
+if n != 1:
+    sys.exit("expected to mutate exactly 1 raise, matched %d" % n)
+open(p, "w", encoding="utf-8").write(text)
+MUTATE
+CHECK_OUT=$(python3 "$k/scripts/decision-check.py" --repo "$k" 2>&1)
+CHECK_RC=$?
+if [ "$CHECK_RC" -ne 2 ]; then
+  ok "tracked_exec_globs()'s comment-only raise is load-bearing — without it the guard no longer refuses as unanswerable (#384)"
+else
+  bad "tracked_exec_globs()'s comment-only raise is NOT load-bearing — the guard still exits 2 without it:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+guard_copy_with_list "$k" --absent
+python3 - "$k/scripts/decision-check.py" <<'MUTATE'
+import re, sys
+p = sys.argv[1]
+text = open(p, encoding="utf-8").read()
+text, n = re.subn(
+    r'raise Unanswerable\(f"could not read R10\x27s pathspec list at \{path\}: \{exc\}"\)',
+    'return ()',
+    text,
+    count=1,
+)
+if n != 1:
+    sys.exit("expected to mutate exactly 1 raise, matched %d" % n)
+open(p, "w", encoding="utf-8").write(text)
+MUTATE
+CHECK_OUT=$(python3 "$k/scripts/decision-check.py" --repo "$k" 2>&1)
+CHECK_RC=$?
+if [ "$CHECK_RC" -ne 2 ]; then
+  ok "tracked_exec_globs()'s unreadable-list raise is load-bearing — without it the guard no longer refuses as unanswerable (#384)"
+else
+  bad "tracked_exec_globs()'s unreadable-list raise is NOT load-bearing — the guard still exits 2 without it:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
 # --- the escape hatch of #208 is closed, end to end (#252 Task 3) -------------------------------
 #
 # Before R10, this was a fifteen-second escape: delete a decision's registry row, and every OTHER
