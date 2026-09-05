@@ -1277,7 +1277,10 @@ if "has_children: true" not in itext[:2000]:
 for needle in ("Adding the next article", "Never renumber"):
     if needle not in itext:
         print("FAIL: docs/journal/index.md does not carry the recipe needle %r" % needle); sys.exit(1)
-home = (root / "docs" / "index.md").read_text(encoding="utf-8")
+home_path = root / "docs" / "index.md"
+if not home_path.exists():
+    print("FAIL: docs/index.md is missing"); sys.exit(1)
+home = home_path.read_text(encoding="utf-8")
 if "](journal/index.md)" not in home:
     print("FAIL: docs/index.md does not link journal/index.md"); sys.exit(1)
 articles = sorted(p for p in jdir.glob("*.md") if p.name != "index.md")
@@ -1291,6 +1294,7 @@ MARKERS = ["le", "la", "les", "des", "une", "pour", "avec", "dans", "qui", "pas"
 MARKER_RE = re.compile(r"\b(" + "|".join(MARKERS) + r")\b", re.I)
 FENCE_RE = re.compile(r"^```.*?^```", re.M | re.S)
 SPAN_RE = re.compile(r"`[^`\n]*`")
+QUOTE_RE = re.compile(r"«[^»]*»")
 bad = []
 orders = {}
 for p in articles:
@@ -1300,20 +1304,20 @@ for p in articles:
         col = line.find("—")
         if col >= 0:
             bad.append("%s:%d:%d holds an em dash (U+2014)" % (rel, i, col + 1))
-    prose = SPAN_RE.sub(" ", FENCE_RE.sub(" ", text))
+    prose = QUOTE_RE.sub(" ", SPAN_RE.sub(" ", FENCE_RE.sub(" ", text)))
     found = sorted({m.group(1).lower() for m in MARKER_RE.finditer(prose)})
     if len(found) >= 3:
         bad.append("%s reads as French, not English (markers: %s)" % (rel, ", ".join(found)))
-    if not re.search(r"^parent:\s*Journal\s*$", text, re.M):
+    if not re.search(r"^parent:\s*[\"']?Journal[\"']?\s*$", text, re.M):
         bad.append("%s does not carry 'parent: Journal'" % rel)
-    m = re.search(r"^nav_order:\s*(\d+)\s*$", text, re.M)
+    m = re.search(r"^nav_order:\s*[\"']?(\d+)[\"']?\s*$", text, re.M)
     if not m:
         bad.append("%s does not carry a numeric nav_order" % rel)
     else:
-        orders.setdefault(m.group(1), []).append(rel)
+        orders.setdefault(int(m.group(1)), []).append(rel)
 for order, owners in sorted(orders.items()):
     if len(owners) > 1:
-        bad.append("nav_order %s is claimed by %s" % (order, ", ".join(owners)))
+        bad.append("nav_order %d is claimed by %s" % (order, ", ".join(sorted(owners))))
 if bad:
     print("FAIL: docs/journal/ articles must be English, free of the em dash, and correctly ordered:")
     for b in bad:
@@ -1331,8 +1335,8 @@ printf 'The gate refused \xe2\x80\x94 loudly.\n' >> "$_jscratch/emtree/docs/jour
 if python3 "$_jscratch/journal-check.py" "$_jscratch/emtree" > "$_jscratch/journal-em.out" 2>&1; then
   echo "FAIL: the journal check accepted an article containing an em dash"; exit 1
 fi
-grep -q 'em dash' "$_jscratch/journal-em.out" \
-  || { echo "FAIL: the em dash refusal does not say 'em dash'"; cat "$_jscratch/journal-em.out"; exit 1; }
+grep -q 'holds an em dash' "$_jscratch/journal-em.out" \
+  || { echo "FAIL: the em dash refusal does not name the em dash rule"; cat "$_jscratch/journal-em.out"; exit 1; }
 grep -q 'v2\.1\.0\.md' "$_jscratch/journal-em.out" \
   || { echo "FAIL: the em dash refusal does not name v2.1.0.md"; cat "$_jscratch/journal-em.out"; exit 1; }
 echo "ok   an em dash in a journal article is refused, by name"
@@ -1369,6 +1373,21 @@ grep -q 'nav_order 18' "$_jscratch/journal-dup.out" \
 grep -q 'v2\.1\.0\.md' "$_jscratch/journal-dup.out" && grep -q 'v2\.0\.0\.md' "$_jscratch/journal-dup.out" \
   || { echo "FAIL: the duplicate-order refusal does not name both files"; cat "$_jscratch/journal-dup.out"; exit 1; }
 echo "ok   two journal articles claiming one nav_order are refused, by number"
+
+# Red path 4: an article with no parent:. Without a witness, a regex narrowed out of existence
+# would leave this rule green forever.
+mkdir -p "$_jscratch/orphtree/docs/journal"
+cp "$KIT_ROOT/docs/index.md" "$_jscratch/orphtree/docs/"
+cp "$KIT_ROOT/docs/journal/index.md" "$_jscratch/orphtree/docs/journal/"
+grep -v '^parent:' "$KIT_ROOT/docs/journal/v2.1.0.md" > "$_jscratch/orphtree/docs/journal/v2.1.0.md"
+if python3 "$_jscratch/journal-check.py" "$_jscratch/orphtree" > "$_jscratch/journal-orph.out" 2>&1; then
+  echo "FAIL: the journal check accepted an article with no parent:"; exit 1
+fi
+grep -q "does not carry 'parent: Journal'" "$_jscratch/journal-orph.out" \
+  || { echo "FAIL: the orphan refusal does not name the parent: rule"; cat "$_jscratch/journal-orph.out"; exit 1; }
+grep -q 'v2\.1\.0\.md' "$_jscratch/journal-orph.out" \
+  || { echo "FAIL: the orphan refusal does not name v2.1.0.md"; cat "$_jscratch/journal-orph.out"; exit 1; }
+echo "ok   a journal article with no parent: is refused, by name"
 
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented

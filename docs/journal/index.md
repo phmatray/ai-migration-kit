@@ -10,8 +10,10 @@ One article per published release, oldest first. `CHANGELOG.md` answers *what ch
 this answers *why did we do that, and what did we learn?* Walk it front to back and the kit's
 evolution reads as a story rather than a diff.
 
-Two rules, enforced by `tests/skills/test.sh` rather than by review: every article is in English, and
-no article contains an em dash. Use commas, colons, parentheses or separate sentences instead.
+Two prose rules, enforced by `tests/skills/test.sh` rather than by review: every article is in
+English, and no article contains an em dash. Use commas, colons, parentheses or separate sentences
+instead. French quoted inside guillemets does not count against the first rule, so an article can
+still quote what a skill actually says.
 
 ## Adding the next article
 
