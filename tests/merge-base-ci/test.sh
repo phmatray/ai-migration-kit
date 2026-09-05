@@ -474,4 +474,14 @@ grep -q 'pages-build-deployment' skills/merge-pr/SKILL.md || {
   exit 1; }
 echo "  ok: merge-pr-skill-prose — Step 5b quotes --report-line and names the forbidden shortcuts"
 
+# ---------------------------------------------------------------- 19. auto-dev grammar-checks
+# BASE: before trusting it (#455 Task 4, AC4)
+grep -qF '^(green|RED|unverified)' skills/auto-dev/SKILL.md || {
+  echo "FAIL: skills/auto-dev/SKILL.md never states the BASE: field's fixed grammar"
+  exit 1; }
+grep -qi 're-derive' skills/auto-dev/SKILL.md || {
+  echo "FAIL: skills/auto-dev/SKILL.md never says a non-matching BASE: value is re-derived"
+  exit 1; }
+echo "  ok: auto-dev-skill-prose — the BASE: field states its grammar and the re-derive backstop"
+
 echo "merge-base-ci golden test OK"
