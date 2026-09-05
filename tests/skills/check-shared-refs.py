@@ -38,11 +38,13 @@ by a separate sub-agent session that never opens `skills/auto-dev/SKILL.md`, so 
 consumer; a reverse check that stopped at `skills/` would forward-check it and never notice the
 list going stale in the other direction, while the CI step's name promises both.
 
-**Sibling shared references are excluded from every document's reverse scan.** `preconditions.md`
-and `worktree-ignore-check.md` cite each other today, `recap.md` cites `preconditions.md` and
-`sync-with-main.md` — plain cross-referencing between shared references, not an ingest point that
-must enrol. Without this exclusion, the SECOND document to adopt a `## Consumers` section
-immediately reports the first as an unlisted linker (#269).
+**A sibling `skills/_shared/*.md` document is not exempt from the reverse scan.** A blanket
+exclusion was the first draft's answer to `recap.md` citing `preconditions.md` and
+`sync-with-main.md`, and `preconditions.md` citing `worktree-ignore-check.md` — but
+`untrusted-input-boundary.md` declares `prior-rejections.md`, itself a `skills/_shared/*.md` file,
+as a real consumer, and a blanket exclusion would silently stop catching that declaration dropping
+while the link stayed (code-review, #269). So the handful of purely cross-referencing sibling
+links are declared as ordinary consumers instead — see each document's own `## Consumers` section.
 
 Each consumer inventory lives in its own document rather than in this script, on purpose. A
 hand-maintained list inside the checker is the stale-inventory failure this repo has already paid
@@ -212,13 +214,16 @@ for doc in shared_docs:
                 f"reminder is gone from the step that was supposed to carry it")
 
     # Reverse rule — every OTHER scanned file that links this document must be named above.
-    # Sibling skills/_shared/*.md files are excluded: a shared reference citing another is normal
-    # cross-referencing between references, not an ingest point that must enrol (#269).
+    # Sibling skills/_shared/*.md files are NOT exempted: `untrusted-input-boundary.md` declares
+    # `prior-rejections.md` — itself under skills/_shared/ — as a real consumer, and a blanket
+    # sibling exclusion would silently stop catching that declaration if it were ever dropped
+    # while the link stayed (code-review, #269). The handful of purely cross-referencing sibling
+    # links (recap.md citing preconditions.md and sync-with-main.md, preconditions.md citing
+    # worktree-ignore-check.md, brainstorm-and-spec.md citing plan-shape.md) are declared as
+    # ordinary consumers below instead of carved out here.
     for md in candidates:
         rel = md.relative_to(ROOT).as_posix()
         if rel == doc_rel or rel in listed_set:
-            continue
-        if rel.startswith(SHARED_DIR_REL + "/"):
             continue
         ttext = read(md)
         if ttext is None:

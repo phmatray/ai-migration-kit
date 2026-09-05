@@ -267,3 +267,4 @@ the surest path to a clean integration.
 - `skills/implement-issue/references/github-mechanics.md` — frames Step 8's merge-sync in implement-issue's own terms
 - `skills/merge-pr/SKILL.md` — the sync-before-merge step follows this procedure to keep the PR mergeable
 - `skills/merge-pr/references/merge-mechanics.md` — states the exact merge/conflict recipe this procedure is followed through
+- `skills/_shared/recap.md` — cites this file as an example reference the skills link rather than `cat`
