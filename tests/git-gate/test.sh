@@ -325,6 +325,49 @@ verdict "A34 unterminated quoting is a parse it cannot trust" pass "" \
 BIG="git commit -m x $(printf '%*s' 70000 '' | tr ' ' 'y')"
 verdict "A35 an oversized command"     pass "" "$(pay Bash "$BIG" "$PROF")"
 
+# --------------------------------------------------- 5b. the fix cannot be reverted silently (#440)
+# Every case above drives the REAL, shipped gate — so a later tidy-up that quietly restores the old
+# `exit 0` bail-out would leave every one of them green: H1-H4 above assert `deny`, and the reverted
+# gate does not deny anything DIFFERENT, it just fails open again on the same inputs, which is a
+# `pass` the assertion catches — UNLESS a future edit also softened the `verdict` helper itself. The
+# belt-and-braces case below drives a MUTATED COPY of the gate directly, the same scratch-copy
+# pattern `profile_repo`/`plain_repo`/`shim_path` already use above: build the fixture in $WORK with
+# `mktemp -d`, prove the mutation actually landed, then assert the OLD, broken behaviour reappears
+# on that copy — which is the only way to show this suite would have gone red on the original defect
+# rather than merely trusting that it currently does.
+REVERTED_GATE="$WORK/git-write-gate.reverted.sh"
+sed 's/case "\$cmd" in \*'"'"'<<'"'"'\*) cmd="\${cmd%%<<\*}" ;; esac/case "\$cmd" in *'"'"'<<'"'"'*) exit 0 ;; esac/' \
+  "$GATE" > "$REVERTED_GATE"
+chmod +x "$REVERTED_GATE"
+diff -q "$GATE" "$REVERTED_GATE" >/dev/null \
+  && { echo "FAIL: the sed mutation did not change anything — this case tests nothing"; exit 1; }
+grep -qF 'exit 0 ;; esac' "$REVERTED_GATE" \
+  || { echo "FAIL: the reverted copy does not contain the old bail-out — mutation failed"; exit 1; }
+
+# Drives the MUTATED copy directly (not the `verdict` helper, which is hardwired to `$GATE`) and
+# asserts the pre-#440 behaviour: every write that H1-H4 above prove denied on the real gate comes
+# back as an *allow* on the reverted one — the exact regression this suite exists to catch.
+revert_allows() { # $1 name  $2 payload
+  local name="$1" payload="$2" out
+  out=$(printf '%s' "$payload" | bash "$REVERTED_GATE" 2>/dev/null) || {
+    echo "FAIL [$name]: reverted gate exited non-zero; expected the old fail-open pass"; exit 1; }
+  [ -z "$out" ] || { echo "FAIL [$name]: reverted gate did not fail open — got: $out"; exit 1; }
+  echo "ok: $name -> pass (on the reverted gate, as the pre-#440 defect predicts)"
+}
+revert_allows "H1r commit -F - before a heredoc, on the reverted gate" \
+  "$(pay Bash "git commit -F - <<'MSG'
+a long commit message
+MSG" "$PROF")"
+revert_allows "H2r push before a heredoc, on the reverted gate" \
+  "$(pay Bash "git push origin main <<X
+body
+X" "$PROF")"
+revert_allows "H3r checkout . before a heredoc, on the reverted gate" \
+  "$(pay Bash "git checkout HEAD -- . <<X
+body
+X" "$PROF")"
+revert_allows "H4r push before a here-string, on the reverted gate" "$(pay Bash 'git push <<< x' "$PROF")"
+
 # ---------------------------------------------------------------- 6. structural wiring (S)
 # S1 — hooks are outside parse-sweep's default target set (docs/backlog.md records that gap), so the
 # sweep is invoked on this file explicitly. bash 3.2 is the floor the sweep enforces.
