@@ -77,11 +77,14 @@ means the description is genuinely over-firing.
 
 Two shapes of row cannot pass at all, and they are noise rather than signal:
 
-- **A slash-command query** (`/migrate`, `/migrate-assess`, `/migrate-verify`,
-  `/migrate-followups` — four rows across `migrate-legacy` and `review-followups`). A command is
-  expanded into the prompt by the client, not invoked as a tool, so there is no tool-use intent to
-  observe. `SKILL_COMMANDS` maps a command a skill owns back to the skill, which covers the model
-  *reaching for* the command file; it cannot cover the user typing one.
+- **A slash-command query.** A command is expanded into the prompt by the client, not invoked as a
+  tool, so there is no tool-use intent to observe. `SKILL_COMMANDS` maps a command a skill owns back
+  to the skill, which covers the model *reaching for* the command file; it cannot cover the user
+  typing one. Four such rows existed (`/migrate`, `/migrate-assess`, `/migrate-verify`,
+  `/migrate-followups`) and were the whole of `migrate-legacy`'s 0.33; they are **deleted**, and
+  `tests/skills/check-frontmatter.py` now refuses a `/`-prefixed query so none comes back. The
+  routing they were reaching for is asserted structurally instead, by the same file: every
+  `commands/*.md` names the skill it dispatches to.
 - **A skill the running Claude Code has no plugin for.** `run_all.py` closes that one by linking
   every skill under test into `.claude/skills/` for the run — see `skills_visible`.
 
