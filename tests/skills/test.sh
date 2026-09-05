@@ -46,6 +46,10 @@ PRISTINE="$WORK/pristine"
 mkdir -p "$PRISTINE"
 cp -R "$ROOT/skills" "$PRISTINE/"
 cp -R "$ROOT/evals" "$PRISTINE/"
+# commands/ used to be copy-once because nothing mutated it. #436 added a check over it (every
+# command file names the skill it dispatches to), and a check no case can drive red is a check
+# that stays green after it stops working — so it joins the restored set.
+cp -R "$ROOT/commands" "$PRISTINE/"
 
 fails=0
 
@@ -245,8 +249,8 @@ run_eval_case() {
   # last run_case left behind — so an N4 labelled "untouched baseline" would be running against a
   # rewritten description, and inserting one more failing run_case above this block would turn
   # every T case into a coin flip.
-  rm -rf "$ROOT/evals" "$ROOT/skills"
-  cp -R "$PRISTINE/evals" "$PRISTINE/skills" "$ROOT/"
+  rm -rf "$ROOT/evals" "$ROOT/skills" "$ROOT/commands"
+  cp -R "$PRISTINE/evals" "$PRISTINE/skills" "$PRISTINE/commands" "$ROOT/"
   python3 -c "$mutator" "$ROOT"
   local out rc
   set +e
@@ -384,6 +388,26 @@ dup = dict(entries[0])
 dup["query"] = "  " + dup["query"].upper() + " "
 entries.append(dup)
 p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T12 a slash-command query          " fail "slash-command query" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# The four rows #436 deleted, in miniature. A client expands a slash command into the prompt; it
+# is never a tool call, so trigger_eval.py has no intent to observe and the row is permanently
+# red — three subprocess runs per revision to report a miss the harness caused itself.
+entries.append({"query": "/create-issue", "should_trigger": True})
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "C1 a command names no skill       " fail "names no skill" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "commands/migrate.md"
+# The routing IS the naming: strip the skill name and the file still runs, handing the model a
+# prompt with no destination. This is the assertion the deleted /migrate eval rows were reaching
+# for, in the one place it can be settled without spending a bench run.
+p.write_text(p.read_text(encoding="utf-8").replace("migrate-legacy", "the pipeline"), encoding="utf-8")
 '
 
 run_eval_case "N4 untouched baseline             " pass "" 'import sys'
@@ -1254,6 +1278,140 @@ fi
 grep -q '\*\.html' "$_pscratch/pages-glob.out" \
   || { echo "FAIL: the Pages check refused the glob tree without naming the glob"; cat "$_pscratch/pages-glob.out"; exit 1; }
 echo "ok   a glob in docs/_config.yml's exclude is refused, by name"
+
+# ---------------------------------------------------------------------------------------------
+# docs/journal/ is a Journal section (#443): one article per published release, rendered as a
+# just-the-docs child section, and held to the journal's two prose rules by a gate rather than by
+# review. Same shape as the Pages guard above: ONE check file, run on the real tree (must pass) and
+# once per scratch tree (must fail, and must NAME the offending file).
+echo "== docs/journal/ is a Journal section: parented, ordered, English, em dash free (#443) =="
+_jscratch=$(kit_scratch)
+cat > "$_jscratch/journal-check.py" <<'PY'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1]); jdir = root / "docs" / "journal"
+if not jdir.is_dir():
+    print("FAIL: docs/journal/ is missing"); sys.exit(1)
+idx = jdir / "index.md"
+if not idx.exists():
+    print("FAIL: docs/journal/index.md is missing"); sys.exit(1)
+itext = idx.read_text(encoding="utf-8")
+if "has_children: true" not in itext[:2000]:
+    print("FAIL: docs/journal/index.md does not carry has_children: true, so the section renders no child list")
+    sys.exit(1)
+for needle in ("Adding the next article", "Never renumber"):
+    if needle not in itext:
+        print("FAIL: docs/journal/index.md does not carry the recipe needle %r" % needle); sys.exit(1)
+home_path = root / "docs" / "index.md"
+if not home_path.exists():
+    print("FAIL: docs/index.md is missing"); sys.exit(1)
+home = home_path.read_text(encoding="utf-8")
+if "](journal/index.md)" not in home:
+    print("FAIL: docs/index.md does not link journal/index.md"); sys.exit(1)
+articles = sorted(p for p in jdir.glob("*.md") if p.name != "index.md")
+if not articles:
+    print("FAIL: docs/journal/ holds no articles"); sys.exit(1)
+
+# ponytail: rule 2 is a French function-word scan, not a language detector — a French article
+# written without any of these markers would pass. Swap in a detector only if one ever slips through.
+MARKERS = ["le", "la", "les", "des", "une", "pour", "avec", "dans", "qui", "pas", "nous", "cette",
+           "sont", "mais", "leur", "aux", "ses", "sans", "donc", "ainsi", "chaque", "parce"]
+MARKER_RE = re.compile(r"\b(" + "|".join(MARKERS) + r")\b", re.I)
+FENCE_RE = re.compile(r"^```.*?^```", re.M | re.S)
+SPAN_RE = re.compile(r"`[^`\n]*`")
+QUOTE_RE = re.compile(r"«[^»]*»")
+bad = []
+orders = {}
+for p in articles:
+    rel = p.relative_to(root).as_posix()
+    text = p.read_text(encoding="utf-8")
+    for i, line in enumerate(text.splitlines(), 1):
+        col = line.find("—")
+        if col >= 0:
+            bad.append("%s:%d:%d holds an em dash (U+2014)" % (rel, i, col + 1))
+    prose = QUOTE_RE.sub(" ", SPAN_RE.sub(" ", FENCE_RE.sub(" ", text)))
+    found = sorted({m.group(1).lower() for m in MARKER_RE.finditer(prose)})
+    if len(found) >= 3:
+        bad.append("%s reads as French, not English (markers: %s)" % (rel, ", ".join(found)))
+    if not re.search(r"^parent:\s*[\"']?Journal[\"']?\s*$", text, re.M):
+        bad.append("%s does not carry 'parent: Journal'" % rel)
+    m = re.search(r"^nav_order:\s*[\"']?(\d+)[\"']?\s*$", text, re.M)
+    if not m:
+        bad.append("%s does not carry a numeric nav_order" % rel)
+    else:
+        orders.setdefault(int(m.group(1)), []).append(rel)
+for order, owners in sorted(orders.items()):
+    if len(owners) > 1:
+        bad.append("nav_order %d is claimed by %s" % (order, ", ".join(sorted(owners))))
+if bad:
+    print("FAIL: docs/journal/ articles must be English, free of the em dash, and correctly ordered:")
+    for b in bad:
+        print("  " + b)
+    sys.exit(1)
+print("ok   %d journal articles, all English, em dash free, parented and uniquely ordered" % len(articles))
+PY
+python3 "$_jscratch/journal-check.py" "$KIT_ROOT" || exit 1
+# Red path 1: an em dash anywhere in an article body. The natural draft of any prose in this repo
+# contains one, which is why this rule is a gate rather than a review note.
+mkdir -p "$_jscratch/emtree/docs/journal"
+cp "$KIT_ROOT/docs/index.md" "$_jscratch/emtree/docs/"
+cp "$KIT_ROOT/docs/journal/index.md" "$KIT_ROOT/docs/journal/v2.1.0.md" "$_jscratch/emtree/docs/journal/"
+printf 'The gate refused \xe2\x80\x94 loudly.\n' >> "$_jscratch/emtree/docs/journal/v2.1.0.md"
+if python3 "$_jscratch/journal-check.py" "$_jscratch/emtree" > "$_jscratch/journal-em.out" 2>&1; then
+  echo "FAIL: the journal check accepted an article containing an em dash"; exit 1
+fi
+grep -q 'holds an em dash' "$_jscratch/journal-em.out" \
+  || { echo "FAIL: the em dash refusal does not name the em dash rule"; cat "$_jscratch/journal-em.out"; exit 1; }
+grep -q 'v2\.1\.0\.md' "$_jscratch/journal-em.out" \
+  || { echo "FAIL: the em dash refusal does not name v2.1.0.md"; cat "$_jscratch/journal-em.out"; exit 1; }
+echo "ok   an em dash in a journal article is refused, by name"
+
+# Red path 2: an article written in French. The front matter is kept, so what is refused is the
+# prose and not a missing parent: or nav_order:.
+mkdir -p "$_jscratch/frtree/docs/journal"
+cp "$KIT_ROOT/docs/index.md" "$_jscratch/frtree/docs/"
+cp "$KIT_ROOT/docs/journal/index.md" "$_jscratch/frtree/docs/journal/"
+awk '/^---$/{n++} {print} n==2{exit}' "$KIT_ROOT/docs/journal/v2.1.0.md" \
+  > "$_jscratch/frtree/docs/journal/v2.1.0.md"
+printf '\nCette version corrige les blocages dans la file, avec une garde pour les workers.\n' \
+  >> "$_jscratch/frtree/docs/journal/v2.1.0.md"
+if python3 "$_jscratch/journal-check.py" "$_jscratch/frtree" > "$_jscratch/journal-fr.out" 2>&1; then
+  echo "FAIL: the journal check accepted an article written in French"; exit 1
+fi
+grep -q 'French' "$_jscratch/journal-fr.out" \
+  || { echo "FAIL: the French refusal does not say 'French'"; cat "$_jscratch/journal-fr.out"; exit 1; }
+grep -q 'v2\.1\.0\.md' "$_jscratch/journal-fr.out" \
+  || { echo "FAIL: the French refusal does not name v2.1.0.md"; cat "$_jscratch/journal-fr.out"; exit 1; }
+echo "ok   a French journal article is refused, by name"
+
+# Red path 3: two articles claiming one nav_order, which is what renumbering, or copying an article
+# without editing its front matter, produces. just-the-docs would then order them arbitrarily.
+mkdir -p "$_jscratch/duptree/docs/journal"
+cp "$KIT_ROOT/docs/index.md" "$_jscratch/duptree/docs/"
+cp "$KIT_ROOT/docs/journal/index.md" "$KIT_ROOT/docs/journal/v2.1.0.md" "$_jscratch/duptree/docs/journal/"
+cp "$_jscratch/duptree/docs/journal/v2.1.0.md" "$_jscratch/duptree/docs/journal/v2.0.0.md"
+if python3 "$_jscratch/journal-check.py" "$_jscratch/duptree" > "$_jscratch/journal-dup.out" 2>&1; then
+  echo "FAIL: the journal check accepted two articles claiming one nav_order"; exit 1
+fi
+grep -q 'nav_order 18' "$_jscratch/journal-dup.out" \
+  || { echo "FAIL: the duplicate-order refusal does not name the number"; cat "$_jscratch/journal-dup.out"; exit 1; }
+grep -q 'v2\.1\.0\.md' "$_jscratch/journal-dup.out" && grep -q 'v2\.0\.0\.md' "$_jscratch/journal-dup.out" \
+  || { echo "FAIL: the duplicate-order refusal does not name both files"; cat "$_jscratch/journal-dup.out"; exit 1; }
+echo "ok   two journal articles claiming one nav_order are refused, by number"
+
+# Red path 4: an article with no parent:. Without a witness, a regex narrowed out of existence
+# would leave this rule green forever.
+mkdir -p "$_jscratch/orphtree/docs/journal"
+cp "$KIT_ROOT/docs/index.md" "$_jscratch/orphtree/docs/"
+cp "$KIT_ROOT/docs/journal/index.md" "$_jscratch/orphtree/docs/journal/"
+grep -v '^parent:' "$KIT_ROOT/docs/journal/v2.1.0.md" > "$_jscratch/orphtree/docs/journal/v2.1.0.md"
+if python3 "$_jscratch/journal-check.py" "$_jscratch/orphtree" > "$_jscratch/journal-orph.out" 2>&1; then
+  echo "FAIL: the journal check accepted an article with no parent:"; exit 1
+fi
+grep -q "does not carry 'parent: Journal'" "$_jscratch/journal-orph.out" \
+  || { echo "FAIL: the orphan refusal does not name the parent: rule"; cat "$_jscratch/journal-orph.out"; exit 1; }
+grep -q 'v2\.1\.0\.md' "$_jscratch/journal-orph.out" \
+  || { echo "FAIL: the orphan refusal does not name v2.1.0.md"; cat "$_jscratch/journal-orph.out"; exit 1; }
+echo "ok   a journal article with no parent: is refused, by name"
 
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented

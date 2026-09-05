@@ -1,0 +1,221 @@
+{
+  "skill_name": "migrate-legacy",
+  "runs_per_query": 3,
+  "threshold": 0.5,
+  "results": [
+    {
+      "query": "audit this legacy solution and tell me what upgrading it would take",
+      "note": "the read-only assessment phase (/migrate-assess)",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "migrate-legacy": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "mets a niveau cette app vers .NET 10",
+      "note": "FR \u2014 'mets a niveau'",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "migrate-legacy": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "migrate this project to .NET 10",
+      "note": "'migrate ... to .NET 10'",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": false
+    },
+    {
+      "query": "modernise ce code legacy",
+      "note": "FR \u2014 'modernise ce code legacy'",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "migrate-legacy": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "modernize this legacy codebase",
+      "note": "'modernize ... legacy'",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": false
+    },
+    {
+      "query": "the runtime is out of support, bring it up to date",
+      "note": "out-of-support runtime",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": false
+    },
+    {
+      "query": "these packages are ancient, get this solution current",
+      "note": "obsolete packages across a whole solution",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": false
+    },
+    {
+      "query": "this project targets an old framework, can you fix that?",
+      "note": "the symptom, no keyword",
+      "should_trigger": true,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
+      "runs": 3,
+      "fired": {
+        "migrate-legacy": 1,
+        "(none)": 2
+      },
+      "pass": false
+    },
+    {
+      "query": "upgrade this app to the latest .NET",
+      "note": "'upgrade this app'",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "migrate-legacy": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "help me write a new .NET app from scratch",
+      "note": "greenfield, nothing legacy to migrate",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "implement issue 47 and open a PR",
+      "note": "\u2192 implement-issue",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "implement-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "merge PR 279",
+      "note": "\u2192 merge-pr",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "merge-pr": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "migrate this database to Postgres",
+      "note": "a data migration, not an application migration",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "renovate opened a PR bumping xunit, take a look",
+      "note": "one package bump \u2014 shares 'upgrade' intent, not the pipeline",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "upgrade my npm dependencies",
+      "note": "a dependency bump, not a legacy app migration",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "what's new in .NET 10?",
+      "note": "informational question \u2014 nothing to upgrade",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "what's still open across the migrated repos?",
+      "note": "\u2192 review-followups (the tail after the pipeline, not the pipeline)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "review-followups": 3
+      },
+      "pass": true
+    }
+  ],
+  "summary": {
+    "total": 17,
+    "passed": 12,
+    "failed": 5,
+    "should_trigger": 9,
+    "should_not": 8,
+    "recall": 0.4444444444444444,
+    "specificity": 1.0
+  }
+}

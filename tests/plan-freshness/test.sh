@@ -202,13 +202,15 @@ echo "== a wrapped **Files:** line is JOINED before parsing, not two failures (#
 # vanished from the output with NO verdict, neither OK nor MISSING. Both failures are pinned here:
 # a fixture that mirrors #412's real shape (paren spanning the wrap, verb + path continuing after
 # it) whose every named path genuinely exists, so a correct join reads exit 0 with both paths OK.
+# (The second item's aside is deliberately NOT `(new)` — that marker is its own case, #433 below;
+# mixing it in here would make this fixture assert two different things at once.)
 cat > "$WORK/wrap-ok.md" <<'PLAN'
 ## 🛠️ Implementation plan
 
 ### Task 1: wrap with only real paths
 
 **Files:** modify `a.sh` (the entry point, and the
-guard list); test `dir with space/b.sh` (new).
+guard list); test `dir with space/b.sh` (already tracked).
 
 - [ ] **Step 1:** do the thing.
 PLAN
@@ -221,18 +223,90 @@ echo "== …and a genuinely stale path AFTER the wrap is still caught, not lost 
 # The mirror image of C30-C32: the same wrapped shape, but the path named on the continuation line
 # does not exist. If the continuation were still silently dropped (rather than merely mis-split),
 # this would read as a false-fresh exit 0 instead of the exit 5 a real stale path demands.
+# (Same note as wrap-ok.md above: no `(new)` marker here, deliberately — that's #433's own fixture.)
 cat > "$WORK/wrap-missing.md" <<'PLAN'
 ## 🛠️ Implementation plan
 
 ### Task 1: wrap with a stale path after the wrap
 
 **Files:** modify `a.sh` (the entry point, and the
-guard list); test `gone.sh` (new).
+guard list); test `gone.sh` (still absent).
 
 - [ ] **Step 1:** do the thing.
 PLAN
 run_case "C33 a wrapped stale path exits 5    " 5 "$WORK/wrap-missing.md"
 want_line "C34 …and the WRAPPED path is MISSING" "MISSING test gone.sh (Task 1)"
+
+echo "== a '(new)' marker reads a create-shaped SKIP on ANY verb, not just create (#433) =="
+#
+# `create-issue`'s own template phrases a task's own new test file as `test \`path\` (new)`, not
+# `create \`path\`` — the item is "the test for this task", not "a file this task modifies" — and
+# before this fix the parenthetical-strip above threw `(new)` away as ordinary noise identically to
+# `(DI registration)`, so the bare `test` verb then resolved the (deliberately absent) path and
+# reported it MISSING — issue #414's own plan, reproduced here. `new-thing.sh` never exists in the
+# fixture repo; a correct read is SKIP, never MISSING, and contributes nothing to the exit code.
+cat > "$WORK/new-marker.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a task with its own new test file
+
+**Files:** test `tests/fixture/new-thing.sh` (new).
+
+- [ ] **Step 1:** do the thing.
+PLAN
+run_case "C40 a '(new)' marker on 'test' exits 0" 0 "$WORK/new-marker.md"
+want_line "C41 …and prints SKIP, not MISSING   " "SKIP test tests/fixture/new-thing.sh (Task 1)"
+
+echo "== …the same path WITHOUT the marker still stales — the marker isn't a general escape (#433 AC2) =="
+cat > "$WORK/no-marker.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: the same path, no marker
+
+**Files:** test `tests/fixture/new-thing.sh`.
+PLAN
+run_case "C42 the same path with no marker: 5 " 5 "$WORK/no-marker.md"
+want_line "C43 …and is named MISSING           " "MISSING test tests/fixture/new-thing.sh (Task 1)"
+
+echo "== …a 'create' item is unaffected whether or not '(new)' is also present (#433 AC3) =="
+cat > "$WORK/create-and-marker.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a create item, redundantly marked
+
+**Files:** create `brand-new.sh` (new).
+PLAN
+run_case "C44 'create … (new)' still exits 0   " 0 "$WORK/create-and-marker.md"
+want_line "C45 …and prints SKIP create, as ever" "SKIP create brand-new.sh (Task 1)"
+
+echo "== …two-word '(new file)' is the same marker, and it isn't a substring match (#433 Spec edge case) =="
+#
+# `(new)`/`(new file)` are the two closed spellings; `(new in v2)` must NOT match — it is a
+# different, genuine parenthetical that happens to contain the word "new".
+cat > "$WORK/new-file-marker.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: the two-word spelling, and a non-matching lookalike
+
+**Files:** modify `another/new.sh` (new file); modify `dir with space/b.sh` (new in v2).
+PLAN
+run_case "C46 'new file' also SKIPs, exit 0    " 0 "$WORK/new-file-marker.md"
+want_line "C47 …two-word marker prints SKIP    " "SKIP modify another/new.sh (Task 1)"
+want_line "C48 …a lookalike aside is not eaten " "OK modify dir with space/b.sh (Task 1)"
+
+echo "== …and a path that ALREADY EXISTS but is marked '(new)' anyway still SKIPs (#433 edge case) =="
+#
+# SKIP never checks existence — matching how `create` already behaves — so a stale or mistaken
+# marker on an existing path is not adjudicated here, same as today's `create` verb.
+cat > "$WORK/stale-marker.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: an existing path, marked new anyway
+
+**Files:** modify `a.sh` (new).
+PLAN
+run_case "C49 a stale '(new)' marker exits 0   " 0 "$WORK/stale-marker.md"
+want_line "C50 …and still prints SKIP          " "SKIP modify a.sh (Task 1)"
 
 echo "== …and a field with NO blank line before **Interfaces:** is not swallowed (#419 review) =="
 #

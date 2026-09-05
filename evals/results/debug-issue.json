@@ -1,0 +1,245 @@
+{
+  "skill_name": "debug-issue",
+  "runs_per_query": 3,
+  "threshold": 0.5,
+  "results": [
+    {
+      "query": "I get a NullReferenceException here, patch it",
+      "note": "'patch it' \u2014 must fire BEFORE the fix is proposed",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": false
+    },
+    {
+      "query": "ca marchait avant, maintenant ca plante au demarrage",
+      "note": "FR \u2014 worked before, crashes now",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "ce test est flaky, corrige-le",
+      "note": "FR \u2014 flaky test",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "the app segfaults on startup since we upgraded, find out why",
+      "note": "crash + a suspected trigger \u2014 carries migrate-legacy's word 'upgraded'; check the fired histogram before blaming the description",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": false
+    },
+    {
+      "query": "the build broke after my last commit",
+      "note": "build break, a known-good state to bisect back to",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "the deploy fails with an exception I don't understand, fix it",
+      "note": "'fix it' over an unexplained exception",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": false
+    },
+    {
+      "query": "the migration worked yesterday and now 500s",
+      "note": "a regression, no stack trace offered \u2014 carries migrate-legacy's word 'migration', so a miss here is likely lost to that sibling rather than to a weak description",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "this stack trace is from production, get to the bottom of it",
+      "note": "'get to the bottom of it' \u2014 root cause explicitly asked for",
+      "should_trigger": true,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": false
+    },
+    {
+      "query": "this test fails intermittently, can you fix it?",
+      "note": "a flaky test \u2014 guessing at a fix is exactly the temptation",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "we shipped a regression: orders over 1000 now round wrong",
+      "note": "a wrong-output bug, not a crash",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "why does this integration test hang in CI but pass locally?",
+      "note": "environment-dependent failure",
+      "should_trigger": true,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
+      "runs": 3,
+      "fired": {
+        "(none)": 2,
+        "debug-issue": 1
+      },
+      "pass": false
+    },
+    {
+      "query": "add a retry policy to this HTTP client",
+      "note": "new behavior \u2014 nothing is broken",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "add validation and error handling to the import endpoint",
+      "note": "error HANDLING is new code, not a bug to diagnose",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "how does the debugger attach to a container?",
+      "note": "informational question \u2014 shares 'debug', nothing is failing",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "implement issue 47, it already has a plan",
+      "note": "\u2192 implement-issue",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "implement-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "refactor this service into smaller classes",
+      "note": "working code, refactoring",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "review this PR",
+      "note": "\u2192 code-review; the code already works",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "set up a CI workflow",
+      "note": "tooling",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "write tests for this class",
+      "note": "new tests, no failure to explain",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    }
+  ],
+  "summary": {
+    "total": 19,
+    "passed": 14,
+    "failed": 5,
+    "should_trigger": 11,
+    "should_not": 8,
+    "recall": 0.5454545454545454,
+    "specificity": 1.0
+  }
+}

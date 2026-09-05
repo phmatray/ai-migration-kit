@@ -681,7 +681,7 @@ grep -qi 'baseline' skills/migrate-legacy/references/phase-5-modernize.md \
   || { echo "FAIL: phase-5-modernize.md states no counted-tests gate"; exit 1; }
 grep -qi 'test platform\|plateforme de test' skills/migrate-legacy/references/phase-6-verify.md \
   || { echo "FAIL: phase-6-verify.md does not record the test platform"; exit 1; }
-grep -qi 'plateforme de test' skills/migrate-legacy/references/report-template.md \
+grep -qi 'test platform\|plateforme de test' skills/migrate-legacy/references/report-template.md \
   || { echo "FAIL: report-template.md has no slot for the test platform"; exit 1; }
 echo "  [5] phases 1, 5 and 6 carry the decision, the route and the recorded outcome"
 

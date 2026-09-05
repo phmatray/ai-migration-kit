@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Golden test for scripts/recap-wiring-check.py — the guard that the kit's closing recap has ONE
-# home, that every skill links it, and that ARCHITECTURE.md's dashed hand-off edges say the same
-# thing as the hand-off table (#175).
+# home, that every skill links it, that ARCHITECTURE.md's dashed hand-off edges say the same
+# thing as the hand-off table (#175), and that the boundary-findings block's own list agrees with
+# who actually links it and with untrusted-input-boundary.md's Consumers (#387).
 #
 # What this suite guards:
 #   A. the happy path on THIS repo — the real skills/, the real ARCHITECTURE.md    -> exit 0
@@ -31,6 +32,11 @@
 #   J. a duplicate row for one skill                                                -> REFUSE
 #   K. a table with no rows at all                                                  -> exit 2, never
 #      a vacuous "all wired"
+#   T. a boundary-findings-block entry that is listed, linked, and a confirmed       -> exit 0
+#      Consumer, all at once
+#   U. a boundary-findings-block entry whose skill never links the block             -> REFUSE, named
+#   V. a skill that links the block without being named in it                        -> REFUSE, named
+#   W. a listed, linked entry absent from untrusted-input-boundary.md's Consumers    -> REFUSE, named
 #
 # The refusal cases are the point: exit 1 is a VERDICT and exit 2 is the absence of one, and a guard
 # that cannot tell them apart is the "silent green" shape #45 and #72 were written for. D and K are
@@ -117,6 +123,42 @@ write_arch() {
     for edge in "$@"; do echo "$edge"; done
     echo '```'
   } > "$d/ARCHITECTURE.md"
+}
+
+# append_boundary_block <dir> <name>… — append recap.md's boundary-findings-block section, naming
+# these skills, onto whatever the fixture's recap.md already holds (write_table's table stays put).
+append_boundary_block() {
+  local d="$1"; shift
+  {
+    echo
+    echo '## The boundary-findings block'
+    echo
+    local name
+    for name in "$@"; do echo "- \`$name\`"; done
+  } >> "$d/skills/_shared/recap.md"
+}
+
+# link_boundary <dir> <skill> — add the boundary-findings-block's own link (the anchored one,
+# distinct from the plain _shared/recap.md link every scaffolded skill already carries) to that
+# skill's SKILL.md.
+link_boundary() {
+  local d="$1" name="$2"
+  printf 'Boundary findings — see [`../_shared/recap.md#the-boundary-findings-block`](../_shared/recap.md#the-boundary-findings-block).\n' \
+    >> "$d/skills/$name/SKILL.md"
+}
+
+# write_boundary_doc <dir> <name>… — the fixture's untrusted-input-boundary.md, listing these
+# skills' SKILL.md under `## Consumers`.
+write_boundary_doc() {
+  local d="$1"; shift
+  {
+    echo '# Boundary'
+    echo
+    echo '## Consumers'
+    echo
+    local name
+    for name in "$@"; do echo "- \`skills/$name/SKILL.md\` — reads foreign text"; done
+  } > "$d/skills/_shared/untrusted-input-boundary.md"
 }
 
 # run_check <repo> — echo the guard's combined output, return its status.
@@ -298,6 +340,38 @@ echo "S. a %%-commented dashed edge"
 F="$WORK/s"; scaffold "$F"
 write_arch "$F" '    A -. "next step: /beta" .-> B' '    %% B -. "next step: /alpha" .-> A'
 expect "a mermaid comment is not an edge" 0 "$F"
+
+# ------------------------------------------------------------------ T. boundary block fully wired
+echo "T. a fully-wired boundary-findings block (#387)"
+F="$WORK/t"; scaffold "$F"
+link_boundary "$F" alpha
+append_boundary_block "$F" alpha
+write_boundary_doc "$F" alpha
+expect "a listed, linked, Consumers-confirmed skill passes" 0 "$F"
+
+# --------------------------------------------- U. listed but the skill never links the block
+echo "U. a boundary-findings skill that never links the block"
+F="$WORK/u"; scaffold "$F"
+append_boundary_block "$F" alpha
+write_boundary_doc "$F" alpha
+expect "the unlinked skill is named" 1 "$F" "REFUSE" "alpha"
+
+# --------------------------------------------------- V. a skill links it without being listed
+echo "V. a skill links the block without being named in it"
+F="$WORK/v"; scaffold "$F"
+link_boundary "$F" alpha
+link_boundary "$F" beta
+append_boundary_block "$F" alpha
+write_boundary_doc "$F" alpha
+expect "the unlisted linker is named" 1 "$F" "REFUSE" "beta"
+
+# ------------------------------------- W. listed+linked but absent from the boundary's Consumers
+echo "W. a listed, linked skill absent from untrusted-input-boundary.md's Consumers"
+F="$WORK/w"; scaffold "$F"
+link_boundary "$F" alpha
+append_boundary_block "$F" alpha
+write_boundary_doc "$F" beta
+expect "the Consumers mismatch is named" 1 "$F" "REFUSE" "alpha" "Consumers"
 
 # ------------------------------------------------------------------------------------------ verdict
 echo

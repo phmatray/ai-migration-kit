@@ -33,6 +33,8 @@
 #   OK      modify <path> (Task N)     it resolves against <ref>
 #   MISSING modify <path> (Task N)     it does not — the plan is stale here
 #   SKIP    create <path> (Task N)     a path the plan is about to CREATE; absence is correct
+#   SKIP    test   <path> (Task N)     ditto, marked `(new)`/`(new file)` on a verb other than
+#                                      `create` (#433) — same reading, original verb word kept
 #
 # `(Task N)` is on ALL THREE lines, not only on MISSING: the task number is what Step 2 needs to
 # find the `**Interfaces:**` line to re-anchor through, and a reader diffing two runs wants the OK
@@ -42,6 +44,17 @@
 # verb carries across the items after it, so `modify a, b; create c` checks a and b and skips c.
 # A `**Files:**` line that names no verb at all is read as `modify` — the checked reading, because
 # the alternative silently un-gates the line.
+#
+# An item's own trailing `(new)`/`(new file)` marker reads the same way regardless of its verb
+# word (#433). `create-issue`'s own template writes a task's own new test file as
+# `test \`path\` (new)`, not `create \`path\`` — the item is "the test for this task", not "a file
+# this task modifies" — and a bare `test`/`modify`/`delete` verb otherwise means "resolve this
+# against <ref>", which is wrong for a path the plan itself says does not exist yet. So that one
+# marker is read BEFORE the generic aside-strip below discards it as ordinary noise (the same way
+# `(DI registration)` is noise): it downgrades the item's OK/MISSING check to the `create` verb's
+# SKIP, printed with the ORIGINAL verb word so the reader still sees what the plan actually wrote.
+# Exact phrases only, case-insensitive, isolated (not substring) — `(new in v2)` is not this marker,
+# matching the same closed-list discipline the `none expected.` idiom below already uses.
 #
 # Every task still needs a `**Files:**` line even when it touches no file at all (a
 # verification-only task) — `create-issue` has been OBSERVED writing `none expected.` for exactly
@@ -114,6 +127,10 @@ git -C "$DIR" rev-parse --verify --quiet "$BASE^{commit}" > /dev/null 2>&1 \
   || die2 "base ref '$BASE' does not resolve in '$DIR' — fetch it rather than reading this as fresh"
 
 SEP=$'\001'
+# A control byte, distinct from SEP, planted in place of a `(new)`/`(new file)` aside so the marker
+# rides along with the ONE item it was attached to, through the split on `; `/`, ` below — the aside
+# itself is gone by the time an item is inspected (see the #433 note above `flush_files_field`).
+NEWMARK=$'\002'
 TASK=""
 SEEN_TASK=0
 MISSING=0
@@ -129,7 +146,7 @@ PAYLOAD=""
 # blank line, a new `### Task`, a new `**Files:**`/`**Files**:` line, or end of file, and only then
 # handed to the same parsing logic that always ran on a single line.
 flush_files_field() {
-  local payload item verb
+  local payload item verb new_marker aside aside_lc
   payload=$(trim "$1")
   # A `**Files:**` line above the first `### Task` belongs to no task, so there is nothing to
   # report it against and nothing for Step 2 to re-anchor through. Skipping it is deliberate.
@@ -144,7 +161,14 @@ flush_files_field() {
   # the "no usable plan" stop. A false stale costs the whole run.
   while :; do
     case "$payload" in
-      *'('*')'*) payload="${payload%%(*}${payload#*)}" ;;
+      *'('*')'*)
+        aside=$(trim "${payload#*(}"); aside=${aside%%)*}; aside=$(trim "$aside")
+        aside_lc=$(printf '%s' "$aside" | tr '[:upper:]' '[:lower:]')
+        case "$aside_lc" in
+          new|'new file') payload="${payload%%(*}${NEWMARK}${payload#*)}" ;;
+          *)              payload="${payload%%(*}${payload#*)}" ;;
+        esac
+        ;;
       *) break ;;
     esac
   done
@@ -179,6 +203,15 @@ flush_files_field() {
     item=${item//'`'/}
     item=$(trim "$item")
     item=${item#./}
+
+    # The marker planted above, if this item carried a `(new)`/`(new file)` aside. It rides on the
+    # END of the item (the aside always followed the path), possibly after a trailing-punctuation
+    # strip already removed a `.`/`,`/`;` that sat between the marker and the split point.
+    new_marker=0
+    case "$item" in
+      *"$NEWMARK") item=${item%"$NEWMARK"}; item=$(trim "$item"); new_marker=1 ;;
+    esac
+
     [ -n "$item" ] || continue
 
     # The closed no-file list — a task saying it touches nothing is not a path to resolve, in any
@@ -193,7 +226,14 @@ flush_files_field() {
         printf 'SKIP create %s (Task %s)\n' "$item" "$TASK"
         ;;
       *)
-        if git -C "$DIR" cat-file -e "$BASE:$item" 2>/dev/null; then
+        if [ "$new_marker" -eq 1 ]; then
+          # A `(new)`/`(new file)` marker on any other verb reads exactly like `create`: the path
+          # is EXPECTED absent, so existence is never checked — same as `create` never checking it,
+          # including when the marker turns out to be stale (a path that already exists but is
+          # still marked `(new)`). Printed with the item's own verb word, not "create", so the
+          # reader still sees what the plan actually wrote (#433).
+          printf 'SKIP %s %s (Task %s)\n' "$verb" "$item" "$TASK"
+        elif git -C "$DIR" cat-file -e "$BASE:$item" 2>/dev/null; then
           printf 'OK %s %s (Task %s)\n' "$verb" "$item" "$TASK"
         else
           printf 'MISSING %s %s (Task %s)\n' "$verb" "$item" "$TASK"

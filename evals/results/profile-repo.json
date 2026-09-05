@@ -67,25 +67,26 @@
       "query": "make these skills generic so they work in any repository",
       "note": "'make these skills generic'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.0,
+      "triggers": 0,
       "runs": 3,
       "fired": {
-        "profile-repo": 3
+        "(none)": 3
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "port create-issue and merge-pr to this new repo",
       "note": "'port create-issue/merge-pr'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
       "runs": 3,
       "fired": {
-        "profile-repo": 3
+        "(none)": 2,
+        "profile-repo": 1
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "refresh the repo profile after we changed the CI gates",
@@ -160,6 +161,18 @@
       "pass": true
     },
     {
+      "query": "profile this app's performance, it's slow",
+      "note": "'profile' = perf profiling, not configuration",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
       "query": "review PR 281 without merging",
       "note": "\u2192 review/code-review",
       "should_trigger": false,
@@ -184,6 +197,18 @@
       "pass": true
     },
     {
+      "query": "show me the repo's README",
+      "note": "a simple read, no profile generation",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
       "query": "update CLAUDE.md with what we learned this session",
       "note": "\u2192 revise-claude-md, not profile-repo",
       "should_trigger": false,
@@ -196,8 +221,32 @@
       "pass": true
     },
     {
+      "query": "update my global git config",
+      "note": "local git config, not the skills' profile",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
       "query": "what build system and test framework does Koine use?",
       "note": "doc question \u2014 answerable, no profile generation",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "what's my GitHub profile?",
+      "note": "the user's profile, not the repo config \u2014 shares the word only",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
@@ -221,12 +270,12 @@
     }
   ],
   "summary": {
-    "total": 18,
-    "passed": 18,
-    "failed": 0,
+    "total": 22,
+    "passed": 20,
+    "failed": 2,
     "should_trigger": 10,
-    "should_not": 8,
-    "recall": 1.0,
+    "should_not": 12,
+    "recall": 0.8,
     "specificity": 1.0
   }
 }

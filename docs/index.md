@@ -47,6 +47,7 @@ to GSD, SpecKit and BMAD.
 - [The bundle gate](bundle-gate.md) — the opt-in drift gate for committed bundles.
 - [Demo walkthrough](demo-walkthrough.md) — a real pipeline run on the bundled legacy fixture.
 - [Case studies](case-studies/winrt-portfolio/portfolio.md) — four dead-platform apps migrated and verified live.
+- [Journal](journal/index.md) — one article per release: why it happened, what got cut, what bit us.
 
 ## On GitHub
 

@@ -212,14 +212,19 @@ DEP_FIELDS=$BASE_FIELDS,blockedBy,blocking,subIssues,assignees
 # would have turned that infra fallback into an outright abort. The stderr capture below is the one
 # thing that genuinely needs a file (a pipeline cannot separate a command's two streams into two
 # variables in one run), so it is optional and its absence is a named, degraded path.
+#
+# `--paginate`, not `--limit 300` (#367): a bounded page let an OPEN body-line blocker sitting past
+# the cut read as closed, since membership in `$open` is the only signal a bare `#n` ref has. This
+# call therefore has no cap on how large a single run can grow — that is deliberate, not an oversight
+# to tighten later: a truncated `$open` is the bug this fixes, not a performance knob worth keeping.
 if ! GH_ERR_FILE="$(mktemp 2>/dev/null)"; then
   GH_ERR_FILE=""
 fi
 GH_RC=0
 if [ -n "$GH_ERR_FILE" ]; then
-  ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$DEP_FIELDS" 2>"$GH_ERR_FILE")" || GH_RC=$?
+  ISSUES_JSON="$(gh issue list --state open --paginate --json "$DEP_FIELDS" 2>"$GH_ERR_FILE")" || GH_RC=$?
 else
-  ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$DEP_FIELDS")" || GH_RC=$?
+  ISSUES_JSON="$(gh issue list --state open --paginate --json "$DEP_FIELDS")" || GH_RC=$?
 fi
 
 if [ "$GH_RC" -ne 0 ]; then
@@ -234,7 +239,7 @@ if [ "$GH_RC" -ne 0 ]; then
       GH_ERR_TEXT="<stderr not captured: mktemp failed>"
     fi
     echo "survey.sh: this gh cannot serve the dependency fields (blockedBy/blocking/subIssues) — falling back to $BASE_FIELDS. Every row then reads deps=-, so the frontier rule holds NOTHING and a blocked child can be dispatched ahead of its blocker (#317). Upgrade gh to restore it. gh said: $GH_ERR_TEXT" >&2
-    ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$BASE_FIELDS")"
+    ISSUES_JSON="$(gh issue list --state open --paginate --json "$BASE_FIELDS")"
   else
     cat "$GH_ERR_FILE" >&2
     exit "$GH_RC"
@@ -266,6 +271,15 @@ printf '%s\n' "$ISSUES_JSON" \
     def haveplan:  bodyplan or ((istrackingparent | not)
                     and (((.comments // []) | map(.body) | join("\n"))
                          | test("Implementation plan|### Task|- \\[ \\]")));
+    # A cap-truncated, unplanned issue is NOT the same fact as "no plan": `gh issue list --json
+    # comments` observably caps at ~100 comments (measured: 100 of 602 on the issue that
+    # prompted this, #426), so a large issue that shows no plan token in the body or the fetched
+    # comment slice might still carry one past the cutoff. Guessing "unplanned" there repeats
+    # #343'"'"'s exact failure for the large-comment case instead of bounding it. `haveplan | not`
+    # and `istrackingparent | not`: a plan already found, or a legitimately plan-less tracking
+    # parent, both settle the question outright and neither needs this flag.
+    def commentscap: ((haveplan | not) and (istrackingparent | not)
+                       and (((.comments // []) | length) >= 100));
     def manualqa:  ((.title // "") | test("visually|verify by hand|manual QA|by hand"; "i"));
     # Dependency edges (#317). `gh issue list --json blockedBy,blocking,subIssues` serves GraphQL
     # CONNECTIONS — {"nodes":[…],"totalCount":N} — measured on gh 2.98.0, while this repo'"'"'s own
@@ -288,10 +302,12 @@ printf '%s\n' "$ISSUES_JSON" \
       | map(select(.number != null));
     # An edge counts as still-open when the node SAYS so — the connection carries each linked
     # issue'"'"'s `state` — and only otherwise falls back to membership in the open set this same call
-    # returned. That ordering matters: `--limit 300` bounds the open set, so an OPEN blocker sitting
-    # outside the window would look closed under membership alone and its blockee would be
-    # dispatched. Reading `state` fails safe; membership is the fallback for the plain-array shape,
-    # which carries no state, and for the body-line refs, which are bare numbers.
+    # returned. That ordering matters: `$open` comes from a `--paginate`d `gh issue list`, so it is
+    # the FULL open set rather than a single bounded page (#367 — a `--limit 300` window used to let
+    # an OPEN blocker sitting past the cut look closed under membership alone, dispatching its
+    # blockee). Reading `state` fails safe; membership is the fallback for the plain-array shape,
+    # which carries no state, and for the body-line refs, which are bare numbers and have no other
+    # signal to fall back from at all.
     def openedges($open):
       edgenums
       # `.number as $num` first: `index(f)` evaluates f against ITS OWN input ($open, an array), so
@@ -321,7 +337,7 @@ printf '%s\n' "$ISSUES_JSON" \
     # Every edge is resolved against this call'"'"'s own open set, or the state the connection carries.
     (map(.number)) as $open
     | map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
-           labels:(.labels|map(.name)|join(",")), t:tier,
+           labels:(.labels|map(.name)|join(",")), t:tier, cc:commentscap,
            # Native edges resolve by their own `state`; body-line refs are bare numbers with no
            # state to read, so those can only be filtered by membership in the open set.
            blockers: ((((.blockedBy // []) | openedges($open))
@@ -344,6 +360,7 @@ printf '%s\n' "$ISSUES_JSON" \
         (if   (.subs > 0 or .st)                    then "parent(\(.subs)\(if .st then "+" else "" end))"
          elif ((.blockers|length) > 0 or .bt)       then "blocked_by=" + ((([.blockers[] | "#\(.)"])
                                                           + (if .bt then ["?"] else [] end)) | join(","))
+         elif .cc                                   then "comments-cap"
          elif .assigned                             then "assigned"
          elif ((.blocking|length) > 0)              then "blocking="   + ([.blocking[] | "#\(.)"] | join(","))
          else                                            "-"
@@ -360,6 +377,7 @@ printf '%s\n' "$ISSUES_JSON" \
         # says which one it was.
         | (if   (.subs > 0 or .st)            then "HOLD "
            elif ((.blockers|length) > 0 or .bt) then "HOLD "
+           elif .cc                           then "HOLD "
            elif .assigned                     then "HOLD "
            elif (.t > 2)                      then "HOLD "
            elif (.plan and (.qa | not))       then "QUEUE"
@@ -372,7 +390,7 @@ printf '%s\n' "$ISSUES_JSON" \
       # issue number rather than in the tier order above: a HOLD row sorts to the end by tier, and
       # the supervisor pastes these straight into `/create-issue --seed #N`.
       (
-        [ $rows[] | select((.plan | not) and (.qa | not)) ] | sort_by(.n) as $seed
+        [ $rows[] | select((.plan | not) and (.qa | not) and (.cc | not)) ] | sort_by(.n) as $seed
         | if ($seed | length) == 0
           then "SEED\t0\t-"
           else "SEED\t\($seed | length)\twaiting for a seed: " + ([ $seed[] | "#\(.n)" ] | join(" "))

@@ -1,12 +1,13 @@
 # Skill-triggering evals
 
-A **safe, repeatable** regression check for **every** skill's *description* — all ten of
+A **safe, repeatable** regression check for **every** skill's *description* — all twelve of
 [`auto-dev`](../skills/auto-dev), [`create-issue`](../skills/create-issue),
-[`review-followups`](../skills/review-followups), [`profile-repo`](../skills/profile-repo),
-[`implement-issue`](../skills/implement-issue), [`migrate-legacy`](../skills/migrate-legacy),
-[`merge-pr`](../skills/merge-pr), [`setup-repo`](../skills/setup-repo),
-[`debug-issue`](../skills/debug-issue) and
-[`triage-backlog`](../skills/triage-backlog).
+[`debug-issue`](../skills/debug-issue), [`deliver-issue`](../skills/deliver-issue),
+[`implement-issue`](../skills/implement-issue), [`merge-pr`](../skills/merge-pr),
+[`migrate-legacy`](../skills/migrate-legacy), [`profile-repo`](../skills/profile-repo),
+[`review-followups`](../skills/review-followups), [`review-sessions`](../skills/review-sessions),
+[`setup-repo`](../skills/setup-repo) and [`triage-backlog`](../skills/triage-backlog) —
+the roster `run_all.py`'s `SKILLS` holds and `tests/skills/check-frontmatter.py` cross-checks.
 
 `<skill>-trigger-eval.json` here is a skill's **triggering contract**, and its only home (#331).
 It used to have two: these sets, plus a per-skill bullet list under `tests/skills/` that CI
@@ -58,6 +59,34 @@ uuid-suffixed name is absent. The stream event *shapes* — `stream_event` / `co
 **The fix** (`trigger_eval.py`): match the **canonical installed skill name** in addition to the
 synthetic uuid-suffixed one. Detection then registers real triggers. The runner also records *which*
 skill fired, so the `implement-issue` vs `merge-pr` boundary can be read off a single run.
+
+## What recall here actually measures
+
+**"Does the description win the model's FIRST tool call"** — not "does the skill ever fire". The
+runner kills the subprocess at the first tool-use *intent* (that is what makes it safe to point at
+the action skills), so a query the model answers by orienting itself first — a `Grep` for the
+symbol, a `Read` of the file — is recorded as a miss even when the skill would have fired on the
+very next turn. Measured on two of `debug-issue`'s zeros: *"the deploy fails with an exception I
+don't understand, fix it"* stops at `first_tool: Grep`, and *"this stack trace is from production,
+get to the bottom of it"* uses no tool at all (the model asks for the trace).
+
+So read a low recall as **"another action outranks the skill on the opening move"**, which is
+worth fixing — a skill that loses turn 1 loses the framing for the whole session — but is not the
+same claim as "the skill never fires". A specificity below 1.00 is the unambiguous half: that one
+means the description is genuinely over-firing.
+
+Two shapes of row cannot pass at all, and they are noise rather than signal:
+
+- **A slash-command query.** A command is expanded into the prompt by the client, not invoked as a
+  tool, so there is no tool-use intent to observe. `SKILL_COMMANDS` maps a command a skill owns back
+  to the skill, which covers the model *reaching for* the command file; it cannot cover the user
+  typing one. Four such rows existed (`/migrate`, `/migrate-assess`, `/migrate-verify`,
+  `/migrate-followups`) and were the whole of `migrate-legacy`'s 0.33; they are **deleted**, and
+  `tests/skills/check-frontmatter.py` now refuses a `/`-prefixed query so none comes back. The
+  routing they were reaching for is asserted structurally instead, by the same file: every
+  `commands/*.md` names the skill it dispatches to.
+- **A skill the running Claude Code has no plugin for.** `run_all.py` closes that one by linking
+  every skill under test into `.claude/skills/` for the run — see `skills_visible`.
 
 ## Safety (why this is safe even for the action skills)
 

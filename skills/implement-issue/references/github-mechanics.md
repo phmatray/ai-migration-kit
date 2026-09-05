@@ -329,6 +329,8 @@ GUARDS=<this skill's own scripts/ directory>       # skills/implement-issue/scri
 ```
 
 If they exist, work in that worktree (with `git -C`) and reuse the PR — don't open a second one.
+If a guard call at `$GUARDS` is refused from inside that worktree, see the fallback in
+[`../../_shared/guard-invocation.md`](../../_shared/guard-invocation.md).
 
 **If the branch-name match found nothing, don't assume there's no PR — a branch name is only a guess
 at what a prior run called itself.** Ask GitHub about the *issue* directly before creating anything
