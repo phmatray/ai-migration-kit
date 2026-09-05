@@ -33,6 +33,13 @@ What it checks, against `skills/_shared/recap.md`'s hand-off table:
      one as a hand-off would contradict merge-pr's own row, which points at implement-issue.
      Only the `(from, to)` pair is compared, never the edge's label — so rewording the prose on an
      arrow can never produce a false refusal.
+  4. THE BOUNDARY-FINDINGS BLOCK AGREES (#387) — `_shared/recap.md`'s own "boundary-findings
+     block" section names a closed list of skills that report on the untrusted-input boundary;
+     every name on it must have a `SKILL.md` that actually links the block, and must be one of
+     `untrusted-input-boundary.md`'s `## Consumers`; every skill whose `SKILL.md` links the block
+     must be on the list. This assertion is SILENT (no refusals) when recap.md carries no such
+     section — the same "nothing to check is not a refusal" distinction the rest of this script
+     draws, and what keeps a synthetic two-skill fixture without the section unaffected by it.
 
 Everything here is `pathlib` + `re`: no shell idioms, so it behaves the same on a Windows checkout
 (#174).
@@ -58,6 +65,25 @@ import sys
 
 # The reference that owns the recap shape and the hand-off table.
 RECAP_REL = pathlib.PurePosixPath("skills/_shared/recap.md")
+
+# The reference that owns the untrusted-input rule and its `## Consumers` inventory (#387).
+BOUNDARY_DOC_REL = pathlib.PurePosixPath("skills/_shared/untrusted-input-boundary.md")
+
+# The heading of recap.md's closed, explicit list of skills that carry the boundary-findings block.
+BOUNDARY_BLOCK_HEADING = "## The boundary-findings block"
+
+# A `- `name`` bullet under that heading — a skill name, and nothing else on the line.
+BOUNDARY_SKILL_BULLET_RE = re.compile(r"^-\s+`([A-Za-z0-9_-]+)`\s*$")
+
+# A link to the block itself, distinguished from the plain `_shared/recap.md` link every skill
+# already carries (Assertion 2) by an anchor fragment naming "boundary" — so a skill cannot satisfy
+# this check merely by having the ordinary four-block link.
+BOUNDARY_BLOCK_LINK_RE = re.compile(r"_shared/recap\.md#[A-Za-z0-9_-]*boundary", re.IGNORECASE)
+
+# A `skills/<name>/SKILL.md` path named under untrusted-input-boundary.md's `## Consumers` — the
+# subset of that inventory that can carry a closing recap at all (its reference files, and
+# `commands/auto-dev-worker.md`, cannot).
+BOUNDARY_CONSUMER_SKILL_RE = re.compile(r"^skills/([A-Za-z0-9_-]+)/SKILL\.md$")
 
 # The graph the hand-offs are drawn in. Only the fence under this heading is read: ARCHITECTURE.md
 # carries a second mermaid graph (external dependencies) whose dashed arrows mean "recommended
@@ -328,6 +354,115 @@ def check_skills_link(repo, rows):
     return refusals
 
 
+def section_body(text, heading):
+    """The lines under a `## <heading>` line, up to the next `## ` heading or EOF — or None when
+    the heading itself is absent. Distinct from `None` vs `[]`: an empty section still returns a
+    (possibly empty) list of lines, the same "found nothing" vs "nothing there to find" split
+    `parse_handoff_table` draws between an empty table and a missing one.
+    """
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.rstrip() == heading:
+            start = i
+            break
+    if start is None:
+        return None
+    body = []
+    for line in lines[start + 1:]:
+        if line.startswith("## "):
+            break
+        body.append(line)
+    return body
+
+
+def parse_boundary_block_skills(path):
+    """The closed list of skill names under recap.md's boundary-findings-block heading, or None
+    when that heading does not exist yet — the trigger for Assertion 4 running at all.
+    """
+    body = section_body(read_text(path), BOUNDARY_BLOCK_HEADING)
+    if body is None:
+        return None
+    names = []
+    for line in body:
+        m = BOUNDARY_SKILL_BULLET_RE.match(line.strip())
+        if m:
+            names.append(m.group(1))
+    return names
+
+
+def parse_boundary_consumers(path):
+    """The `skills/<name>/SKILL.md` entries under untrusted-input-boundary.md's `## Consumers`,
+    as skill names — or None when the file or the section is unreadable/absent, so a stale or
+    missing boundary doc cannot be misread as "declares no consumers".
+    """
+    text = read_text(path)
+    body = section_body(text, "## Consumers")
+    if body is None:
+        return None
+    names = set()
+    for line in body:
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        quoted = re.match(r"`([^`]+)`", stripped[2:].strip())
+        if not quoted:
+            continue
+        m = BOUNDARY_CONSUMER_SKILL_RE.match(quoted.group(1).strip())
+        if m:
+            names.add(m.group(1))
+    return names
+
+
+def check_boundary_block(repo):
+    """Assertion 4 (#387) — recap.md's boundary-findings-block list, the skills that actually link
+    it, and untrusted-input-boundary.md's `## Consumers` all name the same set.
+
+    SILENT (returns no refusals) when recap.md carries no such section: "nothing declares this
+    yet" is not a verdict any more than a missing hand-off table is, and it is what keeps every
+    fixture built before #387 — none of which have the section — passing unaffected by it.
+    """
+    recap_path = repo / RECAP_REL
+    listed = parse_boundary_block_skills(recap_path)
+    if listed is None:
+        return []
+
+    refusals = []
+    consumers = None
+    boundary_doc = repo / BOUNDARY_DOC_REL
+    if boundary_doc.is_file():
+        consumers = parse_boundary_consumers(boundary_doc)
+
+    for name in listed:
+        skill_md = repo / "skills" / name / "SKILL.md"
+        if not skill_md.is_file():
+            refusals.append(
+                "REFUSE: %s's boundary-findings block lists `%s`, but skills/%s/SKILL.md does "
+                "not exist — delete the entry or restore the skill" % (RECAP_REL, name, name))
+            continue
+        if not BOUNDARY_BLOCK_LINK_RE.search(read_text(skill_md)):
+            refusals.append(
+                "REFUSE: skills/%s/SKILL.md is named in %s's boundary-findings block but its own "
+                "report never links it — replace the hand-written sentence with a link to the "
+                "shared block" % (name, RECAP_REL))
+        if consumers is not None and name not in consumers:
+            refusals.append(
+                "REFUSE: %s's boundary-findings block lists `%s`, but %s's ## Consumers names no "
+                "skills/%s/SKILL.md — either it reads no untrusted text and the entry is stale, "
+                "or the Consumers list is out of date" % (RECAP_REL, name, BOUNDARY_DOC_REL, name))
+
+    listed_set = set(listed)
+    for name in skill_dirs(repo):
+        if name in listed_set:
+            continue
+        skill_md = repo / "skills" / name / "SKILL.md"
+        if BOUNDARY_BLOCK_LINK_RE.search(read_text(skill_md)):
+            refusals.append(
+                "REFUSE: skills/%s/SKILL.md links %s's boundary-findings block, but `%s` is not "
+                "on that block's list — add it there" % (name, RECAP_REL, name))
+    return refusals
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -342,6 +477,7 @@ def main(argv=None):
         refusals += check_table_resolves(repo, rows)
         refusals += check_skills_link(repo, rows)
         refusals += check_architecture_agrees(repo, rows)
+        refusals += check_boundary_block(repo)
     except PlumbingError as exc:
         # Print what WAS decided before saying what could not be. A run that reached a real refusal
         # and then hit a missing ARCHITECTURE.md used to report only "no verdict", hiding the

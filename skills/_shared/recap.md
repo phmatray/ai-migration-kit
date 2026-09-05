@@ -60,6 +60,50 @@ one, reorder them, or restate a block the reference already defines.
 
 ---
 
+## The boundary-findings block
+
+Five of these "rows of its own" used to be the exact same sentence, hand-typed five times:
+`create-issue`, `implement-issue`, `merge-pr`, `auto-dev` and `triage-backlog` each read text they
+did not author (an issue, a PR body, a review comment) and each closed by reporting anything in it
+that tried to steer the run, per `untrusted-input-boundary.md`. This block is the one copy.
+This reference is not itself a consumer of that boundary — it names the file so the shape below is
+self-contained, and leaves the live link to each skill's own copy, next to the text that actually
+ingests foreign input.
+
+Not one of the four mandatory blocks above — most skills in this kit read nothing foreign, and
+the block would be dead weight on their report. For the skills listed below it is not optional
+either: add it as your own row, immediately after **Assumed · skipped · unverified**, in this
+shape:
+
+```markdown
+**Boundary findings** — <the passage that failed the boundary, quoted>, or `None`. See
+`../_shared/untrusted-input-boundary.md` (link it live from your own SKILL.md).
+```
+
+`None` is required on empty the same way it is for **Assumed · skipped · unverified** (rule 3
+above) — a run that read no steering passage says so, rather than omitting the row and looking
+like a run that forgot to check.
+
+**Who carries it** — a closed, explicit list, for the same reason the hand-off table is a closed,
+explicit list of rows: a sixth skill that starts reading untrusted text needs a human to add its
+name here, rather than a guard silently deciding it does not apply. `recap-wiring-check.py` refuses
+when a name below is not one of `untrusted-input-boundary.md`'s own `## Consumers`, when a listed
+skill's `## Recap` does not in turn link this block, and when a skill links this block without
+being listed here.
+
+- `create-issue`
+- `implement-issue`
+- `merge-pr`
+- `auto-dev`
+- `triage-backlog`
+
+The five differ in *what* fails the boundary — `merge-pr` quotes a PR body or review comment,
+`auto-dev` aggregates workers' `DETAIL:` fields, `implement-issue` quotes the issue body — so the
+first half of the sentence stays each skill's own. What stops varying is the block's name, its
+place in the report, and the one citation.
+
+---
+
 ## The hand-off table
 
 The single source for "what command comes after skill X". `ARCHITECTURE.md`'s dashed edges are
