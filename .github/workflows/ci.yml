@@ -529,6 +529,12 @@ jobs:
       - name: Routing-context golden test (SessionStart hook, extracts CLAUDE.md's routing table, #416)
         run: ./tests/routing-context/test.sh
 
+      - name: Auto-dev stop-gate golden test (Stop hook refuses on undrained fleet state, every deny AND every allow, #417)
+        run: ./tests/autodev-stop-gate/test.sh
+
+      - name: Auto-dev state-path golden test (fleet state file pinned to a derivable path, #417)
+        run: ./tests/auto-dev-state-path/test.sh
+
       - name: Auto-dev never-wait golden test (worker prompt + recovery clause pinned)
         run: ./tests/auto-dev-never-wait/test.sh
 

@@ -190,6 +190,30 @@ reads here, #416). There is no second copy of the table — a heading rename or 
   launched, the same as `GIT_GATE`/`ROSELINE_GATE`. There is no `=on` counterpart: unlike the two
   gates above, there is no probe here for a declaration to override.
 
+### auto-dev's never-wait invariant is a runtime Stop gate, not a prompt lint
+
+[`hooks/autodev-stop-gate.sh`](hooks/autodev-stop-gate.sh) is the fourth shipped hook, on `Stop`
+rather than `PreToolUse`/`SessionStart` — the kit's first hook that can block a **user** action
+(ending the session) rather than a model one, which is why its evidence has to be narrow:
+
+- **What it refuses** — a stop, but only when `auto-dev`'s own pinned state file
+  ([`skills/auto-dev/SKILL.md`](skills/auto-dev/SKILL.md) Step 2) exists for *this* repository, is
+  recent, and its `## In flight` or `## Queue` sections name undrained work. Exit 2 with a message on
+  stderr naming the in-flight slot(s), the queue depth, and the off-switch; the harness feeds that
+  back and retries, and `stop_hook_active: true` on the retry is what stops the refusal looping.
+- **Inert everywhere else** — no state file for this repo, an empty or stale one, a payload the hook
+  can't parse, no `jq`/`git`/`awk`/`find` on `PATH`: every one of those exits 0 with no output. There
+  is no probe to force past (unlike the other two gates) — the state file itself is the only
+  evidence, and there is nothing else to declare.
+- **`AUTODEV_GATE=off`** (also `0|false|no|disabled`) disables it outright, checked first so a stale
+  override can never fight a value just typed — set where Claude is launched, the same as
+  `GIT_GATE`/`ROSELINE_GATE`. There is no `=on` counterpart, for the same reason `ROUTING_CONTEXT` has
+  none.
+
+Built to replace `tests/auto-dev-never-wait/test.sh`'s prompt-wording grep with something that
+observes an actual run instead — that suite stays (the prompt clause is still worth having), and this
+hook is the mechanism behind it (#417).
+
 ### AdrMcp is shipped too — recommended, not enforced
 
 The kit's own architectural decisions live under [`docs/adr/`](docs/adr/README.md) as MADR 4.0
