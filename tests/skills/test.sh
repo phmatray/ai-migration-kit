@@ -1035,6 +1035,37 @@ grep -q 'not a supported tracker' "$PRECONDITIONS" \
 echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
 
 # ---------------------------------------------------------------------------------------------
+# create-issue's Inputs states the flag-position rule (#404): a flag is a standalone token at the
+# start or end of the request, never a word inside the idea's own sentence — otherwise an
+# unattended caller (merge-pr Step 6, the auto-dev workers, deliver-issue) that hands it an idea
+# quoting "--grill" or "--seed #40" in prose reads that word as the flag. Driven to red on a
+# scratch copy with the sentence stripped, so the check cannot pass vacuously.
+echo "== create-issue's Inputs states the flag-position rule (#404) =="
+CREATE_ISSUE_SKILL="$KIT_ROOT/skills/create-issue/SKILL.md"
+[ -f "$CREATE_ISSUE_SKILL" ] || { echo "FAIL: $CREATE_ISSUE_SKILL missing"; exit 1; }
+
+check_flag_position_rule() {
+  # $1: a create-issue SKILL.md to check. Prints a message naming create-issue and returns
+  # non-zero when the standalone-token rule is missing.
+  if ! grep -qi 'a flag is a standalone token' "$1"; then
+    echo "FAIL: create-issue's Inputs section does not state the flag-position rule"
+    return 1
+  fi
+}
+
+check_flag_position_rule "$CREATE_ISSUE_SKILL" || exit 1
+echo "ok   create-issue states the flag-position rule"
+
+_fpscratch=$(kit_scratch)
+sed '/[Aa] flag is a standalone token/d' "$CREATE_ISSUE_SKILL" > "$_fpscratch/SKILL.md"
+if fp_out=$(check_flag_position_rule "$_fpscratch/SKILL.md" 2>&1); then
+  echo "FAIL: the flag-position check accepted a SKILL.md with the rule stripped"; exit 1
+fi
+grep -q 'create-issue' <<<"$fp_out" \
+  || { echo "FAIL: the flag-position check refused the scratch copy without naming create-issue"; exit 1; }
+echo "ok   a create-issue SKILL.md without the flag-position rule is refused, by name"
+
+# ---------------------------------------------------------------------------------------------
 # The roseline-gate essay moved to docs/roseline-gate.md (#325). Fixture-free: the defect this
 # guards is the committed essay drifting away from its own four properties, or the README's link
 # to it eroding, not something a scratch fixture could stand in for.
