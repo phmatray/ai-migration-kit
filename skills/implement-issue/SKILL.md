@@ -166,8 +166,10 @@ decide:
   genuine blocker. Stop *before* Step 4's worktree and Step 5's scaffold, and report which path could
   not be re-anchored and what the search returned.
 
-A `SKIP create <path>` line is not a finding: the plan is about to create that path, so its absence is
-the expected state. And do **not** repair the plan on the issue — `tick-plan.sh` accepts a body that
+A `SKIP <verb> <path>` line is not a finding, whatever verb it names — `create`, or any other verb
+whose item carried a `(new)`/`(new file)` marker (#433, e.g. `SKIP test <path>` for a task's own new
+test file): the plan is about to create that path, so its absence is the expected state. And do
+**not** repair the plan on the issue — `tick-plan.sh` accepts a body that
 differs from the original in checkbox characters and nothing else, so a rewritten path would be
 refused, correctly. The `STALE:` list lives in the run and reaches the reader through Step 10.
 
