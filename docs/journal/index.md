@@ -26,5 +26,8 @@ When a release lands:
    release was answering, what was decided, what got cut, what bit us.
 4. Run `./tests/skills/test.sh`.
 
-The guard checks what is here, not what is missing: it holds every article to the two prose rules and
-to a unique `nav_order`, and it does not yet know which releases have no article at all.
+The guard checks both what is here and what is missing: it holds every article to the two prose
+rules and to a unique `nav_order`, and it also requires every published release except the newest to
+have a `docs/journal/<tag>.md` article, so the journal cannot silently go stale. A checkout with no
+`v*` tags at all is refused rather than treated as passing, since silence there would hide every
+missing article instead of catching it.
