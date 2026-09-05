@@ -407,196 +407,200 @@ predictable workflow / determinism lens): all 9 findings resolved.
 
 ## [1.6.0] — 2026-07-23
 
-Solution unifiée : le kit intègre les skills issue/PR génériques, et les prérequis ont une
-source unique.
+One unified solution: the kit integrates the generic issue/PR skills, and prerequisites have a
+single source.
 
-### Ajouté
-- **`requirements.json`** : source unique des prérequis (outils, MCP requis/recommandés, skills de
-  session — y compris les dépendances des skills issue/PR : gh, superpowers, code-review).
-  `scripts/preflight.sh` la lit désormais au lieu d'embarquer sa propre liste ; README et la
-  phase 0 du SKILL.md y pointent au lieu de dupliquer l'énumération (trois copies → une).
-  Testé en CI (`tests/preflight/test.sh` : JSON valide, couverture intégrale du manifest, échec
-  réel sur REQUIS manquant).
-- **Quatre skills issue/PR génériques intégrés au kit** — `skills/create-issue` (issue semée
-  brainstorm → spec → plan cochable), `skills/implement-issue` (plan → PR draft → ready, un commit
-  par tâche), `skills/merge-pr` (attente CI, boucle de corrections, squash-merge, suivis),
-  `skills/get-repo-profile` (générateur du profil par repo) + `skills/_shared`. Importés d'un autre
-  projet puis **dé-spécifiés** : descriptions, numéros d'issues CI, liens ADR, taxonomie de labels
-  et fichiers temporaires propres au repo d'origine retirés — tout fait spécifique au repo vit dans
-  le repo-profile (`.claude/skills/repo-profile.md`), comme l'abstraction le promettait. Le restant
-  de l'import (orchestrateur de flotte, lanceur d'IDE, profil du repo d'origine, settings.json aux
-  hooks inexistants) n'a pas été retenu.
-- **Pont `followups` → `create-issue`** : un suivi qui mérite un ticket se convertit en issue
-  GitHub via le skill du kit ; l'entrée du `report.json` garde l'URL de l'issue — jamais de liste
-  parallèle (SKILL.md `followups` + règle 8).
-- **Conformité au guide Anthropic des skills** (revue elon du 2026-07-23, rapport dans
-  `reviews/2026-07-23-elon/`) : les 6 descriptions tiennent sous la limite de 1024 caractères du
-  standard (3 compressées) et portent des déclencheurs bilingues FR/EN ; frontmatter complété sur
-  les 6 skills (`license: MIT`, `compatibility` — miroir distribution de `requirements.json` —,
-  `metadata.author/version/suite`) ; fichier `LICENSE` (MIT) ; **tests de déclenchement par skill**
-  (`tests/skills/<name>.triggers.md`, listes should / should-not en anglais) gardés en CI par
-  `tests/skills/check-frontmatter.py` (limites du guide + listes présentes) ; dédoublonnage
-  SKILL.md ↔ references sur `implement-issue` et `merge-pr` (les recettes gh/jq vivent une seule
-  fois, dans les references) ; sections **Troubleshooting** (erreur → cause → solution) dans
-  `legacy-upgrade` et les references lifecycle.
-- **`ARCHITECTURE.md`** : graphe d'appels des skills (mermaid, rendu par GitHub), graphe des
-  dépendances externes (MCP, plugins, outils), matrice de dépendances par skill et table des
-  sources uniques par préoccupation.
+### Added
+- **`requirements.json`**: the single source of prerequisites (tools, required/recommended MCP,
+  session skills — including the issue/PR skills' dependencies: gh, superpowers, code-review).
+  `scripts/preflight.sh` now reads it instead of carrying its own list; the README and SKILL.md's
+  phase 0 point to it instead of duplicating the enumeration (three copies → one). Tested in CI
+  (`tests/preflight/test.sh`: valid JSON, full manifest coverage, a real failure on a missing
+  REQUIRED).
+- **Four generic issue/PR skills integrated into the kit** — `skills/create-issue` (an issue
+  seeded brainstorm → spec → checkable plan), `skills/implement-issue` (plan → draft PR → ready,
+  one commit per task), `skills/merge-pr` (wait for CI, correction loop, squash-merge,
+  follow-ups), `skills/get-repo-profile` (the per-repo profile generator) + `skills/_shared`.
+  Imported from another project then **de-specialized**: descriptions, CI issue numbers, ADR
+  links, label taxonomy and temp files specific to the origin repo removed — everything
+  repo-specific lives in the repo-profile (`.claude/skills/repo-profile.md`), exactly as the
+  abstraction promised. The rest of the import (fleet orchestrator, IDE launcher, the origin
+  repo's own profile, a settings.json with hooks that don't exist here) was not kept.
+- **A `followups` → `create-issue` bridge**: a follow-up that earns a ticket converts into a
+  GitHub issue through the kit's own skill; the `report.json` entry keeps the issue URL — never a
+  parallel list (SKILL.md `followups` + rule 8).
+- **Compliance with Anthropic's skills guide** (the 2026-07-23 elon review, report in
+  `reviews/2026-07-23-elon/`): the 6 descriptions stay under the standard's 1024-character limit
+  (3 compressed) and carry bilingual FR/EN triggers; frontmatter completed on all 6 skills
+  (`license: MIT`, `compatibility` — a distribution mirror of `requirements.json` —,
+  `metadata.author/version/suite`); a `LICENSE` file (MIT); **per-skill trigger tests**
+  (`tests/skills/<name>.triggers.md`, English should/should-not lists) guarded in CI by
+  `tests/skills/check-frontmatter.py` (the guide's limits + lists present); de-duplication
+  between SKILL.md and references on `implement-issue` and `merge-pr` (the gh/jq recipes live
+  once, in the references); **Troubleshooting** sections (error → cause → fix) in
+  `legacy-upgrade` and the lifecycle references.
+- **`ARCHITECTURE.md`**: a skill call graph (mermaid, rendered by GitHub), an external-dependency
+  graph (MCP, plugins, tools), a per-skill dependency matrix and a table of single sources per
+  concern.
 
 ## [1.5.0] — 2026-07-23
 
-Le pipeline rend compte de sa queue : suivis consolidés et mis à jour à la source.
+The pipeline reports on its own queue: follow-ups consolidated and updated at the source.
 
-### Ajouté
-- **Skill `followups` + commande `/migrate-followups`** : consolide les suivis ouverts de tous
-  les repos migrés (`next_steps`/`deferred` des `migration/report.json` + backlog du kit) —
-  décisions propriétaire d'abord, tâches par effort croissant — et définit les protocoles de
-  mise à jour **à la source** : « fait » (retrait + coche + dashboard + commit), « clos par
-  décision » (bascule en `deferred` datée), ajout a posteriori. Jamais de liste parallèle.
-- **`scripts/followups.py`** : l'agrégateur (lecture seule), sortie markdown triée ou `--json` ;
-  testé en CI (tri avec virgule française « ~0,5 h », owner-first, backlog, chemin d'erreur).
-- La phase 7 se conclut par un passage de `followups` (SKILL.md règle 8).
+### Added
+- **`followups` skill + `/migrate-followups` command**: consolidates the open follow-ups across
+  every migrated repo (`next_steps`/`deferred` from `migration/report.json` + the kit's own
+  backlog) — owner decisions first, tasks by increasing effort — and defines the update
+  protocols **at the source**: "done" (removal + checkbox + dashboard + commit), "closed by
+  decision" (flip to a dated `deferred`), after-the-fact addition. Never a parallel list.
+- **`scripts/followups.py`**: the aggregator (read-only), sorted markdown output or `--json`;
+  tested in CI (sorting with the French decimal comma "~0,5 h", owner-first, backlog, the error
+  path).
+- Phase 7 concludes with a `followups` pass (SKILL.md rule 8).
 
-Validé au banc skill-creator : 3 cas (consolidation, marquer fait, clore par décision) en
-double aveugle avec/sans skill — **16/16 assertions avec le skill contre 12/16 sans** (la
-référence invente un tableau `closed` hors schéma, oublie le dashboard, réinvente le tri) ;
-puis test réel en lecture seule sur winrt-sokoban-blazor.
+Validated on the skill-creator bench: 3 cases (consolidation, marking done, closing by decision)
+double-blind with/without the skill — **16/16 assertions with the skill versus 12/16 without**
+(the reference invents an out-of-schema `closed` array, forgets the dashboard, reinvents the
+sort); then a real read-only test on winrt-sokoban-blazor.
 
 ## [1.4.1] — 2026-07-23
 
-Leçons de la vague 3 (pokedexg : UWP 2016 + « backend » netcoreapp1.0 → Blazor WASM + API statique).
+Lessons from wave 3 (pokedexg: 2016 UWP + a netcoreapp1.0 "backend" → Blazor WASM + static API).
 
-### Ajouté
-- **Détection des projets zombies** dans `audit-inventory.sh` : `projectDetails[].targetFramework`
-  (lu du csproj) et `zombie: true` quand un TFM ancien (netcoreapp1/2, netstandard1, PCL, UAP)
-  reçoit des paquets 10+ — un robot de mise à jour n'est pas un signe de vie. L'audit de pokedexg
-  avait pris un webservice netcoreapp1.0 arrosé par Renovate pour un « backend déjà moderne ».
-- **Prémisses vérifiées, jamais déduites** (audit-executive.md) : TFM lus des csproj, tests
-  prouvés par attributs (jamais par un nom de projet dans une .sln — référence pendante chez
-  pokedexg), flux de données prouvé par l'appelant (HttpClient) avant d'écrire « branché ».
-- **Cinq protocoles vague 3** (rewrite-playbook) : SQL legacy sur SQLite moderne (ON réordonné,
-  RECONSTRUCTION) ; assets hors projet copiés par cible MSBuild — jamais `Content Link`
-  (servi 200/0 octet) — et build avant publish ; cascade Tailwind (`@layer base`) ; précache
-  service worker = contrat d'une app installée ; hors-ligne prouvé en tuant le serveur quand
-  la production n'existe pas encore.
+### Added
+- **Zombie-project detection** in `audit-inventory.sh`: `projectDetails[].targetFramework` (read
+  from the csproj) and `zombie: true` when an old TFM (netcoreapp1/2, netstandard1, PCL, UAP) is
+  receiving 10+ package bumps — an update bot is not a sign of life. pokedexg's audit had
+  mistaken a netcoreapp1.0 webservice kept current by Renovate for an "already modern backend".
+- **Premises verified, never inferred** (audit-executive.md): TFMs read from the csproj, tests
+  proven by attributes (never by a project name inside a .sln — a dangling reference at
+  pokedexg), a data flow proven by its caller (HttpClient) before writing "wired up".
+- **Five wave-3 protocols** (rewrite-playbook): legacy SQL on modern SQLite (the `ON` clause
+  reordered, RECONSTRUCTION); out-of-project assets copied by an MSBuild target — never
+  `Content Link` (served 200/0 bytes) — and build before publish; Tailwind cascade
+  (`@layer base`); a service-worker precache = an installed app's contract; offline proven by
+  killing the server when production doesn't exist yet.
 
-### Corrigé
-- **`report-dashboard.py` écrit sa sortie à côté du report.json** (plus jamais dans le cwd —
-  le dashboard de la vague 3 avait atterri à la racine du repo migré) ; test golden étendu.
+### Fixed
+- **`report-dashboard.py` writes its output next to report.json** (never again in the cwd —
+  wave 3's dashboard had landed at the root of the migrated repo); extended golden test.
 
 ## [1.4.0] — 2026-07-23
 
-Le pipeline vérifie désormais ses promesses (review post-vague 2).
+The pipeline now verifies its own promises (post-wave-2 review).
 
-### Ajouté
-- **`scripts/contrast-check.py`** : contraste WCAG 2.1 mesuré (jamais estimé à l'œil) pour toutes
-  les paires encre/fond, thèmes clair et sombre — obligatoire avant de livrer une UI réécrite
-  (rewrite-playbook) ; testé en CI (chemins succès ET échec).
-- **Job `verify` dans `templates/deploy-pages-blazor.yml`** : smoke test post-déploiement — la
-  racine et une route profonde doivent servir le CONTENU de l'app (`SMOKE_MARKER`,
-  `SMOKE_DEEP_ROUTE`), jamais le seul code HTTP ; `SMOKE_MARKER` vide = garde-fou bloquant.
-- **Détection des projets-squelettes** dans `audit-inventory.sh` (`projectDetails`,
-  `skeletonProjects`) : un échafaudage vide ne compte plus dans la logique portable — leçon
-  vague 2 (5 projets « en couches » vides avaient gonflé l'audit).
-- **Double chiffrage obligatoire** dans l'audit (audit-executive.md) : jours-équipe-humaine
-  (coût évité) **et** minutes-pipeline (prix réel, calibré sur les vagues mesurées).
-- **Protocole hors-ligne PWA** (rewrite-playbook) : le hors-ligne se teste réseau coupé, jamais
-  ne se déclare ; piège `caches.match('index.html')` → utiliser `caches.match('./')` d'abord.
-- `docs/backlog.md` : dettes notées avec leur déclencheur (sync des artefacts copiés, timeout
-  préflight, échappement JSON).
+### Added
+- **`scripts/contrast-check.py`**: measured WCAG 2.1 contrast (never eyeballed) for every
+  ink/background pair, light and dark themes — mandatory before shipping a rewritten UI
+  (rewrite-playbook); tested in CI (both the pass AND fail paths).
+- **A `verify` job in `templates/deploy-pages-blazor.yml`**: a post-deploy smoke test — the root
+  and a deep route must serve the app's CONTENT (`SMOKE_MARKER`, `SMOKE_DEEP_ROUTE`), never just
+  the HTTP status code; an empty `SMOKE_MARKER` is a blocking guard.
+- **Skeleton-project detection** in `audit-inventory.sh` (`projectDetails`, `skeletonProjects`):
+  empty scaffolding no longer counts toward the portable logic — a wave-2 lesson (5 empty
+  "layer" projects had inflated the audit).
+- **Mandatory double costing** in the audit (audit-executive.md): human-team-days (cost avoided)
+  **and** pipeline-minutes (real price, calibrated on measured waves).
+- **PWA offline protocol** (rewrite-playbook): offline is tested with the network cut, never just
+  declared; the `caches.match('index.html')` trap → use `caches.match('./')` first.
+- `docs/backlog.md`: debts recorded with their trigger (syncing copied artifacts, preflight
+  timeout, JSON escaping).
 
 ## [1.3.2] — 2026-07-23
 
-Leçons de la vague 2 (fleurs-du-mal, migrée en ~30 min pour 18 j estimés).
+Lessons from wave 2 (fleurs-du-mal, migrated in ~30 min against an estimated 18 days).
 
-### Ajouté
-- **Protocole d'inventaire des assets binaires locaux** (rewrite-playbook) : regarder chaque
-  asset embarqué avant de dessiner l'UI — le dessin original d'une artiste, cœur du design 2014,
-  avait failli être perdu parce que les seules images *visibles* étaient des URLs externes mortes.
-  Port octet pour octet + crédit d'artiste (décision propriétaire si le nom manque).
+### Added
+- **Local binary-asset inventory protocol** (rewrite-playbook): look at every embedded asset
+  before drawing the UI — an artist's original drawing, the heart of the 2014 design, had nearly
+  been lost because the only *visible* images were dead external URLs. Byte-for-byte port +
+  artist credit (an owner decision when the name is missing).
 
-### Corrigé
-- `report-dashboard.py` : les chemins du `report.json` (cobertura, capture) se résolvent
-  **relativement au JSON**, plus au répertoire courant ; le test golden le prouve en tournant
-  depuis la racine du repo.
-- Playbook de livraison : la vérification de la route profonde teste le **contenu**, pas le code
-  HTTP — le fallback 404.html de GitHub Pages sert l'app avec un statut 404 (faux négatif sinon).
+### Fixed
+- `report-dashboard.py`: the `report.json` paths (cobertura, screenshot) now resolve
+  **relative to the JSON**, not the current directory; the golden test proves it by running
+  from the repo root.
+- Delivery playbook: the deep-route check tests **content**, not the HTTP status — GitHub Pages'
+  404.html fallback serves the app with a 404 status (a false negative otherwise).
 
 ## [1.3.1] — 2026-07-23
 
-Durcissement issu de la review v1.3.0 : les outils rendus obligatoires par la règle 7 deviennent
-infaillibles et testés.
+Hardening from the v1.3.0 review: the tools rule 7 made mandatory become foolproof and tested.
 
-### Ajouté
-- **Test golden du générateur de rapport** (`tests/report-dashboard/`) : fixture `report.json` +
-  cobertura → HTML, assertions sur les valeurs calculées (couverture par classe, exclusions,
-  autonomie du document, thème sombre). Exécuté en CI ; remplace le simple `py_compile`.
-- **`preflight.sh --json`** : sortie machine des checks, à verser dans `migration/report.json`
-  sans recopie manuelle.
-- **Garde-fous dans `templates/deploy-pages-blazor.yml`** : échec explicite si `BASE_PATH` reste
-  le placeholder `/REPO_NAME/`, et vérification post-`sed` que le `<base href>` a réellement été
-  réécrit — fini le déploiement vert avec page blanche en prod.
-- **Validation YAML des templates** dans la CI du kit.
-- Ce CHANGELOG.
+### Added
+- **Golden test for the report generator** (`tests/report-dashboard/`): a `report.json` +
+  cobertura fixture → HTML, assertions on the computed values (per-class coverage, exclusions,
+  document self-containment, dark theme). Run in CI; replaces the bare `py_compile`.
+- **`preflight.sh --json`**: a machine-readable check output, to feed into
+  `migration/report.json` with no manual copying.
+- **Guards in `templates/deploy-pages-blazor.yml`**: an explicit failure if `BASE_PATH` is still
+  the `/REPO_NAME/` placeholder, and a post-`sed` check that the `<base href>` was actually
+  rewritten — no more green deploy with a blank page in prod.
+- **YAML validation of the templates** in the kit's own CI.
+- This CHANGELOG.
 
-### Modifié
-- Préflight : le SDK .NET est vérifié par **comparaison numérique du major (>= 8)** au lieu de
-  l'énumération `8|9|10` qui aurait bloqué à tort les SDK futurs (.NET 11+).
-- Préflight : un serveur MCP **configuré mais non connecté ne passe plus** — l'état de santé de
-  `claude mcp list` est vérifié, pas seulement la présence du nom.
-- Template de déploiement : le `sed` du base href tolère les variantes du template Blazor
-  (`<base href="/">`, `"/"/>`, `"/" />`) ; en-tête enrichi (409 Pages = déjà activé,
-  `dotnet-version` à ajuster au TFM cible).
-- Playbook de livraison : activation Pages documentée idempotente (`409` = succès, continuer).
+### Changed
+- Preflight: the .NET SDK is checked by a **numeric major-version comparison (>= 8)** instead of
+  the `8|9|10` enumeration, which would have wrongly blocked future SDKs (.NET 11+).
+- Preflight: an MCP server **configured but not connected no longer passes** — `claude mcp
+  list`'s health state is checked, not just the name's presence.
+- Deployment template: the base-href `sed` tolerates the Blazor template's variants
+  (`<base href="/">`, `"/"/>`, `"/" />`); a richer header (409 Pages = already enabled,
+  `dotnet-version` to adjust to the target TFM).
+- Delivery playbook: Pages activation documented as idempotent (`409` = success, continue).
 
-### Supprimé
-- Les « indices disque » de présence des skills dans le préflight : un check dont le script
-  lui-même disait « la vérité est ailleurs » est du bruit. La responsabilité vit à l'étape 2 de
-  la phase 0 (SKILL.md) : l'agent confirme ses capacités de session.
+### Removed
+- The "on-disk hints" of skill presence in preflight: a check whose own script said "the truth
+  lives elsewhere" is noise. The responsibility lives at phase 0's step 2 (SKILL.md): the agent
+  confirms its own session capabilities.
 
 ## [1.3.0] — 2026-07-22
 
-Le pipeline devient déterministe et auto-vérifié.
+The pipeline becomes deterministic and self-verifying.
 
-### Ajouté
-- **Phase 0 préflight** (`scripts/preflight.sh`) : requis bloquants (dotnet, git, python3,
-  RoselineMCP), recommandés à dégradation bruyante (context7, gh, node, Chrome headless).
-- **Phase 7 Deliver** + `references/delivery-playbook.md` : une migration n'est finie
-  qu'en production vérifiée (branche par défaut, désarchivage, Pages, route profonde + capture).
-- **`templates/deploy-pages-blazor.yml`** : déploiement Blazor WASM → GitHub Pages paramétré
-  (SOLUTION, WEB_PROJECT, BASE_PATH), fallback SPA et `.nojekyll` intégrés.
-- Règles 7 (« scripts et templates du kit obligatoires ») et 8 (« livrée = en production »).
-- Protocoles vague 1 dans le rewrite-playbook : namespaces conservés, en-têtes RECONSTRUCTION,
-  tests historiques jamais verts (skip documenté + wrapper + tests d'intention), `<NoWarn>` d'époque.
+### Added
+- **Phase 0 preflight** (`scripts/preflight.sh`): hard-blocking requirements (dotnet, git,
+  python3, RoselineMCP), recommended with a loud degradation (context7, gh, node, headless
+  Chrome).
+- **Phase 7 Deliver** + `references/delivery-playbook.md`: a migration is only finished once
+  verified in production (default branch, un-archiving, Pages, a deep route + screenshot).
+- **`templates/deploy-pages-blazor.yml`**: a parameterized Blazor WASM → GitHub Pages deployment
+  (SOLUTION, WEB_PROJECT, BASE_PATH), with the SPA fallback and `.nojekyll` built in.
+- Rules 7 ("the kit's own scripts and templates are mandatory") and 8 ("shipped = in
+  production").
+- Wave-1 protocols in the rewrite-playbook: namespaces kept, RECONSTRUCTION headers, historical
+  tests that were never green (a documented skip + wrapper + intent tests), the era's own
+  `<NoWarn>`.
 
 ## [1.2.0] — 2026-07-22
 
-Industrialisation post-vague 1.
+Post-wave-1 industrialization.
 
-### Ajouté
-- **`scripts/report-dashboard.py`** : générateur du dashboard exécutif de migration
-  (`report.json` + cobertura + capture → HTML autonome, thème clair/sombre, palette validée).
-- **`templates/ci-dotnet.yml`** : CI réutilisable (tests + couverture), variable `SOLUTION`
-  pour les repos à plusieurs `.sln` (leçon MSB1011 de chords).
-- CI du kit (fixture LegacyShop, manifestes, invariants des guides de phase).
-- Publication du repo (github.com/phmatray/ai-migration-kit) et cas d'étude portfolio WinRT
-  avec deux migrations en production (sokoban, chords).
+### Added
+- **`scripts/report-dashboard.py`**: the migration's executive dashboard generator
+  (`report.json` + cobertura + screenshot → a self-contained HTML, light/dark theme, a
+  validated palette).
+- **`templates/ci-dotnet.yml`**: reusable CI (tests + coverage), a `SOLUTION` variable for repos
+  with several `.sln` files (chords' MSB1011 lesson).
+- The kit's own CI (the LegacyShop fixture, manifests, phase-guide invariants).
+- Publishing the repo (github.com/phmatray/ai-migration-kit) and a WinRT portfolio case study
+  with two migrations in production (sokoban, chords).
 
 ## [1.1.0] — 2026-07-22
 
-### Ajouté
-- **`/migrate-audit`** : audit exécutif lecture seule, chiffré (formule d'effort transparente,
-  ±30 %), portfolio multi-apps avec matrice valeur/effort et première vague recommandée.
-- `scripts/audit-inventory.sh` : inventaire JSON reproductible (ère technologique, surface XAML,
-  clusters d'API plateforme, LOC logique vs code-behind).
-- Rewrite-playbook (port-characterize-wrap) pour les plateformes mortes (WinRT/UWP → Blazor).
-- Règle 6 : le livrable ne raconte jamais sa migration.
+### Added
+- **`/migrate-audit`**: a read-only executive audit, costed (a transparent effort formula,
+  ±30%), multi-app portfolio with a value/effort matrix and a recommended first wave.
+- `scripts/audit-inventory.sh`: a reproducible JSON inventory (technology era, XAML surface,
+  platform-API clusters, logic LOC vs code-behind).
+- Rewrite-playbook (port-characterize-wrap) for dead platforms (WinRT/UWP → Blazor).
+- Rule 6: the deliverable never talks about its own migration.
 
 ## [1.0.0] — 2026-07-22
 
-### Ajouté
-- Pipeline six phases porté par RoselineMCP : Assess, Baseline, Retarget, Remediate, Modernize,
-  Verify — portes vertes obligatoires, mutations preview-first, branche `migration/<date>`.
-- Commandes `/migrate`, `/migrate-assess`, `/migrate-verify`.
-- Fixture `samples/LegacyShop` (net6.0, volontairement legacy) et démo vérifiée
+### Added
+- A six-phase pipeline powered by RoselineMCP: Assess, Baseline, Retarget, Remediate, Modernize,
+  Verify — mandatory green gates, preview-first mutations, a `migration/<date>` branch.
+- `/migrate`, `/migrate-assess`, `/migrate-verify` commands.
+- The `samples/LegacyShop` fixture (net6.0, deliberately legacy) and a verified demo
   (`docs/demo-walkthrough.md`).
