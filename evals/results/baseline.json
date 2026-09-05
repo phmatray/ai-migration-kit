@@ -52,14 +52,14 @@
     },
     "migrate-legacy": {
       "passed": 12,
-      "total": 20,
-      "recall": 0.3333333333333333,
+      "total": 17,
+      "recall": 0.4444444444444444,
       "specificity": 1.0
     },
     "review-followups": {
       "passed": 18,
-      "total": 19,
-      "recall": 0.9090909090909091,
+      "total": 18,
+      "recall": 1.0,
       "specificity": 1.0
     },
     "setup-repo": {

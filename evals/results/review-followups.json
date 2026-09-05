@@ -4,18 +4,6 @@
   "threshold": 0.5,
   "results": [
     {
-      "query": "/migrate-followups",
-      "note": "the slash command",
-      "should_trigger": true,
-      "trigger_rate": 0.0,
-      "triggers": 0,
-      "runs": 3,
-      "fired": {
-        "(none)": 3
-      },
-      "pass": false
-    },
-    {
       "query": "a new follow-up came up after the migration, add it",
       "note": "adding to the queue after phase 7",
       "should_trigger": true,
@@ -155,8 +143,8 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "(none)": 1,
-        "create-issue": 2
+        "create-issue": 2,
+        "(none)": 1
       },
       "pass": true
     },
@@ -204,8 +192,7 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "(none)": 2,
-        "migrate-legacy": 1
+        "migrate-legacy": 3
       },
       "pass": true
     },
@@ -235,12 +222,12 @@
     }
   ],
   "summary": {
-    "total": 19,
+    "total": 18,
     "passed": 18,
-    "failed": 1,
-    "should_trigger": 11,
+    "failed": 0,
+    "should_trigger": 10,
     "should_not": 8,
-    "recall": 0.9090909090909091,
+    "recall": 1.0,
     "specificity": 1.0
   }
 }
