@@ -266,6 +266,15 @@ printf '%s\n' "$ISSUES_JSON" \
     def haveplan:  bodyplan or ((istrackingparent | not)
                     and (((.comments // []) | map(.body) | join("\n"))
                          | test("Implementation plan|### Task|- \\[ \\]")));
+    # A cap-truncated, unplanned issue is NOT the same fact as "no plan": `gh issue list --json
+    # comments` observably caps at ~100 comments (measured: 100 of 602 on the issue that
+    # prompted this, #426), so a large issue that shows no plan token in the body or the fetched
+    # comment slice might still carry one past the cutoff. Guessing "unplanned" there repeats
+    # #343'"'"'s exact failure for the large-comment case instead of bounding it. `haveplan | not`
+    # and `istrackingparent | not`: a plan already found, or a legitimately plan-less tracking
+    # parent, both settle the question outright and neither needs this flag.
+    def commentscap: ((haveplan | not) and (istrackingparent | not)
+                       and (((.comments // []) | length) >= 100));
     def manualqa:  ((.title // "") | test("visually|verify by hand|manual QA|by hand"; "i"));
     # Dependency edges (#317). `gh issue list --json blockedBy,blocking,subIssues` serves GraphQL
     # CONNECTIONS — {"nodes":[…],"totalCount":N} — measured on gh 2.98.0, while this repo'"'"'s own
@@ -321,7 +330,7 @@ printf '%s\n' "$ISSUES_JSON" \
     # Every edge is resolved against this call'"'"'s own open set, or the state the connection carries.
     (map(.number)) as $open
     | map({n:.number, title:.title, e:eff, plan:haveplan, qa:manualqa,
-           labels:(.labels|map(.name)|join(",")), t:tier,
+           labels:(.labels|map(.name)|join(",")), t:tier, cc:commentscap,
            # Native edges resolve by their own `state`; body-line refs are bare numbers with no
            # state to read, so those can only be filtered by membership in the open set.
            blockers: ((((.blockedBy // []) | openedges($open))
@@ -344,6 +353,7 @@ printf '%s\n' "$ISSUES_JSON" \
         (if   (.subs > 0 or .st)                    then "parent(\(.subs)\(if .st then "+" else "" end))"
          elif ((.blockers|length) > 0 or .bt)       then "blocked_by=" + ((([.blockers[] | "#\(.)"])
                                                           + (if .bt then ["?"] else [] end)) | join(","))
+         elif .cc                                   then "comments-cap"
          elif .assigned                             then "assigned"
          elif ((.blocking|length) > 0)              then "blocking="   + ([.blocking[] | "#\(.)"] | join(","))
          else                                            "-"
@@ -360,6 +370,7 @@ printf '%s\n' "$ISSUES_JSON" \
         # says which one it was.
         | (if   (.subs > 0 or .st)            then "HOLD "
            elif ((.blockers|length) > 0 or .bt) then "HOLD "
+           elif .cc                           then "HOLD "
            elif .assigned                     then "HOLD "
            elif (.t > 2)                      then "HOLD "
            elif (.plan and (.qa | not))       then "QUEUE"
@@ -372,7 +383,7 @@ printf '%s\n' "$ISSUES_JSON" \
       # issue number rather than in the tier order above: a HOLD row sorts to the end by tier, and
       # the supervisor pastes these straight into `/create-issue --seed #N`.
       (
-        [ $rows[] | select((.plan | not) and (.qa | not)) ] | sort_by(.n) as $seed
+        [ $rows[] | select((.plan | not) and (.qa | not) and (.cc | not)) ] | sort_by(.n) as $seed
         | if ($seed | length) == 0
           then "SEED\t0\t-"
           else "SEED\t\($seed | length)\twaiting for a seed: " + ([ $seed[] | "#\(.n)" ] | join(" "))

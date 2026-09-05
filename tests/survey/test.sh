@@ -86,17 +86,18 @@ NO_PLAN_BODY='## context only, nothing to execute'
 # to a worker, and this body shape is the whole mechanism that keeps it out.
 PARENT_BODY='## Problem\n\nthe whole job\n\n## Destination\n\nwhat done looks like\n\n## Notes\n\ninvariants every child obeys\n\n## Decisions so far\n\n- none yet\n\n## Not yet ticketed\n\nnone\n\n## Out of scope\n\n- nothing adjacent'
 
-# $1 output path, remaining args "number|title|effort-or-empty|plan(0/1/parent)[|comment-body]"
-# quints — the 5th field is optional (#343: a fixture can pin a plan that lives in a COMMENT,
-# not the body) and every pre-existing 4-field call site is unaffected: `read` leaves an unmatched
-# trailing variable empty.
+# $1 output path, remaining args
+# "number|title|effort-or-empty|plan(0/1/parent)[|comment-body[|fillercount]]" — the 6th field is
+# optional (#426: a fixture can pin how many PLAIN, non-plan comments pad the comments array, to
+# exercise the ~100-comment gh cap) and every pre-existing 4/5-field call site is unaffected:
+# `read` leaves an unmatched trailing variable empty.
 mkissues() {
   local out="$1"; shift
   {
     printf '['
-    local first=1 rec num title eff plan comment body labels comments_json
+    local first=1 rec num title eff plan comment fillercount body labels comments_json i
     for rec in "$@"; do
-      IFS='|' read -r num title eff plan comment <<<"$rec"
+      IFS='|' read -r num title eff plan comment fillercount <<<"$rec"
       [ "$first" = 1 ] || printf ','
       first=0
       case "$plan" in
@@ -105,8 +106,17 @@ mkissues() {
         *)      body="$NO_PLAN_BODY" ;;
       esac
       if [ -n "$eff" ]; then labels="[{\"name\":\"effort: $eff\"}]"; else labels="[]"; fi
-      if [ -n "$comment" ]; then comments_json="[{\"body\":\"$comment\"}]"; else comments_json="[]"; fi
-      printf '{"number":%s,"title":"%s","labels":%s,"body":"%s","comments":%s}' "$num" "$title" "$labels" "$body" "$comments_json"
+      comments_json="["
+      if [ -n "$comment" ]; then comments_json="${comments_json}{\"body\":\"$comment\"}"; fi
+      if [ -n "${fillercount:-}" ] && [ "$fillercount" -gt 0 ] 2>/dev/null; then
+        for ((i = 0; i < fillercount; i++)); do
+          [ "$comments_json" = "[" ] || comments_json="${comments_json},"
+          comments_json="${comments_json}{\"body\":\"filler comment $i\"}"
+        done
+      fi
+      comments_json="${comments_json}]"
+      printf '{"number":%s,"title":"%s","labels":%s,"body":"%s","comments":%s}' \
+        "$num" "$title" "$labels" "$body" "$comments_json"
     done
     printf ']'
   } > "$out"
@@ -313,6 +323,34 @@ echo "ok: tracking-parent-comment — a comment carrying plan tokens does not gr
 
 assert_seed_row "$O1D" 1 "waiting for a seed: #111"
 echo "ok: tracking-parent-comment — the parent still reads plan=false for the SEED tail, comment notwithstanding"
+
+# ---------------------------------------------------- 1e. comments hit the cap (#426)
+#
+# `gh issue list --json comments` observably caps at ~100 comments (measured: 100 of 602 on the
+# issue that prompted #426), with no totalCount to detect truncation. An unplanned issue whose
+# comments array already hit that cap must not read as "no plan" — a plan comment may sit past the
+# cutoff. It holds instead, with deps=comments-cap, and drops out of the SEED tail. A body-planned
+# issue queues regardless of comment count — commentscap is only ever consulted when haveplan is
+# false.
+
+F1E="$WORK/comments-cap-issues.json"
+mkissues "$F1E" \
+  "112|Comments hit the 100 cap, no plan anywhere|small|0||100" \
+  "113|Body has a plan AND hits the comment cap|small|1||100"
+O1E="$WORK/comments-cap.out"
+run_survey "$W1" "$F1E" "$O1E"
+
+assert_bucket HOLD 112 "$O1E"
+echo "ok: comments-cap — an unplanned issue whose comments hit the ~100 cap holds, not SKIPs (AC1)"
+
+assert_deps comments-cap 112 "$O1E"
+echo "ok: comments-cap — its deps column names why (AC1)"
+
+assert_seed_row "$O1E" 0 "-"
+echo "ok: comments-cap — withheld from the SEED tail; a plan may exist past the cap (AC2)"
+
+assert_bucket QUEUE 113 "$O1E"
+echo "ok: comments-cap — a body-planned issue still queues despite hitting the cap (AC3)"
 
 # ------------------------------------------------------------------- 2. letter-vocab (no regress)
 
