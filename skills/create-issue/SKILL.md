@@ -48,18 +48,9 @@ body, where ticking a task moves the needle.
 
 ## Autonomy contract
 
-Run **hands-off**. The doctrine in `_shared/brainstorm-and-spec.md` descends from an interactive
-process (ask one question at a time, stop at approval gates); here you run it in **one-shot
-autonomous mode**. Whenever the process would ask or wait for sign-off, **pick the most reasonable default**, state the assumption inline (a short
-"Assumptions" note), and keep going. Only stop for a genuine blocker you can't assume past (`gh` not
-authenticated, or an idea too vague to even name). Decide; don't hold up the line.
-
-**`--grill` is the single sanctioned exception, and only when the user passed it.** The contract above
-is right because nobody is usually watching — `merge-pr` Step 6 and the `auto-dev` workers file issues
-into an empty room, and a question asked there is the never-wait failure (#187). Passing the flag *is*
-the evidence that somebody is there to answer, so it buys exactly one round of questions and nothing
-more: see [`../_shared/grilling.md`](../_shared/grilling.md). Without the flag, nothing about this
-contract changes — never invent a pause because the idea felt underdetermined.
+Run **hands-off**: pick the reasonable default, state the assumption, keep going. See
+[ADR 0005](../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) for the
+decision and its scope — `--grill` is the single exception, and only when the user passed it.
 
 ## Inputs
 

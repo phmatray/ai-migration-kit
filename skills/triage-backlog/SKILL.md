@@ -41,27 +41,11 @@ GitHub issues, where until now the only documented way out was to build the thin
 
 ## Autonomy contract
 
-Unlike its siblings, this skill is **not** hands-off, and deliberately so. `merge-pr` runs unattended
-because its irreversible act (the merge) is gated by CI — something objective says yes. Deciding a
-piece of work will not be done has no such gate: it is a judgement about intent, and intent belongs
-to the owner. A fleet that could close its own backlog would report a drained queue it drained by
-declining it.
-
-So: **propose everything, execute only what's confirmed.** Investigation, clustering, verification
-and the proposal all run without asking. The confirmation is one batched pass, not a question per
-issue — a triage that interrogates gets abandoned halfway, and a half-triaged backlog is worse than
-an untriaged one because now nobody knows which half was reviewed.
-
-Stop for a genuine blocker: `gh` unauthenticated or lacking issue-write rights, or a repo with no
-open issues (say so — that is a good report, not an error).
-
-Two things this skill never does, confirmed or not:
-
-- **Close an issue that work is in flight on.** An open PR referencing it, an assignee, or an
-  `auto-dev` worker holding it means someone is mid-job; closing it destroys their context and the
-  PR lands orphaned. Exclude these from the proposal entirely (Step 3) rather than proposing them.
-- **Close as "done" what was never verified.** If the claim is that a merged PR already fixed it,
-  the evidence is the diff or the passing test, not the PR title. Unverifiable → propose `keep`.
+Unlike its siblings, **not** hands-off by design. See
+[ADR 0005](../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) for why:
+the irreversible act (closing an issue) is a judgment of intent, and intent belongs to the owner. So:
+propose everything, execute only what's confirmed. Blockers: `gh` unauthenticated, lacking write rights,
+or no open issues.
 
 ## Inputs
 

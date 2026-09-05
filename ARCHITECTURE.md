@@ -271,17 +271,4 @@ the gap for one reader; #143 closed it for the other two.
 
 ## Versioning
 
-The plugin ships as one unit: there is no way to install `migrate-legacy` at one version alongside
-`merge-pr` at another, so a per-skill version would communicate a granularity that does not exist —
-and nothing would bump it. Six of them had already drifted behind `plugin.json` before the field was
-removed (#16).
-
-`check-frontmatter.py` enforces this by **parsing** the frontmatter: a `version` key is rejected at
-top level and under `metadata`, in every YAML spelling (`version:`, `"version":`, `version :`, the
-flow form `metadata: {version: 1}`). Pattern-matching got this wrong in both directions — it missed
-the quoted spellings and fired on prose inside a `>-` block — so `tests/skills/test.sh` drives the
-checker over fixtures that must be rejected. Without it the rule is unfalsifiable: every real skill
-already satisfies an absence rule, so a guard that stopped matching would keep printing "OK".
-
-Skill metadata keeps `author` and `suite` — stable facts rather than claims about a release — and
-both are required by the same checker, so this paragraph is not itself an unmaintained claim.
+The plugin ships as one unit with no per-skill version granularity. See [ADR 0003](docs/adr/0003-one-plugin-version-no-per-skill-version.md) for the decision and its enforcement via `check-frontmatter.py`.
