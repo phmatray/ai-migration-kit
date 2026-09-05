@@ -587,13 +587,18 @@ Then act on `$base_verdict_word` — three outcomes, and all three are reported 
 - **`green`** → nothing to do. Continue to Step 6 unchanged.
 - **`RED`** → the merge is done and **is not being reverted**. File it once, as a `bug`, through the
   same `create-issue` inlet Step 6 already uses, carrying the base sha, the run URL, this PR and its
-  issue, and the failing job names from the helper's JSON mode (re-run without `--report-line` if
-  you need `.runs`; §3's resolution recipe already reads it the same way). **Fold on the breakage,
-  not on the sha.** A sibling merge in the train produces a *different* squash sha and inherits the
-  same red, so a sha-keyed search never matches and three workers file three bugs for one root
-  cause: look instead for an open bug about the base branch failing **the same job(s)**, and if one
-  exists add your sha, run URL and PR to it as a comment. Then continue to Step 6; the merge itself
-  is not in question.
+  issue, and the failing job name(s) — read those off the check-runs endpoint directly, a single
+  non-polling read (the run is already settled, so there is nothing left to wait for — this is not a
+  second `base-run-verdict.sh` call, which would re-run its whole poll loop for no reason):
+  ```bash
+  gh api "repos/${OWNER_REPO:-{owner}/{repo}}/commits/$BASE_SHA/check-runs" --paginate --slurp \
+    | jq -r '.[].check_runs[] | select(.conclusion != null and .conclusion != "success") | .name' | sort -u
+  ```
+  **Fold on the breakage, not on the sha.** A sibling merge in the train produces a *different*
+  squash sha and inherits the same red, so a sha-keyed search never matches and three workers file
+  three bugs for one root cause: look instead for an open bug about the base branch failing **the
+  same job(s)**, and if one exists add your sha, run URL and PR to it as a comment. Then continue to
+  Step 6; the merge itself is not in question.
 - **`unverified`** → report `$BASE_LINE` as-is. Its `(<reason>)` names which silence it was: the run
   was cancelled by the next merge in the train, the base runs no CI on push, the bound expired, or
   the query never answered. **This is the step working, not failing** — a non-verdict reported is
