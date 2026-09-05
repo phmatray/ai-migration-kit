@@ -250,8 +250,22 @@ printf '%s\n' "$ISSUES_JSON" \
     # must too, or an issue executable today reads as unplanned and the SEED row advertises it for
     # a seed that create-issue --seed then refuses (#343). The regex itself is shared vocabulary
     # with those two other readers own plan-detection strings — it moves in all three or none.
-    def haveplan:  (((.body // "") + "\n" + ((.comments // []) | map(.body) | join("\n")))
-                    | test("Implementation plan|### Task|- \\[ \\]"));
+    def bodyplan:  ((.body // "") | test("Implementation plan|### Task|- \\[ \\]"));
+    # A tracking parent (the shape create-issue writes for a decomposed job, and the same shape
+    # create-issue --seed refuses to seed: the body carries a ## Destination heading and no plan) is
+    # plan-less ON PURPOSE — skills/create-issue/references/tracking-issue.md calls its body-carries-
+    # zero-plan-tokens property load-bearing. That property is a fact about the BODY only, so an
+    # ordinary COMMENT (a status update, a stray checklist, a pasted snippet) must never be allowed to
+    # grant the parent a plan and dispatch the whole decomposed job to one worker (#343 review).
+    def istrackingparent: (bodyplan | not) and ((.body // "") | test("## Destination"));
+    # `gh issue list --json comments` returns at most the first ~100 comments (oldest-first) in this
+    # one call, with no totalCount to detect truncation the way blockedBy/blocking/subIssues below
+    # do — a plan comment past that cap stays invisible here. Left as a known limit (the issue Spec
+    # calls bounding/measuring the comment payload a separate change if it turns out to matter);
+    # `or` below short-circuits so a body match never pays the join at all.
+    def haveplan:  bodyplan or ((istrackingparent | not)
+                    and (((.comments // []) | map(.body) | join("\n"))
+                         | test("Implementation plan|### Task|- \\[ \\]")));
     def manualqa:  ((.title // "") | test("visually|verify by hand|manual QA|by hand"; "i"));
     # Dependency edges (#317). `gh issue list --json blockedBy,blocking,subIssues` serves GraphQL
     # CONNECTIONS — {"nodes":[…],"totalCount":N} — measured on gh 2.98.0, while this repo'"'"'s own

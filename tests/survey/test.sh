@@ -292,6 +292,28 @@ echo "ok: comment-plan — an issue queues when its COMMENT carries the plan its
 assert_seed_row "$O1C" 0 "-"
 echo "ok: comment-plan — a comment-planned issue is not counted in the SEED row (AC2)"
 
+# ------------------------------------------------ 1d. a tracking parent stays plan-less through a
+#                                                   comment (regression pinned by code-review on #343)
+#
+# 1b already proves the tracking-parent BODY convention keeps it out of QUEUE. Widening haveplan to
+# scan comments (1c above) opens a second door: an ordinary comment on the PARENT (a status update, a
+# stray checklist, someone pasting a child's plan for reference) must not be read as granting the
+# parent a plan — that would dispatch the whole decomposed job to one worker, the exact failure the
+# parent/child split exists to prevent. The parent's body still carries the `## Destination` heading
+# and none of the three plan tokens; only the COMMENT does.
+
+F1D="$WORK/tracking-parent-comment-issues.json"
+mkissues "$F1D" \
+  "111|Tracking parent, plan leaks in via a comment|medium|parent|$PLAN_BODY"
+O1D="$WORK/tracking-parent-comment.out"
+run_survey "$W1" "$F1D" "$O1D"
+
+assert_bucket SKIP 111 "$O1D"
+echo "ok: tracking-parent-comment — a comment carrying plan tokens does not grant the PARENT a plan"
+
+assert_seed_row "$O1D" 1 "waiting for a seed: #111"
+echo "ok: tracking-parent-comment — the parent still reads plan=false for the SEED tail, comment notwithstanding"
+
 # ------------------------------------------------------------------- 2. letter-vocab (no regress)
 
 W2="$WORK/letter-vocab"
