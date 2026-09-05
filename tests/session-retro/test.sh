@@ -12,7 +12,9 @@
 # §4 pins the other silent failure: install MUST resolve the repository through
 # scripts/main-worktree.sh (#125), never $PWD. Installed from inside an implement-issue worktree,
 # a $PWD-derived unit points ExecStart at a directory that is deleted when the PR lands — a timer
-# that fails silently from then on.
+# that fails silently from then on. §5 is the near miss of that same failure caught earlier:
+# installed from a branch that has not landed, the resolved path is right for later and absent
+# now, and install must refuse rather than arm a unit that dies on its first Monday.
 #
 # Everything runs against a FAKE kit tree with a stub harvest.py, so the suite never depends on
 # what happens to be in ~/.claude/projects and never spawns anything.
@@ -46,8 +48,12 @@ else:
 sys.stdout.write("skipped 0 unparseable line(s) - never-wait phrases: kit\n")
 PY
   chmod +x "$harvest"
-  # install must read the repo path from here, never from \$PWD (§4).
-  printf '#!/usr/bin/env bash\necho /the/main/checkout\n' >"$root/scripts/main-worktree.sh"
+  # install must read the repo path from here, never from \$PWD (§4). It resolves to a REAL
+  # tree carrying the script, because install refuses to arm a unit whose ExecStart is absent
+  # (§5 drives that refusal).
+  mkdir -p "$root/main/scripts"
+  cp "$KIT/scripts/session-retro.sh" "$root/main/scripts/"
+  printf '#!/usr/bin/env bash\necho %s/main\n' "$root" >"$root/scripts/main-worktree.sh"
   chmod +x "$root/scripts/main-worktree.sh"
   echo "$root"
 }
@@ -103,7 +109,7 @@ printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/systemctl"; chmod +x "$stub/syste
 svc="$units/systemd/user/kit-session-retro.service"
 [ -f "$svc" ] && [ -f "$units/systemd/user/kit-session-retro.timer" ] || {
   echo "FAIL: install did not write both unit files under $units"; exit 1; }
-grep -q '^ExecStart=/the/main/checkout/scripts/session-retro.sh run$' "$svc" || {
+grep -q "^ExecStart=$root/main/scripts/session-retro.sh run\$" "$svc" || {
   echo "FAIL: ExecStart must come from scripts/main-worktree.sh. A \$PWD-derived path installed"
   echo "      from a linked worktree dies with that worktree and the timer fails silently. Got:"
   grep '^ExecStart=' "$svc"; exit 1; }
@@ -112,5 +118,26 @@ grep -q '^Persistent=true$' "$units/systemd/user/kit-session-retro.timer" || {
   echo "      when it wakes, or a whole week of evidence is skipped with nothing to show it."
   exit 1; }
 echo "  ok §4: install points at the main checkout and survives a missed window"
+
+# --------------------------------- §5 install REFUSES when ExecStart would not exist yet
+# Run from a branch that adds this script, main-worktree.sh answers with a checkout that does
+# not carry it. Arming anyway produces a timer that fails on its first Monday — silently, which
+# is the exact failure this script was written to end.
+root=$(make_kit "")
+rm -f "$root/main/scripts/session-retro.sh"
+units=$(kit_scratch)
+set +e
+out=$( cd "$root" && PATH="$stub:$PATH" XDG_CONFIG_HOME="$units" \
+         ./scripts/session-retro.sh install 2>&1 ); rc=$?
+set -e
+[ "$rc" -ne 0 ] || { echo "FAIL: install armed a timer whose ExecStart does not exist"; exit 1; }
+case "$out" in *"refusing to arm"*) ;; *)
+  echo "FAIL: the refusal must say what it refused and why. Got: $out"; exit 1 ;; esac
+# `if !`, not `[ … ] && { … }`: under set -e the AND-list's own non-zero status on the PASSING
+# path is exactly the kind of load-bearing subtlety tests/_lib.sh's header is about.
+if [ -e "$units/systemd/user/kit-session-retro.timer" ]; then
+  echo "FAIL: a refused install must leave no unit behind"; exit 1
+fi
+echo "  ok §5: install refuses rather than arm a unit that would fail on its first run"
 
 echo "session-retro golden test OK"

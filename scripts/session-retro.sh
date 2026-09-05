@@ -77,6 +77,16 @@ cmd_install() {
   repo="$(bash "$KIT/scripts/main-worktree.sh")"
   [ -n "$repo" ] || { echo "session-retro: bare repository, nothing to schedule" >&2; return 1; }
 
+  # Refuse to arm a unit whose ExecStart does not exist. Installed from a branch that has not
+  # landed, the derived path is right for later and wrong right now — and a timer that fails on
+  # its first Monday is the silent-scheduler failure this whole script exists to end.
+  if [ ! -x "$repo/scripts/session-retro.sh" ]; then
+    echo "session-retro: $repo/scripts/session-retro.sh is not there yet — refusing to arm a" >&2
+    echo "  timer that would fail on its first run. Land the branch that adds it, then re-run" >&2
+    echo "  this install from the main checkout." >&2
+    return 1
+  fi
+
   mkdir -p "$UNITS"
   cat >"$UNITS/$UNIT.service" <<EOF
 [Unit]
