@@ -35,11 +35,23 @@ blockers and re-waiting until GitHub reports the PR `CLEAN`, then merge.
 
 ## Autonomy contract
 
-Run **hands-off** once started: pick the reasonable default, state the assumption, keep going. See
+Run **hands-off** once started — the user points at a PR and walks away. See
 [ADR 0005](../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) for the
-decision scope. Blockers: `gh` unauthenticated, PR does not exist or is already merged/closed, CI red
-after honest fix attempt, unresolvable merge conflict, unmet reviewer request or branch-protection rule,
-or a dirty/behind branch with no writable worktree.
+decision scope. Whenever a step *could* stop for a question, pick the reasonable default, state the
+assumption, keep going. Stop only for a genuine blocker:
+
+- `gh` not authenticated, or no merge/push rights.
+- The PR doesn't exist, is already merged/closed, or the number is ambiguous.
+- **CI stays red after a real fix attempt.** Don't merge over a red bar, don't disable a failing test, don't `--admin`-override a required check. Fix it for real or stop and show the failing output.
+- **A merge conflict you can't resolve with confidence** — both `main` and the branch rewrote the *same logic*. The mechanical conflicts (version, changelog, snapshots, lockfiles) have known-correct fixes (Step 4) — handle those; stop only for genuinely ambiguous ones, showing both sides.
+- **A reviewer requested changes you can't satisfy** without guessing intent, or a branch-protection rule you can't legitimately clear (required approvals you can't self-give).
+- **The branch has no writable checkout — not the transient sandbox push failure Step 2/§8 already covers — and GitHub reports `mergeStateStatus == DIRTY` or literal `BEHIND`.** The can't-push fallback (Step 4) only substitutes for the self-imposed staleness check (`behind_by > 0` while `mergeStateStatus` still reports `CLEAN`) — it never pushes anything to the PR's real branch, and only a push clears a real conflict or a GitHub-enforced up-to-date gate. That combination is a genuine blocker: stop and report it.
+
+The merge is the irreversible act — earn it. Merge only when CI is **green on the just-corrected
+branch** and GitHub reports the PR mergeable; a textual merge of `main` is not a semantic one, so
+re-build/re-test after resolving conflicts. Filing a follow-up and deleting a local branch are
+reversible — but a follow-up is cheap to *file* and expensive to *carry*, which is why Step 6 triages
+before it files.
 
 ## Inputs
 

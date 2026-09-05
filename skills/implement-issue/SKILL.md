@@ -41,10 +41,20 @@ This skill owns the GitHub/worktree/PR bookkeeping around that doctrine.
 
 ## Autonomy contract
 
-Run **hands-off** once started: pick the reasonable default, state the assumption, keep going. See
+Run **hands-off** once started — the user watches, doesn't babysit. See
 [ADR 0005](../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) for the
-decision scope. Blockers: `gh` unauthenticated, no plan on the issue, green tests fail to pass with honest
-effort, unresolvable merge conflict, or unmet reviewer request or branch-protection rule.
+decision scope. Whenever a step (a dispatched sub-agent, the code-review pass, a merge) would pause
+for a question or sign-off, **pick the reasonable default, state the assumption, keep going.** Stop
+only for a genuine blocker:
+
+- `gh` not authenticated, or no push access.
+- No `🛠️ Implementation plan` on the issue — not in body, not in a comment (nothing to execute).
+- A task's tests can't be made green after an honest effort — don't fake green, don't commit over a red bar, don't tick a box for work that doesn't pass. Stop and report the wall with the failing output. **"Honest effort" means you ran the `debug-issue` loop**: a local command that reproduces the red, built and run before any fix — not a fix retried three times.
+- A merge conflict you can't resolve with confidence — both `main` and your branch rewrote the *same logic*, and picking a side would silently drop a sibling PR's work. The mechanical conflicts (version, changelog, snapshots, lockfiles) have known-correct resolutions (Step 8) — handle those; stop only for genuinely ambiguous ones, showing both sides.
+
+Never tick a box, commit, or flip the PR to ready on an assumption — those three acts claim work is
+*done*; back them with evidence (tests run, output seen). A resolved merge is the same claim:
+re-build and re-test on the merged tree — a clean *textual* merge is not a clean *semantic* one.
 
 ## Checklist
 
