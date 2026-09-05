@@ -43,6 +43,14 @@
 # A `**Files:**` line that names no verb at all is read as `modify` — the checked reading, because
 # the alternative silently un-gates the line.
 #
+# `plan-shape.md` requires a `**Files:**` line on EVERY task, including one that touches no file at
+# all (a verification-only task) — `create-issue` writes `none expected.` for exactly that case, and
+# every issue it files carries the wording. That phrase names no path, so after an item is fully
+# trimmed (verb prefix, backticks, trailing punctuation) it is matched against a closed no-file list
+# and, on a match, yields no OK/MISSING/SKIP line at all — the same "nothing to check" verdict as an
+# empty item, never a path to resolve. Anything else — including a genuine typo like `none-such.md`
+# — still falls through to the real check below and can still MISSING; "none" is not a magic word.
+#
 # Exit codes:
 #   0  every checked path resolves — the plan still matches the tree
 #   5  at least one does not; the MISSING lines name them. The guards' convention: a distinct code
@@ -173,6 +181,13 @@ while IFS= read -r line || [ -n "$line" ]; do
     item=$(trim "$item")
     item=${item#./}
     [ -n "$item" ] || continue
+
+    # The closed no-file list — a task saying it touches nothing is not a path to resolve, in any
+    # verb position. Exact spellings only: a case-insensitive or fuzzy match would risk swallowing a
+    # real filename that happens to start with "none".
+    case "$item" in
+      none|'none expected'|'none expected.'|'—'|-) continue ;;
+    esac
 
     case "$verb" in
       create)
