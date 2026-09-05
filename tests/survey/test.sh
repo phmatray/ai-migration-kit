@@ -42,7 +42,7 @@ WORK=$(kit_scratch)
 
 # ------------------------------------------------------------------------------------ the gh stub
 #
-# survey.sh makes exactly one gh call: `gh issue list --state open --limit 300 --json ...`. The
+# survey.sh makes exactly one gh call: `gh issue list --state open --paginate --json ...`. The
 # stub serves whatever fixture the case points it at, and — because real `gh issue list` applies
 # a `--jq EXPRESSION` argument itself, raw-printing the result — the stub does too. That is not
 # incidental: it is what lets this suite catch the ORIGINAL bug fairly. The pre-fix script filters
@@ -987,9 +987,10 @@ echo "ok: frontier — the plain-array shape of the same fields is read identica
 # Three ways the frontier could silently let a blocked issue through, each of which reads as "no
 # edges" if you only look at the numbers you can see:
 #
-#   * a blocker OUTSIDE the `--limit 300` window. Open-set membership alone cannot tell it from a
-#     closed one, and guessing "closed" dispatches its blockee. The connection nodes carry each
-#     linked issue's own `state`, so that is read first and membership is only the fallback.
+#   * a blocker OUTSIDE a bounded `--limit` window (pre-#367; survey.sh now uses `--paginate`, see
+#     case 14 below). Open-set membership alone cannot tell it from a closed one, and guessing
+#     "closed" dispatches its blockee. The connection nodes carry each linked issue's own `state`,
+#     so that is read first and membership is only the fallback.
 #   * a TRUNCATED connection — `totalCount` larger than the `nodes` actually listed. The withheld
 #     rows are exactly the ones that would hold the issue, so an unknown count holds too, and says
 #     so with a `?`.
