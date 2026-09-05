@@ -244,6 +244,7 @@ add_suite "tests/wire-edges/test.sh"
 add_suite "tests/hitl-loop/test.sh"
 add_suite "tests/review-sessions/test.sh"
 add_suite "tests/deliver-issue/test.sh"
+add_suite "tests/session-retro/test.sh"
 
 # The kit's own ADRs are structurally sound. The gate runs the checker over the REAL
 # docs/adr/ — the suite below only drives it over fixtures, so without this line a

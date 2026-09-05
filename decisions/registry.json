@@ -44,6 +44,7 @@
     "scripts/release-title-gate.sh": "a structural gate — a title matches the required shape or it does not; no verdict vocabulary to register",
     "scripts/report-dashboard.py": "renders a static HTML dashboard from report.json; a report generator, not a control-flow choice",
     "scripts/run-all-tests.sh": "the test-suite orchestrator; it runs gates and suites in sequence, it does not itself decide anything",
+    "scripts/session-retro.sh": "a scheduler: it runs review-sessions' harvest.py on a timer, writes a dated report when the harvest returned records, and installs/removes the systemd user unit that calls it \u2014 the record count is a fact it reports, not a control-flow choice, and the clustering, already-fixed check and filing bar all stay with the review-sessions skill it hands off to",
     "scripts/worktrees-ignored.sh": "a structural guard (worktree homes are ignored), not a control-flow choice with a verdict vocabulary",
     "skills/auto-dev/scripts/analyze_cache.py": "an offline token-usage analysis report, not a control-flow choice",
     "skills/auto-dev/scripts/decision-tally.sh": "a read-only tally over decide.sh's own event log (counts, ratios and two printed threshold flags); it reports on decisions already made, it does not make one of its own",

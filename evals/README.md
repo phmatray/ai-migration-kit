@@ -1,12 +1,13 @@
 # Skill-triggering evals
 
-A **safe, repeatable** regression check for **every** skill's *description* — all ten of
+A **safe, repeatable** regression check for **every** skill's *description* — all twelve of
 [`auto-dev`](../skills/auto-dev), [`create-issue`](../skills/create-issue),
-[`review-followups`](../skills/review-followups), [`profile-repo`](../skills/profile-repo),
-[`implement-issue`](../skills/implement-issue), [`migrate-legacy`](../skills/migrate-legacy),
-[`merge-pr`](../skills/merge-pr), [`setup-repo`](../skills/setup-repo),
-[`debug-issue`](../skills/debug-issue) and
-[`triage-backlog`](../skills/triage-backlog).
+[`debug-issue`](../skills/debug-issue), [`deliver-issue`](../skills/deliver-issue),
+[`implement-issue`](../skills/implement-issue), [`merge-pr`](../skills/merge-pr),
+[`migrate-legacy`](../skills/migrate-legacy), [`profile-repo`](../skills/profile-repo),
+[`review-followups`](../skills/review-followups), [`review-sessions`](../skills/review-sessions),
+[`setup-repo`](../skills/setup-repo) and [`triage-backlog`](../skills/triage-backlog) —
+the roster `run_all.py`'s `SKILLS` holds and `tests/skills/check-frontmatter.py` cross-checks.
 
 `<skill>-trigger-eval.json` here is a skill's **triggering contract**, and its only home (#331).
 It used to have two: these sets, plus a per-skill bullet list under `tests/skills/` that CI
