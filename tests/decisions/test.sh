@@ -905,12 +905,103 @@ git -C "$k" add -A
 refuses "$k" R10 \
   "R10 — a tracked executable nested below skills/<skill>/scripts/ is refused (#307)"
 
+# --- R10's SCOPE: the DELIBERATELY ABSENT exclusion is real at every depth (#384) ---------------
+#
+# git's pathspec `*` crosses `/` — the same property the two nesting cases just above exist to
+# enumerate — so `skills/*.sh` also reaches a `templates/` or `tests/` directory nested anywhere
+# below `skills/`, not just the repo-root ones the header's old "DELIBERATELY ABSENT" wording
+# implied. Each fixture below is a tracked executable under one of the four excluded directory
+# names, nested a level deep, and must PASS (excluded from `E`) rather than be refused.
+
+# A fixture under a nested `templates/` — the exact shape #384 measured against `main`.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/templates"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/templates/fixture.sh"
+chmod +x "$k/skills/demo/templates/fixture.sh"
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a tracked executable under a nested templates/ is excluded from E at any depth (#384)"
+else
+  bad "R10 — a nested templates/ fixture was not excluded from E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# The mirror case for a nested `tests/`.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/tests"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/tests/fixture.sh"
+chmod +x "$k/skills/demo/tests/fixture.sh"
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a tracked executable under a nested tests/ is excluded from E at any depth (#384)"
+else
+  bad "R10 — a nested tests/ fixture was not excluded from E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# The mirror case for a nested `evals/` — and the `.py` half of every exclusion pair, the exact
+# shape the issue's own Spec names (`skills/foo/evals/run.py`).
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/evals"
+printf '#!/usr/bin/env python3\n' > "$k/skills/demo/evals/run.py"
+chmod +x "$k/skills/demo/evals/run.py"
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a tracked .py file under a nested evals/ is excluded from E at any depth (#384)"
+else
+  bad "R10 — a nested evals/ fixture was not excluded from E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# The mirror case for a nested `samples/`, the fourth and last excluded directory name.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/samples"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/samples/fixture.sh"
+chmod +x "$k/skills/demo/samples/fixture.sh"
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a tracked executable under a nested samples/ is excluded from E at any depth (#384)"
+else
+  bad "R10 — a nested samples/ fixture was not excluded from E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# The REFERENCE bash reader for scripts/tracked-exec-globs.txt — the shape #144's
+# parse-sweep.sh consumer will copy (#307). It must honor `#` as a comment starter ANYWHERE on
+# the line, exactly like decision-check.py's `line.split("#", 1)[0].strip()`: strip everything
+# from the first `#` onward, trim BOTH leading and trailing whitespace (Python's `.strip()` takes
+# both), then drop blank lines (#384 finding 2 — a whole-line-only comment strip let `#`,
+# `PreToolUse` and `gates` reach `git ls-files` as three extra pathspecs). A future consumer
+# copying this must match that split exactly, not merely "look similar".
+read_tracked_exec_globs() {
+  sed 's/#.*//' "$1" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^[[:space:]]*$'
+}
+
+# The format documents `#` as starting a comment ANYWHERE on the line, and decision-check.py's
+# reader honors that mid-line. The divergence, expressed as a test (#384 finding 2): a line
+# carrying a trailing inline comment must read as the pathspec alone, not the comment text as
+# extra pathspecs `git ls-files` would then receive.
+fixture_list=$(kit_scratch)/fixture-globs.txt
+printf 'hooks/*.sh   # PreToolUse gates\n' > "$fixture_list"
+fixture_read=$(read_tracked_exec_globs "$fixture_list")
+if [ "$fixture_read" = 'hooks/*.sh' ]; then
+  ok "the bash reference reader strips a mid-line # comment, like decision-check.py's reader (#384)"
+else
+  bad "the bash reference reader kept trailing text after # — got: '$fixture_read'"
+fi
+
 # `E`'s pathspecs are DATA in one file, not a literal inside one guard, so a second consumer can
 # read the same answer instead of keeping a copy that drifts. #144 widens `scripts/parse-sweep.sh`
 # past `tests/*/test.sh` to exactly these paths, and #307's triage asked that whichever half landed
 # first define the list the other reads. This asserts the shipped list is readable from bash — the
-# language of that other consumer — and that it really enumerates the two files #307 was filed about.
-globs=$(grep -v '^[[:space:]]*#' "$REPO/scripts/tracked-exec-globs.txt" 2>/dev/null | grep -v '^[[:space:]]*$')
+# language of that other consumer — and that it really enumerates the two files #307 was filed about
+# — plus a regression check (#384 Task 1 Step 5): the new exclude lines must not have eaten a real
+# script.
+globs=$(read_tracked_exec_globs "$REPO/scripts/tracked-exec-globs.txt")
 if [ -z "$globs" ]; then
   bad "scripts/tracked-exec-globs.txt is missing or declares no pathspecs — R10's E is unanswerable"
 else
@@ -920,17 +1011,127 @@ else
   listed=$(git -C "$REPO" ls-files -- $globs)
   set +f
   missing=''
-  for want in hooks/roseline-gate.sh skills/debug-issue/find-polluter.sh; do
+  for want in hooks/roseline-gate.sh skills/debug-issue/find-polluter.sh skills/auto-dev/scripts/survey.sh; do
     case "$listed" in
       *"$want"*) ;;
       *) missing="$missing $want" ;;
     esac
   done
   if [ -z "$missing" ]; then
-    ok "the shipped pathspec list reads from bash and enumerates hooks/ and skill-root scripts (#307, for #144)"
+    ok "the shipped pathspec list reads from bash and still enumerates real scripts after the #384 excludes (#307, #384, for #144)"
   else
     bad "the shipped pathspec list misses:$missing"
   fi
+fi
+
+# --- tracked_exec_globs()'s two Unanswerable branches are driven to red, not trusted (#384) -----
+#
+# tracked_exec_globs() raises on an unreadable list and on a comment-only one — its own docstring
+# says why: "A missing or comment-only list would otherwise make R10 enumerate NOTHING and report
+# every executable in the repo as covered — the #45 shape, a guard serving 'all clean' over an
+# empty set." Both work by hand today, but nothing above drives either branch: this suite's own
+# rule is "every rule ... is asserted by BREAKING a working kit ... never by reading the guard and
+# believing it", and until now these two raises were read and believed.
+#
+# TRACKED_EXEC_GLOBS_FILE resolves against decision-check.py's OWN location, never `--repo`
+# (tracked_exec_globs()'s own docstring) — deliberately, since a scratch kit built by make_kit
+# carries no copy of the list. So neither branch can be reached by pointing $CHECK at a scratch
+# kit; the harness below copies decision-check.py itself into the kit (decide.sh is already there,
+# from make_kit) alongside a list under test, then runs THAT COPY with --repo <kit>, the only way
+# the resolution lines up with the fixture rather than this repo's own real list.
+
+# guard_copy_with_list <dir> <list-content|--absent> — drops a private copy of decision-check.py
+# into $dir/scripts/, plus a tracked-exec-globs.txt holding <list-content> (or no file at all, for
+# --absent, the "unreadable" case).
+guard_copy_with_list() {
+  local dir="$1" content="$2"
+  cp "$CHECK" "$dir/scripts/decision-check.py"
+  if [ "$content" = --absent ]; then
+    rm -f "$dir/scripts/tracked-exec-globs.txt"
+  else
+    printf '%s\n' "$content" > "$dir/scripts/tracked-exec-globs.txt"
+  fi
+}
+
+# Reuses unanswerable()'s exit-2/needle check rather than repeating it: only the CHECK path
+# differs, so swap it in for the duration of the call — the COPY of the guard guard_copy_with_list
+# placed inside the kit, never the real $CHECK, which would resolve TRACKED_EXEC_GLOBS_FILE
+# against THIS repo's own list and never see the fixture at all.
+unanswerable_copy() {
+  local k="$1" needle="$2" label="$3"
+  local real_check="$CHECK"
+  CHECK="$k/scripts/decision-check.py"
+  unanswerable "$k" "$needle" "$label"
+  CHECK="$real_check"
+}
+
+# The comment-only list.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+guard_copy_with_list "$k" '# just a comment, no pathspecs'
+unanswerable_copy "$k" "declares no pathspecs" \
+  "tracked_exec_globs() — a comment-only list is Unanswerable, not silently enumerating the whole repo unfiltered (#384)"
+
+# The unreadable list — here, entirely absent, which reaches the same OSError branch as a
+# permission-denied read.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+guard_copy_with_list "$k" --absent
+unanswerable_copy "$k" "could not read R10's pathspec list" \
+  "tracked_exec_globs() — a missing list is Unanswerable, not silently enumerating the whole repo unfiltered (#384)"
+
+# Both raises just asserted are LOAD-BEARING, not merely present: mutate a fresh copy so each
+# `raise Unanswerable(...)` becomes `return ()`, and require the unanswerable verdict to disappear.
+# A raise a maintainer could silently delete without a single test noticing is the same defect
+# this whole suite exists to close, one level up. The mutation touches only a disposable copy of
+# decision-check.py inside the scratch kit — never the real, tracked one.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+guard_copy_with_list "$k" '# just a comment, no pathspecs'
+python3 - "$k/scripts/decision-check.py" <<'MUTATE'
+import re, sys
+p = sys.argv[1]
+text = open(p, encoding="utf-8").read()
+text, n = re.subn(
+    r'raise Unanswerable\(\s*\n\s*f"\{path\} declares no pathspecs.*?\n\s*\)',
+    'return ()',
+    text,
+    count=1,
+    flags=re.S,
+)
+if n != 1:
+    sys.exit("expected to mutate exactly 1 raise, matched %d" % n)
+open(p, "w", encoding="utf-8").write(text)
+MUTATE
+CHECK_OUT=$(python3 "$k/scripts/decision-check.py" --repo "$k" 2>&1)
+CHECK_RC=$?
+if [ "$CHECK_RC" -ne 2 ]; then
+  ok "tracked_exec_globs()'s comment-only raise is load-bearing — without it the guard no longer refuses as unanswerable (#384)"
+else
+  bad "tracked_exec_globs()'s comment-only raise is NOT load-bearing — the guard still exits 2 without it:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+guard_copy_with_list "$k" --absent
+python3 - "$k/scripts/decision-check.py" <<'MUTATE'
+import re, sys
+p = sys.argv[1]
+text = open(p, encoding="utf-8").read()
+text, n = re.subn(
+    r'raise Unanswerable\(f"could not read R10\x27s pathspec list at \{path\}: \{exc\}"\)',
+    'return ()',
+    text,
+    count=1,
+)
+if n != 1:
+    sys.exit("expected to mutate exactly 1 raise, matched %d" % n)
+open(p, "w", encoding="utf-8").write(text)
+MUTATE
+CHECK_OUT=$(python3 "$k/scripts/decision-check.py" --repo "$k" 2>&1)
+CHECK_RC=$?
+if [ "$CHECK_RC" -ne 2 ]; then
+  ok "tracked_exec_globs()'s unreadable-list raise is load-bearing — without it the guard no longer refuses as unanswerable (#384)"
+else
+  bad "tracked_exec_globs()'s unreadable-list raise is NOT load-bearing — the guard still exits 2 without it:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
 fi
 
 # --- the escape hatch of #208 is closed, end to end (#252 Task 3) -------------------------------
