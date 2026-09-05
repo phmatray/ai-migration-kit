@@ -1,23 +1,87 @@
 [
-  {"query": "upgrade this app to the latest .NET", "should_trigger": true, "note": "'upgrade this app'"},
-  {"query": "migrate this project to .NET 10", "should_trigger": true, "note": "'migrate ... to .NET 10'"},
-  {"query": "modernize this legacy codebase", "should_trigger": true, "note": "'modernize ... legacy'"},
-  {"query": "this project targets an old framework, can you fix that?", "should_trigger": true, "note": "the symptom, no keyword"},
-  {"query": "the runtime is out of support, bring it up to date", "should_trigger": true, "note": "out-of-support runtime"},
-  {"query": "these packages are ancient, get this solution current", "should_trigger": true, "note": "obsolete packages across a whole solution"},
-  {"query": "audit this legacy solution and tell me what upgrading it would take", "should_trigger": true, "note": "the read-only assessment phase (/migrate-assess)"},
-  {"query": "/migrate", "should_trigger": true, "note": "slash command — the full pipeline"},
-  {"query": "/migrate-assess", "should_trigger": true, "note": "slash command — phase 1 only"},
-  {"query": "/migrate-verify", "should_trigger": true, "note": "slash command — the final quality gate"},
-  {"query": "mets a niveau cette app vers .NET 10", "should_trigger": true, "note": "FR — 'mets a niveau'"},
-  {"query": "modernise ce code legacy", "should_trigger": true, "note": "FR — 'modernise ce code legacy'"},
-
-  {"query": "upgrade my npm dependencies", "should_trigger": false, "note": "a dependency bump, not a legacy app migration"},
-  {"query": "renovate opened a PR bumping xunit, take a look", "should_trigger": false, "note": "one package bump — shares 'upgrade' intent, not the pipeline"},
-  {"query": "help me write a new .NET app from scratch", "should_trigger": false, "note": "greenfield, nothing legacy to migrate"},
-  {"query": "migrate this database to Postgres", "should_trigger": false, "note": "a data migration, not an application migration"},
-  {"query": "what's new in .NET 10?", "should_trigger": false, "note": "informational question — nothing to upgrade"},
-  {"query": "merge PR 279", "should_trigger": false, "note": "→ merge-pr"},
-  {"query": "implement issue 47 and open a PR", "should_trigger": false, "note": "→ implement-issue"},
-  {"query": "what's still open across the migrated repos?", "should_trigger": false, "note": "→ review-followups (the tail after the pipeline, not the pipeline)"}
+  {
+    "query": "upgrade this app to the latest .NET",
+    "should_trigger": true,
+    "note": "'upgrade this app'"
+  },
+  {
+    "query": "migrate this project to .NET 10",
+    "should_trigger": true,
+    "note": "'migrate ... to .NET 10'"
+  },
+  {
+    "query": "modernize this legacy codebase",
+    "should_trigger": true,
+    "note": "'modernize ... legacy'"
+  },
+  {
+    "query": "this project targets an old framework, can you fix that?",
+    "should_trigger": true,
+    "note": "the symptom, no keyword"
+  },
+  {
+    "query": "the runtime is out of support, bring it up to date",
+    "should_trigger": true,
+    "note": "out-of-support runtime"
+  },
+  {
+    "query": "these packages are ancient, get this solution current",
+    "should_trigger": true,
+    "note": "obsolete packages across a whole solution"
+  },
+  {
+    "query": "audit this legacy solution and tell me what upgrading it would take",
+    "should_trigger": true,
+    "note": "the read-only assessment phase (/migrate-assess)"
+  },
+  {
+    "query": "mets a niveau cette app vers .NET 10",
+    "should_trigger": true,
+    "note": "FR — 'mets a niveau'"
+  },
+  {
+    "query": "modernise ce code legacy",
+    "should_trigger": true,
+    "note": "FR — 'modernise ce code legacy'"
+  },
+  {
+    "query": "upgrade my npm dependencies",
+    "should_trigger": false,
+    "note": "a dependency bump, not a legacy app migration"
+  },
+  {
+    "query": "renovate opened a PR bumping xunit, take a look",
+    "should_trigger": false,
+    "note": "one package bump — shares 'upgrade' intent, not the pipeline"
+  },
+  {
+    "query": "help me write a new .NET app from scratch",
+    "should_trigger": false,
+    "note": "greenfield, nothing legacy to migrate"
+  },
+  {
+    "query": "migrate this database to Postgres",
+    "should_trigger": false,
+    "note": "a data migration, not an application migration"
+  },
+  {
+    "query": "what's new in .NET 10?",
+    "should_trigger": false,
+    "note": "informational question — nothing to upgrade"
+  },
+  {
+    "query": "merge PR 279",
+    "should_trigger": false,
+    "note": "→ merge-pr"
+  },
+  {
+    "query": "implement issue 47 and open a PR",
+    "should_trigger": false,
+    "note": "→ implement-issue"
+  },
+  {
+    "query": "what's still open across the migrated repos?",
+    "should_trigger": false,
+    "note": "→ review-followups (the tail after the pipeline, not the pipeline)"
+  }
 ]

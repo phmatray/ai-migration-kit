@@ -127,6 +127,16 @@ def check_trigger_eval_set(skill: str) -> list:
         query = entry.get("query")
         if not isinstance(query, str) or not query.strip():
             found.append(f"{skill}: {where} has a missing or empty 'query'")
+        elif query.lstrip().startswith("/"):
+            # A slash command is expanded into the prompt by the CLIENT, never invoked as a
+            # tool, so trigger_eval.py — which watches for a tool-use INTENT — has nothing to
+            # observe and the row can only ever read as a miss. Four such rows sat in these
+            # sets and were the whole of migrate-legacy's 0.33 (#436). The assertion they were
+            # reaching for is structural and lives below: every commands/*.md names its skill.
+            found.append(f"{skill}: {where} is a slash-command query ('{query.strip()}') — the "
+                         f"bench cannot observe one, so it is a permanently red row rather than "
+                         f"a contract. Assert the command's routing structurally instead; see "
+                         f"the commands/ check in this file")
         else:
             # Keyed on the NORMALIZED form: to the bench, "File an issue" and "file an issue "
             # are one query asked twice, however differently they are spelled here.
@@ -251,6 +261,22 @@ for rel_path, var in (("evals/run_all.py", "SKILLS"), ("evals/trigger_eval.py", 
     if unknown:
         errors.append(f"{rel_path}: {var} must list every skill — {', '.join(unknown)} "
                       f"names no skills/*/ folder")
+
+# commands/*.md ↔ the skill each one dispatches to.
+#
+# This is what the deleted slash-command eval rows were reaching for (#436). `/migrate` reaching
+# migrate-legacy is not a description-triggering question at all — the command file IS the routing,
+# and it routes by naming the skill in its body. That is a structural fact a grep settles for free,
+# where the bench could only ever spend three `claude -p` runs to report a miss it caused itself.
+commands_dir = ROOT / "commands"
+for command_file in sorted(commands_dir.glob("*.md")):
+    body = command_file.read_text(encoding="utf-8")
+    named = sorted(name for name in skill_names if name in body)
+    if not named:
+        errors.append(
+            f"commands/{command_file.name}: names no skill under skills/ — a command file that "
+            f"stops naming the skill it dispatches to still runs, and hands the model a prompt "
+            f"with no destination")
 
 # requirements.json ↔ compatibility cross-check.
 req = json.loads((ROOT / "requirements.json").read_text(encoding="utf-8"))
