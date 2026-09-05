@@ -46,6 +46,10 @@ PRISTINE="$WORK/pristine"
 mkdir -p "$PRISTINE"
 cp -R "$ROOT/skills" "$PRISTINE/"
 cp -R "$ROOT/evals" "$PRISTINE/"
+# commands/ used to be copy-once because nothing mutated it. #436 added a check over it (every
+# command file names the skill it dispatches to), and a check no case can drive red is a check
+# that stays green after it stops working — so it joins the restored set.
+cp -R "$ROOT/commands" "$PRISTINE/"
 
 fails=0
 
@@ -245,8 +249,8 @@ run_eval_case() {
   # last run_case left behind — so an N4 labelled "untouched baseline" would be running against a
   # rewritten description, and inserting one more failing run_case above this block would turn
   # every T case into a coin flip.
-  rm -rf "$ROOT/evals" "$ROOT/skills"
-  cp -R "$PRISTINE/evals" "$PRISTINE/skills" "$ROOT/"
+  rm -rf "$ROOT/evals" "$ROOT/skills" "$ROOT/commands"
+  cp -R "$PRISTINE/evals" "$PRISTINE/skills" "$PRISTINE/commands" "$ROOT/"
   python3 -c "$mutator" "$ROOT"
   local out rc
   set +e
@@ -384,6 +388,26 @@ dup = dict(entries[0])
 dup["query"] = "  " + dup["query"].upper() + " "
 entries.append(dup)
 p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "T12 a slash-command query          " fail "slash-command query" '
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "evals/create-issue-trigger-eval.json"
+entries = json.loads(p.read_text(encoding="utf-8"))
+# The four rows #436 deleted, in miniature. A client expands a slash command into the prompt; it
+# is never a tool call, so trigger_eval.py has no intent to observe and the row is permanently
+# red — three subprocess runs per revision to report a miss the harness caused itself.
+entries.append({"query": "/create-issue", "should_trigger": True})
+p.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+'
+
+run_eval_case "C1 a command names no skill       " fail "names no skill" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "commands/migrate.md"
+# The routing IS the naming: strip the skill name and the file still runs, handing the model a
+# prompt with no destination. This is the assertion the deleted /migrate eval rows were reaching
+# for, in the one place it can be settled without spending a bench run.
+p.write_text(p.read_text(encoding="utf-8").replace("migrate-legacy", "the pipeline"), encoding="utf-8")
 '
 
 run_eval_case "N4 untouched baseline             " pass "" 'import sys'
