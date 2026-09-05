@@ -905,11 +905,49 @@ git -C "$k" add -A
 refuses "$k" R10 \
   "R10 — a tracked executable nested below skills/<skill>/scripts/ is refused (#307)"
 
+# --- R10's SCOPE: the DELIBERATELY ABSENT exclusion is real at every depth (#384) ---------------
+#
+# git's pathspec `*` crosses `/` — the same property the two nesting cases just above exist to
+# enumerate — so `skills/*.sh` also reaches a `templates/` or `tests/` directory nested anywhere
+# below `skills/`, not just the repo-root ones the header's old "DELIBERATELY ABSENT" wording
+# implied. Each fixture below is a tracked executable under one of the four excluded directory
+# names, nested a level deep, and must PASS (excluded from `E`) rather than be refused.
+
+# A fixture under a nested `templates/` — the exact shape #384 measured against `main`.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/templates"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/templates/fixture.sh"
+chmod +x "$k/skills/demo/templates/fixture.sh"
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a tracked executable under a nested templates/ is excluded from E at any depth (#384)"
+else
+  bad "R10 — a nested templates/ fixture was not excluded from E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# The mirror case for a nested `tests/`.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/tests"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/tests/fixture.sh"
+chmod +x "$k/skills/demo/tests/fixture.sh"
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a tracked executable under a nested tests/ is excluded from E at any depth (#384)"
+else
+  bad "R10 — a nested tests/ fixture was not excluded from E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
 # `E`'s pathspecs are DATA in one file, not a literal inside one guard, so a second consumer can
 # read the same answer instead of keeping a copy that drifts. #144 widens `scripts/parse-sweep.sh`
 # past `tests/*/test.sh` to exactly these paths, and #307's triage asked that whichever half landed
 # first define the list the other reads. This asserts the shipped list is readable from bash — the
-# language of that other consumer — and that it really enumerates the two files #307 was filed about.
+# language of that other consumer — and that it really enumerates the two files #307 was filed about
+# — plus a regression check (#384 Task 1 Step 5): the new exclude lines must not have eaten a real
+# script.
 globs=$(grep -v '^[[:space:]]*#' "$REPO/scripts/tracked-exec-globs.txt" 2>/dev/null | grep -v '^[[:space:]]*$')
 if [ -z "$globs" ]; then
   bad "scripts/tracked-exec-globs.txt is missing or declares no pathspecs — R10's E is unanswerable"
@@ -920,14 +958,14 @@ else
   listed=$(git -C "$REPO" ls-files -- $globs)
   set +f
   missing=''
-  for want in hooks/roseline-gate.sh skills/debug-issue/find-polluter.sh; do
+  for want in hooks/roseline-gate.sh skills/debug-issue/find-polluter.sh skills/auto-dev/scripts/survey.sh; do
     case "$listed" in
       *"$want"*) ;;
       *) missing="$missing $want" ;;
     esac
   done
   if [ -z "$missing" ]; then
-    ok "the shipped pathspec list reads from bash and enumerates hooks/ and skill-root scripts (#307, for #144)"
+    ok "the shipped pathspec list reads from bash and still enumerates real scripts after the #384 excludes (#307, #384, for #144)"
   else
     bad "the shipped pathspec list misses:$missing"
   fi

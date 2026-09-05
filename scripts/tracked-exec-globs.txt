@@ -38,12 +38,26 @@
 # registered decision's `program.path` nor a key of `not_decisions` in `decisions/registry.json`.
 # Land the rows in the same change as the line.
 #
-# DELIBERATELY ABSENT: `tests/`, `evals/`, `samples/` and `templates/`. They are suites and frozen
-# fixtures, not this kit's own control-flow scripts; sweeping them in would turn `not_decisions`
-# into a dumping ground rather than the deliberate per-file claim it is (#307's Alternatives).
+# EXCLUDED AT ANY DEPTH, not merely absent: `tests/`, `evals/`, `samples/` and `templates/`. They
+# are suites and frozen fixtures, not this kit's own control-flow scripts, and sweeping them into
+# `E` would turn `not_decisions` into a dumping ground rather than the deliberate per-file claim it
+# is (#307's Alternatives). Naming them nowhere above is NOT sufficient: `*` crosses `/` (the same
+# property noted above), so `skills/*.sh` also reaches `skills/<skill>/templates/hook.sh` and
+# equally deep siblings under `tests/`, `evals/` and `samples/` — not just a root-level directory of
+# the same name (#384). So the exclusion is carried by the explicit `:(exclude)` pathspecs below,
+# which hold at any depth by construction. Each keeps its `.sh`/`.py` suffix — never a bare
+# directory pathspec — so #144's `*.sh` filter over this file still finds the ones it needs.
 scripts/*.sh
 scripts/*.py
 skills/*.sh
 skills/*.py
 hooks/*.sh
 hooks/*.py
+:(exclude)*/templates/*.sh
+:(exclude)*/templates/*.py
+:(exclude)*/tests/*.sh
+:(exclude)*/tests/*.py
+:(exclude)*/evals/*.sh
+:(exclude)*/evals/*.py
+:(exclude)*/samples/*.sh
+:(exclude)*/samples/*.py
