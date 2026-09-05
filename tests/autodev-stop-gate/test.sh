@@ -138,6 +138,26 @@ verdict "queue-only refuses, names depth" 2 "$(pay "$REPO" false)" "$SDIR" "" "2
 write_state "- Slot A → #123 (auto-dev) — implementing" ""
 verdict "no origin remote allows (nothing to derive)" 0 "$(pay "$NOREMOTE" false)" "$SDIR"
 
+# ------------------------------------------- 9b. the other two remote URL forms the header comment
+# claims ("matches https://host/owner/repo(.git), git@host:owner/repo(.git) and
+# ssh://git@host/owner/repo(.git)") — same owner/repo, so they resolve to the SAME $SPATH the https
+# fixture above already seeded, and must refuse identically.
+SSHCOLON=$(repo_with_remote "git@github.com:acme/widgets.git")
+verdict "git@host:owner/repo(.git) form refuses"  2 "$(pay "$SSHCOLON" false)" "$SDIR" "" "acme/widgets"
+SSHURL=$(repo_with_remote "ssh://git@github.com/acme/widgets.git")
+verdict "ssh://git@host/owner/repo(.git) form refuses" 2 "$(pay "$SSHURL" false)" "$SDIR" "" "acme/widgets"
+
+# ------------------------------------------------- 9c. trailing slash, no .git -> refuses correctly
+# The owner/repo derivation strips a trailing slash before capturing (0b4e66f) — without that fix
+# this fell through as an unparsed owner_repo and either exited 0 (nothing to derive) or, worse,
+# produced a garbled state-file path instead of the real one. Must refuse identically to 9b.
+TRAILSLASH=$(repo_with_remote "https://github.com/acme/widgets/")
+verdict "trailing-slash remote refuses (not garbled)" 2 "$(pay "$TRAILSLASH" false)" "$SDIR" "" "acme/widgets"
+
+# --------------------------------------------- 9d. malformed remote (no owner/repo shape) -> allow
+MALFORMED=$(repo_with_remote "not-a-url-at-all")
+verdict "malformed remote allows (nothing to derive)" 0 "$(pay "$MALFORMED" false)" "$SDIR"
+
 # --------------------------------------------------------------- 10. a repo with no cwd at all
 verdict "empty cwd allows" 0 "$(jq -nc '{session_id:"x",hook_event_name:"Stop",stop_hook_active:false}')" "$SDIR"
 
