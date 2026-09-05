@@ -973,12 +973,12 @@ fi
 # The REFERENCE bash reader for scripts/tracked-exec-globs.txt — the shape #144's
 # parse-sweep.sh consumer will copy (#307). It must honor `#` as a comment starter ANYWHERE on
 # the line, exactly like decision-check.py's `line.split("#", 1)[0].strip()`: strip everything
-# from the first `#` onward, trim trailing whitespace, then drop blank lines (#384 finding 2 — a
-# whole-line-only comment strip let `#`, `PreToolUse` and `gates` reach `git ls-files` as three
-# extra pathspecs). A future consumer copying this must match that split exactly, not merely
-# "look similar".
+# from the first `#` onward, trim BOTH leading and trailing whitespace (Python's `.strip()` takes
+# both), then drop blank lines (#384 finding 2 — a whole-line-only comment strip let `#`,
+# `PreToolUse` and `gates` reach `git ls-files` as three extra pathspecs). A future consumer
+# copying this must match that split exactly, not merely "look similar".
 read_tracked_exec_globs() {
-  sed 's/#.*//' "$1" 2>/dev/null | sed 's/[[:space:]]*$//' | grep -v '^[[:space:]]*$'
+  sed 's/#.*//' "$1" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^[[:space:]]*$'
 }
 
 # The format documents `#` as starting a comment ANYWHERE on the line, and decision-check.py's
@@ -1053,36 +1053,30 @@ guard_copy_with_list() {
   fi
 }
 
-# Like unanswerable(), but drives the COPY of the guard guard_copy_with_list placed inside the
-# kit, rather than $CHECK — which would resolve TRACKED_EXEC_GLOBS_FILE against THIS repo's own
-# list and never see the fixture at all.
+# Reuses unanswerable()'s exit-2/needle check rather than repeating it: only the CHECK path
+# differs, so swap it in for the duration of the call — the COPY of the guard guard_copy_with_list
+# placed inside the kit, never the real $CHECK, which would resolve TRACKED_EXEC_GLOBS_FILE
+# against THIS repo's own list and never see the fixture at all.
 unanswerable_copy() {
   local k="$1" needle="$2" label="$3"
-  CHECK_OUT=$(python3 "$k/scripts/decision-check.py" --repo "$k" 2>&1)
-  CHECK_RC=$?
-  if [ "$CHECK_RC" -ne 2 ]; then
-    bad "$label — expected exit 2 (unanswerable), got $CHECK_RC"
-    return
-  fi
-  case "$CHECK_OUT" in
-    *"$needle"*) ok "$label" ;;
-    *) bad "$label — exited 2, but never named '$needle':"
-       printf '%s\n' "$CHECK_OUT" | sed 's/^/          /' ;;
-  esac
+  local real_check="$CHECK"
+  CHECK="$k/scripts/decision-check.py"
+  unanswerable "$k" "$needle" "$label"
+  CHECK="$real_check"
 }
 
 # The comment-only list.
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 guard_copy_with_list "$k" '# just a comment, no pathspecs'
 unanswerable_copy "$k" "declares no pathspecs" \
-  "tracked_exec_globs() — a comment-only list is Unanswerable, not an empty E that passes everything (#384)"
+  "tracked_exec_globs() — a comment-only list is Unanswerable, not silently enumerating the whole repo unfiltered (#384)"
 
 # The unreadable list — here, entirely absent, which reaches the same OSError branch as a
 # permission-denied read.
 k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
 guard_copy_with_list "$k" --absent
 unanswerable_copy "$k" "could not read R10's pathspec list" \
-  "tracked_exec_globs() — a missing list is Unanswerable, not an empty E that passes everything (#384)"
+  "tracked_exec_globs() — a missing list is Unanswerable, not silently enumerating the whole repo unfiltered (#384)"
 
 # Both raises just asserted are LOAD-BEARING, not merely present: mutate a fresh copy so each
 # `raise Unanswerable(...)` becomes `return ()`, and require the unanswerable verdict to disappear.

@@ -47,6 +47,13 @@
 # the same name (#384). So the exclusion is carried by the explicit `:(exclude)` pathspecs below,
 # which hold at any depth by construction. Each keeps its `.sh`/`.py` suffix — never a bare
 # directory pathspec — so #144's `*.sh` filter over this file still finds the ones it needs.
+#
+# ⚠️ `:(exclude)` ITSELF NEEDS A DIVERSE POSITIVE LIST TO BITE: measured on git 2.55, `git ls-files`
+# silently drops a trailing `:(exclude)` pathspec when the positive pathspecs ahead of it share a
+# single path prefix (e.g. only `skills/*.sh`) — it only takes effect once the positives span 2+
+# distinct prefixes, which the six lines above (scripts/, skills/, hooks/) do today. Collapsing
+# those to one prefix would silently stop excluding nested tests/evals/samples/templates, with
+# nothing here to catch it — keep at least two distinct prefixes above the excludes.
 scripts/*.sh
 scripts/*.py
 skills/*.sh
