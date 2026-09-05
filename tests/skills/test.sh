@@ -1415,6 +1415,64 @@ grep -q 'v2\.1\.0\.md' "$_jscratch/journal-orph.out" \
   || { echo "FAIL: the orphan refusal does not name v2.1.0.md"; cat "$_jscratch/journal-orph.out"; exit 1; }
 echo "ok   a journal article with no parent: is refused, by name"
 
+# The journal goes stale silently: the check above holds every article that EXISTS to the two prose
+# rules, and says nothing about a published release that has no article at all. This second check
+# file closes that, and is deliberately a SEPARATE program from the prose check above: the prose red
+# paths run against scratch trees that are plain directories rather than git repositories, and
+# folding the coverage rule in would fail every one of them for the wrong reason.
+# The tag list is an injectable argument defaulting to the tag list of the tree under test, so the
+# red paths need no git repository built in scratch and exercise exactly the code the green run does.
+cat > "$_jscratch/journal-coverage.py" <<'PY'
+import pathlib, re, subprocess, sys
+root = pathlib.Path(sys.argv[1])
+if "--tags" in sys.argv:
+    raw = sys.argv[sys.argv.index("--tags") + 1].split()
+else:
+    raw = subprocess.run(["git", "-C", str(root), "tag", "--list", "v*"],
+                         capture_output=True, text=True).stdout.split()
+VER = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+tags = {}
+for t in raw:
+    m = VER.match(t)
+    if m:
+        tags[t] = tuple(int(g) for g in m.groups())
+if not tags:
+    print("FAIL: no v* tags are visible, so journal coverage cannot be judged "
+          "— is this a checkout without tags?")
+    sys.exit(1)
+newest = max(tags, key=tags.get)
+missing = sorted((t for t in tags
+                  if t != newest and not (root / "docs" / "journal" / (t + ".md")).exists()),
+                 key=lambda t: tags[t])
+if missing:
+    print("FAIL: published releases with no journal article: " + ", ".join(missing)
+          + " (the newest release, " + newest + ", is exempt for one version)")
+    sys.exit(1)
+print("ok   every published release except the newest (%s) has a journal article" % newest)
+PY
+# Red path 5: a published release that is NOT the newest and has no article. The one-release grace
+# window is why v9.9.10 is passed alongside it: it is newer and equally absent, and must NOT be named.
+if python3 "$_jscratch/journal-coverage.py" "$KIT_ROOT" --tags "v1.4.1 v9.9.9 v9.9.10" \
+    > "$_jscratch/cov-missing.out" 2>&1; then
+  echo "FAIL: the coverage check accepted a published release with no journal article"; exit 1
+fi
+grep -q 'v9\.9\.9' "$_jscratch/cov-missing.out" \
+  || { echo "FAIL: the missing-article refusal does not name v9.9.9"; cat "$_jscratch/cov-missing.out"; exit 1; }
+echo "ok   a published release with no journal article is refused, by version"
+
+# Red path 6: no tags at all. A checkout without tags would otherwise turn the whole rule into a
+# no-op reporting a green tick, which is strictly worse than having no gate at all.
+if python3 "$_jscratch/journal-coverage.py" "$KIT_ROOT" --tags "" \
+    > "$_jscratch/cov-notags.out" 2>&1; then
+  echo "FAIL: the coverage check passed with no tags visible"; exit 1
+fi
+grep -q 'no v\* tags are visible' "$_jscratch/cov-notags.out" \
+  || { echo "FAIL: the empty-tag-list refusal does not say no tags are visible"; cat "$_jscratch/cov-notags.out"; exit 1; }
+echo "ok   an empty tag list is refused, not passed"
+
+# The green run: the real tree, against the real tag list.
+python3 "$_jscratch/journal-coverage.py" "$KIT_ROOT" || exit 1
+
 # ---------------------------------------------------------------------------------------------
 # A pointer-only CLAUDE.md for agents working on the kit (#325). Exactly one of the two documented
 # locations, a line budget so it stays pointers rather than sediment, and every relative link
