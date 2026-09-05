@@ -10,7 +10,7 @@ phases 1–6 (modernization in place); validated on wave 1 of the WinRT portfoli
    namespace and usings. Do NOT modernize during the port — every simultaneous "improvement"
    destroys the proof of no regression.
 2. **Characterize with tests, quirks included.** Legacy quirks (inconsistent state, missing rules,
-   side effects) are pinned by tests that document the REAL behaviour. A quirk is not a test bug.
+   side effects) are pinned by tests that document the REAL behavior. A quirk is not a test bug.
 3. **Fix by wrapper, never inside the legacy.** Missing semantics (validation, state detection,
    counters) live in a class that wraps the ported code. The legacy stays intact and proven; the
    new code is tested separately.
@@ -33,7 +33,7 @@ phases 1–6 (modernization in place); validated on wave 1 of the WinRT portfoli
   published folder.
 - **Tailwind 4 cascade** (wave 3): any element rule (`a { color: … }`) written outside a layer
   overrides the utilities (`text-…`), which live in `@layer utilities`. Base styles go in
-  `@layer base` — otherwise the symptom is invisible or wrongly-coloured text that only
+  `@layer base` — otherwise the symptom is invisible or wrongly-colored text that only
   `getComputedStyle` explains.
 - **Per-route content PWA: precache is the contract** (wave 3): when each page loads its JSON on
   demand, "offline" only holds for pages already visited. If the original app was **installed**
@@ -69,7 +69,7 @@ phases 1–6 (modernization in place); validated on wave 1 of the WinRT portfoli
   **the minimum used** (YAGNI), in a file carrying a dated "RECONSTRUCTION" header explaining the
   provenance — never mixed with the ported code.
 - **Historical tests that never went green**: do not rewrite them, do not delete them. Mark them
-  `Skip = "<documented legacy bug + where the intent is restored>"`, pin the actual behaviour with
+  `Skip = "<documented legacy bug + where the intent is restored>"`, pin the actual behavior with
   characterization tests, restore the intent via a wrapper, and prove the intent with **new** tests
   that reuse the original expected values.
 - **Period test style** (e.g. `Assert.Equal(x == y, true)` → xUnit2000): suppress via a commented
