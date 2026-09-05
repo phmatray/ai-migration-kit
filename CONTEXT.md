@@ -72,6 +72,15 @@ work, `deferred` for something explicitly not being done now. `review-followups`
 across every migrated repo.
 _Avoid_: todo, backlog item
 
+**Inline-fix carve-out**:
+The test `implement-issue` runs on a finding discovered while implementing, before the filing bar
+ever sees it: **local** (every file the fix touches is already modified by the PR) *and* **small**
+(no new file, no behaviour outside the Spec) → fixed inline, in its own commit, recorded under
+`### Fixed along the way` in the PR description; otherwise deferred to `### Follow-ups`. Whether it
+is a regression is not part of the test. Stated once, in `implement-issue`'s *Don't widen the blast
+radius*, and repeated word for word in `commands/auto-dev-worker.md` (#410).
+_Avoid_: scope creep exception, quick fix, drive-by
+
 ## The machinery
 
 **Gate**:

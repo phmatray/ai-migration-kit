@@ -13,10 +13,20 @@ shared/main checkout — other workers are active), open a draft PR, implement e
 code-review and apply the fixes, sync the default branch, format, and flip the PR from draft to ready.
 
 OFF-SCOPE PROTOCOL: if you hit a problem NOT part of #$1 — an unrelated/flaky failure, a pre-existing
-bug, a design smell, missing/broken tests, tech debt — do NOT fix it inline (scope-creep) and do NOT
-silently ignore it. FILE it as a new issue via `create-issue`, then continue your task. List anything
-filed in your report. **Never pass `--grill`** — it makes `create-issue` stop and interview the user,
-and you have nobody to interview.
+bug, a design smell, missing/broken tests, tech debt — do NOT silently ignore it, and do NOT widen the
+PR to it. The carve-out `implement-issue` states under *Don't widen the blast radius* decides which of
+two exits it takes, and the test has two halves that must **both** hold: it is **fixed inline** when it
+is **local** (every file the fix touches is already modified by this PR) *and* **small** (the fix adds
+no file to the diff and no behaviour the Spec does not already cover). Whether it is a regression of a
+shipped guarantee is **not** part of the test. An inline fix is its **own commit** and gets a line in
+the PR description under `### Fixed along the way`, so the trail survives without an issue. Put that
+heading **above** `### Follow-ups`: `merge-pr` harvests the lines after a Follow-ups heading, and a
+sibling placed below it would be read as deferred work and filed. Anything failing either half: FILE
+it as a new issue via `create-issue`, then continue your task. Name what you filed in the final line's
+`FILED:` field and what you fixed inline in its `DETAIL:` field — that line is the only part of your
+run anyone reads. The carve-out is phase 1's alone: the merge phase keeps filing, since no review pass
+follows a merge-phase fix. **Never pass `--grill`** — it makes `create-issue` stop and interview the
+user, and you have nobody to interview.
 
 ## Never wait — you are a background sub-agent
 

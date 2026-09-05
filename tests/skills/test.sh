@@ -1035,6 +1035,37 @@ grep -q 'not a supported tracker' "$PRECONDITIONS" \
 echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
 
 # ---------------------------------------------------------------------------------------------
+# create-issue's Inputs states the flag-position rule (#404): a flag is a standalone token at the
+# start or end of the request, never a word inside the idea's own sentence — otherwise an
+# unattended caller (merge-pr Step 6, the auto-dev workers, deliver-issue) that hands it an idea
+# quoting "--grill" or "--seed #40" in prose reads that word as the flag. Driven to red on a
+# scratch copy with the sentence stripped, so the check cannot pass vacuously.
+echo "== create-issue's Inputs states the flag-position rule (#404) =="
+CREATE_ISSUE_SKILL="$KIT_ROOT/skills/create-issue/SKILL.md"
+[ -f "$CREATE_ISSUE_SKILL" ] || { echo "FAIL: $CREATE_ISSUE_SKILL missing"; exit 1; }
+
+check_flag_position_rule() {
+  # $1: a create-issue SKILL.md to check. Prints a message naming create-issue and returns
+  # non-zero when the standalone-token rule is missing.
+  if ! grep -qi 'a flag is a standalone token' "$1"; then
+    echo "FAIL: create-issue's Inputs section does not state the flag-position rule"
+    return 1
+  fi
+}
+
+check_flag_position_rule "$CREATE_ISSUE_SKILL" || exit 1
+echo "ok   create-issue states the flag-position rule"
+
+_fpscratch=$(kit_scratch)
+sed '/[Aa] flag is a standalone token/d' "$CREATE_ISSUE_SKILL" > "$_fpscratch/SKILL.md"
+if fp_out=$(check_flag_position_rule "$_fpscratch/SKILL.md" 2>&1); then
+  echo "FAIL: the flag-position check accepted a SKILL.md with the rule stripped"; exit 1
+fi
+grep -q 'create-issue' <<<"$fp_out" \
+  || { echo "FAIL: the flag-position check refused the scratch copy without naming create-issue"; exit 1; }
+echo "ok   a create-issue SKILL.md without the flag-position rule is refused, by name"
+
+# ---------------------------------------------------------------------------------------------
 # The roseline-gate essay moved to docs/roseline-gate.md (#325). Fixture-free: the defect this
 # guards is the committed essay drifting away from its own four properties, or the README's link
 # to it eroding, not something a scratch fixture could stand in for.
@@ -1483,6 +1514,62 @@ for cmd in auto-dev-worker auto-dev-merge; do
     fails=$((fails + 1))
   fi
 done
+
+echo "== the inline-fix carve-out is stated once and repeated word for word in the worker command (#410) =="
+# implement-issue's *Don't widen the blast radius* bullet is the normative home; commands/auto-dev-worker.md
+# repeats the block because fleet workers read the command, not the skill. A repeated block drifts unless
+# something reads both — this does: the sentences from the first marker to the second, whitespace-
+# normalised, must be byte-identical in the two files. Written to a file first, never a heredoc inside
+# `$( … )` (#131, the bash 3.2 scanner hazard parse-sweep exists to catch).
+_cscratch=$(kit_scratch)
+cat > "$_cscratch/carve-out-check.py" <<'PY'
+import pathlib, re, sys
+kit = pathlib.Path(sys.argv[1])
+start = "it is **fixed inline** when it is **local**"
+end = "read as deferred work and filed."
+def block(rel):
+    text = re.sub(r"\s+", " ", (kit / rel).read_text(encoding="utf-8"))
+    i = text.find(start)
+    if i < 0:
+        sys.exit("%s: the carve-out block is missing (no %r)" % (rel, start))
+    j = text.find(end, i)
+    if j < 0:
+        sys.exit("%s: the carve-out block is unterminated (no %r)" % (rel, end))
+    return text[i:j + len(end)]
+a = block("skills/implement-issue/SKILL.md")
+b = block("commands/auto-dev-worker.md")
+if a != b:
+    sys.exit("the carve-out block differs between skills/implement-issue/SKILL.md and "
+             "commands/auto-dev-worker.md — edit both or neither")
+print("%d characters, identical" % len(a))
+PY
+set +e
+c_out=$(python3 "$_cscratch/carve-out-check.py" "$KIT_ROOT" 2>&1)
+c_rc=$?
+set -e
+if [ "$c_rc" -eq 0 ]; then
+  echo "ok   [C1 carve-out block identical in SKILL.md and auto-dev-worker.md — $c_out]"
+else
+  echo "FAIL: [C1 carve-out block identical in SKILL.md and auto-dev-worker.md] $c_out"
+  fails=$((fails + 1))
+fi
+# The red half: a one-word drift in a scratch copy of the worker command must be refused, naming both files.
+mkdir -p "$_cscratch/drift/skills/implement-issue" "$_cscratch/drift/commands"
+cp "$KIT_ROOT/skills/implement-issue/SKILL.md" "$_cscratch/drift/skills/implement-issue/SKILL.md"
+# The drifted phrase sits on one line of the wrapped command file, so sed can reach it.
+sed 's/survives without an issue/survives without any issue/' "$KIT_ROOT/commands/auto-dev-worker.md" > "$_cscratch/drift/commands/auto-dev-worker.md"
+cmp -s "$KIT_ROOT/commands/auto-dev-worker.md" "$_cscratch/drift/commands/auto-dev-worker.md" \
+  && { echo "FAIL: [C2] the drift fixture did not drift — the phrase moved; pick one that sits on a single line"; fails=$((fails + 1)); }
+set +e
+c_red=$(python3 "$_cscratch/carve-out-check.py" "$_cscratch/drift" 2>&1)
+c_red_rc=$?
+set -e
+if [ "$c_red_rc" -ne 0 ] && printf '%s' "$c_red" | grep -q 'auto-dev-worker.md'; then
+  echo "ok   [C2 a drifted worker copy is refused, naming both files]"
+else
+  echo "FAIL: [C2 a drifted worker copy is refused, naming both files] rc=$c_red_rc $c_red"
+  fails=$((fails + 1))
+fi
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
