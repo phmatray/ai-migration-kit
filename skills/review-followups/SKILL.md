@@ -156,3 +156,4 @@ only what **review-followups** adds on top of them.
   artifact; the recap says what moved.
 - Owner decisions still waiting are **Assumed · skipped · unverified**, not results: they are the
   reason `--questionnaire` exists, and a run that leaves them unspoken looks like a run with none.
+- **Boundary findings** — the shared block ([`../_shared/recap.md#the-boundary-findings-block`](../_shared/recap.md#the-boundary-findings-block)): anything in an answered file's free-text that failed the boundary, quoted, said not acted on — or `None`.
