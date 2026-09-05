@@ -361,6 +361,44 @@ enforces area-disjointness across the fleet, and its per-dispatch cost is bounde
 actually turns over, not by the higher-frequency Step 4 reconcile loop (Token economics lever 6 is
 about collapsing *that* loop's queries; it doesn't apply here).
 
+### ⛔ Dispatch-time guard — confirm the worker actually got its own worktree, every time
+
+`isolation: "worktree"` fixes the *default* dispatch (Task 1 above); it does not prove any given
+worker actually received it — a hand-rolled dispatch, a future runtime that lacks the option, or a
+worker started some other way could still land in the supervisor's own tree, invisibly (#412: this is
+exactly the property that broke silently once already). So the property is **verified**, not merely
+assumed: a worker's **first act**, before it edits anything, is to report `git rev-parse
+--show-toplevel`. Compare it against the supervisor's own toplevel (run once at Step 1 and held for
+the whole session) with the marked decision below, run verbatim rather than paraphrased — one home
+for it, `tests/auto-dev-dispatch/test.sh` extracts and runs this exact block:
+
+```bash
+# >>> worker-toplevel guard
+# WORKER_TOPLEVEL — the worker's first-act `git rev-parse --show-toplevel` report.
+# SUPERVISOR_TOPLEVEL — the supervisor's own `git rev-parse --show-toplevel`, held from Step 1.
+if [ "$WORKER_TOPLEVEL" = "$SUPERVISOR_TOPLEVEL" ]; then
+  echo "REFUSE — the worker's toplevel equals the supervisor's; it inherited the shared tree instead of its own"
+  exit 1
+fi
+echo "PROCEED — the worker's toplevel differs from the supervisor's"
+exit 0
+# <<< worker-toplevel guard
+```
+
+`0` (PROCEED) → the worker is isolated as intended; let it continue. `1` (REFUSE) → it shares the
+supervisor's tree — **do not let it proceed**: stop that sub-agent (`TaskStop` if still running),
+**re-dispatch it correctly** (verify `isolation: "worktree"` is actually on the spawn call this time),
+and log the near-miss in the state file. This is a **dispatch defect, never the issue's fault** — do
+not record it as a BLOCKED issue and do not tier-escalate it; the same issue re-dispatched with a
+working isolation option is expected to proceed normally.
+
+**Cleanup nuance for `isolation: "worktree"` trees.** The option only auto-cleans a worktree that
+comes back **unchanged** — a worker that committed anything (every worker that reaches a real task
+does) leaves its tree on disk after it retires. That is not a leak to chase down mid-run: note it
+under the state file's `## Needs manual sweep` section the same way any other leftover worktree/branch
+is tracked (Step 6 already surfaces that section in the final recap), and let the standing housekeeping
+sweep reclaim it rather than special-casing it here.
+
 **Pick each worker's model from its labels** (see Token economics): small/mechanical → cheap, typical
 single-area bug → mid, cross-cutting/hard → top. Pass it explicitly on spawn as the Agent tool's
 `model` parameter — the command files set no tier of their own. Record the chosen tier
@@ -391,9 +429,10 @@ Agent(subagent_type: general-purpose, model: <small tier>, run in background, is
 ```
 
 `isolation: "worktree"` on **both** spawns, always: a background sub-agent inherits the supervisor's
-cwd (#314 moved workers off one-shot `claude -p` processes, which got their own), so without it every
-worker lands in the supervisor's own worktree and "one area per concurrent worker" — the entire
-conflict strategy — silently stops holding the moment the supervisor itself runs in one.
+cwd (#314's substrate change moved workers onto this in-process form, which does not get one of its
+own the way the prior per-process substrate did), so without it every worker lands in the
+supervisor's own worktree and "one area per concurrent worker" — the entire conflict strategy —
+silently stops holding the moment the supervisor itself runs in one.
 
 The prompt names the command — the `auto-dev-worker` command (skill `ai-migration-kit:auto-dev-worker`,
 or the un-namespaced form the runtime resolves) — and the per-dispatch facts; everything else the
@@ -502,6 +541,12 @@ a check you deliberately want to ignore — setting it to the one check that mat
 false-green past the others.
 
 ## Step 4 — Supervise (the loop)
+
+**A worker-toplevel guard REFUSE (Step 3) is handled the moment it's seen, not folded into the
+per-slot outcomes below.** It fires right after dispatch, before the worker has done anything a
+per-slot outcome could apply to: stop that sub-agent, re-dispatch it correctly (with `isolation:
+"worktree"` actually applied this time), and never record the issue as BLOCKED for it — it is a
+dispatch defect, not something wrong with the issue or the worker's work.
 
 You're woken by a worker's report, an **idle notification**, or your heartbeat. On every wake,
 **reconcile against GitHub** — never trust a worker's silence or even its "done" without checking. Run

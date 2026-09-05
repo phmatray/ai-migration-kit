@@ -13,6 +13,12 @@
 #      `isolation: "worktree"` option, and *Gotchas* names the cwd-inheritance hazard.
 #   2. commands/auto-dev-worker.md and commands/auto-dev-merge.md each state that the given
 #      worktree IS the worktree — no nesting another one, no touching a path outside it.
+#   3. SKILL.md documents a first-act toplevel assertion (the worker reports `git rev-parse
+#      --show-toplevel`; the supervisor refuses a match against its own) and what happens on a
+#      refusal — re-dispatch correctly, don't let the worker proceed, don't count it BLOCKED. The
+#      decision itself is a marked, extractable shell program (same discipline as
+#      tests/pr-existence-guard/test.sh, modeled on it) so this suite proves the exact thing an
+#      agent would paste, not a paraphrase of it.
 #
 # Reads only files under commands/ and skills/auto-dev/ — never samples/ — so no kit_guard is needed.
 set -euo pipefail
@@ -64,5 +70,50 @@ for f in "$WORKER_MD" "$MERGE_MD"; do
   grep -qi "never touch\|do not touch\|outside your own\|outside its own\|outside the worktree" "$f" \
     || fail "$f does not forbid touching a path outside its own worktree"
 done
+
+# --- Task 3: the toplevel assertion, and what a refusal does --------------------------------
+
+# 3a. Prose: the doc names the first-act check and the refusal behaviour.
+grep -q "git rev-parse --show-toplevel" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not document the first-act 'git rev-parse --show-toplevel' assertion"
+grep -qi "re-dispatch" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not say the supervisor re-dispatches on a refusal"
+grep -Eqi "not.{0,15}BLOCKED|never.{0,15}BLOCKED" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not say a same-cwd refusal is NOT counted as a BLOCKED issue"
+grep -qi "auto-clean" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not state the auto-clean-only-if-unchanged cleanup nuance for isolation: \"worktree\""
+grep -qi "Needs manual sweep" "$SKILL_MD" \
+  || fail "skills/auto-dev/SKILL.md does not point a leftover worker worktree at '## Needs manual sweep'"
+
+# 3b. The decision itself, extracted and RUN — not just grepped for — same discipline as
+#     tests/pr-existence-guard/test.sh.
+BEGIN_MARK='# >>> worker-toplevel guard'
+END_MARK='# <<< worker-toplevel guard'
+n_begin=$(grep -c -F -- "$BEGIN_MARK" "$SKILL_MD" || true)
+n_end=$(grep -c -F -- "$END_MARK" "$SKILL_MD" || true)
+[ "$n_begin" = "1" ] && [ "$n_end" = "1" ] \
+  || fail "skills/auto-dev/SKILL.md must carry EXACTLY ONE marked worker-toplevel guard program (found $n_begin/$n_end)"
+
+PROG="$(kit_scratch)/worker-toplevel-guard.sh"
+awk -v b="$BEGIN_MARK" -v e="$END_MARK" '
+  index($0, b) { inside = 1 }
+  inside       { print }
+  inside && index($0, e) { exit }
+' "$SKILL_MD" > "$PROG"
+[ -s "$PROG" ] || fail "extracted an empty worker-toplevel guard program from $SKILL_MD"
+
+# Matching toplevel — the shared-worktree hazard itself — must be a refusal (non-zero exit).
+match_out="$(kit_scratch)/match.out"
+if WORKER_TOPLEVEL=/repo SUPERVISOR_TOPLEVEL=/repo bash "$PROG" > "$match_out" 2>&1; then
+  fail "the worker-toplevel guard exited 0 on a MATCHING toplevel (should refuse):
+$(cat "$match_out" 2>/dev/null)"
+fi
+
+# A differing toplevel — the normal isolated case — must proceed (exit 0).
+diff_out="$(kit_scratch)/diff.out"
+if ! WORKER_TOPLEVEL=/repo/.claude/worktrees/agent-x SUPERVISOR_TOPLEVEL=/repo bash "$PROG" > "$diff_out" 2>&1; then
+  fail "the worker-toplevel guard exited non-zero on a DIFFERING toplevel (should proceed):
+$(cat "$diff_out" 2>/dev/null)"
+fi
 
 echo "PASS: auto-dev-dispatch"
