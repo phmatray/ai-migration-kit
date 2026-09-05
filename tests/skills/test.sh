@@ -1456,7 +1456,15 @@ if python3 "$_jscratch/journal-coverage.py" "$KIT_ROOT" --tags "v1.4.1 v9.9.9 v9
 fi
 grep -q 'v9\.9\.9' "$_jscratch/cov-missing.out" \
   || { echo "FAIL: the missing-article refusal does not name v9.9.9"; cat "$_jscratch/cov-missing.out"; exit 1; }
+# ...and v9.9.10, which is equally absent but IS the newest, must not appear in the missing LIST.
+# Asserting the whole line rather than a negative grep: v9.9.10 legitimately appears later in the
+# message as the exempt version, so `grep -v` would be satisfied by the bug it is meant to catch.
+# Without this, deleting the `t != newest` clause leaves every assertion here green.
+grep -q 'article: v9\.9\.9 (the newest release, v9\.9\.10, is exempt' "$_jscratch/cov-missing.out" \
+  || { echo "FAIL: the grace window did not exempt the newest release, or the refusal is misworded"
+       cat "$_jscratch/cov-missing.out"; exit 1; }
 echo "ok   a published release with no journal article is refused, by version"
+echo "ok   the newest release is exempt from the coverage rule for one version"
 
 # Red path 6: no tags at all. A checkout without tags would otherwise turn the whole rule into a
 # no-op reporting a green tick, which is strictly worse than having no gate at all.
