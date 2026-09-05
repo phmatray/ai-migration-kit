@@ -207,19 +207,34 @@ fi
 BASE_FIELDS=number,title,labels,body,comments
 DEP_FIELDS=$BASE_FIELDS,blockedBy,blocking,subIssues,assignees
 
+# `--limit`, not `--paginate` (#452): `--paginate` is not a flag `gh issue list` supports at all —
+# only `gh api`/`gh api graphql` have it (#367's fix modeled it on those and shipped an invalid
+# flag; every real invocation failed with "unknown flag: --paginate", and the golden suite's `gh`
+# stub stayed green because it accepted any flag unconditionally). `gh issue list --limit <N>`
+# paginates internally up to N and is the mechanism this command actually supports. The ceiling is
+# picked generously, not left unbounded, so it stays a realistic single value to raise later rather
+# than a silent truncation: 10000 open issues is far past any realistic backlog for this repo.
+GH_LIST_LIMIT=10000
+
 # gh's output is held in a shell variable, not a temp file: case 9 of the golden suite proves this
 # script still runs with `mktemp` shadowed by a stub that always fails, and a hard `$(mktemp)` here
 # would have turned that infra fallback into an outright abort. The stderr capture below is the one
 # thing that genuinely needs a file (a pipeline cannot separate a command's two streams into two
 # variables in one run), so it is optional and its absence is a named, degraded path.
+#
+# `--limit $GH_LIST_LIMIT`, not a small bound like the old `--limit 300` (#367): a bounded page let
+# an OPEN body-line blocker sitting past the cut read as closed, since membership in `$open` is the
+# only signal a bare `#n` ref has. $GH_LIST_LIMIT is picked generously enough that no realistic
+# open-issue count for this repo truncates `$open` — a truncated `$open` is the bug this fixes, not
+# a performance knob worth tightening back down.
 if ! GH_ERR_FILE="$(mktemp 2>/dev/null)"; then
   GH_ERR_FILE=""
 fi
 GH_RC=0
 if [ -n "$GH_ERR_FILE" ]; then
-  ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$DEP_FIELDS" 2>"$GH_ERR_FILE")" || GH_RC=$?
+  ISSUES_JSON="$(gh issue list --state open --limit "$GH_LIST_LIMIT" --json "$DEP_FIELDS" 2>"$GH_ERR_FILE")" || GH_RC=$?
 else
-  ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$DEP_FIELDS")" || GH_RC=$?
+  ISSUES_JSON="$(gh issue list --state open --limit "$GH_LIST_LIMIT" --json "$DEP_FIELDS")" || GH_RC=$?
 fi
 
 if [ "$GH_RC" -ne 0 ]; then
@@ -234,7 +249,7 @@ if [ "$GH_RC" -ne 0 ]; then
       GH_ERR_TEXT="<stderr not captured: mktemp failed>"
     fi
     echo "survey.sh: this gh cannot serve the dependency fields (blockedBy/blocking/subIssues) — falling back to $BASE_FIELDS. Every row then reads deps=-, so the frontier rule holds NOTHING and a blocked child can be dispatched ahead of its blocker (#317). Upgrade gh to restore it. gh said: $GH_ERR_TEXT" >&2
-    ISSUES_JSON="$(gh issue list --state open --limit 300 --json "$BASE_FIELDS")"
+    ISSUES_JSON="$(gh issue list --state open --limit "$GH_LIST_LIMIT" --json "$BASE_FIELDS")"
   else
     cat "$GH_ERR_FILE" >&2
     exit "$GH_RC"
@@ -297,10 +312,13 @@ printf '%s\n' "$ISSUES_JSON" \
       | map(select(.number != null));
     # An edge counts as still-open when the node SAYS so — the connection carries each linked
     # issue'"'"'s `state` — and only otherwise falls back to membership in the open set this same call
-    # returned. That ordering matters: `--limit 300` bounds the open set, so an OPEN blocker sitting
-    # outside the window would look closed under membership alone and its blockee would be
-    # dispatched. Reading `state` fails safe; membership is the fallback for the plain-array shape,
-    # which carries no state, and for the body-line refs, which are bare numbers.
+    # returned. That ordering matters: `$open` comes from a `gh issue list` bounded by a generous
+    # `--limit` ($GH_LIST_LIMIT above), so it is the FULL open set rather than a small bounded page
+    # (#367 — a `--limit 300` window used to let an OPEN blocker sitting past the cut look closed
+    # under membership alone, dispatching its blockee). Reading `state` fails safe; membership is
+    # the fallback for the plain-array shape,
+    # which carries no state, and for the body-line refs, which are bare numbers and have no other
+    # signal to fall back from at all.
     def openedges($open):
       edgenums
       # `.number as $num` first: `index(f)` evaluates f against ITS OWN input ($open, an array), so

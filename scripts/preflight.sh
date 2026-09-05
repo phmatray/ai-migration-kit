@@ -45,7 +45,18 @@ jq_ok() {
 }
 
 # A configured-but-dead MCP server does not count: its status line must not report a failure.
-mcp_ok() { claude mcp list 2>/dev/null | grep -i "$1" | grep -qivE 'fail|error|✗'; }
+# `claude mcp list` output is captured into a variable first — a herestring has nothing to close
+# early, so there is nothing left for a live producer to SIGPIPE under `pipefail` (#391). The
+# `[ -n "$matched" ] &&` guard is load-bearing, not decoration: a herestring of an EMPTY variable
+# still feeds one blank line (herestrings always append a newline), and that blank line satisfies
+# `grep -v` (it contains none of fail/error/✗) — so without the guard, "$1" absent from the list
+# entirely would read back as healthy instead of as the "server not found" it is.
+mcp_ok() {
+  local out matched
+  out=$(claude mcp list 2>/dev/null)
+  matched=$(grep -i "$1" <<<"$out")
+  [ -n "$matched" ] && grep -qivE 'fail|error|✗' <<<"$matched"
+}
 
 # The highest installed SDK major, or empty when dotnet is absent or unreadable. Computed ONCE:
 # the requiresSdk check below runs per mcps entry and `dotnet --list-sdks` is a process spawn.

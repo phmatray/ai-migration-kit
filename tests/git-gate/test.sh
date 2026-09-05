@@ -85,8 +85,10 @@ verdict() {
     echo "FAIL [$name]: expected $want, got $decision"; echo "$out"; exit 1
   fi
   if [ -n "$want_msg" ]; then
-    printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' \
-      | grep -qF -e "$want_msg" || { echo "FAIL [$name]: reason lacks '$want_msg'"; echo "$out"; exit 1; }
+    # Herestring, not a pipe into `grep -q` (#391): `jq` can still be writing when the match
+    # closes the read end.
+    reason=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+    grep -qF -e "$want_msg" <<<"$reason" || { echo "FAIL [$name]: reason lacks '$want_msg'"; echo "$out"; exit 1; }
       # `-e`, not a bare argument: half the replacements this suite asserts start with `--`
       # (`--force-with-lease`), and grep would read those as its own options.
   fi
@@ -210,6 +212,47 @@ verdict "R12 a heredoc body is not a command" pass "" \
 git commit -m x
 SH" "$PROF")"
 
+# --------------------------------------------------- 2c. the write is BEFORE the `<<` (#440)
+# The bail-out above discarded the WHOLE command on any `<<`, including the visible git verb before
+# it — laundering the natural long-message commit form (`git commit -F - <<'MSG'`) and any other
+# destructive write sharing a line with a heredoc straight past the gate. These pin the opening line
+# as judged exactly as it would be without the heredoc, while R12 above (unchanged) proves the body
+# itself is still never read.
+#
+# Payloads are captured in PAY_H1..PAY_H4 rather than inlined twice: the revert-detection block below
+# (5b) drives the identical commands against a MUTATED gate to prove the pre-#440 behaviour reappears,
+# and a payload edited in one spot without the other would silently stop proving what its name claims.
+PAY_H1="$(pay Bash "git commit -F - <<'MSG'
+a long commit message
+MSG" "$PROF")"
+PAY_H2="$(pay Bash "git push origin main <<X
+body
+X" "$PROF")"
+PAY_H3="$(pay Bash "git checkout HEAD -- . <<X
+body
+X" "$PROF")"
+PAY_H4="$(pay Bash 'git push <<< x' "$PROF")"
+verdict "H1  commit -F - before a heredoc"  deny "guarded-commit.sh" "$PAY_H1"
+verdict "H2  push before a heredoc"    deny "guarded-push.sh" "$PAY_H2"
+verdict "H3  checkout . before a heredoc" deny "checkout -- <path>" "$PAY_H3"
+verdict "H4  push before a here-string" deny "guarded-push.sh" "$PAY_H4"
+# The guard whitelist (:162) matches on the RAW command before truncation, and the guard's own name
+# sits before the `<<` in every call shape the skills use — truncation must not blind it.
+verdict "H5  a guarded call surviving truncation" pass "" \
+  "$(pay Bash "\"\$GUARDS/guarded-commit.sh\" -C \"\$WORKTREE\" -c user.email=a@b -c user.name=\"A B\" main -- -F - <<'MSG'
+a long commit message
+MSG" "$PROF")"
+
+# H6/H7 — `<<` is also unremarkable TEXT inside a real argument (a commit message quoting a diff
+# marker), not always a real heredoc opener. A truncation that is not quote-aware cuts the quote in
+# half, leaves the KEPT prefix with an unterminated quote, and that fails the awk stripper — which
+# fails the WHOLE hook open, laundering everything on the line exactly like #440. These pin that the
+# scan only breaks on an UNQUOTED `<<`, so a `<<` inside quotes changes nothing about what gets judged.
+verdict "H6  a bare commit whose message merely quotes <<" deny "guarded-commit.sh" \
+  "$(pay Bash 'git commit -m "note: <<< merge conflict markers" ' "$PROF")"
+verdict "H7  a force push after a message merely quoting <<" deny "guarded-push.sh" \
+  "$(pay Bash 'echo "see <<data>>, more" && git push --force origin main' "$PROF")"
+
 # ---------------------------------------------------- 3. inert where the guards cannot exist
 # The probe's whole argument (the `dnx` argument of #112, transposed): a denial names a
 # `guarded-*.sh` replacement, so it must not fire where that replacement does not exist.
@@ -298,6 +341,47 @@ verdict "A34 unterminated quoting is a parse it cannot trust" pass "" \
 # deleted, A35 stayed green and measured nothing (#373).
 BIG="git commit -m x $(printf '%*s' 70000 '' | tr ' ' 'y')"
 verdict "A35 an oversized command"     pass "" "$(pay Bash "$BIG" "$PROF")"
+
+# --------------------------------------------------- 5b. the fix cannot be reverted silently (#440)
+# Every case above drives the REAL, shipped gate — so a later tidy-up that quietly restores the old
+# `exit 0` bail-out would leave every one of them green: H1-H4 above assert `deny`, and the reverted
+# gate does not deny anything DIFFERENT, it just fails open again on the same inputs, which is a
+# `pass` the assertion catches — UNLESS a future edit also softened the `verdict` helper itself. The
+# belt-and-braces case below drives a MUTATED COPY of the gate directly, the same scratch-copy
+# pattern `profile_repo`/`plain_repo`/`shim_path` already use above: build the fixture in $WORK with
+# `mktemp -d`, prove the mutation actually landed, then assert the OLD, broken behaviour reappears
+# on that copy — which is the only way to show this suite would have gone red on the original defect
+# rather than merely trusting that it currently does.
+#
+# The mutation INSERTS the pre-#440 bail-out after the cheap `*git*` reject rather than substituting
+# a specific line of the fix's own implementation: the fix now lives inside the quote-aware awk scan,
+# not as one grep-able line, and a mutation tied to today's implementation shape would itself go
+# silently inert the next time that implementation changes, which is exactly the failure mode this
+# case exists to catch. Inserting the old whole-command bail-out ahead of everything reproduces the
+# pre-#440 behaviour regardless of what the fix looks like downstream.
+REVERTED_GATE="$WORK/git-write-gate.reverted.sh"
+sed '/# The cheap reject, before any parsing:/a\
+case "$cmd" in *'"'"'<<'"'"'*) exit 0 ;; esac' \
+  "$GATE" > "$REVERTED_GATE"
+diff -q "$GATE" "$REVERTED_GATE" >/dev/null \
+  && { echo "FAIL: the sed mutation did not change anything — this case tests nothing"; exit 1; }
+grep -qF 'case "$cmd" in *'"'"'<<'"'"'*) exit 0 ;; esac' "$REVERTED_GATE" \
+  || { echo "FAIL: the reverted copy does not contain the old bail-out — mutation failed"; exit 1; }
+
+# Drives the MUTATED copy directly (not the `verdict` helper, which is hardwired to `$GATE`) and
+# asserts the pre-#440 behaviour: every write that H1-H4 above prove denied on the real gate comes
+# back as an *allow* on the reverted one — the exact regression this suite exists to catch.
+revert_allows() { # $1 name  $2 payload
+  local name="$1" payload="$2" out
+  out=$(printf '%s' "$payload" | bash "$REVERTED_GATE" 2>/dev/null) || {
+    echo "FAIL [$name]: reverted gate exited non-zero; expected the old fail-open pass"; exit 1; }
+  [ -z "$out" ] || { echo "FAIL [$name]: reverted gate did not fail open — got: $out"; exit 1; }
+  echo "ok: $name -> pass (on the reverted gate, as the pre-#440 defect predicts)"
+}
+revert_allows "H1r commit -F - before a heredoc, on the reverted gate" "$PAY_H1"
+revert_allows "H2r push before a heredoc, on the reverted gate" "$PAY_H2"
+revert_allows "H3r checkout . before a heredoc, on the reverted gate" "$PAY_H3"
+revert_allows "H4r push before a here-string, on the reverted gate" "$PAY_H4"
 
 # ---------------------------------------------------------------- 6. structural wiring (S)
 # S1 — hooks are outside parse-sweep's default target set (docs/backlog.md records that gap), so the

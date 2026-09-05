@@ -96,8 +96,11 @@ being listed here.
 - `merge-pr`
 - `auto-dev`
 - `triage-backlog`
+- `deliver-issue`
+- `review-sessions`
+- `review-followups`
 
-The five differ in *what* fails the boundary — `merge-pr` quotes a PR body or review comment,
+The eight differ in *what* fails the boundary — `merge-pr` quotes a PR body or review comment,
 `auto-dev` aggregates workers' `DETAIL:` fields, `implement-issue` quotes the issue body — so the
 first half of the sentence stays each skill's own. What stops varying is the block's name, its
 place in the report, and the one citation.

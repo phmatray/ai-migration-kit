@@ -466,13 +466,27 @@ ISSUE: <N> | PR: <number|none> | STATUS: MERGED|BLOCKED|FAILED | DETAIL: … | F
 
 **A red base is a fleet-visible fact, not a worker's private note.** Workers land through `merge-pr`,
 so they inherit its Step 5b for free: after each merge it reads the CI run that merge triggered on the
-default branch, resolved by the squash sha, and answers `green` / `RED` / `unverified`. Under a fleet
-that answer is *more* load-bearing than in a solo run — several merges land within minutes, each one
-re-basing every other worker's in-flight PR, so one worker's red base is what the next N workers spend
-their CI budget failing on. It reaches you in the phase-2 report's `BASE:` field; put it on the
-**Completed** row of the state board rather than folding it into `DETAIL:`, and treat a `RED` as a
-reason to look before dispatching more work into it — the bug is already filed, so this is triage, not
-a stop. `unverified` is an answer too (a run cancelled by the next merge in the train is the common
+default branch, resolved by the squash sha, and answers `green` / `RED` / `unverified` as one literal
+line matching `^(green|RED|unverified) \([a-z-]+\)$` (`base-run-verdict.sh --report-line`, #455). Under
+a fleet that answer is *more* load-bearing than in a solo run — several merges land within minutes,
+each one re-basing every other worker's in-flight PR, so one worker's red base is what the next N
+workers spend their CI budget failing on.
+
+**Trust the `BASE:` field only when it matches that grammar.** #455 measured 5 of 17 merges on one
+fleet run reporting `BASE: green` while the base was actually `in_progress`, `pending`, or
+`completed/cancelled` — every miss a worker paraphrasing the helper's answer in its own words instead
+of quoting it, and prompt-level correction across three escalations did not hold for every worker.
+A `BASE:` value that is free text, missing, or otherwise fails the grammar above is **untrusted on
+sight** — the same "already re-derives real state from GitHub rather than trusting an agent's
+silence" pattern this file's Step 4 reconcile loop already uses elsewhere. Re-derive it yourself: run
+`skills/merge-pr/scripts/base-run-verdict.sh --report-line` against the same sha (recovered from the
+phase-2 report's PR number via `gh pr view <PR> --json mergeCommit --jq .mergeCommit.oid`) and record
+*that* line on the state board instead, noting the mismatch.
+
+Put a trusted (or re-derived) `BASE:` line on the **Completed** row of the state board rather than
+folding it into `DETAIL:`, and treat a `RED` as a reason to look before dispatching more work into it
+— the bug is already filed, so this is triage, not a stop. `unverified` is an answer too (a run
+cancelled by the next merge in the train is the common
 case): record it as-is, and never upgrade it to green.
 
 **Passing the PR number between phases** — belt and braces, because the whole pipeline stalls if this
@@ -555,6 +569,17 @@ independently-gating check (this kit's own `kit` + `title-gate`) is covered with
 one name to hardcode. `CHECK` still exists, but only as an optional comma-separated allow-list for
 a check you deliberately want to ignore — setting it to the one check that matters is what used to
 false-green past the others.
+
+**Final alone is not enough — the check set must also be stable (#413).** GitHub creates a check
+run when its job *starts*, so a `needs:`-gated aggregate check (a `coverage-gate` job that `needs:`
+two test jobs and reports under its own name) does not exist until its dependencies finish — and
+the required check is the one most likely to be late, because aggregation is what makes a check
+worth requiring. So `wait-ci.sh` also requires the *set of check names* to match the previous
+poll's — not just the count, so a same-size swap (one check replaced by a different one within one
+poll) can't read as stable either — before returning 0, costing exactly one extra `POLL_SECONDS`
+even on a run that was already all-final on its first poll. Don't "optimise away" that confirmation
+poll — it is the only thing that catches a check materializing after every check GitHub reported
+*at the time* looked done.
 
 ## Step 4 — Supervise (the loop)
 

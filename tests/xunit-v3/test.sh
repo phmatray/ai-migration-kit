@@ -2243,36 +2243,11 @@ if [ -n "$first_hit" ]; then
   exit 1
 fi
 
-# One idiom, asserted — the reason both sites were wrong is that the shape reads fine and spreads.
-# The `-[q]` keeps this line from matching itself. `grep -c .` elsewhere in this file is NOT this
-# bug: -c reads the whole stream, so it never closes the pipe early.
-# Deliberately NOT anchored to `^[[:space:]]*(if )?find`. That was the first spelling here, and it
-# only caught two of the six natural forms: `if ! find … | grep -q .` (the negation the shipped
-# template itself uses), `elif`, `while`, and `n=$(find … | grep -q .)` all sailed past, so a
-# copy-paste in the likeliest shape would have reintroduced #48 with this guard green.
-#
-# Instead: match the shape ANYWHERE, then subtract the two kinds of line that spell it out
-# legitimately — comment lines, and the one tagged `sigpipe-repro` above, which IS the broken shape
-# on purpose. The FAIL text below says `find|grep` without the space so it cannot match itself.
-# Scans the SHARED shell files too, since #72 moved any_match into tests/_lib.sh: the idiom this
-# guard polices no longer lives in this file, so scanning only $SELF would let someone revert
-# any_match to the broken pipeline and reintroduce #48 for all ten converted suites at once, with
-# this check still green.
-#
-# tests/_lib/ is scanned as a DIRECTORY rather than named file-by-file (#51). The hardcoded
-# two-file list was the same stale-inventory shape section 8 above had just been widened out of:
-# #51 added a third shared file, tests/_lib/py.sh, and a roster kept by hand does not grow with the
-# tree. Anything sourced by many suites belongs in this scan the day it lands, not the day someone
-# remembers to add it.
-strays=$( { grep -nrE 'find [^|]*\| *grep -[q] \.' "$SELF" "$KIT/tests/_lib.sh" "$KIT/tests/_lib" || true; } \
-  | grep -vE ':[0-9]+:[[:space:]]*#' \
-  | grep -vE '^[0-9]+:[[:space:]]*#' \
-  | grep -v 'sigpipe-repro' || true)
-if [ -n "$strays" ]; then
-  echo "FAIL: a find|grep -q site is left in this suite or a shared tests/_lib file — use any_match:"
-  echo "$strays"
-  exit 1
-fi
+# The find-shaped stray scan that used to live here (anchored to `find … | grep -q .`, three
+# paths) has one home now: scripts/sigpipe-idiom-check.py generalises it to every external
+# streaming producer, across all of tests/ and scripts/ — including this file and tests/_lib —
+# and its own golden suite (tests/sigpipe-idiom/test.sh, case i) proves the find shape specifically
+# (#48, #123, #391).
 echo "  [10] the find probes report what they found, not how the reader exited"
 
 # ---------------------------------------------------------------------------

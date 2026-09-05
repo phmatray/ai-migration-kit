@@ -110,7 +110,9 @@ printf '%s\n' "$out" | grep -qF "BRANCH=$BRANCH_B" \
 wt_path=$(printf '%s\n' "$out" | sed -n 's/^WORKTREE=//p')
 [ -d "$wt_path" ] \
   || { echo "FAIL [incident-spelling]: WORKTREE= path does not exist on disk: $wt_path"; exit 1; }
-git -C "$wt_path" symbolic-ref --quiet --short HEAD | grep -qF "$BRANCH_B" \
+# Herestring, not a pipe into `grep -q` (#391).
+head_branch=$(git -C "$wt_path" symbolic-ref --quiet --short HEAD)
+grep -qF "$BRANCH_B" <<<"$head_branch" \
   || { echo "FAIL [incident-spelling]: $wt_path is not checked out on $BRANCH_B"; exit 1; }
 
 echo "  ok: incident-spelling — the correctly-slashed rule passes before the directory exists, exit 0"

@@ -460,6 +460,19 @@ def check_boundary_block(repo):
             refusals.append(
                 "REFUSE: skills/%s/SKILL.md links %s's boundary-findings block, but `%s` is not "
                 "on that block's list — add it there" % (name, RECAP_REL, name))
+
+    # The third direction (#431): every SKILL.md Consumer of the boundary doc must be on the
+    # block's own list too — not just checked once it is already there (the two loops above), nor
+    # only cross-checked in the other direction (listed -> consumers, above). Without this, a real
+    # Consumer can drift off the list with nothing noticing, which is the exact "one rule, several
+    # hand-typed or missing copies" shape #387 was filed to close, just one direction short.
+    if consumers is not None:
+        for name in sorted(consumers):
+            if name not in listed_set:
+                refusals.append(
+                    "REFUSE: skills/%s/SKILL.md is a Consumer per %s's ## Consumers, but `%s` is "
+                    "not on %s's boundary-findings block list — add it there and link the block "
+                    "from skills/%s/SKILL.md" % (name, BOUNDARY_DOC_REL, name, RECAP_REL, name))
     return refusals
 
 

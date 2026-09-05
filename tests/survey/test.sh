@@ -42,7 +42,7 @@ WORK=$(kit_scratch)
 
 # ------------------------------------------------------------------------------------ the gh stub
 #
-# survey.sh makes exactly one gh call: `gh issue list --state open --limit 300 --json ...`. The
+# survey.sh makes exactly one gh call: `gh issue list --state open --limit <N> --json ...`. The
 # stub serves whatever fixture the case points it at, and — because real `gh issue list` applies
 # a `--jq EXPRESSION` argument itself, raw-printing the result — the stub does too. That is not
 # incidental: it is what lets this suite catch the ORIGINAL bug fairly. The pre-fix script filters
@@ -50,17 +50,32 @@ WORK=$(kit_scratch)
 # plain `gh issue list --json ...` call with no `--jq` at all. A stub that only ever `cat`s the
 # fixture would silently skip the pre-fix script's filtering step entirely and could not fail
 # against it — this one runs whichever shape the caller used.
+#
+# The allow-list below is what #452 was missing: `--paginate` is not a flag `gh issue list`
+# supports (only `gh api`/`gh api graphql` have it), and this stub used to accept ANY flag
+# unconditionally, including that one — so the suite stayed green while #367's actual fix broke
+# every real invocation. Any flag not in the list is rejected exactly the way real `gh` rejects an
+# unknown one (`unknown flag: <flag>`, non-zero exit), which is what pins this regression class
+# instead of only this one instance of it.
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "issue" ] && [ "${2:-}" = "list" ]; then
-  [ -n "${GH_ISSUES_FIXTURE:-}" ] || { echo "GH_ISSUES_FIXTURE not set" >&2; exit 1; }
   jq_expr=""
   prev=""
   for a in "$@"; do
+    case "$a" in
+      --state|--json|--limit|--jq) ;;
+      -q) ;;
+      --*)
+        echo "unknown flag: $a" >&2
+        exit 1
+        ;;
+    esac
     if [ "$prev" = "--jq" ] || [ "$prev" = "-q" ]; then jq_expr="$a"; fi
     prev="$a"
   done
+  [ -n "${GH_ISSUES_FIXTURE:-}" ] || { echo "GH_ISSUES_FIXTURE not set" >&2; exit 1; }
   if [ -n "$jq_expr" ]; then
     jq -r "$jq_expr" "$GH_ISSUES_FIXTURE"
   else
@@ -72,6 +87,19 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 STUB
 chmod +x "$WORK/bin/gh"
+
+# ------------------------------------- 0. the stub rejects a flag real gh does not support (#452)
+#
+# Direct assertion against the stub itself, not through survey.sh: this is what would have caught
+# #367's `--paginate` before it ever shipped. If a future call site adds another flag `gh issue
+# list` does not support, this fails here instead of only downstream in a real `gh` invocation.
+if OUT0=$(PATH="$WORK/bin:$PATH" gh issue list --state open --paginate --json number,title 2>&1); then
+  echo "FAIL: the gh stub accepted --paginate — gh issue list does not support that flag"
+  echo "$OUT0"; exit 1
+fi
+echo "$OUT0" | grep -qF -- '--paginate' || {
+  echo "FAIL: the stub's rejection did not name the offending flag"; echo "$OUT0"; exit 1; }
+echo "ok: gh-stub-rejects-unknown-flag — --paginate is rejected the way real gh rejects it (#452)"
 
 # Literal two-character `\n` (not a real newline) — this is embedded directly into a JSON string
 # literal below, and `\n` is JSON's own escape for a newline, so it decodes correctly on the jq
@@ -275,7 +303,10 @@ run_survey "$W1" "$F1b" "$O1b"
 assert_bucket SKIP  107 "$O1b"
 assert_bucket HOLD  108 "$O1b"
 assert_bucket QUEUE 109 "$O1b"
-if grep -F "$(printf '\t#107\t')" "$O1b" | grep -q 'plan=false'; then
+# Herestring, not a pipe into `grep -q` (#391): `grep -F` over the output file is itself a producer
+# that can still be writing when the second grep's match closes the read end.
+row107=$(grep -F "$(printf '\t#107\t')" "$O1b")
+if grep -q 'plan=false' <<<"$row107"; then
   echo "ok: tracking-parent — a Destination/Notes/Decisions body reads plan=false and is SKIP at a dispatchable tier; its planned child queues"
 else
   echo "FAIL: the tracking parent's row does not read plan=false"; cat "$O1b"; exit 1
@@ -987,9 +1018,10 @@ echo "ok: frontier — the plain-array shape of the same fields is read identica
 # Three ways the frontier could silently let a blocked issue through, each of which reads as "no
 # edges" if you only look at the numbers you can see:
 #
-#   * a blocker OUTSIDE the `--limit 300` window. Open-set membership alone cannot tell it from a
-#     closed one, and guessing "closed" dispatches its blockee. The connection nodes carry each
-#     linked issue's own `state`, so that is read first and membership is only the fallback.
+#   * a blocker OUTSIDE a bounded `--limit` window (pre-#367; survey.sh now uses a generous
+#     `--limit`, see case 14 below). Open-set membership alone cannot tell it from a closed one, and guessing
+#     "closed" dispatches its blockee. The connection nodes carry each linked issue's own `state`,
+#     so that is read first and membership is only the fallback.
 #   * a TRUNCATED connection — `totalCount` larger than the `nodes` actually listed. The withheld
 #     rows are exactly the ones that would hold the issue, so an unknown count holds too, and says
 #     so with a `?`.
@@ -1133,6 +1165,71 @@ fi
 grep -q 'GH_TOKEN' "$O13B.err" || {
   echo "FAIL: gh's own error was swallowed instead of surfaced"; cat "$O13B.err"; exit 1; }
 echo "ok: gh-no-dep-fields — an unrelated gh failure surfaces as itself, not as a missing field"
+
+# --------------------------------- 14. a body-line blocker beyond the fetch window (#367, #452)
+#
+# `bodyblockers`' only signal for a bare `#n` ref is membership in `$open` — the array `gh issue
+# list` returned. Before #367 that call was `--limit 300`, a single small bounded page; if the
+# repo's open-issue count exceeded it, an OPEN blocker sitting past the cut stayed invisible to
+# `$open` and its blockee read as unblocked. #367 tried to fix this with `--paginate`, a flag `gh
+# issue list` does not support (#452); the real fix is a generously large `--limit` — see
+# $GH_LIST_LIMIT in survey.sh — which `gh issue list` pages through internally, so `$open` is still
+# the full open set for any realistic backlog. The stub below simulates a bounded window at a SMALL
+# size (2 rows) rather than the real 300, so this runs fast without a 300-row fixture: it serves the
+# whole fixture when survey.sh passes a generous `--limit`, and only the first 2 rows when it passes
+# a small one instead — proving the fix by the flag value survey.sh actually sends, not by
+# re-deriving the bug from scratch. A regression back to a small `--limit` (like the pre-#367
+# `--limit 300`) fails this case exactly the way the original bug did.
+W14="$WORK/limit-window"
+mkdir -p "$W14/.github" "$W14/bin"
+cat > "$W14/.github/repo-setup.yml" <<'YML'
+labels:
+  - name: "effort: small"
+  - name: "effort: medium"
+  - name: "effort: large"
+YML
+cat > "$W14/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "list" ]; then
+  [ -n "${GH_ISSUES_FIXTURE:-}" ] || { echo "GH_ISSUES_FIXTURE not set" >&2; exit 1; }
+  limit=0
+  prev=""
+  for a in "$@"; do
+    [ "$prev" = "--limit" ] && limit="$a"
+    prev="$a"
+  done
+  # 1000 is the dividing line between "generous" (the real fix uses 10000) and a small bound like
+  # the pre-#367 300 — anything at or above it serves the full fixture, proving no truncation.
+  if [ "$limit" -ge 1000 ] 2>/dev/null; then
+    cat "$GH_ISSUES_FIXTURE"
+  else
+    # A bounded window, simulated small: the first 2 rows only — this is what proves the
+    # truncation bug without a 300-row fixture, for any --limit below the generous threshold.
+    jq -c '.[0:2]' "$GH_ISSUES_FIXTURE"
+  fi
+  exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+STUB
+chmod +x "$W14/bin/gh"
+
+F14="$WORK/limit-window-issues.json"
+cat > "$F14" <<JSON
+[
+ {"number":40,"title":"Filler ahead of the blocker","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}","comments":[]},
+ {"number":41,"title":"Blocked by a ref past the window","labels":[{"name":"effort: small"}],"body":"## context\n**Blocked by:** #42\n\n## Implementation plan\n- [ ] Step 1: do it","comments":[]},
+ {"number":42,"title":"The still-open blocker, past the window","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}","comments":[]}
+]
+JSON
+O14="$WORK/limit-window.out"
+( cd "$W14" && env PATH="$W14/bin:$PATH" GH_ISSUES_FIXTURE="$F14" bash "$SURVEY" ) \
+  > "$O14" 2>"$O14.err" || { echo "FAIL: survey.sh exited $? on the limit-window fixture"; cat "$O14.err"; exit 1; }
+
+assert_bucket QUEUE 40 "$O14"; assert_deps -                40 "$O14"
+assert_bucket HOLD  41 "$O14"; assert_deps "blocked_by=#42" 41 "$O14"
+assert_bucket QUEUE 42 "$O14"; assert_deps "blocking=#41"   42 "$O14"
+echo "ok: limit-window — a body-line blocker past a bounded gh issue list window still resolves as open (#367, #452)"
 
 # ------------------------------------------------- 12d. SKILL.md documents the column it now prints
 #

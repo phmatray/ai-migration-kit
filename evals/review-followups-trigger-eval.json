@@ -1,22 +1,92 @@
 [
-  {"query": "what's still open across the migrated repos?", "should_trigger": true, "note": "the canonical question"},
-  {"query": "status of the follow-ups", "should_trigger": true, "note": "'status of the follow-ups'"},
-  {"query": "what remains to be done on the migrations?", "should_trigger": true, "note": "'what remains' scoped to migrations"},
-  {"query": "give me the open tail of pending decisions", "should_trigger": true, "note": "'open tail' + owner decisions"},
-  {"query": "mark that follow-up as done", "should_trigger": true, "note": "closing one item at the source"},
-  {"query": "we won't do that one, close it by decision", "should_trigger": true, "note": "abandon by decision — a documented close"},
-  {"query": "a new follow-up came up after the migration, add it", "should_trigger": true, "note": "adding to the queue after phase 7"},
-  {"query": "/migrate-followups", "should_trigger": true, "note": "the slash command"},
-  {"query": "consolidate the next_steps from the migration reports", "should_trigger": true, "note": "names the report.json field the skill owns"},
-  {"query": "the deferred items in the migration report — where do they stand?", "should_trigger": true, "note": "'deferred' — the other queue in report.json"},
-  {"query": "fais le point sur ce qui reste ouvert apres les migrations", "should_trigger": true, "note": "FR — 'fais le point'"},
-
-  {"query": "follow up with the client tomorrow", "should_trigger": false, "note": "a human follow-up, not the migration queue — shares the word only"},
-  {"query": "add a TODO in the code", "should_trigger": false, "note": "a code comment, not a tracked follow-up"},
-  {"query": "what remains in the sprint backlog?", "should_trigger": false, "note": "product backlog, not the report.json queues"},
-  {"query": "create an issue for this bug", "should_trigger": false, "note": "→ create-issue"},
-  {"query": "what's the status of CI?", "should_trigger": false, "note": "build status, not follow-ups"},
-  {"query": "go through the open GitHub issues and tell me which to close", "should_trigger": false, "note": "→ triage-backlog (GitHub issues, not report.json queues)"},
-  {"query": "merge PR 279 and open follow-ups for the deferred bits", "should_trigger": false, "note": "→ merge-pr (filing at the inlet, mid-merge)"},
-  {"query": "upgrade this app to .NET 10", "should_trigger": false, "note": "→ migrate-legacy (runs the migration; this skill only tends its tail)"}
+  {
+    "query": "what's still open across the migrated repos?",
+    "should_trigger": true,
+    "note": "the canonical question"
+  },
+  {
+    "query": "status of the follow-ups",
+    "should_trigger": true,
+    "note": "'status of the follow-ups'"
+  },
+  {
+    "query": "what remains to be done on the migrations?",
+    "should_trigger": true,
+    "note": "'what remains' scoped to migrations"
+  },
+  {
+    "query": "give me the open tail of pending decisions",
+    "should_trigger": true,
+    "note": "'open tail' + owner decisions"
+  },
+  {
+    "query": "mark that follow-up as done",
+    "should_trigger": true,
+    "note": "closing one item at the source"
+  },
+  {
+    "query": "we won't do that one, close it by decision",
+    "should_trigger": true,
+    "note": "abandon by decision — a documented close"
+  },
+  {
+    "query": "a new follow-up came up after the migration, add it",
+    "should_trigger": true,
+    "note": "adding to the queue after phase 7"
+  },
+  {
+    "query": "consolidate the next_steps from the migration reports",
+    "should_trigger": true,
+    "note": "names the report.json field the skill owns"
+  },
+  {
+    "query": "the deferred items in the migration report — where do they stand?",
+    "should_trigger": true,
+    "note": "'deferred' — the other queue in report.json"
+  },
+  {
+    "query": "fais le point sur ce qui reste ouvert apres les migrations",
+    "should_trigger": true,
+    "note": "FR — 'fais le point'"
+  },
+  {
+    "query": "follow up with the client tomorrow",
+    "should_trigger": false,
+    "note": "a human follow-up, not the migration queue — shares the word only"
+  },
+  {
+    "query": "add a TODO in the code",
+    "should_trigger": false,
+    "note": "a code comment, not a tracked follow-up"
+  },
+  {
+    "query": "what remains in the sprint backlog?",
+    "should_trigger": false,
+    "note": "product backlog, not the report.json queues"
+  },
+  {
+    "query": "create an issue for this bug",
+    "should_trigger": false,
+    "note": "→ create-issue"
+  },
+  {
+    "query": "what's the status of CI?",
+    "should_trigger": false,
+    "note": "build status, not follow-ups"
+  },
+  {
+    "query": "go through the open GitHub issues and tell me which to close",
+    "should_trigger": false,
+    "note": "→ triage-backlog (GitHub issues, not report.json queues)"
+  },
+  {
+    "query": "merge PR 279 and open follow-ups for the deferred bits",
+    "should_trigger": false,
+    "note": "→ merge-pr (filing at the inlet, mid-merge)"
+  },
+  {
+    "query": "upgrade this app to .NET 10",
+    "should_trigger": false,
+    "note": "→ migrate-legacy (runs the migration; this skill only tends its tail)"
+  }
 ]
