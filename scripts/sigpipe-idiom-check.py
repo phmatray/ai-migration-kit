@@ -15,11 +15,13 @@ anti-recurrence guard (`tests/xunit-v3/test.sh` section 10) -- but only for the 
 under `tests/` and `scripts/`.
 
 THE SHAPE IT FLAGS: a line piping an external producer into a `grep` call whose flags include `q`
-(quiet -- exit on first match, the thing that races). THE SHAPE IT DOES NOT FLAG: a `grep -q` that
+(quiet -- exit on first match, the thing that races) -- including a producer wrapped in a `sudo`,
+an `env`, or one or more `VAR=val` prefixes, and including the same shape one level inside a
+`$(...)`/backtick substitution, recursively (#457). THE SHAPE IT DOES NOT FLAG: a `grep -q` that
 is negated (`if !`, a leading `!`, `|| true`, `|| :` -- its non-match is the outcome nothing acts
-on being wrong), a `grep -q` fed by a command SUBSTITUTION rather than a pipe (the substitution
-completes before `grep` starts, so there is nothing to race), a comment, or a line tagged
-`sigpipe-repro`. The remedy is never `set +o pipefail`: `pipefail` is load-bearing everywhere else
+on being wrong), a `grep -q` fed by a command SUBSTITUTION whose own interior has no such pipeline
+(the substitution completes before `grep` starts, so there is nothing to race), a comment, or a
+line tagged `sigpipe-repro`. The remedy is never `set +o pipefail`: `pipefail` is load-bearing everywhere else
 in these suites, and suspending it per-site would reintroduce the swallowed-failure class #48
 exists to stop. The remedy is the herestring idiom already used at `tests/lib/test.sh:425` --
 capture the pipeline into a variable, then read the variable: `var=$(producer ...); grep -q ...
@@ -55,6 +57,7 @@ FIXTURE_PREFIX = "tests/sigpipe-idiom/"
 NEGATED_RE = re.compile(r"^\s*(if\s+)?!\s")
 DISCARDED_RE = re.compile(r"\|\|\s*(true|:)\s*;?\s*$")
 LEADING_KEYWORD_RE = re.compile(r"^\s*(if|elif|while|until)\s+")
+ASSIGNMENT_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 _MARK = "\x00"
 
@@ -156,13 +159,66 @@ def grep_dash_q(segment):
 
 
 def producer_word(segment, is_clause_head):
+    """The command word a pipeline clause actually runs -- skipping a leading `sudo`, a leading
+    `env`, and any run of `VAR=val` assignment tokens (in any order, repeated), since none of
+    those are the producer itself (#457)."""
     if is_clause_head:
         segment = LEADING_KEYWORD_RE.sub("", segment, count=1)
-    stripped = segment.strip()
-    if not stripped:
+    tokens = segment.strip().split()
+    i = 0
+    while i < len(tokens) and (
+        tokens[i] in ("sudo", "env") or ASSIGNMENT_TOKEN_RE.match(tokens[i])
+    ):
+        i += 1
+    if i >= len(tokens):
         return ""
-    first = stripped.split()[0].strip("'\"`")
+    first = tokens[i].strip("'\"`")
     return os.path.basename(first)
+
+
+def find_substitution_spans(line):
+    """Return the interior text of every `$(...)` or `` `...` `` span in `line`, so the offending
+    shape can be scanned one level inside a substitution instead of treating it as opaque (#457).
+    Only a single-quoted region suppresses `$(...)`/backtick recognition -- bash still expands
+    both inside a double-quoted string, so this does not track double quotes at all."""
+    spans = []
+    i, n = 0, len(line)
+    in_squote = False
+    while i < n:
+        c = line[i]
+        if in_squote:
+            if c == "'":
+                in_squote = False
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if c == "'":
+            in_squote = True
+            i += 1
+            continue
+        if c == "$" and i + 1 < n and line[i + 1] == "(":
+            depth = 1
+            j = i + 2
+            while j < n and depth > 0:
+                if line[j] == "(":
+                    depth += 1
+                elif line[j] == ")":
+                    depth -= 1
+                j += 1
+            spans.append(line[i + 2 : j - 1])
+            i = j
+            continue
+        if c == "`":
+            j = line.find("`", i + 1)
+            if j == -1:
+                break
+            spans.append(line[i + 1 : j])
+            i = j + 1
+            continue
+        i += 1
+    return spans
 
 
 def offending_line(line):
@@ -184,6 +240,14 @@ def offending_line(line):
         for idx, segment in enumerate(clause[:-1]):
             if producer_word(segment, is_clause_head=(idx == 0)) in PRODUCERS:
                 return True
+
+    # A `$(...)`/backtick substitution is opaque to split_pipeline_clauses (its paren-depth
+    # tracking exists to stop `$(a | b)` being mis-read as a top-level pipe) -- but the offending
+    # shape can sit one or more levels inside it, so recurse into each span's interior text with
+    # the same check. A hazard found there is reported at the outer line's number (#457).
+    for span in find_substitution_spans(line):
+        if offending_line(span):
+            return True
     return False
 
 

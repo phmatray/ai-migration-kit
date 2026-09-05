@@ -15,6 +15,10 @@
 #   j. a clean tree (no offending files at all)            -> exit 0, silent
 #   k. a directory that does not exist                     -> exit 2, no verdict
 #   l. a pipeline spanning a `\` line continuation          -> REFUSED, on the grep -q line
+#   m. a `sudo` prefix on the producer                      -> REFUSED (#457)
+#   n. an `env VAR=val` prefix on the producer               -> REFUSED (#457)
+#   o. the offending shape inside a `$(...)` substitution    -> REFUSED (#457)
+#   p. the offending shape inside a NESTED `$(...)`          -> REFUSED (#457)
 #
 # Sections are labelled, never fractioned -- a denominator goes stale the moment a case is added.
 #
@@ -153,6 +157,38 @@ out=$(run_check "$WORK/repo"); rc=$?
 [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/l.sh:2' \
   && ok "l. a pipeline spanning a \\ line continuation -- REFUSED, on line 2 (the grep -q line)" \
   || { bad "l. expected rc=1 naming tests/fixture/l.sh:2, got rc=$rc: $out"; }
+
+# --------------------------------------------------------- m. a sudo-prefixed producer -> REFUSED (#457)
+scaffold
+printf '%s\n' 'sudo find . -name x | grep -q y' > "$WORK/repo/tests/fixture/m.sh"
+out=$(run_check "$WORK/repo"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/m.sh:1' \
+  && ok "m. sudo find . -name x | grep -q y -- REFUSED, sudo is a transparent prefix (#457)" \
+  || { bad "m. expected rc=1 naming tests/fixture/m.sh:1, got rc=$rc: $out"; }
+
+# ---------------------------------------------------- n. an env VAR=val prefixed producer -> REFUSED (#457)
+scaffold
+printf '%s\n' 'env FOO=bar find . -name x | grep -q y' > "$WORK/repo/tests/fixture/n.sh"
+out=$(run_check "$WORK/repo"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/n.sh:1' \
+  && ok "n. env FOO=bar find . -name x | grep -q y -- REFUSED, env/VAR= is a transparent prefix (#457)" \
+  || { bad "n. expected rc=1 naming tests/fixture/n.sh:1, got rc=$rc: $out"; }
+
+# --------------------------------------------- o. the offending shape inside \$(...) -> REFUSED (#457)
+scaffold
+printf '%s\n' 'n=$(find . -name x | grep -q .)' > "$WORK/repo/tests/fixture/o.sh"
+out=$(run_check "$WORK/repo"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/o.sh:1' \
+  && ok "o. n=\$(find . -name x | grep -q .) -- REFUSED, a substitution is scanned, not opaque (#457)" \
+  || { bad "o. expected rc=1 naming tests/fixture/o.sh:1, got rc=$rc: $out"; }
+
+# ------------------------------------------- p. the offending shape inside a NESTED \$(...) -> REFUSED (#457)
+scaffold
+printf '%s\n' 'n=$(cmd1 $(find . -name x | grep -q .))' > "$WORK/repo/tests/fixture/p.sh"
+out=$(run_check "$WORK/repo"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/p.sh:1' \
+  && ok "p. nested \$(cmd1 \$(find … | grep -q .)) -- REFUSED, recursion has no depth limit (#457)" \
+  || { bad "p. expected rc=1 naming tests/fixture/p.sh:1, got rc=$rc: $out"; }
 
 echo
 if [ "$fails" -eq 0 ]; then
