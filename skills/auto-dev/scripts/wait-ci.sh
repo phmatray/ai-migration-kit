@@ -41,6 +41,20 @@
 # get wrong again. `--json name,state,bucket` names each field, so there is nothing left to
 # misalign no matter how a check is named. `jq` is a `required` prerequisite (requirements.json).
 #
+# FINAL IS NECESSARY BUT NOT SUFFICIENT (#413). "Every reported check left `pending`" only holds if
+# the reported set is complete — and GitHub creates a check run when its job STARTS, not when the
+# workflow is queued. A `needs:`-gated aggregate job (e.g. a `coverage-gate` that `needs:` two test
+# jobs and reports under its own name) does not exist at all until its dependencies finish, so a
+# poll landing in that window sees every check it CAN see as final and misses the one that matters
+# most — aggregation is exactly what makes a check worth requiring in the first place. So this also
+# requires the check SET to be stable: on top of "final", the SET OF CHECK NAMES must match the
+# previous poll's — not just the count, so a same-size swap (one check replaced by a different one
+# within one poll) can't slip past as "stable" either — before returning 0. That costs exactly one
+# extra `POLL_SECONDS` on every run, including one that was already all-final on its first poll —
+# cheap against a wait that is minutes long, and not something to "optimise away", because that
+# confirmation poll is the only thing standing between this script and the false green a
+# late-materializing required check would otherwise produce.
+#
 # Usage:
 #   scripts/wait-ci.sh <pr> [pr...]                # waits on every check GitHub reports
 #   CHECK="kit,title-gate" scripts/wait-ci.sh 42    # optional allow-list: ignore any check whose
@@ -86,6 +100,15 @@ fi
 PRS=("$@")
 ZERO_POLLS=()
 for _pr in "${PRS[@]}"; do ZERO_POLLS+=(0); done
+# Previous poll's (possibly CHECK-filtered) check count and name-set per PR; count -1 = no real
+# poll yet. A `needs:`-gated aggregate check does not exist until its dependencies finish, so
+# "final" alone (no check pending) is not enough — the set itself must also have stopped changing
+# (#413). Comparing NAMES rather than the bare count also catches a same-size swap — one check
+# replaced by a different one within a single poll, net count unchanged — which a count-only
+# comparison would misread as stable (found by review on the PR that introduced this).
+PREV_COUNT=()
+PREV_NAMES=()
+for _pr in "${PRS[@]}"; do PREV_COUNT+=(-1); PREV_NAMES+=(''); done
 
 # Captures each `gh pr checks --json` call's stderr so a genuine "no checks reported" can be told
 # apart from any other failure (see the header). Guarded the way survey.sh/guarded-push.sh capture
@@ -96,19 +119,23 @@ if GH_ERR_FILE="$(mktemp 2>/dev/null)"; then
 fi
 
 # One jq call per PR per poll: applies the optional CHECK allow-list, then reduces the (possibly
-# filtered) checks array to three tab-separated fields — how many checks, how many of those are
-# still pending, and a "name:state,..." line for the human-readable poll log.
+# filtered) checks array to four tab-separated fields — how many checks, how many of those are
+# still pending, a sorted "name,name,..." signature (identity only, no state — used for the
+# stability comparison so a state change alone, e.g. IN_PROGRESS -> SUCCESS, never counts as a
+# change of SET), and a "name:state,..." line for the human-readable poll log.
 JQ_SUMMARY='
   ( ($allow | if . == "" then [] else (split(",") | map(gsub("^[ \t]+|[ \t]+$";""))) end) ) as $names
   | (if ($names | length) > 0 then map(select(.name as $n | $names | index($n) != null)) else . end) as $f
   | { count: ($f | length),
       pending: ([$f[] | select(.bucket == "pending")] | length),
+      namesig: ([$f[] | .name] | sort | join(",")),
       line: ([$f[] | "\(.name):\(.state)"] | join(",")) }
-  | "\(.count)\t\(.pending)\t\(.line)"
+  | "\(.count)\t\(.pending)\t\(.namesig)\t\(.line)"
 '
 
 for i in $(seq 1 "$MAX_POLLS"); do
   all_final=1
+  all_stable=1
   line=""
   idx=0
   for pr in "${PRS[@]}"; do
@@ -135,14 +162,15 @@ for i in $(seq 1 "$MAX_POLLS"); do
       # blip can't manufacture progress toward MAX_ZERO_POLLS, and can't erase real progress either.
       line="${line} PR${pr}=[gh error, retrying: ${gh_err:-<no output>}]"
       all_final=0
+      all_stable=0
       idx=$((idx + 1))
       continue
     fi
 
     summary=$(printf '%s' "$json" | jq -r --arg allow "$CHECK" "$JQ_SUMMARY" 2>/dev/null) \
-      || summary=$'0\t0\t'
-    count=0; pending=0; checkline=''
-    IFS=$'\t' read -r count pending checkline <<< "$summary"
+      || summary=$'0\t0\t\t'
+    count=0; pending=0; namesig=''; checkline=''
+    IFS=$'\t' read -r count pending namesig checkline <<< "$summary"
 
     if [ "${count:-0}" -eq 0 ]; then
       ZERO_POLLS[$idx]=$(( ZERO_POLLS[idx] + 1 ))
@@ -153,6 +181,18 @@ for i in $(seq 1 "$MAX_POLLS"); do
       line="${line} PR${pr}=[${checkline}]"
       [ "${pending:-0}" -eq 0 ] || all_final=0
     fi
+
+    # Stability: this poll's check-name SET must equal the PREVIOUS poll's for this PR — not just
+    # "not smaller" (a re-run/cancelled check can shrink the set) and not just "same count" (a
+    # same-size swap — one check replaced by a different one within one poll — has an unchanged
+    # count but a changed set). Either direction costs one extra poll rather than a false green.
+    # PREV_COUNT's -1 sentinel (no prior real poll yet) never matches, so the very first poll can
+    # never satisfy stability on its own, however its name-set compares.
+    if [ "${PREV_COUNT[$idx]}" -eq -1 ] || [ "${PREV_NAMES[$idx]}" != "$namesig" ]; then
+      all_stable=0
+    fi
+    PREV_COUNT[$idx]="${count:-0}"
+    PREV_NAMES[$idx]="$namesig"
     idx=$((idx + 1))
   done
 
@@ -167,7 +207,7 @@ for i in $(seq 1 "$MAX_POLLS"); do
     idx=$((idx + 1))
   done
 
-  if [ "$all_final" -eq 1 ]; then
+  if [ "$all_final" -eq 1 ] && [ "$all_stable" -eq 1 ]; then
     if [ -n "$CHECK" ]; then
       echo "=== ALL CHECKS IN ALLOW-LIST FINAL (CHECK=${CHECK}) ==="
     else

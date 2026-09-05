@@ -139,8 +139,11 @@ rc=0
 out=$(POLL_SECONDS=0 MAX_POLLS=5 "$WAIT" 77 2>&1) || rc=$?
 [ "$rc" -eq 0 ] || { echo "FAIL [default-check]: expected exit 0 with CHECK unset, got $rc"; echo "$out"; exit 1; }
 has_poll "$out" 1 || { echo "FAIL [default-check]: missing poll 1"; echo "$out"; exit 1; }
-has_poll "$out" 2 && { echo "FAIL [default-check]: polled again after poll 1 was already all-final"; echo "$out"; exit 1; }
-echo "  ok: default-check — unset CHECK waits on every check by default and returns as soon as they are all final"
+# One confirmation poll is required even when everything is final on poll 1 — stability can't be
+# judged from a single poll with no prior count to compare against (#413).
+has_poll "$out" 2 || { echo "FAIL [default-check]: missing the stability-confirmation poll 2"; echo "$out"; exit 1; }
+has_poll "$out" 3 && { echo "FAIL [default-check]: polled a 3rd time — the set was already final and unchanged by poll 2"; echo "$out"; exit 1; }
+echo "  ok: default-check — unset CHECK waits on every check by default and returns once final and stable"
 
 # ---------------------------------------------------------------- 3. checks not yet registered:
 # zero checks on poll 1, then they appear (already final) on poll 2 — no premature error.
@@ -226,7 +229,39 @@ has_poll "$out" 3 && {
 }
 echo "  ok: zero-via-real-error — gh's real 'no checks reported' failure still trips the zero-checks bound"
 
-# ---------------------------------------------------------------- 8. the header's rationale (#314)
+# ---------------------------------------------------------------- 8. a `needs:`-gated required
+# check materializing mid-run (#413): poll 1 reports two checks, both already `pass`. A buggy
+# script reads that as done and exits 0 right there — the exact false-green this case pins against.
+# Poll 2 shows a third check, `Build & Test`, appearing as `pending` (the aggregate job started once
+# its dependencies finished). Poll 3 shows all three `pass`. The script must not return 0 before
+# poll 3, because the check set was still growing when poll 1's set looked all-final.
+
+reset_case growing-set \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"title-gate","state":"SUCCESS","bucket":"pass"}]' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"title-gate","state":"SUCCESS","bucket":"pass"},{"name":"Build & Test","state":"IN_PROGRESS","bucket":"pending"}]' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"title-gate","state":"SUCCESS","bucket":"pass"},{"name":"Build & Test","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=6 "$WAIT" 1149 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [growing-set]: expected exit 0 once the late check is also final, got $rc"; echo "$out"; exit 1; }
+has_poll "$out" 2 || { echo "FAIL [growing-set]: missing poll 2 (the late-appearing check)"; echo "$out"; exit 1; }
+has_poll "$out" 3 || { echo "FAIL [growing-set]: missing poll 3 — script returned 0 before the check set was complete"; echo "$out"; exit 1; }
+has_poll "$out" 4 && { echo "FAIL [growing-set]: polled a 4th time — should have stopped once the set was both final and stable at poll 3"; echo "$out"; exit 1; }
+echo "  ok: growing-set — a set that looks all-final on poll 1 but grows a pending check by poll 2 is not read as done until poll 3"
+
+# ---------------------------------------------------------------- 9. companion to case 8: a set
+# that is already final AND unchanged across two consecutive polls exits 0, having polled exactly
+# one extra time (the stability confirmation costs one poll on every run, not just a growing one).
+
+reset_case stable-across-two-polls \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=6 "$WAIT" 21 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [stable-across-two-polls]: expected exit 0, got $rc"; echo "$out"; exit 1; }
+has_poll "$out" 2 || { echo "FAIL [stable-across-two-polls]: expected one confirmation poll (poll 2) before exiting"; echo "$out"; exit 1; }
+has_poll "$out" 3 && { echo "FAIL [stable-across-two-polls]: polled a 3rd time — the set was already final and unchanged by poll 2"; echo "$out"; exit 1; }
+echo "  ok: stable-across-two-polls — an all-final, unchanged set exits 0 after exactly one confirmation poll"
+
+# ---------------------------------------------------------------- 10. the header's rationale (#314)
 # The "why this exists" paragraph reasons from the worker substrate. Workers are Agent-tool
 # background sub-agents now, not one-shot `claude -p` processes: the structural rule (the SUPERVISOR
 # waits, never the phase-2 worker) and its name — a dispatch-timing bug — survive unchanged; only
@@ -243,5 +278,36 @@ grep -qi 'sub-agent' "$WAIT" || {
   echo "FAIL [header]: wait-ci.sh does not reason from a sub-agent worker (its run ends with its turn)"; exit 1
 }
 echo "  ok: header — reasons from sub-agents (no 'claude -p'), still names the dispatch-timing bug"
+
+# ---------------------------------------------------------------- 11. the header must document
+# WHY final alone isn't enough (a `needs:`-gated aggregate check doesn't exist until its
+# dependencies finish) and the happy-path cost of fixing it (one extra poll) — so nobody reads
+# "final" as sufficient again, and nobody "optimises away" the confirmation poll as waste (#413).
+
+grep -qi 'needs:' "$WAIT" || {
+  echo "FAIL [header-stability]: wait-ci.sh's header does not name the \`needs:\`-gated-aggregate cause"; exit 1
+}
+grep -qi 'stable\|stability' "$WAIT" || {
+  echo "FAIL [header-stability]: wait-ci.sh's header does not name the stability requirement"; exit 1
+}
+grep -qi 'one extra poll\|extra poll' "$WAIT" || {
+  echo "FAIL [header-stability]: wait-ci.sh's header does not name the one-extra-poll cost"; exit 1
+}
+echo "  ok: header-stability — header names the needs:-gated-aggregate cause and the one-extra-poll cost"
+
+# ---------------------------------------------------------------- 12. a same-COUNT swap: one check
+# disappears while a different one appears in the same poll, net count unchanged. Comparing raw
+# counts alone would read this as "stable" even though the set never actually stopped changing —
+# found by code review on PR #451 (#413). Comparing the check NAMES (not just how many) closes it.
+
+reset_case same-count-swap \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"old-check","state":"SUCCESS","bucket":"pass"}]' \
+  '[{"name":"kit","state":"SUCCESS","bucket":"pass"},{"name":"Build & Test","state":"SUCCESS","bucket":"pass"}]'
+rc=0
+out=$(POLL_SECONDS=0 MAX_POLLS=6 "$WAIT" 55 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [same-count-swap]: expected exit 0 once the swapped set is itself stable, got $rc"; echo "$out"; exit 1; }
+has_poll "$out" 3 || { echo "FAIL [same-count-swap]: exited before poll 3 — a same-count swap ('old-check' -> 'Build & Test') was wrongly read as stable at poll 2"; echo "$out"; exit 1; }
+has_poll "$out" 4 && { echo "FAIL [same-count-swap]: polled a 4th time — should have stopped once the swapped set repeated unchanged at poll 3"; echo "$out"; exit 1; }
+echo "  ok: same-count-swap — a same-size swap of check names is not read as stable; the identity, not just the count, must repeat"
 
 echo "wait-ci golden test OK"
