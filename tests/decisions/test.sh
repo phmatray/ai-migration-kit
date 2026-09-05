@@ -941,6 +941,35 @@ else
   printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
 fi
 
+# The mirror case for a nested `evals/` — and the `.py` half of every exclusion pair, the exact
+# shape the issue's own Spec names (`skills/foo/evals/run.py`).
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/evals"
+printf '#!/usr/bin/env python3\n' > "$k/skills/demo/evals/run.py"
+chmod +x "$k/skills/demo/evals/run.py"
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a tracked .py file under a nested evals/ is excluded from E at any depth (#384)"
+else
+  bad "R10 — a nested evals/ fixture was not excluded from E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
+# The mirror case for a nested `samples/`, the fourth and last excluded directory name.
+k=$(kit_scratch)/kit; mkdir -p "$k"; make_kit "$k"
+mkdir -p "$k/skills/demo/samples"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$k/skills/demo/samples/fixture.sh"
+chmod +x "$k/skills/demo/samples/fixture.sh"
+git -C "$k" add -A
+run_check "$k"
+if [ "$CHECK_RC" -eq 0 ]; then
+  ok "R10 — a tracked executable under a nested samples/ is excluded from E at any depth (#384)"
+else
+  bad "R10 — a nested samples/ fixture was not excluded from E:"
+  printf '%s\n' "$CHECK_OUT" | sed 's/^/          /'
+fi
+
 # The REFERENCE bash reader for scripts/tracked-exec-globs.txt — the shape #144's
 # parse-sweep.sh consumer will copy (#307). It must honor `#` as a comment starter ANYWHERE on
 # the line, exactly like decision-check.py's `line.split("#", 1)[0].strip()`: strip everything
