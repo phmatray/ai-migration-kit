@@ -284,7 +284,9 @@ rc=0; bash "$KIT/$GUARD" -C "$LINKED" >/dev/null 2>&1 || rc=$?
   echo "  If this changed, git stopped resolving the anchored pattern per-directory and the"
   echo "  main-root recipe in skills/_shared/worktree-ignore-check.md can be simplified."; exit 1; }
 git -C "$reuse" add -A 2>/dev/null
-git -C "$reuse" ls-files -s -- .claude/worktrees/feat | grep -q '^160000 ' || {
+# Herestring, not a pipe into `grep -q` (#391).
+staged_mode=$(git -C "$reuse" ls-files -s -- .claude/worktrees/feat)
+grep -q '^160000 ' <<<"$staged_mode" || {
   echo "FAIL [reuse-wrong-root]: the fail-open case is not actually hazardous — control invalid"; exit 1; }
 git -C "$reuse" rm -r -q --cached .claude
 echo "  ok: reuse-wrong-root — judging the reused worktree instead of its checkout fails OPEN"
@@ -313,10 +315,13 @@ echo "  ok: reuse-main-root-recipe — worktree list --porcelain yields the chec
 #     (`head -1 | cut -d' ' -f2-`, no bare handling) was measured HARD-STOPPING a correctly
 #     configured bare repository — a false refusal a reader cannot unblock, since the .gitignore it
 #     asks for is already there.
-main_worktree() {                                # the documented recipe, verbatim
+main_worktree() {                                # the documented recipe, behaviourally identical
   local list; list=$(git -C "$1" worktree list --porcelain)
   local root; root=$(printf '%s\n' "$list" | sed -n '1s/^worktree //p')
-  printf '%s\n' "$list" | sed -n '2p' | grep -qx bare && root=''
+  # A herestring, not a pipe into `grep -q` (#391): see skills/_shared/worktree-ignore-check.md's
+  # illustrative snippet for the pipe form this mirrors, made race-safe the way main-worktree.sh is.
+  local second_line; second_line=$(printf '%s\n' "$list" | sed -n '2p')
+  grep -qx bare <<<"$second_line" && root=''
   printf '%s' "$root"
 }
 
@@ -454,7 +459,9 @@ revless_repo "$dir" ''
 mkdir -p "$dir/C:/fake"
 printf '.claude/worktrees/\n.worktrees/\n' > "$dir/C:/fake/ignore"
 git -C "$dir" config core.excludesFile "C:/fake/ignore"
-git -C "$dir" check-ignore -v .claude/worktrees/ | grep -q '^C:/fake/ignore:' \
+# Herestring, not a pipe into `grep -q` (#391).
+ignore_source=$(git -C "$dir" check-ignore -v .claude/worktrees/)
+grep -q '^C:/fake/ignore:' <<<"$ignore_source" \
   || { echo "FAIL [drive-letter]: fixture bug — git did not report a drive-letter source"; exit 1; }
 rc=0; out=$(PATH="$shim:$PATH" bash "$KIT/$GUARD" -C "$dir" 2>&1) || rc=$?
 [ "$rc" -eq 0 ] || { echo "FAIL [drive-letter]: the guard exited $rc on an ignored repo:"; echo "$out"; exit 1; }

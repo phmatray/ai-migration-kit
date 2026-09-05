@@ -83,8 +83,13 @@ add_gate "python3 scripts/decision-check.py"
 # One more of the same family, on the kit's user-facing ending: every skill closes with the shared
 # recap, and the hand-off table agrees with ARCHITECTURE.md's dashed edges (#175).
 add_gate "python3 scripts/recap-wiring-check.py"
+# One more of the same family (#391): no positive-match `grep -q` is fed by an external streaming
+# producer under `pipefail` -- the shape that reported a failure that did not happen on ~22% of
+# tests/survey/test.sh runs.
+add_gate "python3 scripts/sigpipe-idiom-check.py"
 
 add_suite "tests/lib/test.sh"
+add_suite "tests/sigpipe-idiom/test.sh"
 add_suite "tests/py-module/test.sh"
 add_suite "tests/ci-wiring/test.sh"
 add_suite "tests/parse-sweep/test.sh"

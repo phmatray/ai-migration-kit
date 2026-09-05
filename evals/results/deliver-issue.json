@@ -43,12 +43,12 @@
       "query": "https://github.com/phmatray/ai-migration-kit/issues/343 \u2014 go build it and land it",
       "note": "",
       "should_trigger": true,
-      "trigger_rate": 0.0,
-      "triggers": 0,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
       "runs": 3,
       "fired": {
         "implement-issue": 2,
-        "(none)": 1
+        "deliver-issue": 1
       },
       "pass": false
     },
@@ -168,8 +168,7 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "(none)": 2,
-        "migrate-legacy": 1
+        "(none)": 3
       },
       "pass": true
     },
@@ -205,8 +204,8 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "merge-pr": 2,
-        "(none)": 1
+        "(none)": 2,
+        "merge-pr": 1
       },
       "pass": true
     },

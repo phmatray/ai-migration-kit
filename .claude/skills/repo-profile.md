@@ -49,10 +49,12 @@
   `python3 scripts/decision-check.py` (every registered decision is single-homed, invoked, and
   unrestated by prose — `docs/decisions.md`),
   `python3 scripts/recap-wiring-check.py` (every skill closes with the shared recap, and its
-  hand-off table matches ARCHITECTURE.md's dashed edges) and
-  `python3 tests/skills/check-frontmatter.py` (skill frontmatter/compatibility tokens). All six run
-  as part of `./scripts/run-all-tests.sh`, and `tests/repo-profile/test.sh` refuses when this list
-  omits a gate script `run-all-tests.sh --list` runs (#388) — it went stale once already.
+  hand-off table matches ARCHITECTURE.md's dashed edges),
+  `python3 scripts/sigpipe-idiom-check.py` (no positive-match `grep -q` is fed by a streaming
+  external producer under `pipefail`, #391) and
+  `python3 tests/skills/check-frontmatter.py` (skill frontmatter/compatibility tokens). All seven
+  run as part of `./scripts/run-all-tests.sh`, and `tests/repo-profile/test.sh` refuses when this
+  list omits a gate script `run-all-tests.sh --list` runs (#388) — it went stale once already.
 - **Prerequisites / caveats:** `python3` with `PyYAML` — declared in `requirements.json` and
   enforced by `./scripts/preflight.sh` (#170; CI also pip-installs it as a setup step), a `dotnet`
   SDK for the `samples/LegacyShop` fixture only, and `gh` authenticated for anything issue/PR shaped.
@@ -77,6 +79,7 @@ hand-copying it further.
 - `./scripts/parse-sweep.sh`
 - `python3 scripts/pinned-literals-check.py`
 - `python3 scripts/recap-wiring-check.py`
+- `python3 scripts/sigpipe-idiom-check.py`
 - `dotnet test samples/LegacyShop --nologo`
 - `./scripts/preflight.sh` and `./scripts/preflight.sh --json | python3 -m json.tool > /dev/null`
 - `./scripts/audit-inventory.sh samples/LegacyShop | python3 -m json.tool > /dev/null`

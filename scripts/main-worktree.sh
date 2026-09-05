@@ -85,7 +85,10 @@ ROOT=$(printf '%s\n' "$WT_LIST" | sed -n '1s/^worktree //p')
 # porcelain line is exactly `bare`. Emit nothing rather than the bare path — feeding that to a
 # worktree-ignore check produces an unblockable false refusal (check-ignore cannot run in a bare
 # repo at all).
-if printf '%s\n' "$WT_LIST" | sed -n '2p' | grep -qx bare; then
+# A herestring, not a pipe into `grep -q`: the read closes the instant it matches, and under
+# `pipefail` a `sed` still writing at that instant reports its SIGPIPE as this check's verdict (#391).
+SECOND_LINE=$(printf '%s\n' "$WT_LIST" | sed -n '2p')
+if grep -qx bare <<<"$SECOND_LINE"; then
   exit 0
 fi
 

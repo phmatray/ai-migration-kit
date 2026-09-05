@@ -143,8 +143,7 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "create-issue": 2,
-        "(none)": 1
+        "create-issue": 3
       },
       "pass": true
     },

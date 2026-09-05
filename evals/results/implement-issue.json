@@ -7,13 +7,13 @@
       "query": "build the feature from issue #129 and open a PR",
       "note": "'build ... and open a PR'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.0,
+      "triggers": 0,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "(none)": 3
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "execute the plan on issue 372 and mark the PR ready",
@@ -31,11 +31,12 @@
       "query": "finish the remaining tasks on issue 71",
       "note": "'finish the remaining tasks'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "(none)": 1,
+        "implement-issue": 2
       },
       "pass": true
     },
@@ -91,41 +92,18 @@
       "query": "pick up issue 88 and start coding it",
       "note": "'pick up ... start coding'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "implement-issue": 2,
+        "(none)": 1
       },
       "pass": true
     },
     {
       "query": "resume building issue 71 where it left off",
       "note": "'resume building'",
-      "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
-      "runs": 3,
-      "fired": {
-        "implement-issue": 3
-      },
-      "pass": true
-    },
-    {
-      "query": "ship the implementation for issue 99",
-      "note": "'ship the implementation for issue'",
-      "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
-      "runs": 3,
-      "fired": {
-        "implement-issue": 3
-      },
-      "pass": true
-    },
-    {
-      "query": "work through the implementation plan on issue 150",
-      "note": "'work through the plan'",
       "should_trigger": true,
       "trigger_rate": 0.6666666666666666,
       "triggers": 2,
@@ -135,6 +113,32 @@
         "implement-issue": 2
       },
       "pass": true
+    },
+    {
+      "query": "ship the implementation for issue 99",
+      "note": "'ship the implementation for issue'",
+      "should_trigger": true,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
+      "runs": 3,
+      "fired": {
+        "implement-issue": 1,
+        "(none)": 2
+      },
+      "pass": false
+    },
+    {
+      "query": "work through the implementation plan on issue 150",
+      "note": "'work through the plan'",
+      "should_trigger": true,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
+      "runs": 3,
+      "fired": {
+        "(none)": 2,
+        "implement-issue": 1
+      },
+      "pass": false
     },
     {
       "query": "add error handling to utils.py",
@@ -156,7 +160,8 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "(none)": 3
+        "(none)": 2,
+        "create-issue": 1
       },
       "pass": true
     },
@@ -168,7 +173,8 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "(none)": 3
+        "create-issue": 1,
+        "(none)": 2
       },
       "pass": true
     },
@@ -216,8 +222,7 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "profile-repo": 2,
-        "(none)": 1
+        "profile-repo": 3
       },
       "pass": true
     },
@@ -229,7 +234,8 @@
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "(none)": 1,
+        "merge-pr": 2
       },
       "pass": true
     },
@@ -260,11 +266,11 @@
   ],
   "summary": {
     "total": 21,
-    "passed": 21,
-    "failed": 0,
+    "passed": 18,
+    "failed": 3,
     "should_trigger": 11,
     "should_not": 10,
-    "recall": 1.0,
+    "recall": 0.7272727272727273,
     "specificity": 1.0
   }
 }
