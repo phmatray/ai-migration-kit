@@ -548,19 +548,38 @@ BASE_SHA=$(printf '%s' "$MERGE_OUT" | awk '$1 == "MERGED" { print $2 }')
 case "$BASE_SHA" in
   *[!0-9a-fA-F]*|"") BASE_SHA=$(gh pr view "$PR" --json mergeCommit --jq '.mergeCommit.oid // ""') ;;
 esac
-[ -n "$BASE_SHA" ] || echo "report: base unverified — the merge landed but no merge sha could be read"
 
-base=$(skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" --timeout 240)
-base_verdict=$(printf '%s' "$base" | jq -r .verdict)              # green | red | unverified
-base_reason=$(printf '%s' "$base" | jq -r .reason)
+# An empty $BASE_SHA has nothing to resolve, and the helper refuses it (exit 64, no stdout) rather
+# than answer — the one case where it does NOT answer. Don't call it: that would leave $BASE_LINE
+# empty, breaking the "BASE: field IS $BASE_LINE" guarantee below. Compose the non-verdict directly,
+# in the same grammar, instead.
+if [ -n "$BASE_SHA" ]; then
+  BASE_LINE=$(skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" --timeout 240 --report-line)
+else
+  BASE_LINE="unverified (no-sha)"
+fi
+base_verdict_word=${BASE_LINE%% *}                                # green | RED | unverified — for
+                                                                   # branching only; never re-derived
 ```
 
 **Give the call room, and treat a killed call as a non-verdict.** The helper waits for a run that
 takes minutes, so run this Bash call with a timeout comfortably above the `--timeout` you pass
 (300000 ms for the 240 s above) — the tool's own 120 s default would kill it mid-poll, and an empty
-`$base` satisfies none of the three branches below. If it *is* cut short, that is
+`$BASE_LINE` satisfies none of the three branches below. If it *is* cut short, that is
 `base unverified at <sha> — the wait was cut short`, not a missing line and not a green.
 
+⛔ **The `BASE:` value every report from this step carries — the recap here, and the phase-2 report's
+`BASE:` field — IS `$BASE_LINE`, copied verbatim.** Never composed, never summarized, never
+cross-checked against a second source. #455 measured 5 of 17 merges on one fleet run reporting a
+premature `green` in this field because a worker *paraphrased* the helper's answer instead of
+quoting it — some of them, after being told the exact workflow and command to read, cited job names
+from a **different** workflow's run (`release-please`'s or GitHub Pages' `pages-build-deployment`,
+whose jobs are named `build`/`deploy`/`report-build-status`) as their evidence. **Never call `gh run
+list` for this step, and never infer this merge's base verdict from another workflow's job names —
+`release-please` and `pages-build-deployment` are not this merge's CI and prove nothing about it.**
+`$BASE_LINE` is the only source of truth `--report-line` was built to make un-paraphrasable
+(`tests/merge-base-ci/test.sh` pins this exact trap: a fabricated `pages-build-deployment` success
+armed alongside a real failure for this sha, asserting the line still reads `RED (failed)`).
 
 **By the sha, never by recency.** `gh run list --branch main` answers "the newest run on the branch",
 which under a merge train — the ordinary `auto-dev` shape — is routinely a *sibling* merge's run
@@ -570,20 +589,27 @@ construction, and delegates the rules to the registered `ci.verdict` decision ra
 second CI reader. The resolution recipe lives beside §3's in `references/merge-mechanics.md`; the
 `gh run list` trap is pinned red by `tests/merge-base-ci/test.sh`.
 
-Then act on `$base_verdict` — three outcomes, and all three are reported:
+Then act on `$base_verdict_word` — three outcomes, and all three are reported as `$BASE_LINE`:
 
 - **`green`** → nothing to do. Continue to Step 6 unchanged.
-- **`red`** → the merge is done and **is not being reverted**. File it once, as a `bug`, through the
+- **`RED`** → the merge is done and **is not being reverted**. File it once, as a `bug`, through the
   same `create-issue` inlet Step 6 already uses, carrying the base sha, the run URL, this PR and its
-  issue, and the failing job names from `.runs`. **Fold on the breakage, not on the sha.** A sibling
-  merge in the train produces a *different* squash sha and inherits the same red, so a sha-keyed
-  search never matches and three workers file three bugs for one root cause: look instead for an
-  open bug about the base branch failing **the same job(s)**, and if one exists add your sha, run
-  URL and PR to it as a comment. Then continue to Step 6; the merge itself is not in question.
-- **`unverified`** → say so, in those words. `$base_reason` names which silence it was: the run was
-  cancelled by the next merge in the train, the base runs no CI on push, the bound expired, or the
-  query never answered. **This is the step working, not failing** — a non-verdict reported is exactly
-  what nobody had on 2026-08-30.
+  issue, and the failing job name(s) — read those off the check-runs endpoint directly, a single
+  non-polling read (the run is already settled, so there is nothing left to wait for — this is not a
+  second `base-run-verdict.sh` call, which would re-run its whole poll loop for no reason):
+  ```bash
+  gh api "repos/${OWNER_REPO:-{owner}/{repo}}/commits/$BASE_SHA/check-runs" --paginate --slurp \
+    | jq -r '.[].check_runs[] | select(.conclusion != null and .conclusion != "success") | .name' | sort -u
+  ```
+  **Fold on the breakage, not on the sha.** A sibling merge in the train produces a *different*
+  squash sha and inherits the same red, so a sha-keyed search never matches and three workers file
+  three bugs for one root cause: look instead for an open bug about the base branch failing
+  **the same job(s)**, and if one exists add your sha, run URL and PR to it as a comment. Then
+  continue to Step 6; the merge itself is not in question.
+- **`unverified`** → report `$BASE_LINE` as-is. Its `(<reason>)` names which silence it was: the run
+  was cancelled by the next merge in the train, the base runs no CI on push, the bound expired, or
+  the query never answered. **This is the step working, not failing** — a non-verdict reported is
+  exactly what nobody had on 2026-08-30.
 
 ⛔ **Never revert.** The red may be *inherited* from a merge seconds earlier, and an autonomous revert
 of somebody else's change is a strictly worse failure than a filed bug. Report and file.

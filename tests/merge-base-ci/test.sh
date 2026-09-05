@@ -396,4 +396,92 @@ expect_verdict late-job red "$v"
   echo "FAIL [late-job]: the helper called it on the first reading, before the graph had posted"; exit 1; }
 echo "  ok: late-job — a green first reading is re-derived, so a job that posts a beat later still counts"
 
+# ---------------------------------------------------------------- 13. --report-line: the literal
+# grammar, never JSON, never a paraphrase (#455)
+#
+# The whole point of this mode: `merge-pr` Step 5b's `BASE:` field must be able to COPY this
+# output verbatim rather than compose its own sentence around the JSON verdict/reason. A clean
+# success set becomes exactly `green (clear)` on stdout — nothing else.
+reset_case report-line-green
+SHA=7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e
+arm "$SHA" "$(page "$(run_obj kit 980 success)")"
+out=$("$HELPER" "$SHA" --report-line --timeout 60 --poll-seconds 0)
+[ "$out" = "green (clear)" ] || { echo "FAIL [report-line-green]: expected 'green (clear)', got '$out'"; exit 1; }
+echo "  ok: report-line-green — --report-line prints exactly 'green (clear)' for a clean success set"
+
+# ---------------------------------------------------------------- 14. --report-line: the
+# wrong-workflow trap (AC2) — the literal shape of the #429/#449 incident
+#
+# The target sha's OWN check-runs are failed. `gh run list` is armed to answer a fabricated,
+# COMPLETED, SUCCESSFUL run named after a different workflow (`pages-build-deployment`), with the
+# exact job names the incident's agents cited as their (wrong) evidence: build/deploy/
+# report-build-status. `--report-line` must never let that leak in — it prints `RED (failed)`,
+# derived only from the real check-runs for this sha.
+reset_case report-line-wrong-workflow
+SHA=8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f
+arm "$SHA" "$(page "$(run_obj kit 990 failure)")"
+export RUN_LIST_TRAP='[{"databaseId":90000000001,"headSha":"'"$SIBLING_SHA"'","conclusion":"success","status":"completed","name":"pages-build-deployment","jobs":["build","deploy","report-build-status"],"url":"https://github.invalid/run/90000000001"}]'
+out=$("$HELPER" "$SHA" --report-line --timeout 60 --poll-seconds 0)
+[ "$out" = "RED (failed)" ] || { echo "FAIL [report-line-wrong-workflow]: expected 'RED (failed)', got '$out'"; exit 1; }
+if grep -qF 'run list' "$GH_CALL_LOG"; then
+  echo "FAIL [report-line-wrong-workflow]: the helper asked a recency-shaped question (\`gh run list\`)."
+  echo "      --report-line must derive its answer only from the check-runs endpoint for this sha:"
+  sed 's/^/      /' "$GH_CALL_LOG"; exit 1
+fi
+export RUN_LIST_TRAP='[{"databaseId":33346395704,"headSha":"'"$SIBLING_SHA"'","conclusion":"failure","status":"completed","name":"kit","url":"https://github.invalid/run/33346395704"}]'
+echo "  ok: report-line-wrong-workflow — a wrong-workflow 'green' from gh run list never leaks into the line"
+
+# ---------------------------------------------------------------- 15. --report-line: cancelled-only
+reset_case report-line-cancelled
+SHA=9090909090909090909090909090909090909090
+arm "$SHA" "$(page "$(run_obj kit 991 cancelled)")"
+out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "unverified (cancelled)" ] || { echo "FAIL [report-line-cancelled]: expected 'unverified (cancelled)', got '$out'"; exit 1; }
+echo "  ok: report-line-cancelled — a cancelled-only sha prints exactly 'unverified (cancelled)'"
+
+# ---------------------------------------------------------------- 16. --report-line: a pending
+# set that never settles before --timeout
+reset_case report-line-timeout
+SHA=a1b2a1b2a1b2a1b2a1b2a1b2a1b2a1b2a1b2a1b2
+arm "$SHA" "$(page "$(run_obj kit 992 queued)")"
+out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "unverified (timeout)" ] || { echo "FAIL [report-line-timeout]: expected 'unverified (timeout)', got '$out'"; exit 1; }
+echo "  ok: report-line-timeout — a run that never settles prints exactly 'unverified (timeout)'"
+
+# ---------------------------------------------------------------- 17. --report-line: no CI posted
+# at all
+reset_case report-line-no-ci
+SHA=c3d4c3d4c3d4c3d4c3d4c3d4c3d4c3d4c3d4c3d4
+out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "unverified (no-ci)" ] || { echo "FAIL [report-line-no-ci]: expected 'unverified (no-ci)', got '$out'"; exit 1; }
+echo "  ok: report-line-no-ci — a sha with no check-runs prints exactly 'unverified (no-ci)'"
+
+# ---------------------------------------------------------------- 18. Step 5b quotes the literal
+# line and names the forbidden shortcuts (#455 Task 3, AC3)
+#
+# A structural check on the prose, not the script: Step 5b's `BASE:` value must be the literal
+# `--report-line` output, and the step must name the two specific anti-patterns the #429/#449
+# incident measured — `gh run list` and inferring status from another workflow's job names.
+grep -q -- '--report-line' skills/merge-pr/SKILL.md || {
+  echo "FAIL: skills/merge-pr/SKILL.md never mentions --report-line — Step 5b must call it, not"
+  echo "      compose its own sentence around the JSON verdict/reason"
+  exit 1; }
+grep -qi 'never.*gh run list' skills/merge-pr/SKILL.md || {
+  echo "FAIL: skills/merge-pr/SKILL.md does not forbid 'gh run list' for Step 5b's BASE: value"
+  exit 1; }
+grep -q 'pages-build-deployment' skills/merge-pr/SKILL.md || {
+  echo "FAIL: skills/merge-pr/SKILL.md does not name the pages-build-deployment trap (#429/#449)"
+  exit 1; }
+echo "  ok: merge-pr-skill-prose — Step 5b quotes --report-line and names the forbidden shortcuts"
+
+# ---------------------------------------------------------------- 19. auto-dev grammar-checks
+# BASE: before trusting it (#455 Task 4, AC4)
+grep -qF '^(green|RED|unverified)' skills/auto-dev/SKILL.md || {
+  echo "FAIL: skills/auto-dev/SKILL.md never states the BASE: field's fixed grammar"
+  exit 1; }
+grep -qi 're-derive' skills/auto-dev/SKILL.md || {
+  echo "FAIL: skills/auto-dev/SKILL.md never says a non-matching BASE: value is re-derived"
+  exit 1; }
+echo "  ok: auto-dev-skill-prose — the BASE: field states its grammar and the re-derive backstop"
+
 echo "merge-base-ci golden test OK"
