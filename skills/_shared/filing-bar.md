@@ -119,3 +119,13 @@ seeing it is how they notice a concept being re-proposed every week, and decide 
 holds. The lookup states its own mode on its own line
 ([`prior-rejections.md`](./prior-rejections.md)) — a `0 hits` from the grep fallback is weaker
 evidence than a `0 hits` from semantic search, and the recap has to let the owner tell them apart.
+
+## Consumers
+
+- `skills/auto-dev/SKILL.md` — a worker's off-scope capture, and the retro's recorded-not-filed candidates, both face the bar before anything is filed
+- `skills/create-issue/SKILL.md` — an idea discovered rather than handed in faces the bar before it becomes an issue
+- `skills/merge-pr/SKILL.md` — Step 6c puts each cluster of follow-ups to the bar before routing it
+- `skills/review-sessions/SKILL.md` — Step 6 applies the bar to every still-present cluster before filing
+- `skills/triage-backlog/SKILL.md` — Step 6 applies the bar to items already in the queue before deciding their disposition
+- `ARCHITECTURE.md` — the *Skill call graph* section's cycle paragraph cites the bar as what closes the "three inlets, no outlet" loop
+- `README.md` — the "Why these skills exist" table cites the bar as the standard shared by every inlet
