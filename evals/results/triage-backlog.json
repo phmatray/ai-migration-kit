@@ -1,0 +1,256 @@
+{
+  "skill_name": "triage-backlog",
+  "runs_per_query": 3,
+  "threshold": 0.5,
+  "results": [
+    {
+      "query": "fais le tri dans les issues ouvertes, on n'y arrive plus",
+      "note": "FR \u2014 'fais le tri'",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "groom the issue list before the release, I want it under 20",
+      "note": "'groom' + a target count",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "half these issues are probably already fixed by PRs we landed last week. can you check and clean up?",
+      "note": "verify-then-close, the Step 4 job",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "le backlog ne descend jamais, qu'est-ce qu'on ferme ?",
+      "note": "FR \u2014 never-shrinking queue",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "prune the open issues, anything stale or duplicated should go",
+      "note": "'prune' + dedupe",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "take stock of what's open and propose what to drop \u2014 I'll decide",
+      "note": "explicitly propose-then-confirm",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "there are like four issues all about the same bundle gate, can we consolidate them into one?",
+      "note": "clustering by root cause across the queue",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "triage the backlog",
+      "note": "bare canonical phrasing",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "we're at 30 open issues and it climbs every time I merge something \u2014 go through them and tell me which ones we should just close",
+      "note": "the symptom that motivates the skill, no keyword",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "why does the backlog keep growing even though we merge every day?",
+      "note": "diagnostic phrasing \u2014 the arrival/departure question",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "burn down the backlog with 3 agents, small issues first",
+      "note": "\u2192 auto-dev (drains by BUILDING, not by deciding)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "auto-dev": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "clean up the local branches that are gone on the remote",
+      "note": "git housekeeping, shares 'clean up'",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "close issue 158 for me",
+      "note": "one explicit close \u2014 a bare gh call, no triage pass",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "create an issue for the coverage guard inverting under pipefail",
+      "note": "\u2192 create-issue (opening work)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "create-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "file these three ideas as issues, one each: retry on 429, cache the profile read, document the bundle config",
+      "note": "\u2192 create-issue (batch filing)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "create-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "implement issue 158 \u2014 the pinned-literals check only covers one pin",
+      "note": "\u2192 implement-issue",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "implement-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "merge PR 279 and open follow-ups for the deferred bits",
+      "note": "\u2192 merge-pr (filing at the inlet, mid-merge)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "merge-pr": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "our sprint board in Jira is a mess, can you reprioritize the tickets?",
+      "note": "near-miss: grooming, but not the repo's GitHub issues",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "review this PR for correctness bugs before I merge it",
+      "note": "\u2192 code-review",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "what's still open across the migrated repos \u2014 the next_steps from the reports?",
+      "note": "\u2192 review-followups (report.json queues, not GitHub issues)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "review-followups": 3
+      },
+      "pass": true
+    }
+  ],
+  "summary": {
+    "total": 20,
+    "passed": 20,
+    "failed": 0,
+    "should_trigger": 10,
+    "should_not": 10,
+    "recall": 1.0,
+    "specificity": 1.0
+  }
+}

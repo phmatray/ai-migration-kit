@@ -1,156 +1,143 @@
 {
-  "skill_name": "merge-pr",
+  "skill_name": "auto-dev",
   "runs_per_query": 3,
   "threshold": 0.5,
   "results": [
     {
-      "query": "can you get that PR merged once CI's green \u2014 it's #281",
-      "note": "loose 'get merged once CI green'",
+      "query": "auto-implement and merge everything that's ready",
+      "note": "implement AND merge, unattended",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "close out PR 281 by squash-merging it",
-      "note": "'close out ... squash-merge'",
+      "query": "burn down the backlog",
+      "note": "bare canonical phrasing",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "finish landing PR 281 \u2014 fix the red CI and merge it",
-      "note": "'finish landing ... fix red CI'",
+      "query": "clear the open issues without me babysitting it, keep four in flight",
+      "note": "unattended + a concurrency target",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "get 281 in",
-      "note": "loose 'get N in'",
-      "should_trigger": true,
-      "trigger_rate": 0.6666666666666666,
-      "triggers": 2,
-      "runs": 3,
-      "fired": {
-        "merge-pr": 2,
-        "(none)": 1
-      },
-      "pass": true
-    },
-    {
-      "query": "land #281",
-      "note": "'land #N'",
+      "query": "implement issues small first then medium with 3 agents",
+      "note": "the canonical phrasing \u2014 ordering + a worker count",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "land PR 281: resolve its conflicts with main as part of merging it now",
-      "note": "land-now conflict sync (boundary, \u2192 merge-pr)",
+      "query": "keep 3 agents continuously implementing and merging issues",
+      "note": "steady-state fleet: N in flight, each through the whole lifecycle",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "merge 281 and tear down its branch afterward",
-      "note": "'merge ... tear down branch'",
+      "query": "lance la boucle auto-dev et previens-moi quand c'est fini",
+      "note": "FR \u2014 names the loop, unattended",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "merge PR 281",
-      "note": "'merge PR N'",
+      "query": "run the auto-dev loop",
+      "note": "names the loop",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "ship this PR: https://github.com/Atypical-Consulting/Koine/pull/300",
-      "note": "bare PR link + 'ship'",
+      "query": "spin up a fleet of agents to clear the open issues",
+      "note": "'fleet of agents'",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "wrap up PR 281 and open follow-ups for the deferred bits",
-      "note": "'wrap up ... open follow-ups'",
+      "query": "take the backlog from twenty issues to zero, parallel workers, merge as you go",
+      "note": "many issues, whole lifecycle, parallel",
       "should_trigger": true,
       "trigger_rate": 1.0,
       "triggers": 3,
       "runs": 3,
       "fired": {
-        "merge-pr": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "build the feature from issue 129 and open the PR",
-      "note": "\u2192 implement-issue",
-      "should_trigger": false,
-      "trigger_rate": 0.0,
-      "triggers": 0,
+      "query": "vide le backlog avec 3 agents",
+      "note": "FR \u2014 'vide le backlog' + worker count",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
       "runs": 3,
       "fired": {
-        "implement-issue": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "file an issue to track a parser bug",
-      "note": "\u2192 create-issue",
-      "should_trigger": false,
-      "trigger_rate": 0.0,
-      "triggers": 0,
+      "query": "work through the open issues hands-off, a few in parallel",
+      "note": "no keyword \u2014 hands-off + parallelism over the issue queue",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
       "runs": 3,
       "fired": {
-        "create-issue": 3
+        "auto-dev": 3
       },
       "pass": true
     },
     {
-      "query": "git merge these two branches locally",
-      "note": "a local git operation, no PR",
+      "query": "file an issue for this idea",
+      "note": "\u2192 create-issue (ONE idea)",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
@@ -162,7 +149,7 @@
     },
     {
       "query": "implement issue 47",
-      "note": "\u2192 implement-issue",
+      "note": "\u2192 implement-issue (ONE issue, no fleet)",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
@@ -173,8 +160,8 @@
       "pass": true
     },
     {
-      "query": "merge main into my branch",
-      "note": "syncing a PR still being built \u2192 implement-issue",
+      "query": "list the open issues",
+      "note": "read-only query, nothing is built",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
@@ -185,33 +172,20 @@
       "pass": true
     },
     {
-      "query": "my in-flight PR conflicts with main \u2014 sync it while I keep building the feature",
-      "note": "in-flight sync (boundary, \u2192 implement-issue)",
+      "query": "merge PR 279",
+      "note": "\u2192 merge-pr (ONE PR)",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
       "runs": 3,
       "fired": {
-        "implement-issue": 2,
-        "(none)": 1
+        "merge-pr": 3
       },
       "pass": true
     },
     {
-      "query": "open a PR for issue 47",
-      "note": "\u2192 implement-issue (open, not land)",
-      "should_trigger": false,
-      "trigger_rate": 0.0,
-      "triggers": 0,
-      "runs": 3,
-      "fired": {
-        "implement-issue": 3
-      },
-      "pass": true
-    },
-    {
-      "query": "review PR 281 but don't merge it",
-      "note": "\u2192 review/code-review",
+      "query": "review the open PRs",
+      "note": "\u2192 code-review",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
@@ -222,36 +196,48 @@
       "pass": true
     },
     {
-      "query": "set up the repo profile",
-      "note": "\u2192 profile-repo",
-      "should_trigger": false,
-      "trigger_rate": 0.0,
-      "triggers": 0,
-      "runs": 3,
-      "fired": {
-        "profile-repo": 3
-      },
-      "pass": true
-    },
-    {
-      "query": "what's the squash-merge title convention here?",
-      "note": "doc question \u2014 no lifecycle skill",
+      "query": "run these three test suites in parallel",
+      "note": "parallelism without any issue lifecycle",
       "should_trigger": false,
       "trigger_rate": 0.0,
       "triggers": 0,
       "runs": 3,
       "fired": {
         "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "set up the effort and priority labels this repo is missing",
+      "note": "\u2192 setup-repo (the axis auto-dev sorts on, not the loop itself)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "setup-repo": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "triage the backlog and tell me which ones we should close",
+      "note": "\u2192 triage-backlog (drains by DECIDING, not by building)",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
       },
       "pass": true
     }
   ],
   "summary": {
-    "total": 20,
-    "passed": 20,
+    "total": 19,
+    "passed": 19,
     "failed": 0,
-    "should_trigger": 10,
-    "should_not": 10,
+    "should_trigger": 11,
+    "should_not": 8,
     "recall": 1.0,
     "specificity": 1.0
   }

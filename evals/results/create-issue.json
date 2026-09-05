@@ -7,13 +7,14 @@
       "query": "I have three ideas, please open issues for each with a plan",
       "note": "batch of ideas",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
       "runs": 3,
       "fired": {
-        "create-issue": 3
+        "(none)": 2,
+        "create-issue": 1
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "add an issue for cross-file context-map imports",
@@ -31,37 +32,38 @@
       "query": "capture this for later: cache the wasm bundle per fingerprint",
       "note": "'capture this for later'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.0,
+      "triggers": 0,
       "runs": 3,
       "fired": {
-        "create-issue": 3
+        "(none)": 3
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "create a backlog item to document the glossary emitter",
       "note": "'create a backlog item'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.0,
+      "triggers": 0,
       "runs": 3,
       "fired": {
-        "create-issue": 3
+        "(none)": 3
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "file an issue for adding a Rust code formatter to the CLI",
       "note": "plain 'file an issue'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.3333333333333333,
+      "triggers": 1,
       "runs": 3,
       "fired": {
-        "create-issue": 3
+        "(none)": 2,
+        "create-issue": 1
       },
-      "pass": true
+      "pass": false
     },
     {
       "query": "log a feature request for TypeScript enum emission",
@@ -79,11 +81,12 @@
       "query": "make a ticket for the missing PHP value-object equality",
       "note": "'make a ticket'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "create-issue": 3
+        "(none)": 1,
+        "create-issue": 2
       },
       "pass": true
     },
@@ -103,11 +106,12 @@
       "query": "raise an issue about hover docs missing in the LSP",
       "note": "'raise an issue'",
       "should_trigger": true,
-      "trigger_rate": 1.0,
-      "triggers": 3,
+      "trigger_rate": 0.6666666666666666,
+      "triggers": 2,
       "runs": 3,
       "fired": {
-        "create-issue": 3
+        "create-issue": 2,
+        "(none)": 1
       },
       "pass": true
     },
@@ -136,6 +140,42 @@
       "pass": true
     },
     {
+      "query": "I have an issue with my build, it keeps failing",
+      "note": "'issue' = problem, not a GitHub ticket \u2192 debug-issue",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "close issue 42, it's fixed",
+      "note": "managing an EXISTING issue, not filing one",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "comment on issue 42 that the fix landed",
+      "note": "managing an existing issue",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
       "query": "explain how the ANTLR grammar splits lexer and parser",
       "note": "doc question \u2014 no lifecycle skill",
       "should_trigger": false,
@@ -156,6 +196,30 @@
       "runs": 3,
       "fired": {
         "implement-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "let's brainstorm the design for the new emitter",
+      "note": "standalone brainstorm, no issue to file",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "list the open issues",
+      "note": "read-only \u2014 nothing to file",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
       },
       "pass": true
     },
@@ -221,12 +285,12 @@
     }
   ],
   "summary": {
-    "total": 18,
-    "passed": 18,
-    "failed": 0,
+    "total": 23,
+    "passed": 19,
+    "failed": 4,
     "should_trigger": 11,
-    "should_not": 7,
-    "recall": 1.0,
+    "should_not": 12,
+    "recall": 0.6363636363636364,
     "specificity": 1.0
   }
 }

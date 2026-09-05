@@ -134,9 +134,10 @@ Every decision appends one JSON object to `.claude/decision-events.jsonl` in the
 on (override with `KIT_DECISION_LOG`). Fields: `v`, `ts`, `decision`, `verdict`, `rule`, `program`
 (a hash of the program text, so counts reset when the program changes) and `input_sha256`.
 
-It is written fail-open and is not read by anything yet. It exists because the intended next step is
-a ratchet that only ever turns prose into code, and that ratchet needs measurement rather than
-opinion:
+It is written fail-open. `skills/auto-dev/scripts/decision-tally.sh` (#318) is its one reader — a
+markdown tally `auto-dev` Step 6 pastes into its mandatory `lessons:` block. It exists because the
+intended next step is a ratchet that only ever turns prose into code, and that ratchet needs
+measurement rather than opinion:
 
 - a rule that never fires is dead weight, or a lie — prune it;
 - a rule that fires repeatedly on one cause means the rule upstream of it is wrong — tighten that;

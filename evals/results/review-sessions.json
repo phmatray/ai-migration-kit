@@ -1,0 +1,232 @@
+{
+  "skill_name": "review-sessions",
+  "runs_per_query": 3,
+  "threshold": 0.5,
+  "results": [
+    {
+      "query": "analyse mes sessions pr\u00e9c\u00e9dentes et ouvre une issue pour chaque erreur du kit qui revient",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "learn from the transcripts: the auto-dev fleet on 08-19 lost two workers, harvest the failure signals and cluster them",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "mine the .jsonl transcripts for tick-plan.sh errors and file whatever passes the filing bar",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "qu'est-ce qui a foir\u00e9 dans mes derni\u00e8res sessions avec le kit ? je veux la liste des \u00e9checs, pas des impressions",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "retro on my sessions from last week: which kit skill failed most, and did those failures already get fixed on main?",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "review my previous sessions on this repo and extract every error the kit itself caused \u2014 hook denials, dead workers, guard refusals \u2014 then file the real ones",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "run review-sessions --dry-run since 2026-08-17 so I can see what it would file before it files anything",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "the last three implement-issue sessions all hit the git write-gate \u2014 pull those denials out of the session logs and turn the pattern into an issue",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "what went wrong in my last runs? read the transcripts under ~/.claude/projects for this repo and tell me which kit scripts failed",
+      "note": "",
+      "should_trigger": true,
+      "trigger_rate": 1.0,
+      "triggers": 3,
+      "runs": 3,
+      "fired": {
+        "review-sessions": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "clean up the stale worktree branches from last month's fleet runs",
+      "note": "git hygiene, not transcript review",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "fais le point sur les suivis des repos migr\u00e9s",
+      "note": "migration follow-ups \u2192 review-followups",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "review-followups": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "review PR 399 for correctness and reuse",
+      "note": "code review of a diff \u2192 code-review",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "run usage_report.py on the last fleet run and tell me the token split",
+      "note": "cost accounting, auto-dev's own script",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "summarise what we did in this conversation so far",
+      "note": "the current session, not past transcripts, and no kit-failure lens",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "this test is flaky, find the root cause before fixing it",
+      "note": "one live failure \u2192 debug-issue",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "debug-issue": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "triage the open issues and tell me which ones are already fixed",
+      "note": "the issue queue \u2192 triage-backlog",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "triage-backlog": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "what's still open across the migrated apps' report.json files?",
+      "note": "review-followups",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "review-followups": 3
+      },
+      "pass": true
+    },
+    {
+      "query": "write the lessons block for the auto-dev run that just finished",
+      "note": "auto-dev Step 6's own retro",
+      "should_trigger": false,
+      "trigger_rate": 0.0,
+      "triggers": 0,
+      "runs": 3,
+      "fired": {
+        "(none)": 3
+      },
+      "pass": true
+    }
+  ],
+  "summary": {
+    "total": 18,
+    "passed": 18,
+    "failed": 0,
+    "should_trigger": 9,
+    "should_not": 9,
+    "recall": 1.0,
+    "specificity": 1.0
+  }
+}
