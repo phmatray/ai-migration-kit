@@ -228,6 +228,10 @@ Confirm `gh api user` succeeds and you're in the target repo. **Load the repo pr
 **labels** for ordering, the **area** conventions for conflict-avoidance, commit identity, CI gates).
 You mainly need its *Labels* and *Architecture grain* sections.
 
+**Capture your own toplevel, once, and hold it for the whole session:**
+`SUPERVISOR_TOPLEVEL=$(git rev-parse --show-toplevel)`. Step 3's dispatch-time guard compares every
+worker's first-act report against this value, so it has to exist before the first worker is spawned.
+
 ## Step 2 — Build the work queue
 
 The survey (list issues → check each for a plan → classify effort → drop manual-QA → order small-first)
@@ -361,6 +365,55 @@ enforces area-disjointness across the fleet, and its per-dispatch cost is bounde
 actually turns over, not by the higher-frequency Step 4 reconcile loop (Token economics lever 6 is
 about collapsing *that* loop's queries; it doesn't apply here).
 
+### ⛔ Dispatch-time guard — confirm the worker actually got its own worktree, every time
+
+`isolation: "worktree"` fixes the *default* dispatch (Task 1 above); it does not prove any given
+worker actually received it — a hand-rolled dispatch, a future runtime that lacks the option, or a
+worker started some other way could still land in the supervisor's own tree, invisibly (#412: this is
+exactly the property that broke silently once already). So the property is **verified**, not merely
+assumed — but the supervisor cannot inspect a live background sub-agent's filesystem directly, so the
+**worker** runs the check on itself, as its documented first act, before it edits anything
+(`commands/auto-dev-worker.md` / `commands/auto-dev-merge.md` both carry this instruction). It
+compares its own `git rev-parse --show-toplevel` against `SUPERVISOR_TOPLEVEL` — captured once at
+Step 1 and handed to it as a per-dispatch fact in Step 3's prompt — with the marked decision below,
+run verbatim rather than paraphrased — one home for it, `tests/auto-dev-dispatch/test.sh` extracts
+and runs this exact block:
+
+```bash
+# >>> worker-toplevel guard
+# WORKER_TOPLEVEL — the worker's own first-act `git rev-parse --show-toplevel`.
+# SUPERVISOR_TOPLEVEL — handed to the worker in its dispatch prompt (Step 1 captures it, Step 3 passes it).
+if [ "$WORKER_TOPLEVEL" = "$SUPERVISOR_TOPLEVEL" ]; then
+  echo "REFUSE — the worker's toplevel equals the supervisor's; it inherited the shared tree instead of its own"
+  exit 1
+fi
+echo "PROCEED — the worker's toplevel differs from the supervisor's"
+exit 0
+# <<< worker-toplevel guard
+```
+
+If `git rev-parse --show-toplevel` itself fails (not a git directory at all — `isolation: "worktree"`
+had nothing to create there), the worker reports that plainly as its first-act finding rather than
+either crashing or silently treating the failure as PROCEED.
+
+`0` (PROCEED) → the worker continues normally. `1` (REFUSE) → it shares the supervisor's tree — the
+worker **stops before touching any file** and reports `STATUS: BLOCKED` with a `DETAIL:` naming the
+worker-toplevel guard by name (e.g. *"worker-toplevel guard: shares the supervisor's tree — dispatch
+defect, re-dispatch with isolation fixed"*), so the supervisor can tell this apart from a real
+blocker on sight. On seeing that signature, the supervisor **does not let it proceed**: stop that
+sub-agent if it is somehow still running (`TaskStop`), **re-dispatch it correctly** (verify
+`isolation: "worktree"` is actually on the spawn call this time), and log the near-miss in the state
+file. This is a **dispatch defect, never the issue's fault** — do not record it as a BLOCKED issue and
+do not tier-escalate it; the same issue re-dispatched with a working isolation option is expected to
+proceed normally.
+
+**Cleanup nuance for `isolation: "worktree"` trees.** The option only auto-cleans a worktree that
+comes back **unchanged** — a worker that committed anything (every worker that reaches a real task
+does) leaves its tree on disk after it retires. That is not a leak to chase down mid-run: note it
+under the state file's `## Needs manual sweep` section the same way any other leftover worktree/branch
+is tracked (Step 6 already surfaces that section in the final recap), and let the standing housekeeping
+sweep reclaim it rather than special-casing it here.
+
 **Pick each worker's model from its labels** (see Token economics): small/mechanical → cheap, typical
 single-area bug → mid, cross-cutting/hard → top. Pass it explicitly on spawn as the Agent tool's
 `model` parameter — the command files set no tier of their own. Record the chosen tier
@@ -381,14 +434,21 @@ context *is* the saving:
 
 ```text
 # phase 1 — implement up to a ready PR (long-lived sub-agent; context grows to ~250K+)
-Agent(subagent_type: general-purpose, model: <tier>, run in background,
-      prompt: "Invoke `auto-dev-worker` with args `<N>`. Write ONLY the PR number to <state-dir>/pr-<N>.")
+Agent(subagent_type: general-purpose, model: <tier>, run in background, isolation: "worktree",
+      prompt: "Invoke `auto-dev-worker` with args `<N>`. SUPERVISOR_TOPLEVEL=<supervisor's own
+              `git rev-parse --show-toplevel`>. Write ONLY the PR number to <state-dir>/pr-<N>.")
 # …the agent's final line arrives as its report: PHASE1 | ISSUE: <N> | PR: <n> | STATUS: … — then:
 scripts/wait-ci.sh <n>                                  # supervisor-side, backgrounded
 # phase 2 — land it in a FRESH sub-agent (never SendMessage into phase 1)
-Agent(subagent_type: general-purpose, model: <small tier>, run in background,
-      prompt: "Invoke `auto-dev-merge` with args `<n>`. CI IS ALREADY GREEN — VERIFIED: <check table>. You are the retry.")
+Agent(subagent_type: general-purpose, model: <small tier>, run in background, isolation: "worktree",
+      prompt: "Invoke `auto-dev-merge` with args `<n>`. SUPERVISOR_TOPLEVEL=<supervisor's own
+              `git rev-parse --show-toplevel`>. CI IS ALREADY GREEN — VERIFIED: <check table>. You are the retry.")
 ```
+
+`isolation: "worktree"` on **both** spawns, always: a background sub-agent inherits the supervisor's
+cwd rather than getting one of its own, so without it every worker lands in the supervisor's own
+worktree and "one area per concurrent worker" — the entire conflict strategy — silently stops holding
+the moment the supervisor itself runs in one.
 
 The prompt names the command — the `auto-dev-worker` command (skill `ai-migration-kit:auto-dev-worker`,
 or the un-namespaced form the runtime resolves) — and the per-dispatch facts; everything else the
@@ -497,6 +557,12 @@ a check you deliberately want to ignore — setting it to the one check that mat
 false-green past the others.
 
 ## Step 4 — Supervise (the loop)
+
+**A worker-toplevel guard REFUSE (Step 3) is handled the moment it's seen, not folded into the
+per-slot outcomes below.** It fires right after dispatch, before the worker has done anything a
+per-slot outcome could apply to: stop that sub-agent, re-dispatch it correctly (with `isolation:
+"worktree"` actually applied this time), and never record the issue as BLOCKED for it — it is a
+dispatch defect, not something wrong with the issue or the worker's work.
 
 You're woken by a worker's report, an **idle notification**, or your heartbeat. On every wake,
 **reconcile against GitHub** — never trust a worker's silence or even its "done" without checking. Run
@@ -748,6 +814,7 @@ that frees. Hold the line at N unless told otherwise.
 - **A worker idling at "ready" is usually YOUR bug, not its judgement.** If you dispatched phase 2 while CI was still pending, the sub-agent had no winning move — it backgrounded a watch, ended its turn, and returned a deferral. Wait for CI yourself first (`scripts/wait-ci.sh`), then dispatch. Cost five lost workers in one run before it was diagnosed; the fix took merges to 17–55 s. See Step 3.
 - **Don't read a worker's transcript** — it overflows your context. Use its structured report + `gh`.
 - **One area per concurrent worker** — the entire conflict strategy. If the next-queued issue shares an area with an in-flight one, skip down to a disjoint area (note the reorder).
+- **A background sub-agent inherits the supervisor's cwd — it does not get one of its own** (#314, #412). A supervisor running in a worktree that dispatches without Step 3's `isolation: "worktree"` puts every worker in that SAME tree: nothing in `survey.sh` or `reconcile.sh` can see this, because neither queries a worktree or maps a PR back to one — a worker's own good judgement is the only thing that ever caught it. Always pass `isolation: "worktree"` on both spawns (Step 3); a worker that somehow lands without it is refused by the first-act toplevel assertion before it edits anything.
 - **`mergeable=UNKNOWN` is normal right after `main` moves** — GitHub recomputes; it resolves to CLEAN once the branch syncs. Not a blocker.
 - **Retire finished slots** once their PR merges — stop the sub-agent only if it is still running; a returned one is already gone. The fresh replacement starts clean.
 - **File off-scope work unless the carve-out admits it** — a finding that is local to a file the PR already modifies *and* small is fixed inline in its own commit (`commands/auto-dev-worker.md`'s off-scope protocol, from `implement-issue`); anything else is filed, which keeps both the diff and the issue's scope clean (#410).

@@ -520,6 +520,9 @@ jobs:
       - name: Auto-dev cost-budgets golden test (compaction cadence + worker turn budget have one home, #270)
         run: ./tests/auto-dev-cost-budgets/test.sh
 
+      - name: Auto-dev dispatch golden test (workers get their own worktree, not the supervisor's, #412)
+        run: ./tests/auto-dev-dispatch/test.sh
+
       - name: Wait-ci golden test (waits on every gating check via --json, not one hardcoded name, #188)
         run: ./tests/wait-ci/test.sh
 

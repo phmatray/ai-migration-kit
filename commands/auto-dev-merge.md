@@ -11,6 +11,22 @@ clear whatever blocks it (red/flaky checks, conflicts with the default branch, u
 threads), squash-merge, file any follow-ups, and tear down the branch and worktree. Do NOT go idle
 while a merge is still achievable. Only stop for a genuine hard blocker.
 
+**The worktree you were given is the worktree.** You were very likely dispatched with the Agent
+tool's `isolation: "worktree"` option, which already put you in a git worktree of your own before
+this prompt ever ran. Check out PR #$1's branch inside THAT tree; do not call `make-worktree.sh` for
+a second one — nesting is refused. Never touch a path outside the worktree you were given.
+
+**Your first act, before you touch anything else: verify it actually worked.** Run
+`git rev-parse --show-toplevel` and compare it to the `SUPERVISOR_TOPLEVEL` value in this prompt,
+with the `worker-toplevel guard` block in `skills/auto-dev/SKILL.md` Step 3 (`WORKER_TOPLEVEL` =
+your value, `SUPERVISOR_TOPLEVEL` = the prompt's). PROCEED → carry on normally. REFUSE (they match,
+or `git rev-parse` itself fails because this isn't a git directory at all) → **stop before touching
+anything** and your final message is: `ISSUE: <the issue #$1 closes> | PR: $1 | STATUS: BLOCKED |
+DETAIL: worker-toplevel guard: shares the supervisor's tree — dispatch defect, re-dispatch with
+isolation fixed | FILED: none | WORKTREE: untouched | BASE: unverified: never reached`. This is not a
+real
+block on the PR — it says so by name, so the supervisor never tier-escalates over it.
+
 You are starting with a **fresh, nearly empty context** — that is the entire point of this phase (the
 same merge work inside phase 1's context ran at ~247K tokens/turn; here it runs at a fraction of
 that). Protect that advantage:
