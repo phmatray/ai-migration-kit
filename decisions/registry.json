@@ -39,6 +39,7 @@
     "scripts/parse-sweep.sh": "a structural guard (every suite parses under bash 3.2), not a control-flow choice with a verdict vocabulary",
     "scripts/recap-wiring-check.py": "a structural agreement guard (every skill links the shared recap; the hand-off table, the skills and ARCHITECTURE.md's dashed edges name the same pairs); it has no verdict vocabulary of its own to register",
     "scripts/pinned-literals-check.py": "a structural guard in its own declare-or-record style (the precedent R10 mirrors); not a control-flow choice",
+    "scripts/sigpipe-idiom-check.py": "a structural guard (no positive-match grep -q is fed by a streaming producer under pipefail, #391); it flags a shape, not a control-flow choice with a verdict vocabulary",
     "scripts/preflight.sh": "a prerequisite probe, not a control-flow choice",
     "scripts/release-title-diff.sh": "lists changed paths for release-title-gate.sh; a data-extraction helper feeding a decision, not one itself",
     "scripts/release-title-gate.sh": "a structural gate — a title matches the required shape or it does not; no verdict vocabulary to register",

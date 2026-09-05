@@ -180,6 +180,14 @@ jobs:
       - name: Every skill closes with the shared recap, and the hand-off table matches the graph
         run: python3 scripts/recap-wiring-check.py
 
+      # One more of the same family (#391): a positive-match `grep -q` fed by an external streaming
+      # producer (awk's range pattern, `tail -n +N`, a nested `grep`, ...) under `pipefail` reports
+      # its writer's SIGPIPE as the verdict, even though the match succeeded — measured on
+      # tests/survey/test.sh at ~22% of runs. Cheap and structural like its neighbours; its own
+      # golden suite runs below with the others.
+      - name: No positive-match grep -q is fed by a streaming producer under pipefail
+        run: python3 scripts/sigpipe-idiom-check.py
+
       # Ten suites now get their EXIT trap from tests/_lib.sh (#72), so a bug in that handler would
       # silently weaken all of them at once — the `local rc=$?`-first invariant is the difference
       # between a failing suite reporting failure and reporting success. It sits AHEAD of every
@@ -188,6 +196,13 @@ jobs:
       # name the cause still queued behind it.
       - name: Shared test preamble golden test (the rc invariant every suite now leans on)
         run: ./tests/lib/test.sh
+
+      # Golden suite for the gate above (#391): one fixture file per decision the checker makes —
+      # flagged, exempt-because-comment, exempt-because-negated, exempt-because-sigpipe-repro,
+      # exempt-because-builtin-producer, exempt-because-substitution — driven the way
+      # tests/pinned-literals/test.sh drives its checker.
+      - name: sigpipe-idiom-check.py golden test
+        run: ./tests/sigpipe-idiom/test.sh
 
       # Same argument, one file over (#51): tests/_lib/py.sh is now the kit's ONLY importlib
       # loader, sourced by the xunit-v3 and report-dashboard suites, so a regression there weakens
