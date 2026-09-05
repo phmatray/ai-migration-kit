@@ -381,14 +381,19 @@ context *is* the saving:
 
 ```text
 # phase 1 — implement up to a ready PR (long-lived sub-agent; context grows to ~250K+)
-Agent(subagent_type: general-purpose, model: <tier>, run in background,
+Agent(subagent_type: general-purpose, model: <tier>, run in background, isolation: "worktree",
       prompt: "Invoke `auto-dev-worker` with args `<N>`. Write ONLY the PR number to <state-dir>/pr-<N>.")
 # …the agent's final line arrives as its report: PHASE1 | ISSUE: <N> | PR: <n> | STATUS: … — then:
 scripts/wait-ci.sh <n>                                  # supervisor-side, backgrounded
 # phase 2 — land it in a FRESH sub-agent (never SendMessage into phase 1)
-Agent(subagent_type: general-purpose, model: <small tier>, run in background,
+Agent(subagent_type: general-purpose, model: <small tier>, run in background, isolation: "worktree",
       prompt: "Invoke `auto-dev-merge` with args `<n>`. CI IS ALREADY GREEN — VERIFIED: <check table>. You are the retry.")
 ```
+
+`isolation: "worktree"` on **both** spawns, always: a background sub-agent inherits the supervisor's
+cwd (#314 moved workers off one-shot `claude -p` processes, which got their own), so without it every
+worker lands in the supervisor's own worktree and "one area per concurrent worker" — the entire
+conflict strategy — silently stops holding the moment the supervisor itself runs in one.
 
 The prompt names the command — the `auto-dev-worker` command (skill `ai-migration-kit:auto-dev-worker`,
 or the un-namespaced form the runtime resolves) — and the per-dispatch facts; everything else the
@@ -748,6 +753,7 @@ that frees. Hold the line at N unless told otherwise.
 - **A worker idling at "ready" is usually YOUR bug, not its judgement.** If you dispatched phase 2 while CI was still pending, the sub-agent had no winning move — it backgrounded a watch, ended its turn, and returned a deferral. Wait for CI yourself first (`scripts/wait-ci.sh`), then dispatch. Cost five lost workers in one run before it was diagnosed; the fix took merges to 17–55 s. See Step 3.
 - **Don't read a worker's transcript** — it overflows your context. Use its structured report + `gh`.
 - **One area per concurrent worker** — the entire conflict strategy. If the next-queued issue shares an area with an in-flight one, skip down to a disjoint area (note the reorder).
+- **A background sub-agent inherits the supervisor's cwd — it does not get one of its own** (#314, #412). A supervisor running in a worktree that dispatches without Step 3's `isolation: "worktree"` puts every worker in that SAME tree: nothing in `survey.sh` or `reconcile.sh` can see this, because neither queries a worktree or maps a PR back to one — a worker's own good judgement is the only thing that ever caught it. Always pass `isolation: "worktree"` on both spawns (Step 3); a worker that somehow lands without it is refused by the first-act toplevel assertion before it edits anything.
 - **`mergeable=UNKNOWN` is normal right after `main` moves** — GitHub recomputes; it resolves to CLEAN once the branch syncs. Not a blocker.
 - **Retire finished slots** once their PR merges — stop the sub-agent only if it is still running; a returned one is already gone. The fresh replacement starts clean.
 - **File off-scope work unless the carve-out admits it** — a finding that is local to a file the PR already modifies *and* small is fixed inline in its own commit (`commands/auto-dev-worker.md`'s off-scope protocol, from `implement-issue`); anything else is filed, which keeps both the diff and the issue's scope clean (#410).
