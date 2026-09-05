@@ -80,26 +80,28 @@ case "$cmd" in *git*) ;; *) exit 0 ;; esac
 # A heredoc body is FILE CONTENT, not commands, and this parser cannot tell the two apart: newlines
 # are folded to `;` below, so `cat > x.sh <<'SH'` … `git commit -m x` … `SH` would be judged as a
 # real commit and denied — blocking the writing of any script, doc or test whose text contains one
-# of these lines, which this repository's own suites do. A parse it cannot trust is fail-open (the
-# same rule the unterminated-quote branch below follows), so the BODY is discarded outright. But the
-# line that OPENS the heredoc is not the body — it is ordinary, parseable shell sitting before the
-# `<<`, and it is exactly where a destructive git write lives when the message or ref list is spelled
-# as a heredoc (`git commit -F - <<'MSG'`, the natural long-message form). Discarding the whole
-# command, opener included, let that write launder straight past the gate (#440): two real commits
-# landed unguarded in the session that found it, denied correctly the one time `-m` was used instead.
-# So the command is truncated at the first `<<` and only the discarded TAIL is ever unparsed — the
-# opener is judged exactly as it would be with no heredoc at all. `${cmd%%<<*}` cuts at the first `<<`
-# (a second heredoc later on the same line sits inside the discarded tail and cannot resurrect the
-# problem), and it runs BEFORE the quote/comment stripping below, so an unterminated quote inside the
-# discarded body can never make the awk stripper fail and re-trigger the fail-open path on its own.
-# `<<<` (here-string) is a prefix of `<<` and is truncated the same way — a behaviour change from
-# letting it through whole, and the correct one: `git push <<< x` is a push. A command that is only a
-# heredoc opener (`cat <<X`) truncates to `cat `, which carries no `git` token and exits at the cheap
-# reject above. The residual gap: a SECOND command sharing the line after the heredoc's terminator is
-# still never judged — strictly no worse than today, and the trigger for a real heredoc parser
-# (tracking the terminator, excising just the body) if that tail is ever seen carrying a write.
-case "$cmd" in *'<<'*) cmd="${cmd%%<<*}" ;; esac
-
+# of these lines, which this repository's own suites do. So everything from an unquoted `<<` onward
+# is discarded — but the line that OPENS the heredoc is not the body, it is ordinary, parseable shell
+# sitting before the `<<`, and it is exactly where a destructive git write lives when the message or
+# ref list is spelled as a heredoc (`git commit -F - <<'MSG'`, the natural long-message form).
+# Discarding the whole command, opener included, let that write launder straight past the gate
+# (#440): two real commits landed unguarded in the session that found it.
+#
+# This has to be QUOTE-AWARE, not a blind `${cmd%%<<*}` on the raw string: `<<` is common, unremarkable
+# TEXT inside a real argument — a commit message quoting a diff marker, a doc string — and truncating
+# on the first occurrence wherever it sits can cut a quote in half, leaving the KEPT prefix with an
+# unterminated quote; the awk stripper below then exits 3 on that and `|| exit 0` fails the whole hook
+# open, laundering a real trailing `git push --force` exactly like #440 did. So the cut is folded into
+# the SAME character-by-character scan that already tracks quote state for the stripper below (`q`):
+# an unquoted `<<` breaks the scan right there and everything after it is simply never appended to
+# `out`, while `<<` seen with `q != ""` is ordinary quoted content and changes nothing. `<<<`
+# (here-string) is a prefix of `<<` and is truncated the same way. A command that is only a heredoc
+# opener (`cat <<X`) truncates to `cat `, which carries no `git` token and exits at the cheap reject
+# above. Two residual gaps this does not close, both strictly no worse than before #440's fix: a
+# SECOND command sharing the line after the heredoc's terminator is still never judged, and `<<` as
+# bash's arithmetic left-shift (`$((1<<2))`) is indistinguishable from a heredoc to this scan and cuts
+# there too — a real shell tokenizer is the fix for either, and not worth it for a gate whose declared
+# direction is fail-open (ADR 0002).
 cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null) || exit 0
 
 # ------------------------------------------------------------------- strip quotes and comments
@@ -138,6 +140,7 @@ BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92) }
   while (i <= n) {
     c = substr($0, i, 1)
     if (q == "") {
+      if (c == "<" && substr($0, i+1, 1) == "<") { break }
       if (c == bs)            { out = out " "; prev = " "; i += 2; continue }
       if (c == sq || c == dq) { q = c; out = out "@Q@"; prev = "Q"; i++; continue }
       if (c == "#" && (prev == " " || prev == ";" || prev == "|" || prev == "&")) {
