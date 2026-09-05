@@ -101,15 +101,20 @@ how; a reference to a type, function or file no task defines.
 
 **Pick one Conventional Commits type and use it consistently in both the Global Constraints
 preamble's example and every task's final commit-message step — never default either to `docs:`
-merely because the plan's diff reads like prose.** Check the Spec's **scope/non-goals** first: only
-when *every* touched path is genuinely non-shipped (`docs/`, `.github/`, `README.md`,
-`ARCHITECTURE.md`, …) is `docs:`/`ci:` correct. Otherwise — the plan touches anything inside a shipped
-directory (`skills/`, `scripts/`, `commands/`, `templates/`, `hooks/`, `requirements.json`) — derive
-the type from the issue's own `type` label instead, the same way the repo profile's *PR title
-convention* already does: `bug`→`fix`, `enhancement`→`feat`. `scripts/release-title-gate.sh`
+merely because the plan's diff reads like prose.** Build a candidate type from the plan's own
+**Files** lines the same way as today (`docs:`/`ci:` when the plan reads purely as prose/CI
+plumbing), then **dry-run the real gate against those paths** before writing the candidate into the
+plan's examples:
+`scripts/release-title-gate.sh "<candidate-type>(<scope>): <subject> (#<issue>)" <the plan's Files paths>`.
+No real PR/branch exists yet at plan-authoring time, so a refusal here only means the *example* is
+wrong — but a wrong example is what `implement-issue` inherits verbatim if the plan doesn't say
+otherwise. On exit 1, fall back to the issue's own `type` label instead (`bug`→`fix`,
+`enhancement`→`feat`), the same way the repo profile's *PR title convention* already does — never by
+hand-classifying paths against a memorized non-shipped list, which has already drifted from the
+gate's actual `NON_SHIPPED`/`SHIPPED_ANYWAY` rules twice (#233, #245, #258). `scripts/release-title-gate.sh`
 refuses a non-releasable type on a shipped path regardless of how prose-like the diff looks, and
-that check runs the moment the PR is opened — a `docs:` example baked into the plan becomes a red
-check on the PR almost immediately, not a late-stage surprise.
+that check runs the moment the real PR is opened — so getting the plan's example right here saves a
+red check almost immediately, not a late-stage surprise.
 
 ## Self-review
 
