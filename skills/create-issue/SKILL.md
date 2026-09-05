@@ -79,6 +79,15 @@ Parse these from the request as prose — the skill reads its own arguments, the
 `triage-backlog` reads `--dry-run`; there is no argument-parser script. Anything on the line that is
 not one of these flags is idea text.
 
+**A flag is a standalone token at the start or the end of the request, separated by whitespace,
+never a word inside the idea's own sentence.** `--grill add X` and `add X --grill` pass the flag;
+`add a --grill mode to X` does not — that `--grill` is idea text, because it sits inside the
+sentence rather than at either edge. Same test for `--seed`: a bare `--seed` with no `#N` token in
+that position is not a seed either. This is what keeps an unattended caller (`merge-pr` Step 6, the
+`auto-dev` workers, `deliver-issue`) from misreading an idea that happens to quote a flag's spelling
+in its own prose — "let triage-backlog accept `--grill` the way create-issue does" carries no flag;
+"like `--seed #40`" carries no flag either, since `--seed` there is not at an edge.
+
 The two compose: `--seed #N --grill` puts the decisions #N leaves open to the user first, then seeds
 #N with the answers fixed. `--force` is meaningless without `--seed` — say so and carry on rather than
 stopping.
@@ -126,7 +135,9 @@ A raw issue — filed from the GitHub UI, by a bot, or by hand — carries no br
 past the ceiling before the plan check is even reached. Both buckets appear in the survey's `SEED`
 row, which is why that row counts `plan=false` in *any* bucket.) `--seed #N` is that
 promotion: the *existing* issue is the idea, and Steps 3–7 run against it in place. Nothing is filed;
-`gh issue create` is never called on this path.
+`gh issue create` is never called on this path. This branch only runs when `--seed` itself was a
+standalone token at an edge of the request (*Inputs*, above) — `#40` quoted inside an idea's own
+sentence seeds nothing.
 
 Fetch it and decide whether to proceed **before** any other work — a refusal after the plan is written
 has wasted the run:
@@ -341,7 +352,9 @@ contradiction is a finding the owner sees, never a silent override, and every ci
 `**Related:**` line (Step 7).
 
 **If `--grill` was passed, the round goes between the two halves of this step: brainstorm → grill →
-Spec.** Not before the brainstorm — [`../_shared/grilling.md`](../_shared/grilling.md) defines the
+Spec.** "Passed" means a standalone token at an edge of the request (*Inputs*, above) — an idea whose
+own sentence happens to quote `--grill` never opens a round. Not before the brainstorm —
+[`../_shared/grilling.md`](../_shared/grilling.md) defines the
 frontier by *exclusion* against what the brainstorm already settles ("a decision the evidence already
 makes is not on the frontier"; "state it as a finding in the brainstorm"), and neither filter can be
 applied to a brainstorm that does not exist yet. So write the 🧠 Brainstorm first, then apply the
