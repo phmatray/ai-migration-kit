@@ -162,6 +162,9 @@ BASE=<baseRefName from Step 1>     # NOT assumed to be main — plenty of repos 
 The ignore check above is a **precondition of this block**, not part of it: it has already run by the
 time `$WORKTREE` has a value, which is why its recipe never asks for one.
 
+If a guard call at `$GUARDS` is refused (an agent confined to this worktree, `$GUARDS` resolving
+outside it), see the fallback in [`../_shared/guard-invocation.md`](../_shared/guard-invocation.md).
+
 Record them at whichever point the worktree appears: this step skips creation when the PR looks
 `CLEAN`, and Step 4 then creates one only if corrections turn out to be needed. Reaching a guarded
 command with these unset is not a soft failure — `"$GUARDS/guarded-commit.sh"` expands to

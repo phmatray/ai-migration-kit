@@ -301,6 +301,10 @@ GUARDS=<this skill's own scripts/ directory>   # skills/implement-issue/scripts,
 "$GUARDS/make-worktree.sh" -C <anywhere-in-the-repo> "$BRANCH"
 ```
 
+If a *later* call at this same `$GUARDS` path is refused (Steps 5–9, once you're inside the
+worktree — not this `make-worktree.sh` call, which runs before the worktree exists), see the
+fallback in [`_shared/guard-invocation.md`](../_shared/guard-invocation.md).
+
 `0` → stdout carries, in this order, `WORKTREE=<absolute path>` and `BRANCH=<branch>`; read them and
 record the two names every later step needs. `2` → REFUSED, printed on stderr — most often the
 ignore-check's `1` (a worktree home is not ignored: the message names the exact `.gitignore` line to
