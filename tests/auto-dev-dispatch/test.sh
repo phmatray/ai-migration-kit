@@ -11,8 +11,10 @@
 # This suite pins the textual invariants that fix it, one per plan task:
 #   1. Step 3's dispatch form (both the phase-1 and phase-2 spawn blocks) carries the Agent tool's
 #      `isolation: "worktree"` option, and *Gotchas* names the cwd-inheritance hazard.
+#   2. commands/auto-dev-worker.md and commands/auto-dev-merge.md each state that the given
+#      worktree IS the worktree — no nesting another one, no touching a path outside it.
 #
-# Reads only files under skills/auto-dev/ — never samples/ — so no kit_guard is needed.
+# Reads only files under commands/ and skills/auto-dev/ — never samples/ — so no kit_guard is needed.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 KIT="$PWD"
@@ -24,7 +26,11 @@ kit_init "$KIT"
 fail() { echo "FAIL: $1"; exit 1; }
 
 SKILL_MD="$KIT/skills/auto-dev/SKILL.md"
+WORKER_MD="$KIT/commands/auto-dev-worker.md"
+MERGE_MD="$KIT/commands/auto-dev-merge.md"
 [ -f "$SKILL_MD" ] || fail "missing $SKILL_MD"
+[ -f "$WORKER_MD" ] || fail "missing $WORKER_MD"
+[ -f "$MERGE_MD" ] || fail "missing $MERGE_MD"
 
 # --- Task 1: isolation: "worktree" on BOTH spawn blocks in Step 3 -----------------------------
 #
@@ -48,5 +54,15 @@ printf '%s\n' "$GOTCHAS" | grep -qi "inherit" \
   || fail "Gotchas does not name the cwd-inheritance hazard (#412)"
 printf '%s\n' "$GOTCHAS" | grep -qi "cwd\|working directory" \
   || fail "Gotchas does not mention the supervisor's cwd/working directory being inherited"
+
+# --- Task 2: the worker commands say the given worktree IS the worktree ----------------------
+for f in "$WORKER_MD" "$MERGE_MD"; do
+  grep -qi "worktree you were given\|given worktree" "$f" \
+    || fail "$f does not state that the given worktree is the one to work in"
+  grep -qi "make-worktree\.sh" "$f" \
+    || fail "$f does not warn against calling make-worktree.sh for another worktree"
+  grep -qi "never touch\|do not touch\|outside your own\|outside its own\|outside the worktree" "$f" \
+    || fail "$f does not forbid touching a path outside its own worktree"
+done
 
 echo "PASS: auto-dev-dispatch"

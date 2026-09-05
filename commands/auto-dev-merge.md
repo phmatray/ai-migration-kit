@@ -11,6 +11,11 @@ clear whatever blocks it (red/flaky checks, conflicts with the default branch, u
 threads), squash-merge, file any follow-ups, and tear down the branch and worktree. Do NOT go idle
 while a merge is still achievable. Only stop for a genuine hard blocker.
 
+**The worktree you were given is the worktree.** You were very likely dispatched with the Agent
+tool's `isolation: "worktree"` option, which already put you in a git worktree of your own before
+this prompt ever ran. Check out PR #$1's branch inside THAT tree; do not call `make-worktree.sh` for
+a second one — nesting is refused. Never touch a path outside the worktree you were given.
+
 You are starting with a **fresh, nearly empty context** — that is the entire point of this phase (the
 same merge work inside phase 1's context ran at ~247K tokens/turn; here it runs at a fraction of
 that). Protect that advantage:

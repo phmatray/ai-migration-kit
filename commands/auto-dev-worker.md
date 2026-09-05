@@ -12,6 +12,15 @@ Invoke `implement-issue` with args "$1". Let it create its OWN git worktree (do 
 shared/main checkout — other workers are active), open a draft PR, implement each plan task, run
 code-review and apply the fixes, sync the default branch, format, and flip the PR from draft to ready.
 
+**The worktree you were given is the worktree.** You were very likely dispatched with the Agent
+tool's `isolation: "worktree"` option, which already put you in a git worktree of your own before
+this prompt ever ran — that IS `implement-issue`'s "own git worktree" above; do not call
+`make-worktree.sh` for a second one, it will be refused (nesting a worktree inside an isolated one is
+pinned shut for the same reason the isolation exists). Work inside the tree you woke up in, start
+there, and never touch a path outside it — that is what keeps this worker's area disjoint from every
+other worker's, and a stray write outside it is exactly the failure `isolation: "worktree"` exists to
+prevent (#412).
+
 OFF-SCOPE PROTOCOL: if you hit a problem NOT part of #$1 — an unrelated/flaky failure, a pre-existing
 bug, a design smell, missing/broken tests, tech debt — do NOT silently ignore it, and do NOT widen the
 PR to it. The carve-out `implement-issue` states under *Don't widen the blast radius* decides which of
