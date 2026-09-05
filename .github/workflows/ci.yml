@@ -508,6 +508,9 @@ jobs:
       - name: Git write-gate golden test (fail-open Bash gate, every deny AND every allow)
         run: ./tests/git-gate/test.sh
 
+      - name: Routing-context golden test (SessionStart hook, extracts CLAUDE.md's routing table, #416)
+        run: ./tests/routing-context/test.sh
+
       - name: Auto-dev never-wait golden test (worker prompt + recovery clause pinned)
         run: ./tests/auto-dev-never-wait/test.sh
 
@@ -519,6 +522,9 @@ jobs:
 
       - name: Auto-dev cost-budgets golden test (compaction cadence + worker turn budget have one home, #270)
         run: ./tests/auto-dev-cost-budgets/test.sh
+
+      - name: Auto-dev dispatch golden test (workers get their own worktree, not the supervisor's, #412)
+        run: ./tests/auto-dev-dispatch/test.sh
 
       - name: Wait-ci golden test (waits on every gating check via --json, not one hardcoded name, #188)
         run: ./tests/wait-ci/test.sh

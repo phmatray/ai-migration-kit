@@ -27,6 +27,7 @@
   "not_decisions": {
     "hooks/git-write-gate.sh": "a fail-open allow/deny wrapper on one Bash tool call \u2014 it enforces the guard convention (#26, #280), the same class as the guarded-*.sh scripts it routes to; not a control-flow choice with a registered verdict vocabulary",
     "hooks/roseline-gate.sh": "a fail-open allow/deny gate on one Read tool call \u2014 every path that is not 'deny this .cs Read' exits 0 silently (docs/adr/0002), and the deny travels as a PreToolUse permissionDecision, which is not a verdict source decide.sh dispatches; the same class as hooks/git-write-gate.sh, which is modelled on it line for line (#307, #353)",
+    "hooks/routing-context.sh": "a SessionStart hook that emits context, nothing else \u2014 it extracts .claude/CLAUDE.md's routing section and prints it as additionalContext; every non-print path exits 0 silently (docs/adr/0002, inherited verbatim, no second record), there is no deny path and no verdict vocabulary, so there is nothing here for decide.sh to dispatch (#416)",
     "scripts/audit-inventory.sh": "a read-only structural inventory probe of a .NET repo, not a control-flow choice",
     "scripts/ci-wiring-check.py": "a structural completeness guard (every suite is CI-wired); it has no verdict vocabulary of its own to register",
     "scripts/contrast-check.py": "a WCAG contrast-ratio calculator, not a control-flow choice",

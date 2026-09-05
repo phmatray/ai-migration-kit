@@ -174,6 +174,22 @@ not denied. Prior art: `git-guardrails-claude-code/scripts/block-dangerous-git.s
 [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) — the idea, deliberately not the
 script; [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh)'s header records the four reasons.
 
+### The kit's skill-routing table travels via a SessionStart hook
+
+[`hooks/routing-context.sh`](hooks/routing-context.sh) is the third shipped hook, on `SessionStart`
+rather than `PreToolUse`: it extracts `.claude/CLAUDE.md`'s *Which kit skill, for what* section and
+injects it as `additionalContext`, so the routing table reaches a session even when the working
+directory is not this repository (`.claude/CLAUDE.md` is a project instruction file Claude Code only
+reads here, #416). There is no second copy of the table — a heading rename or removal in
+`.claude/CLAUDE.md` empties the extraction rather than reading stale.
+
+- **Fails open, always** — no `jq`, no `CLAUDE_PLUGIN_ROOT`, an unreadable `.claude/CLAUDE.md`, or an
+  empty extraction, and the hook prints nothing and exits 0; it never blocks anything (it has no deny
+  path to begin with).
+- **`ROUTING_CONTEXT=off`** (also `0|false|no|disabled`) disables it outright — set where Claude is
+  launched, the same as `GIT_GATE`/`ROSELINE_GATE`. There is no `=on` counterpart: unlike the two
+  gates above, there is no probe here for a declaration to override.
+
 ### AdrMcp is shipped too — recommended, not enforced
 
 The kit's own architectural decisions live under [`docs/adr/`](docs/adr/README.md) as MADR 4.0
