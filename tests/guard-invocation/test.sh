@@ -48,7 +48,7 @@ grep -qi -- 'make-worktree\.sh' "$DOC" \
 # a pointer to the shared fallback doc, so the next skill that adds a guarded call site cannot
 # forget it silently. This mirrors ci-wiring-check.py's own reasoning: a missing pointer looks
 # exactly like a skill that already covers the case.
-CONTEXT_LINES=6
+CONTEXT_LINES=10
 while IFS=: read -r file line _; do
   [ "$file" = "$DOC" ] && continue
   end=$((line + CONTEXT_LINES))

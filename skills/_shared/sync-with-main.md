@@ -30,6 +30,9 @@ GUARDS=<the kit's skills/implement-issue/scripts directory>
 BASE=<the branch to sync FROM>                     # implement-issue: main · merge-pr: baseRefName
 ```
 
+If a guard call at `$GUARDS` is refused (an agent confined to `$WORKTREE`, `$GUARDS` resolving
+outside it), see the fallback in [`guard-invocation.md`](./guard-invocation.md).
+
 ⚠️ **`$BASE` is not always `main`.** `implement-issue` branches off `main` and syncs from it, but
 `merge-pr` captures `baseRefName` in its Step 1 precisely because a PR's base is only *normally*
 `main` — plenty of repos default to `dev`, and release branches exist. Hardcoding `origin/main` here
