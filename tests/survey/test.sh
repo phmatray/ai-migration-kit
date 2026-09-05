@@ -1015,8 +1015,8 @@ echo "ok: frontier — the plain-array shape of the same fields is read identica
 # Three ways the frontier could silently let a blocked issue through, each of which reads as "no
 # edges" if you only look at the numbers you can see:
 #
-#   * a blocker OUTSIDE a bounded `--limit` window (pre-#367; survey.sh now uses `--paginate`, see
-#     case 14 below). Open-set membership alone cannot tell it from a closed one, and guessing
+#   * a blocker OUTSIDE a bounded `--limit` window (pre-#367; survey.sh now uses a generous
+#     `--limit`, see case 14 below). Open-set membership alone cannot tell it from a closed one, and guessing
 #     "closed" dispatches its blockee. The connection nodes carry each linked issue's own `state`,
 #     so that is read first and membership is only the fallback.
 #   * a TRUNCATED connection — `totalCount` larger than the `nodes` actually listed. The withheld
@@ -1163,17 +1163,21 @@ grep -q 'GH_TOKEN' "$O13B.err" || {
   echo "FAIL: gh's own error was swallowed instead of surfaced"; cat "$O13B.err"; exit 1; }
 echo "ok: gh-no-dep-fields — an unrelated gh failure surfaces as itself, not as a missing field"
 
-# --------------------------------- 14. a body-line blocker beyond the fetch window (#367)
+# --------------------------------- 14. a body-line blocker beyond the fetch window (#367, #452)
 #
 # `bodyblockers`' only signal for a bare `#n` ref is membership in `$open` — the array `gh issue
-# list` returned. Before this fix that call was `--limit 300`, a single bounded page; if the repo's
-# open-issue count exceeded it, an OPEN blocker sitting past the cut stayed invisible to `$open` and
-# its blockee read as unblocked. `--paginate` walks every page instead, so `$open` is always the
-# full open set. The stub below simulates a bounded window at a SMALL size (2 rows) rather than the
-# real 300, so this runs fast without a 300-row fixture: it serves the whole fixture when survey.sh
-# passes `--paginate`, and only the first 2 rows when it passes a bounded `--limit` instead — proving
-# the fix by the flag survey.sh actually sends, not by re-deriving the bug from scratch.
-W14="$WORK/paginate-window"
+# list` returned. Before #367 that call was `--limit 300`, a single small bounded page; if the
+# repo's open-issue count exceeded it, an OPEN blocker sitting past the cut stayed invisible to
+# `$open` and its blockee read as unblocked. #367 tried to fix this with `--paginate`, a flag `gh
+# issue list` does not support (#452); the real fix is a generously large `--limit` — see
+# $GH_LIST_LIMIT in survey.sh — which `gh issue list` pages through internally, so `$open` is still
+# the full open set for any realistic backlog. The stub below simulates a bounded window at a SMALL
+# size (2 rows) rather than the real 300, so this runs fast without a 300-row fixture: it serves the
+# whole fixture when survey.sh passes a generous `--limit`, and only the first 2 rows when it passes
+# a small one instead — proving the fix by the flag value survey.sh actually sends, not by
+# re-deriving the bug from scratch. A regression back to a small `--limit` (like the pre-#367
+# `--limit 300`) fails this case exactly the way the original bug did.
+W14="$WORK/limit-window"
 mkdir -p "$W14/.github" "$W14/bin"
 cat > "$W14/.github/repo-setup.yml" <<'YML'
 labels:
@@ -1185,13 +1189,19 @@ cat > "$W14/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "issue" ] && [ "${2:-}" = "list" ]; then
   [ -n "${GH_ISSUES_FIXTURE:-}" ] || { echo "GH_ISSUES_FIXTURE not set" >&2; exit 1; }
-  paginate=0
-  for a in "$@"; do [ "$a" = "--paginate" ] && paginate=1; done
-  if [ "$paginate" = 1 ]; then
+  limit=0
+  prev=""
+  for a in "$@"; do
+    [ "$prev" = "--limit" ] && limit="$a"
+    prev="$a"
+  done
+  # 1000 is the dividing line between "generous" (the real fix uses 10000) and a small bound like
+  # the pre-#367 300 — anything at or above it serves the full fixture, proving no truncation.
+  if [ "$limit" -ge 1000 ] 2>/dev/null; then
     cat "$GH_ISSUES_FIXTURE"
   else
-    # A bounded window, simulated small: the first 2 rows only, regardless of the --limit value
-    # actually requested — this is what proves the truncation bug without a 300-row fixture.
+    # A bounded window, simulated small: the first 2 rows only — this is what proves the
+    # truncation bug without a 300-row fixture, for any --limit below the generous threshold.
     jq -c '.[0:2]' "$GH_ISSUES_FIXTURE"
   fi
   exit 0
@@ -1201,7 +1211,7 @@ exit 1
 STUB
 chmod +x "$W14/bin/gh"
 
-F14="$WORK/paginate-window-issues.json"
+F14="$WORK/limit-window-issues.json"
 cat > "$F14" <<JSON
 [
  {"number":40,"title":"Filler ahead of the blocker","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}","comments":[]},
@@ -1209,14 +1219,14 @@ cat > "$F14" <<JSON
  {"number":42,"title":"The still-open blocker, past the window","labels":[{"name":"effort: small"}],"body":"${PLAN_BODY}","comments":[]}
 ]
 JSON
-O14="$WORK/paginate-window.out"
+O14="$WORK/limit-window.out"
 ( cd "$W14" && env PATH="$W14/bin:$PATH" GH_ISSUES_FIXTURE="$F14" bash "$SURVEY" ) \
-  > "$O14" 2>"$O14.err" || { echo "FAIL: survey.sh exited $? on the paginate-window fixture"; cat "$O14.err"; exit 1; }
+  > "$O14" 2>"$O14.err" || { echo "FAIL: survey.sh exited $? on the limit-window fixture"; cat "$O14.err"; exit 1; }
 
 assert_bucket QUEUE 40 "$O14"; assert_deps -                40 "$O14"
 assert_bucket HOLD  41 "$O14"; assert_deps "blocked_by=#42" 41 "$O14"
 assert_bucket QUEUE 42 "$O14"; assert_deps "blocking=#41"   42 "$O14"
-echo "ok: paginate-window — a body-line blocker past a bounded gh issue list window still resolves as open (#367)"
+echo "ok: limit-window — a body-line blocker past a bounded gh issue list window still resolves as open (#367, #452)"
 
 # ------------------------------------------------- 12d. SKILL.md documents the column it now prints
 #
