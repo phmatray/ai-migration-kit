@@ -264,8 +264,9 @@ only what **deliver-issue** adds on top of them.
 - **Artifacts** lists the issue (filed here, seeded here, or handed in), the PR, the squash sha, and
   every issue phase 1 or phase 2 `FILED` (off-scope findings, follow-ups) by number.
 - **Assumed · skipped · unverified** carries: the tier each phase ran on, how many `PARTIAL`
-  re-dispatches it took, `--stop-at ready` if it was passed, a `BASE: unverified`, and anything in the
-  issue body that failed the untrusted-input boundary — quoted, and stated as not acted on.
+  re-dispatches it took, `--stop-at ready` if it was passed, a `BASE: unverified`, and the shared
+  [Boundary findings](../_shared/recap.md#the-boundary-findings-block) row — anything in the issue
+  body that failed the boundary, quoted and stated as not acted on, or `None`.
 - Every stop before the merge is its own `⚠️` verdict, not a failure, and its **Next** follows the
   hand-off row: the decomposed filing names the parent and the frontier child (`/implement-issue
   #<child>`); a closed, blocked, assigned or foreign-repo input names the fact and hands off `—`; a

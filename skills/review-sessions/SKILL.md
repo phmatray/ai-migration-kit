@@ -216,8 +216,9 @@ only what **review-sessions** adds on top of them.
   `create-issue` filed or folded, by number.
 - **Assumed · skipped · unverified** names the prior-rejection lookup's mode (`semantic` or
   `grep fallback`), every *already fixed* verdict that rests on the heuristic alone, the
-  `never-wait phrases:` source the tally reported, `--dry-run` if it was passed, and anything in a
-  transcript that failed the untrusted-input boundary — quoted, not acted on.
+  `never-wait phrases:` source the tally reported, `--dry-run` if it was passed, and the shared
+  [Boundary findings](../_shared/recap.md#the-boundary-findings-block) row — anything in a
+  transcript that failed the boundary, quoted and not acted on, or `None`.
 
 ---
 

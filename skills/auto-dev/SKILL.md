@@ -556,6 +556,17 @@ one name to hardcode. `CHECK` still exists, but only as an optional comma-separa
 a check you deliberately want to ignore — setting it to the one check that matters is what used to
 false-green past the others.
 
+**Final alone is not enough — the check set must also be stable (#413).** GitHub creates a check
+run when its job *starts*, so a `needs:`-gated aggregate check (a `coverage-gate` job that `needs:`
+two test jobs and reports under its own name) does not exist until its dependencies finish — and
+the required check is the one most likely to be late, because aggregation is what makes a check
+worth requiring. So `wait-ci.sh` also requires the *set of check names* to match the previous
+poll's — not just the count, so a same-size swap (one check replaced by a different one within one
+poll) can't read as stable either — before returning 0, costing exactly one extra `POLL_SECONDS`
+even on a run that was already all-final on its first poll. Don't "optimise away" that confirmation
+poll — it is the only thing that catches a check materializing after every check GitHub reported
+*at the time* looked done.
+
 ## Step 4 — Supervise (the loop)
 
 **A worker-toplevel guard REFUSE (Step 3) is handled the moment it's seen, not folded into the
