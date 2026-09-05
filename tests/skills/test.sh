@@ -424,10 +424,10 @@ echo "check-frontmatter golden test: all cases behaved as specified"
 # boundary was ever read.
 echo "== every declaring shared reference must stay linked, in both directions (#266, #269) =="
 
-# run_boundary_case <label> <expect: pass|fail> <expected marker> <forbidden marker|""> <mutator>
+# run_shared_refs_case <label> <expect: pass|fail> <expected marker> <forbidden marker|""> <mutator>
 # Same shape as run_case: restore skills/ from $PRISTINE, mutate, run the checker over $ROOT.
 # tests/ is NOT restored between cases — only skills/ is mutated, exactly as above.
-run_boundary_case() {
+run_shared_refs_case() {
   local label="$1" expect="$2" marker="$3" forbidden="$4" mutator="$5"
   rm -rf "$ROOT/skills"
   cp -R "$PRISTINE/skills" "$ROOT/"
@@ -464,7 +464,7 @@ run_boundary_case() {
   fi
 }
 
-run_boundary_case "B1 consumer stops linking it      " fail "MISSING LINK:" "" '
+run_shared_refs_case "B1 consumer stops linking it      " fail "MISSING LINK:" "" '
 import pathlib, sys
 p = pathlib.Path(sys.argv[1]) / "skills/merge-pr/SKILL.md"
 t = p.read_text(encoding="utf-8")
@@ -474,7 +474,7 @@ t = t.replace("](../_shared/untrusted-input-boundary.md)", "](../_shared/precond
 p.write_text(t, encoding="utf-8")
 '
 
-run_boundary_case "B2 listed consumer disappears     " fail "NO SUCH CONSUMER:" "" '
+run_shared_refs_case "B2 listed consumer disappears     " fail "NO SUCH CONSUMER:" "" '
 import pathlib, sys
 p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
 t = p.read_text(encoding="utf-8")
@@ -482,7 +482,7 @@ t = t.replace("- `skills/create-issue/SKILL.md`", "- `skills/create-issue/SKILL-
 p.write_text(t, encoding="utf-8")
 '
 
-run_boundary_case "B3 a file links it unlisted       " fail "UNLISTED LINKER:" "" '
+run_shared_refs_case "B3 a file links it unlisted       " fail "UNLISTED LINKER:" "" '
 import pathlib, sys
 # A THROWAWAY file, deliberately not a real skill: any real one is a plausible next consumer, and
 # a fixture that hard-codes "this file must never be declared" turns red the day someone correctly
@@ -494,7 +494,7 @@ p = pathlib.Path(sys.argv[1]) / "skills/zz-unlisted-fixture.md"
 p.write_text("Read it under [the boundary](./_shared/untrusted-input-boundary.md).\n", encoding="utf-8")
 '
 
-run_boundary_case "B4 a listed link is wrong-depth   " fail "BROKEN LINK:" "" '
+run_shared_refs_case "B4 a listed link is wrong-depth   " fail "BROKEN LINK:" "" '
 import pathlib, sys
 # The regression a substring test cannot see: every character of a correct link is present, and it
 # resolves to skills/migrate-legacy/_shared/… — a path that does not exist. The reminder reads
@@ -512,7 +512,7 @@ p.write_text(t, encoding="utf-8")
 # SKIPPED like any other undeclared one, never refused. That is a deliberate consequence of
 # generalizing the mechanism, not a loosened guard: the design explicitly treats every
 # skills/_shared/*.md document as equally optional-until-declared, the boundary included.
-run_boundary_case "B5 the Consumers section is gone  " pass "" "" '
+run_shared_refs_case "B5 the Consumers section is gone  " pass "" "" '
 import pathlib, re, sys
 p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
 t = p.read_text(encoding="utf-8")
@@ -522,12 +522,12 @@ t = p.read_text(encoding="utf-8")
 p.write_text(re.split(r"(?m)^## Consumers\s*$", t, maxsplit=1)[0], encoding="utf-8")
 '
 
-run_boundary_case "B6 the boundary file is deleted   " pass "" "" '
+run_shared_refs_case "B6 the boundary file is deleted   " pass "" "" '
 import pathlib, sys
 (pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md").unlink()
 '
 
-run_boundary_case "B7 Consumers declared but empty   " fail "EMPTY CONSUMERS SECTION:" "" '
+run_shared_refs_case "B7 Consumers declared but empty   " fail "EMPTY CONSUMERS SECTION:" "" '
 import pathlib, re, sys
 p = pathlib.Path(sys.argv[1]) / "skills/_shared/untrusted-input-boundary.md"
 t = p.read_text(encoding="utf-8")
@@ -535,7 +535,7 @@ head = re.split(r"(?m)^## Consumers\s*$", t, maxsplit=1)[0]
 p.write_text(head + "## Consumers\n\nNothing is declared here yet.\n", encoding="utf-8")
 '
 
-run_boundary_case "B8 a prose bullet is not a path   " pass "" "" '
+run_shared_refs_case "B8 a prose bullet is not a path   " pass "" "" '
 import pathlib, sys
 # The section is written for a human. A reflowed sentence must not become
 # "NO SUCH CONSUMER: … lists (Anything)" — the checker verifies the claim, it does not dictate
@@ -545,9 +545,9 @@ t = p.read_text(encoding="utf-8")
 p.write_text(t + "\n- Anything else that grows an ingest point belongs on this list.\n", encoding="utf-8")
 '
 
-run_boundary_case "B9 untouched baseline             " pass "" "" 'import sys'
+run_shared_refs_case "B9 untouched baseline             " pass "" "" 'import sys'
 
-run_boundary_case "S1 undeclared doc is skipped      " pass "" "" '
+run_shared_refs_case "S1 undeclared doc is skipped      " pass "" "" '
 import pathlib, sys
 # No ## Consumers section, and nothing links it — the opt-in rule (#269): a shared reference that
 # has not declared its reach yet must never fail CI for existing, or adopting the section anywhere
@@ -556,7 +556,7 @@ p = pathlib.Path(sys.argv[1]) / "skills/_shared/zz-fixture-ref.md"
 p.write_text("# A fixture shared reference\n\nNo Consumers section, and nothing links it.\n", encoding="utf-8")
 '
 
-run_boundary_case "S2 a second declaring doc checked  " fail "MISSING LINK:" "" '
+run_shared_refs_case "S2 a second declaring doc checked " fail "MISSING LINK:" "" '
 import pathlib, sys
 # Under the pre-#269, single-document checker this fixture PASSES — only the boundary was ever
 # read. Declaring ## Consumers here must make this second document checked in its own right.

@@ -103,7 +103,9 @@ def links_doc(path: Path, text: str, doc: Path, doc_name: str):
     resolves = False
     for target in LINK_TARGET_RE.findall(text):
         target = target.split('#', 1)[0]
-        if not target.endswith(doc_name):
+        # Basename equality, not `endswith`: a link to a future `session-recap.md` ends with
+        # `recap.md` without naming it, and would otherwise be read as a broken link to it.
+        if target.rsplit('/', 1)[-1] != doc_name:
             continue
         names_it = True
         try:
