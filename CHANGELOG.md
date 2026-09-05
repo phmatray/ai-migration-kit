@@ -283,134 +283,127 @@ the hand-written entries below. Earlier entries are kept as written.
 
 ## [1.9.1] — 2026-08-10
 
-Correctif de **propagation**, entré sur `main` par la PR #7 sans tag ni entrée de changelog — les
-deux sont posés rétroactivement le 2026-08-10, en même temps que l'installation de release-please.
+A **propagation** fix, landed on `main` via PR #7 with no tag and no changelog entry — both are
+applied retroactively on 2026-08-10, alongside the release-please install.
 
-### Corrigé
-- **Le garde-fou `tick-plan` de la PR #5 est effectivement livré.** Les skills sont consommées via
-  le marketplace, et la copie installée est un **cache d'installation clé par version**, pas une vue
-  vive du dépôt : mesuré sur l'issue #6, amener le clone du marketplace sur un commit contenant le
-  correctif laisse le cache chargé **inchangé**. Un correctif mergé sans bump de
-  `.claude-plugin/plugin.json` atteint donc **zéro consommateur**, tout en ayant l'apparence exacte
-  d'une release réussie — CI verte, commit sur `main`. C'est ce qui était arrivé à la PR #5.
+### Fixed
+- **The `tick-plan` guard from PR #5 is actually shipped.** Skills are consumed through the
+  marketplace, and the installed copy is a **version-keyed install cache**, not a live view of the
+  repo: measured on issue #6, moving the marketplace clone to a commit containing the fix leaves
+  the loaded cache **unchanged**. A fix merged without a `.claude-plugin/plugin.json` bump
+  therefore reaches **zero consumers**, while looking exactly like a successful release — green
+  CI, a commit on `main`. That is what happened to PR #5.
 
 ## [1.9.0] — 2026-07-23
 
-Porte de **verdict de fin de phase 1** — les deux items du backlog dont le déclencheur a sauté le
-même jour (2026-07-23), livrés comme **un seul changement** parce que ce sont les deux bords d'un
-même classifieur (même étape, symptômes inverses). En une ligne : la phase 1 devient une vraie
-porte — elle classe la cible avant de laisser `/migrate` avancer, au lieu de toujours dire « go ».
+The **end-of-phase-1 verdict gate** — the two backlog items whose trigger fired on the same day
+(2026-07-23), shipped as **a single change** because they are the two edges of the same classifier
+(same step, opposite symptoms). In one line: phase 1 becomes a real gate — it classifies the target
+before letting `/migrate` proceed, instead of always saying "go".
 
-### Ajouté
-- **`verdict: <ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL>` en tête de `migration/assessment.md`**
-  (`phase-1-assess.md` étape 6) — calculé en fin de phase 1, c'est ce sur quoi `/migrate` branche
-  (SKILL.md : table du pipeline, contrat d'artefacts, Scope variants).
-- **`ALREADY_MODERN` → stop après la phase 1** (dogfood `Atypical-Consulting/StaticWGen`, net10
-  partout, paquets tenus par Renovate) : plus de phase 3 (retarget) à vide, ni de phase 7 déployant
-  du Blazor sur Pages pour un outil CLI sans cible web. Routé vers `/migrate-verify` — moderne ≠
-  propre : le restore vert de StaticWGen a remonté `NU1903` (vuln transitive haute). Troisième
-  profil « saine, rien à migrer » ajouté à `audit-executive.md` (`/migrate-audit`).
-- **`RED_BY_TFM_LAG` → le retarget EST le prérequis du baseline** (vague `phmatray/DotnetChain`,
-  net9→net10, PR #64) : quand un robot pousse les paquets au-delà du TFM (`NU1202`, restore
-  impossible avant migration), la porte « baseline vert d'abord » ne peut pas tenir. La phase 2
-  consigne le baseline comme *différé* (`phase-2-baseline.md` étape 1) et la phase 3 capte le
-  premier vert post-retarget comme baseline enregistré (`phase-3-retarget.md` étape 6).
-- **Verrou de régression** : les deux cas dogfood (StaticWGen, DotnetChain) épinglés en fixtures
-  documentées dans `phase-1-assess.md` (« Verdict fixtures ») — re-dériver un autre verdict pour
-  l'une de ces signatures est une régression, pas un jugement.
+### Added
+- **`verdict: <ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL>` at the top of `migration/assessment.md`**
+  (`phase-1-assess.md` step 6) — computed at the end of phase 1, this is what `/migrate` branches
+  on (SKILL.md: pipeline table, artifact contract, Scope variants).
+- **`ALREADY_MODERN` → stop after phase 1** (dogfooded on `Atypical-Consulting/StaticWGen`, net10
+  everywhere, packages kept current by Renovate): no more empty phase 3 (retarget), nor a phase 7
+  deploying Blazor to Pages for a CLI tool with no web target. Routed to `/migrate-verify` —
+  modern ≠ clean: StaticWGen's green restore surfaced `NU1903` (a high transitive vuln). A third
+  "healthy, nothing to migrate" profile added to `audit-executive.md` (`/migrate-audit`).
+- **`RED_BY_TFM_LAG` → the retarget IS the baseline's prerequisite** (`phmatray/DotnetChain` wave,
+  net9→net10, PR #64): when a bot has pushed packages past the TFM (`NU1202`, restore impossible
+  before migrating), the "green baseline first" gate cannot hold. Phase 2 records the baseline as
+  *deferred* (`phase-2-baseline.md` step 1) and phase 3 captures the first post-retarget green as
+  the recorded baseline (`phase-3-retarget.md` step 6).
+- **Regression lock**: both dogfood cases (StaticWGen, DotnetChain) pinned as documented fixtures
+  in `phase-1-assess.md` ("Verdict fixtures") — re-deriving a different verdict for either of these
+  signatures is a regression, not a judgment call.
 
-### Modifié
-- `commands/migrate.md` et `commands/migrate-assess.md` : branchement et routage explicites selon
-  le verdict (aucune commande de portée nouvelle — la plomberie `/migrate-assess` = phase 1 seule
-  et `/migrate-verify` = phase 6 seule existait déjà).
-- `docs/backlog.md` : les deux items implémentés sortent du backlog (les cinq à déclencheur non
-  atteint et les non-adoptions restent).
+### Changed
+- `commands/migrate.md` and `commands/migrate-assess.md`: explicit branching and routing on the
+  verdict (no command of new scope — the `/migrate-assess` = phase 1 only and `/migrate-verify` =
+  phase 6 only plumbing already existed).
+- `docs/backlog.md`: the two implemented items leave the backlog (the five with an unmet trigger
+  and the non-adoptions remain).
 
 ## [1.8.0] — 2026-07-23
 
-Implémentation intégrale de la revue jobs du jour (`reviews/2026-07-23-jobs/`, lentille Arbor :
-quelles disciplines du framework de recherche RUC-NLPIR/Arbor méritent d'entrer dans un pipeline
-déterministe — et lesquelles refuser) : les 6 findings résolus. En une ligne : le kit adopte les
-ceintures de sécurité d'Arbor (reprise, convergence, temps mesuré, rétropropagation), et refuse
-son volant (l'exploration arborescente).
+Full implementation of the day's jobs review (`reviews/2026-07-23-jobs/`, Arbor lens: which
+disciplines of the RUC-NLPIR/Arbor research framework earn a place in a deterministic pipeline —
+and which to refuse): all 6 findings resolved. In one line: the kit adopts Arbor's safety belts
+(resume, convergence, measured time, backpropagation), and refuses its steering wheel (tree-shaped
+exploration).
 
-### Ajouté
-- **Reprise d'un `/migrate` interrompu** (le `--resume` d'Arbor) : le pipeline détecte le dossier
-  `migration/` et les commits de porte (leur message nomme la phase — règle 4, les artefacts
-  confirment), annonce le point de reprise et ré-entre à la phase qui suit la dernière porte
-  verte ; une phase verte n'est jamais rejouée (SKILL.md Scope variants + Common issues,
-  commande `/migrate`).
-- **Règle 9 — la remédiation doit converger** (la politique de budget d'Arbor) : deux passes de
-  phase 4 consécutives sans baisse du compte d'erreurs = stop, retour à la dernière porte verte,
-  blocage consigné au rapport (diagnostics restants groupés par id), décision au propriétaire
-  (SKILL.md + phase-4-remediate + Common issues).
-- **Chronologie du pipeline mesurée** : `migration/report.json` porte `phases[]` (début/fin/minutes
-  par phase), **dérivée des commits de porte** (`git log` de la branche de migration, phase-6-verify
-  §6) — le « temps pipeline mesuré » du README devient un fait généré, jamais un chronomètre
-  humain ; `report-dashboard.py` rend la carte « Chronologie du pipeline » avec le total calculé
-  (test golden étendu).
-- **La rétropropagation devient un contrat** (le backpropagate d'Arbor) : la phase 7 se clôt par
-  une entrée `lessons` dans `report.json` — référence du changement appliqué au kit ou « rien à
-  apprendre de cette vague » explicite ; une vague sans entrée leçons est incomplète (règle 8,
-  delivery-playbook étape 9, report-template) ; le dashboard rend la carte « Leçons de la vague »
-  (test golden étendu).
-- **Audit de portefeuille en éventail** : `/migrate-audit` multi-apps documente le fan-out — un
-  sous-agent par app (les inventaires sont indépendants par construction), l'orchestrateur ne
-  garde que la synthèse portefeuille. Aucun script modifié.
-- **Non-adoptions consignées** (docs/backlog.md, section « décisions fermées ») : arbre
-  d'hypothèses / Idea Tree, modes d'interaction, novelty search — refusés avec justification
-  (pipeline déterministe ≠ recherche exploratoire) et condition de réouverture, pour que la
-  décision survive aux sessions.
+### Added
+- **Resuming an interrupted `/migrate`** (Arbor's `--resume`): the pipeline detects the
+  `migration/` folder and the gate commits (their message names the phase — rule 4, the artifacts
+  confirm it), announces the resume point and re-enters at the phase after the last green gate; a
+  green phase is never replayed (SKILL.md Scope variants + Common issues, `/migrate` command).
+- **Rule 9 — remediation must converge** (Arbor's budget policy): two consecutive phase-4 passes
+  with no drop in the error count = stop, roll back to the last green gate, the block recorded in
+  the report (remaining diagnostics grouped by id), decision to the owner (SKILL.md +
+  phase-4-remediate + Common issues).
+- **Measured pipeline timeline**: `migration/report.json` carries `phases[]` (start/end/minutes
+  per phase), **derived from the gate commits** (`git log` on the migration branch, phase-6-verify
+  §6) — the README's "measured pipeline time" becomes a generated fact, never a human stopwatch;
+  `report-dashboard.py` renders the "Pipeline timeline" card with the computed total (extended
+  golden test).
+- **Backpropagation becomes a contract** (Arbor's backpropagate): phase 7 closes with a `lessons`
+  entry in `report.json` — a reference to the change applied to the kit, or an explicit "nothing
+  to learn from this wave"; a wave with no lessons entry is incomplete (rule 8, delivery-playbook
+  step 9, report-template); the dashboard renders the "Wave lessons" card (extended golden test).
+- **Fan-out portfolio audit**: `/migrate-audit` multi-app documents the fan-out — one sub-agent
+  per app (inventories are independent by construction), the orchestrator keeps only the portfolio
+  synthesis. No script changed.
+- **Non-adoptions recorded** (docs/backlog.md, "closed decisions" section): hypothesis tree / Idea
+  Tree, interaction modes, novelty search — refused with justification (deterministic pipeline ≠
+  exploratory research) and a reopening condition, so the decision survives across sessions.
 
 ## [1.7.0] — 2026-07-23
 
-Implémentation intégrale de la seconde revue elon du jour (`reviews/2026-07-23-elon-2/`, lentille
-cohérence / workflow prédictif / déterminisme) : les 9 findings résolus.
+Full implementation of the day's second elon review (`reviews/2026-07-23-elon-2/`, consistency /
+predictable workflow / determinism lens): all 9 findings resolved.
 
-### Modifié
-- **Le pipeline finit en production, partout** : `/migrate` couvre officiellement les phases 1–7
-  (la contradiction commande « 1–6 » / règle 8 « livrée = en production » est tranchée) ; la marque
-  « six-phase » corrigée en « seven-phase » (README, plugin.json, description du skill) ; une app
-  sans cible de production clôt la phase 7 par la décision propriétaire consignée — documentée,
-  jamais silencieuse.
-- **Ancrage `<kit>` des scripts et templates** : `legacy-upgrade` et `followups` résolvent
-  désormais tout chemin du kit depuis `<skill-dir>/../..` (comme `get-repo-profile` le faisait
-  déjà), jamais depuis le CWD — une installation marketplace fonctionne à froid. Verrouillé en CI
-  par un step « foreign working directory » (préflight, inventaire, followups, repo-profile
-  exécutés depuis un répertoire étranger).
-- **`requirements.json` exprime la requiredness par skill** : champ `requiredBy` (+ `token`) sur
-  gh CLI (create-issue, implement-issue, merge-pr), superpowers (create-issue, implement-issue)
-  et code-review (implement-issue) — la contradiction littérale « level: recommande / when:
-  requis » est éliminée. Le préflight affiche `[hard-required by: …]` et émet `requiredBy` en
-  JSON ; cross-check manifest ↔ frontmatter `compatibility` en CI (check-frontmatter.py).
-- **Le préflight émet son JSON via python3** (échappement réel, plus de printf artisanal ni de
-  séparateur `|` collisionnable — la dette backlog « échappement JSON des hints » est levée) ;
-  sortie et statuts en anglais (`ok`/`missing`/`absent`/`unknown`, niveaux
-  `required`/`recommended`).
-- **Anglais sur la surface distribuée** : SKILL.md `followups` et `legacy-upgrade` unifiés en
-  anglais (fini le FR/EN au milieu du fichier), commandes `migrate-audit` et `migrate-followups`
-  traduites. Restent français par décision : CHANGELOG, études de cas, sortie de `followups.py`
-  (elle alimente les rapports français) et 4 references de `legacy-upgrade` (dette backloguée
-  avec déclencheur).
-- `create-issue` ne prépare plus l'identité de commit (il ne committe jamais) ; `plugin.json`
-  n'énumère plus les phases (une string marketing qui répète le README dérive).
+### Changed
+- **The pipeline finishes in production, everywhere**: `/migrate` officially covers phases 1–7
+  (the "1–6" command / rule 8 "shipped = in production" contradiction is settled); the
+  "six-phase" branding corrected to "seven-phase" (README, plugin.json, skill description); an app
+  with no production target closes phase 7 with the recorded owner decision — documented, never
+  silent.
+- **`<kit>` anchoring for scripts and templates**: `legacy-upgrade` and `followups` now resolve
+  every kit path from `<skill-dir>/../..` (as `get-repo-profile` already did), never from the CWD
+  — a marketplace install works cold. Locked in CI by a "foreign working directory" step
+  (preflight, inventory, followups, repo-profile run from an unrelated directory).
+- **`requirements.json` expresses requiredness per skill**: a `requiredBy` field (+ `token`) on
+  the gh CLI (create-issue, implement-issue, merge-pr), superpowers (create-issue, implement-issue)
+  and code-review (implement-issue) — the literal "level: recommended / when: required"
+  contradiction is eliminated. Preflight shows `[hard-required by: …]` and emits `requiredBy` in
+  its JSON; manifest ↔ frontmatter `compatibility` cross-check in CI (check-frontmatter.py).
+- **Preflight emits its JSON via python3** (real escaping, no more hand-rolled printf nor a
+  colliding `|` separator — the backlog debt "JSON-escape the hints" is closed); output and
+  statuses in English (`ok`/`missing`/`absent`/`unknown`, `required`/`recommended` levels).
+- **English on the distributed surface**: `followups` and `legacy-upgrade` SKILL.md unified in
+  English (no more FR/EN mid-file), `migrate-audit` and `migrate-followups` commands translated.
+  Staying French by decision: CHANGELOG, case studies, `followups.py` output (it feeds French
+  reports) and 4 `legacy-upgrade` references (backlogged debt with a trigger).
+- `create-issue` no longer prepares the commit identity (it never commits); `plugin.json` no
+  longer enumerates the phases (a marketing string that repeats the README drifts).
 
-### Ajouté
-- **`tests/repo-profile/test.sh`** : golden test du seul script du kit qui n'en avait pas —
-  `show` (profil présent / NO_PROFILE exit 3), `detect` hors git (exit 4), et le contrat TODO
-  sur un repo minimal (sections présentes + fallbacks réellement déclenchés).
-- **`implement-issue` : réconciliation du miroir PR à la reprise** — le PATCH de l'issue et
-  l'édition du corps de la PR ne sont pas atomiques ; la boucle du Step 6 resynchronise
-  désormais la liste `### Plan` depuis l'état canonique de l'issue avant de reprendre.
-- Note d'honnêteté dans les 6 listes `tests/skills/*.triggers.md` : la CI garde la présence,
-  le banc lui-même est manuel (entrée backlog avec déclencheur : prochaine modification de
-  description).
+### Added
+- **`tests/repo-profile/test.sh`**: a golden test for the one kit script that had none — `show`
+  (profile present / NO_PROFILE exit 3), `detect` outside git (exit 4), and the TODO contract on a
+  minimal repo (sections present + fallbacks actually triggered).
+- **`implement-issue`: PR mirror reconciliation on resume** — the issue PATCH and the PR body edit
+  are not atomic; the Step 6 loop now resyncs the `### Plan` list from the issue's canonical state
+  before resuming.
+- Honesty note in the 6 `tests/skills/*.triggers.md` lists: CI guards their presence, the bench
+  itself is manual (backlog entry with a trigger: next description change).
 
-### Corrigé
-- **`repo-profile.sh` : fallbacks TODO morts** — `grep … | head || echo TODO` ne peut jamais
-  tirer (head sort à 0 sur entrée vide) ; toutes les sondes passent par `emit_or_todo()` (une
-  seule convention, `probe()` supprimée) et le contrat « champ indétectable ⇒ ligne TODO » est
-  tenu (gardé par le nouveau golden test).
+### Fixed
+- **`repo-profile.sh`: dead TODO fallbacks** — `grep … | head || echo TODO` can never fire (head
+  exits 0 on empty input); every probe now goes through `emit_or_todo()` (one convention,
+  `probe()` removed) and the "undetectable field ⇒ TODO line" contract is upheld (guarded by the
+  new golden test).
 
 ## [1.6.0] — 2026-07-23
 
