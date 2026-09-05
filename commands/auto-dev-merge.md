@@ -48,6 +48,14 @@ that). Protect that advantage:
 OFF-SCOPE PROTOCOL: anything you trip over that is not part of landing PR #$1 gets FILED via
 `create-issue`, not fixed inline.
 
+**If a guard call at `$GUARDS` is refused, you have nobody to ask.** You are the configuration
+[`skills/_shared/guard-invocation.md`](../skills/_shared/guard-invocation.md) exists for — an agent
+confined to a worktree, invoking a guard whose path can resolve outside it. Follow that fallback
+(copy the guards plus `_assert-branch.sh` into a scratch dir inside your own worktree, run them
+from there, delete it before finishing) and **report that you did** in your final line's `DETAIL:`
+field. Never fall back to a bare `git commit`, `git push` or `git merge` — that is the exact failure
+the guards exist to prevent.
+
 Repo specifics (default branch, merge mode, CI state, commit identity) come from the repo profile,
 which `merge-pr` loads.
 

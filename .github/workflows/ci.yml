@@ -465,6 +465,9 @@ jobs:
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 
+      - name: Guard-invocation golden test (every $GUARDS site points at the fallback when the path is refused)
+        run: ./tests/guard-invocation/test.sh
+
       # The decision engine's own suite, and it is mostly refusals on purpose: the gate above exists
       # because a rule that cannot go red is worth nothing, so a gate whose refusal path is untested
       # would be that same defect one level up. Every rule R1…R9 is driven to red by breaking a

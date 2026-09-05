@@ -1,80 +1,98 @@
-# Audit exécutif (`/migrate-audit`)
+# Executive audit (`/migrate-audit`)
 
-Produit d'entrée du kit : un audit **lecture seule** qui parle aux décideurs. Trois profils d'app :
+The kit's entry-point deliverable: a **read-only** audit that speaks to decision-makers. Three app
+profiles:
 
-- **Modernisation in place** (TFM obsolète, même plateforme UI) → l'audit prolonge `phase-1-assess.md` avec chiffrage et risques.
-- **Réécriture de plateforme UI** (WinRT, UWP, Windows Phone, WPF → Blazor) → la plateforme cible n'existe plus ou ne porte pas vers le web ; on chiffre la réécriture de l'UI et le **portage tel quel de la logique**.
-- **Saine, rien à migrer** (tous les TFM déjà à la cible, runtime en support, aucun cluster d'API obsolète) → verdict `ALREADY_MODERN` de la phase 1 (`phase-1-assess.md` étape 6) : l'audit conclut **« aucune migration requise »**, chiffrage nul, et n'oriente **jamais** vers un retarget net`N`→net`N`. Si le propriétaire veut une garantie, router vers `/migrate-verify` (porte qualité, phase 6) — moderne ≠ propre : un `dotnet restore` vert peut remonter une vulnérabilité transitive haute (dogfood StaticWGen : `NU1903`).
+- **Modernization in place** (obsolete TFM, same UI platform) → the audit extends
+  `phase-1-assess.md` with a costed estimate and risks.
+- **UI platform rewrite** (WinRT, UWP, Windows Phone, WPF → Blazor) → the target platform no
+  longer exists or does not run on the web; cost the UI rewrite and the **verbatim porting of the
+  logic**.
+- **Healthy, nothing to migrate** (every TFM already at target, runtime in support, no obsolete
+  API cluster) → phase 1's `ALREADY_MODERN` verdict (`phase-1-assess.md` step 6): the audit
+  concludes **"no migration required"**, a zero cost estimate, and **never** points toward a
+  net`N`→net`N` retarget. If the owner wants a guarantee, route to `/migrate-verify` (quality gate,
+  phase 6) — modern ≠ clean: a green `dotnet restore` can still surface a high-severity transitive
+  vulnerability (dogfooded on StaticWGen: `NU1903`).
 
-## Règles
+## Rules
 
-1. **Lecture seule absolue** sur l'app cible (le rapport est écrit ailleurs).
-2. **Chaque chiffre vient de `scripts/audit-inventory.sh`** (JSON reproductible). L'agent interprète, il n'invente pas de comptes.
-3. **Analyse C# :** tenter RoselineMCP `analyze_solution` d'abord. Les projets old-style UAP/WP ne se chargent pas dans Roslyn hors Windows : **consigner l'échec dans le rapport** (une ligne) et poursuivre sur l'inventaire structurel. Jamais de dégradation silencieuse.
-4. Plusieurs apps → un rapport par app **+ synthèse portefeuille**.
+1. **Absolute read-only** on the target app (the report is written elsewhere).
+2. **Every figure comes from `scripts/audit-inventory.sh`** (reproducible JSON). The agent
+   interprets; it does not invent counts.
+3. **C# analysis:** try RoselineMCP `analyze_solution` first. Old-style UAP/WP projects do not
+   load in Roslyn outside Windows: **log the failure in the report** (one line) and continue on
+   the structural inventory. Never a silent degradation.
+4. Several apps → one report per app **+ a portfolio synthesis**.
 
-## Format du rapport par app
+## Per-app report format
 
-1. **Carte d'identité** — ère (`era` du script), période d'activité, projets, taille (fichiers/LOC), tests.
-2. **Surface UI** — `xamlPages`, `xamlControls`, `locCodeBehind`. Tout est à réécrire (Razor + Tailwind, sémantique WCAG 2.1 AA).
-3. **APIs plateforme** — `windowsApiClusters` → correspondance web (table ci-dessous) → coût.
-4. **Extractibilité** — `locLogic` vs `locTotal` : la logique pure (modèles, services, algorithmes) se porte **telle quelle** en class library .NET moderne. C'est l'argument économique central du portage.
-5. **Effort** (formule ci-dessous) + **cible recommandée** (WASM statique si contenu autonome ; WASM + backend proxy si APIs externes avec clés ; Server si état serveur fort ; Hybrid si besoin natif résiduel).
-6. **Risques & coût de l'inaction** — plateforme non installable, distribution morte (Store), dette de connaissance, dépendances archivées.
+1. **Identity card** — era (the script's `era`), active period, projects, size (files/LOC),
+   tests.
+2. **UI surface** — `xamlPages`, `xamlControls`, `locCodeBehind`. Everything is to be rewritten
+   (Razor + Tailwind, WCAG 2.1 AA semantics).
+3. **Platform APIs** — `windowsApiClusters` → web equivalent (table below) → cost.
+4. **Extractability** — `locLogic` vs `locTotal`: pure logic (models, services, algorithms) ports
+   **as-is** into a modern .NET class library. That is the central economic argument for the port.
+5. **Effort** (formula below) + **recommended target** (static WASM if self-contained content;
+   WASM + backend proxy if external APIs with keys; Server if strong server-side state; Hybrid if
+   residual native need).
+6. **Risks & cost of inaction** — non-installable platform, dead distribution (Store), knowledge
+   debt, archived dependencies.
 
-## Formule d'effort (jours)
+## Effort formula (days)
 
-| Poste | Coût |
+| Item | Cost |
 |-------|------|
-| Socle par app (projet Blazor + Tailwind, CI, revue) | 3 j |
-| Par page XAML | 1,5 j |
-| Par contrôle custom | 1 j |
-| Par cluster d'API plateforme | HttpClient : 0 · Storage → localStorage/IndexedDB : 0,5 j · ApplicationModel/UI chrome : 1 j · Notifications/tiles → Web Push : 2 j · Media/Devices natif : 2 j ou abandon assumé |
-| Logique pure portée telle quelle | 0 j |
-| Aucun test existant | +20 % (tests de caractérisation sur la logique portée) |
+| Base per app (Blazor + Tailwind project, CI, review) | 3 d |
+| Per XAML page | 1.5 d |
+| Per custom control | 1 d |
+| Per platform API cluster | HttpClient: 0 · Storage → localStorage/IndexedDB: 0.5 d · ApplicationModel/UI chrome: 1 d · Notifications/tiles → Web Push: 2 d · native Media/Devices: 2 d or an accepted drop |
+| Pure logic ported as-is | 0 d |
+| No existing tests | +20% (characterization tests on the ported logic) |
 
-Fourchette affichée : **±30 %**. Toujours montrer le calcul.
+Range shown: **±30%**. Always show the calculation.
 
-**Double chiffrage obligatoire.** La formule ci-dessus produit des **jours-équipe-humaine** :
-c'est le coût évité, pas le prix d'exécution. Le réalisé mesuré du pipeline est de l'ordre de la
-**demi-heure par app** (chords : 18 min ; fleurs-du-mal : ~30 min). Tout audit affiche les deux
-nombres côte à côte — « équivalent équipe : N j (±30 %) · exécution pipeline : ~M min, calibré
-sur les vagues mesurées ». Un seul des deux serait soit du bruit (l'erreur systématique de trois
-ordres de grandeur), soit invendable (des minutes sans référentiel).
+**Dual costing is mandatory.** The formula above produces **human-team-days**: that is the cost
+avoided, not the price of execution. The pipeline's measured actual runs on the order of
+**half an hour per app** (chords: 18 min; fleurs-du-mal: ~30 min). Every audit shows both numbers
+side by side — "team equivalent: N d (±30%) · pipeline execution: ~M min, calibrated on measured
+waves". Either number alone would be either noise (a three-orders-of-magnitude systematic error)
+or unsellable (minutes with no frame of reference).
 
-**Projets-squelettes.** `audit-inventory.sh` marque `skeleton: true` les projets quasi vides
-(≤ 1 fichier réel ou < 30 LOC) : ils ne comptent **jamais** dans la part de logique portable ni
-dans le chiffrage — une « architecture en couches » peut n'être qu'un échafaudage.
+**Skeleton projects.** `audit-inventory.sh` flags near-empty projects (≤ 1 real file or < 30 LOC)
+as `skeleton: true`: they **never** count toward the portable-logic share nor toward the cost
+estimate — a "layered architecture" can be nothing but scaffolding.
 
-**Prémisses vérifiées, jamais déduites** (leçon vague 3 — l'audit de pokedexg s'était trompé
-deux fois) :
-- **Le TFM dit la vérité, pas les versions de paquets.** `projectDetails[].targetFramework`
-  vient du csproj ; `zombie: true` signale un TFM ancien (netcoreapp1/2, netstandard1, PCL,
-  UAP) où un robot de mise à jour pousse des paquets 10+. Un webservice netcoreapp1.0 arrosé
-  par Renovate avait été audité « backend déjà moderne, à conserver tel quel » — il ne
-  compilait plus depuis des années et n'avait **jamais été branché au frontend**. Un robot de
-  mise à jour n'est pas un signe de vie.
-- **Des tests existent quand `hasTests` le dit** (attributs [Fact]/[Test] trouvés dans le
-  code), jamais parce qu'un nom de projet « Tests » traîne dans une .sln — celle de pokedexg
-  référençait un projet de tests supprimé depuis des années (référence pendante).
-- **Un flux de données se prouve par un appel** : chercher le HttpClient (ou équivalent) qui
-  consomme l'API supposée avant d'écrire « frontend branché au backend » dans un audit.
+**Premises verified, never inferred** (wave-3 lesson — the pokedexg audit got this wrong twice):
 
-## Correspondances API Windows → web
+- **The TFM tells the truth, not the package versions.** `projectDetails[].targetFramework` comes
+  from the csproj; `zombie: true` flags an old TFM (netcoreapp1/2, netstandard1, PCL, UAP) where an
+  update bot pushes package bumps 10+. A netcoreapp1.0 webservice watered by Renovate had been
+  audited as "backend already modern, keep as-is" — it had not compiled in years and had **never
+  been wired to the frontend**. An update bot is not a sign of life.
+- **Tests exist when `hasTests` says so** (`[Fact]`/`[Test]` attributes found in the code), never
+  because a project named "Tests" lingers in a `.sln` — pokedexg's referenced a test project
+  deleted years ago (a dangling reference).
+- **A data flow is proven by a call**: look for the HttpClient (or equivalent) that consumes the
+  assumed API before writing "frontend wired to backend" in an audit.
 
-| Cluster | Équivalent Blazor/web |
+## Windows → web API mappings
+
+| Cluster | Blazor/web equivalent |
 |---------|----------------------|
-| `Windows.UI.Xaml` / `System.Windows` | Composants Razor + Tailwind (réécriture) |
-| `Windows.Storage` | `localStorage` / IndexedDB / API backend |
-| `Windows.Networking` / `System.Net.Http` | `HttpClient` (souvent portable tel quel) |
-| `Windows.ApplicationModel` (cycle de vie, tiles) | PWA (manifest, service worker) |
+| `Windows.UI.Xaml` / `System.Windows` | Razor + Tailwind components (rewrite) |
+| `Windows.Storage` | `localStorage` / IndexedDB / backend API |
+| `Windows.Networking` / `System.Net.Http` | `HttpClient` (often portable as-is) |
+| `Windows.ApplicationModel` (lifecycle, tiles) | PWA (manifest, service worker) |
 | `Windows.UI.Notifications` | Web Push / Notifications API |
 | `Windows.Media` | `<audio>`/`<video>` + JS interop |
-| `Windows.Devices` / capteurs | Web APIs (Geolocation, etc.) ou abandon assumé |
-| `Microsoft.Phone.*` | Aucun équivalent direct — réécriture PWA mobile-first |
+| `Windows.Devices` / sensors | Web APIs (Geolocation, etc.) or an accepted drop |
+| `Microsoft.Phone.*` | No direct equivalent — mobile-first PWA rewrite |
 
-## Synthèse portefeuille
+## Portfolio synthesis
 
-- Tableau : app · ère · pages · LOC logique réutilisable · effort (j) · cible · valeur.
-- **Matrice valeur/effort** et ordre de migration : quick wins d'abord (petite surface UI, logique portable, valeur démonstrable).
-- Totaux et proposition de première vague (2-3 apps).
+- Table: app · era · pages · reusable logic LOC · effort (d) · target · value.
+- **Value/effort matrix** and migration order: quick wins first (small UI surface, portable logic,
+  demonstrable value).
+- Totals and a proposed first wave (2-3 apps).

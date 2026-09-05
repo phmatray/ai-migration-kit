@@ -47,6 +47,15 @@ run anyone reads. The carve-out is phase 1's alone: the merge phase keeps filing
 follows a merge-phase fix. **Never pass `--grill`** — it makes `create-issue` stop and interview the
 user, and you have nobody to interview.
 
+**If a guard call at `$GUARDS` is refused, you have nobody to ask.** You are the configuration
+[`skills/_shared/guard-invocation.md`](../skills/_shared/guard-invocation.md) exists for — an agent
+confined to a worktree, invoking a guard whose path can resolve outside it. Follow that fallback
+(copy the guards plus `_assert-branch.sh` into a scratch dir inside your own worktree, run them
+from there, delete it before finishing) and **report that you did** in your final line's `DETAIL:`
+field. Never fall back to a bare `git commit`, `git push` or `git merge` — that is the exact failure
+the guards exist to prevent, and improvising around it is not a decision a background worker gets to
+make alone.
+
 ## Never wait — you are a background sub-agent
 
 You are a background sub-agent. **Your final message is your report** — the supervisor reads nothing
