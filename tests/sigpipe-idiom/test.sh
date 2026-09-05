@@ -19,6 +19,9 @@
 #   n. an `env VAR=val` prefix on the producer               -> REFUSED (#457)
 #   o. the offending shape inside a `$(...)` substitution    -> REFUSED (#457)
 #   p. the offending shape inside a NESTED `$(...)`          -> REFUSED (#457)
+#   q. `sudo -u user env VAR=val <producer>`                 -> REFUSED, flags stripped too (#457)
+#   r. a `$(...)` after an earlier double-quoted apostrophe  -> REFUSED, not swallowed (#457)
+#   s. a quoted `)` inside a `$(...)` span                   -> REFUSED, span not truncated (#457)
 #
 # Sections are labelled, never fractioned -- a denominator goes stale the moment a case is added.
 #
@@ -189,6 +192,30 @@ out=$(run_check "$WORK/repo"); rc=$?
 [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/p.sh:1' \
   && ok "p. nested \$(cmd1 \$(find … | grep -q .)) -- REFUSED, recursion has no depth limit (#457)" \
   || { bad "p. expected rc=1 naming tests/fixture/p.sh:1, got rc=$rc: $out"; }
+
+# --------------------------------------- q. sudo with a flag before env -> REFUSED (#457)
+scaffold
+printf '%s\n' 'sudo -u user env VAR=val find . -name x | grep -q y' > "$WORK/repo/tests/fixture/q.sh"
+out=$(run_check "$WORK/repo"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/q.sh:1' \
+  && ok "q. sudo -u user env VAR=val find … | grep -q y -- REFUSED, sudo's own flags are stripped too (#457)" \
+  || { bad "q. expected rc=1 naming tests/fixture/q.sh:1, got rc=$rc: $out"; }
+
+# ------------------------------- r. a $(...) after an earlier double-quoted apostrophe -> REFUSED (#457)
+scaffold
+printf '%s\n' 'echo "don'"'"'t fail"; x=$(find . -name y | grep -q z)' > "$WORK/repo/tests/fixture/r.sh"
+out=$(run_check "$WORK/repo"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/r.sh:1' \
+  && ok "r. an earlier double-quoted apostrophe does not swallow the real \$(...) (#457)" \
+  || { bad "r. expected rc=1 naming tests/fixture/r.sh:1, got rc=$rc: $out"; }
+
+# ------------------------------------------- s. a quoted ) inside a \$(...) span -> REFUSED (#457)
+scaffold
+printf '%s\n' "x=\$(grep -q ')' file; find . -name y | grep -q z)" > "$WORK/repo/tests/fixture/s.sh"
+out=$(run_check "$WORK/repo"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'tests/fixture/s.sh:1' \
+  && ok "s. a quoted ) inside \$(...) does not truncate the span early (#457)" \
+  || { bad "s. expected rc=1 naming tests/fixture/s.sh:1, got rc=$rc: $out"; }
 
 echo
 if [ "$fails" -eq 0 ]; then

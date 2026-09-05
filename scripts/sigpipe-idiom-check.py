@@ -59,6 +59,10 @@ DISCARDED_RE = re.compile(r"\|\|\s*(true|:)\s*;?\s*$")
 LEADING_KEYWORD_RE = re.compile(r"^\s*(if|elif|while|until)\s+")
 ASSIGNMENT_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
+# sudo(8) short options that take a following argument -- so producer_word() knows to skip the
+# value too, not just the flag (`sudo -u user ...`, #457 review).
+SUDO_FLAGS_WITH_ARG = frozenset(("-u", "-g", "-p", "-r", "-t", "-h", "-C", "-D", "-R", "-T", "-U"))
+
 _MARK = "\x00"
 
 
@@ -160,30 +164,86 @@ def grep_dash_q(segment):
 
 def producer_word(segment, is_clause_head):
     """The command word a pipeline clause actually runs -- skipping a leading `sudo`, a leading
-    `env`, and any run of `VAR=val` assignment tokens (in any order, repeated), since none of
-    those are the producer itself (#457)."""
+    `env`, any run of `VAR=val` assignment tokens (in any order, repeated), and any flags on a
+    `sudo`/`env` invocation itself (`sudo -u user env -i VAR=val cmd`) -- since none of those are
+    the producer itself (#457)."""
     if is_clause_head:
         segment = LEADING_KEYWORD_RE.sub("", segment, count=1)
     tokens = segment.strip().split()
-    i = 0
-    while i < len(tokens) and (
-        tokens[i] in ("sudo", "env") or ASSIGNMENT_TOKEN_RE.match(tokens[i])
-    ):
-        i += 1
-    if i >= len(tokens):
+    i, n = 0, len(tokens)
+    allow_flags = False
+    while i < n:
+        tok = tokens[i]
+        if tok in ("sudo", "env"):
+            i += 1
+            allow_flags = True
+            continue
+        if ASSIGNMENT_TOKEN_RE.match(tok):
+            i += 1
+            allow_flags = False
+            continue
+        if allow_flags and tok.startswith("-") and tok != "-":
+            i += 1
+            if tok in SUDO_FLAGS_WITH_ARG and i < n:
+                i += 1  # the flag's own value, e.g. the "user" in "-u user"
+            continue
+        break
+    if i >= n:
         return ""
     first = tokens[i].strip("'\"`")
     return os.path.basename(first)
 
 
+def _scan_paren_span(line, start):
+    """Return the index just past the `)` that closes a `$(` opened right before `start`,
+    tracking quotes *inside* the substitution so a literal `)` in `grep -q ')'` doesn't close it
+    early (#457 review)."""
+    n = len(line)
+    depth = 1
+    j = start
+    in_sq = False
+    in_dq = False
+    while j < n and depth > 0:
+        c = line[j]
+        if in_sq:
+            if c == "'":
+                in_sq = False
+            j += 1
+            continue
+        if in_dq:
+            if c == "\\" and j + 1 < n:
+                j += 2
+                continue
+            if c == '"':
+                in_dq = False
+            j += 1
+            continue
+        if c == "\\" and j + 1 < n:
+            j += 2
+            continue
+        if c == "'":
+            in_sq = True
+        elif c == '"':
+            in_dq = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        j += 1
+    return j
+
+
 def find_substitution_spans(line):
     """Return the interior text of every `$(...)` or `` `...` `` span in `line`, so the offending
     shape can be scanned one level inside a substitution instead of treating it as opaque (#457).
-    Only a single-quoted region suppresses `$(...)`/backtick recognition -- bash still expands
-    both inside a double-quoted string, so this does not track double quotes at all."""
+    A single-quoted region suppresses `$(...)`/backtick recognition entirely; a double-quoted
+    region does not (bash still expands both inside one), so scanning continues through it rather
+    than being swallowed by it -- the fix for a same-line apostrophe (`echo "don't fail"; ...`)
+    being misread as opening a single-quoted region (#457 review)."""
     spans = []
     i, n = 0, len(line)
     in_squote = False
+    in_dquote = False
     while i < n:
         c = line[i]
         if in_squote:
@@ -191,22 +251,27 @@ def find_substitution_spans(line):
                 in_squote = False
             i += 1
             continue
-        if c == "\\" and i + 1 < n:
+        if in_dquote:
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == '"':
+                in_dquote = False
+                i += 1
+                continue
+        elif c == "\\" and i + 1 < n:
             i += 2
             continue
-        if c == "'":
+        elif c == "'":
             in_squote = True
             i += 1
             continue
+        elif c == '"':
+            in_dquote = True
+            i += 1
+            continue
         if c == "$" and i + 1 < n and line[i + 1] == "(":
-            depth = 1
-            j = i + 2
-            while j < n and depth > 0:
-                if line[j] == "(":
-                    depth += 1
-                elif line[j] == ")":
-                    depth -= 1
-                j += 1
+            j = _scan_paren_span(line, i + 2)
             spans.append(line[i + 2 : j - 1])
             i = j
             continue
