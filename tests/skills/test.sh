@@ -870,8 +870,10 @@ fi
 # The shape the reference documents is the one survey.sh reads: its example parent body must
 # itself carry none of the three plan tokens, or the reference teaches the wrong invariant.
 if [ -f "$KIT_ROOT/skills/create-issue/references/tracking-issue.md" ]; then
-  if sed -n '/^```markdown$/,/^```$/p' "$KIT_ROOT/skills/create-issue/references/tracking-issue.md" \
-       | grep -qE 'Implementation plan|### Task|- \[ \]'; then
+  # Herestring, not a pipe into `grep -q` (#391): `sed` can still be writing when the match
+  # closes the read end.
+  fenced=$(sed -n '/^```markdown$/,/^```$/p' "$KIT_ROOT/skills/create-issue/references/tracking-issue.md")
+  if grep -qE 'Implementation plan|### Task|- \[ \]' <<<"$fenced"; then
     echo "FAIL: [D5 tracking-issue.md's example body carries a plan token] a fenced example contains 'Implementation plan', '### Task' or '- [ ]'"
     fails=$((fails + 1))
   else
