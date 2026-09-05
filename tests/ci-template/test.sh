@@ -677,7 +677,10 @@ mk_repo "$D" "index-AAAAAAAA.js"
 rm "$D/web/dist/assets/index-AAAAAAAA.js"
 printf 'console.log(2)\n' > "$D/web/dist/assets/index-BBBBBBBB.js"
 
-if git -C "$D" diff --stat -- web/dist | grep -q 'index-BBBBBBBB'; then
+# Herestring, not a pipe into `grep -q`: `git diff` can still be writing when the match closes the
+# read end, and under pipefail that SIGPIPE becomes this check's verdict (#391).
+diffstat=$(git -C "$D" diff --stat -- web/dist)
+if grep -q 'index-BBBBBBBB' <<<"$diffstat"; then
   echo "FAIL: git diff named the untracked replacement; the template's rationale is stale"
   exit 1
 fi

@@ -503,7 +503,10 @@ post_write_dies=$(tail -n "+$patch_line" "$TICK" | grep -c 'die "' || true)
         that un-ticks a write that landed"
                                   tail -n "+$patch_line" "$TICK" | grep -n 'die "' | sed 's/^/        /'
                                   exit 1; }
-tail -n "+$patch_line" "$TICK" | grep 'die "' | grep -q 'NOT changed' \
+# Herestring, not a pipe into `grep -q` (#391): `tail`/`grep` over the script can still be writing
+# when the final match closes the read end.
+post_write_die_lines=$(tail -n "+$patch_line" "$TICK" | grep 'die "')
+grep -q 'NOT changed' <<<"$post_write_die_lines" \
   || { echo "FAIL [refused-means-nothing-sent]: the one post-write die() is no longer the
         failed-PATCH one, so it may fire on a path where the write already landed"; exit 1; }
 echo "  ok: refused-means-nothing-sent — the only post-write die() is the failed-PATCH one"

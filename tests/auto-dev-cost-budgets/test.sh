@@ -84,7 +84,11 @@ for f in "$SKILL_MD" "$WORKER_MD"; do
   # Flattened, with a bounded window so the mechanism word and the figure have to be in the same
   # breath — `[^.]` stops the window at a sentence boundary, which is what keeps an unrelated
   # measurement three sentences later from reading as a restatement.
-  if tr '\n' ' ' < "$f" | grep -qEi "compact[a-z]*[^.]{0,120}[^0-9]($CADENCE|20) *merges"; then
+  # Shaped like #391's hazard (an external producer piped into a positive `grep -q`) but out of
+  # scope there by design: the pattern normally does NOT match, so `grep` reads `tr`'s output to
+  # EOF and `tr` is never cut off mid-write (measured 0/500 runs). The issue's Non-goals excludes
+  # rewriting this negative assertion, so the line is tagged exempt instead of converted.
+  if tr '\n' ' ' < "$f" | grep -qEi "compact[a-z]*[^.]{0,120}[^0-9]($CADENCE|20) *merges"; then  # sigpipe-repro
     fail "$f restates the compaction cadence across a line break — the integer's one home is $REF"
   fi
   hits=$(grep -nEi 'turn budget' "$f" | grep -E "(^|[^0-9])($BUDGET|150) *turns" || true)
@@ -93,7 +97,9 @@ for f in "$SKILL_MD" "$WORKER_MD"; do
     printf '%s\n' "$hits" | sed 's/^/        /'
     exit 1
   fi
-  if tr '\n' ' ' < "$f" | grep -qEi "turn budget[^.]{0,120}[^0-9]($BUDGET|150) *turns"; then
+  # Same exemption as the compaction-cadence check above — measured 0/500, out of scope for
+  # rewriting per the issue's Non-goals (#391).
+  if tr '\n' ' ' < "$f" | grep -qEi "turn budget[^.]{0,120}[^0-9]($BUDGET|150) *turns"; then  # sigpipe-repro
     fail "$f restates the worker turn budget across a line break — the integer's one home is $REF"
   fi
 done
