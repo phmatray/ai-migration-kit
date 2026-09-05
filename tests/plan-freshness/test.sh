@@ -234,6 +234,39 @@ PLAN
 run_case "C33 a wrapped stale path exits 5    " 5 "$WORK/wrap-missing.md"
 want_line "C34 …and the WRAPPED path is MISSING" "MISSING test gone.sh (Task 1)"
 
+echo "== …and a field with NO blank line before **Interfaces:** is not swallowed (#419 review) =="
+#
+# plan-shape.md's own template always puts a blank line between `**Files:**` and `**Interfaces:**`
+# (as does every real plan this suite fixtures against), but nothing upstream enforces that blank
+# line. Before this guard, a missing one let the Interfaces text get appended to the Files payload
+# as a bogus continuation — turning a perfectly fresh plan into a false MISSING/exit 5.
+cat > "$WORK/no-blank-before-interfaces.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: no blank line
+**Files:** modify `a.sh`.
+**Interfaces:** consumes `Foo.Bar`; produces `Baz.Qux`.
+
+- [ ] **Step 1:** do the thing.
+PLAN
+run_case "C35 no blank before Interfaces: 0  " 0 "$WORK/no-blank-before-interfaces.md"
+want_line "C36 …the real path is OK, not eaten" "OK modify a.sh (Task 1)"
+
+echo "== …and two **Files:** lines under one task start two fields, not a merge (#419 Spec edge case) =="
+cat > "$WORK/two-files-lines.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: two Files lines
+
+**Files:** modify `a.sh`.
+**Files:** modify `dir with space/b.sh`.
+
+- [ ] **Step 1:** do the thing.
+PLAN
+run_case "C37 two Files: lines both parse    " 0 "$WORK/two-files-lines.md"
+want_line "C38 …the first line's path is OK  " "OK modify a.sh (Task 1)"
+want_line "C39 …the second line's path is OK " "OK modify dir with space/b.sh (Task 1)"
+
 echo "== a CRLF plan body is read, not reported stale (found in review of #322) =="
 #
 # The plan arrives via `gh api … --jq .body`, and a body authored in GitHub's web editor is CRLF.

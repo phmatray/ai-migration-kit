@@ -236,6 +236,16 @@ while IFS= read -r line || [ -n "$line" ]; do
       if [ "$IN_FIELD" -eq 1 ]; then flush_files_field "$PAYLOAD"; IN_FIELD=0; PAYLOAD=""; fi
       continue
       ;;
+    # Any OTHER bold-labelled field under the same task — `**Interfaces:**` is the one every plan
+    # carries (plan-shape.md's template), always separated from `**Files:**` by a blank line in
+    # every fixture and every real issue plan this repo has — but nothing upstream enforces that
+    # blank line, and swallowing it as a continuation would corrupt the Files field with prose that
+    # was never part of it (code review, #419). Flush and ignore it, exactly as a plain prose line
+    # was always ignored before this field ever started accumulating.
+    '**'*)
+      if [ "$IN_FIELD" -eq 1 ]; then flush_files_field "$PAYLOAD"; IN_FIELD=0; PAYLOAD=""; fi
+      continue
+      ;;
     *)
       # A continuation line of the field currently accumulating; joined with a single space, trimmed
       # like every other line. Outside a field, an ordinary prose line — ignored, as before.
