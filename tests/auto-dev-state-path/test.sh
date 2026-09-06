@@ -26,7 +26,7 @@ SKILL_MD="$KIT/skills/auto-dev/SKILL.md"
 [ -f "$SKILL_MD" ] || fail "missing $SKILL_MD"
 
 # --------------------------------------------------------------- 1. the path is pinned, not prose
-PINNED='${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev-<owner>-<repo>.md'
+PINNED='${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<owner>/<repo>.md'
 grep -qF "$PINNED" "$SKILL_MD" \
   || fail "SKILL.md no longer states the pinned, derivable state-file path — $PINNED"
 
@@ -34,6 +34,14 @@ grep -qF "$PINNED" "$SKILL_MD" \
 # path to find, not a prose alternative sitting next to it.
 grep -qF 'a scratch/temp dir, not a tracked path' "$SKILL_MD" \
   && fail "SKILL.md still carries the old prose path ('a scratch/temp dir') alongside the pinned one"
+
+# The collision-prone dash-joined filename must be gone too: `-` is legal inside both a GitHub
+# owner and repo name, so `auto-dev-<owner>-<repo>.md` cannot tell `foo-bar/baz` apart from
+# `foo/bar-baz` (both flatten to `auto-dev-foo-bar-baz.md`). Nesting `<owner>` and `<repo>` as two
+# path SEGMENTS is what the hook actually does (hooks/autodev-stop-gate.sh); this pins the doc to
+# the same shape rather than the old one-file-per-repo string.
+grep -qF 'auto-dev-<owner>-<repo>.md' "$SKILL_MD" \
+  && fail "SKILL.md still states the collision-prone dash-joined path (auto-dev-<owner>-<repo>.md)"
 
 # Still outside the repo, never tracked — the ONE requirement #417 must not loosen.
 state_block=$(sed -n '/Persist a \*\*state file\*\* at the pinned/,/^```markdown/p' "$SKILL_MD")

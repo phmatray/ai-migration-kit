@@ -41,10 +41,13 @@ repo_no_remote() {
   printf '%s' "$d"
 }
 
-# The exact path the hook is specified to derive:
-# ${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev-<owner>-<repo>.md
+# The exact path the hook is specified to derive — <owner> and <repo> are two path SEGMENTS, never
+# joined into one filename with a separator (a dash-joined `auto-dev-<owner>-<repo>.md` collided:
+# `-` is legal inside both a GitHub owner and repo name, so `foo-bar/baz` and `foo/bar-baz` both
+# flattened to the same `auto-dev-foo-bar-baz.md`):
+# ${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<owner>/<repo>.md
 state_path() { # $1 AUTODEV_STATE_DIR base  $2 owner  $3 repo
-  printf '%s/ai-migration-kit/auto-dev-%s-%s.md' "$1" "$2" "$3"
+  printf '%s/ai-migration-kit/auto-dev/%s/%s.md' "$1" "$2" "$3"
 }
 
 pay() { # $1 cwd  $2 stop_hook_active (true|false)  $3 optional session_id
@@ -170,6 +173,27 @@ verdict "trailing-slash remote refuses (not garbled)" 2 "$(pay "$TRAILSLASH" fal
 # --------------------------------------------- 9d. malformed remote (no owner/repo shape) -> allow
 MALFORMED=$(repo_with_remote "not-a-url-at-all")
 verdict "malformed remote allows (nothing to derive)" 0 "$(pay "$MALFORMED" false)" "$SDIR"
+
+# --------------------------------------------------- 9e. two owner/repo pairs that DASH-JOIN to the
+# SAME key must resolve to DIFFERENT state files. `foo-bar/baz` and `foo/bar-baz` both flattened to
+# `auto-dev-foo-bar-baz.md` under the old scheme — the exact collision this test exists to refuse.
+COLL_A=$(repo_with_remote "https://github.com/foo-bar/baz.git")
+COLL_B=$(repo_with_remote "https://github.com/foo/bar-baz.git")
+COLL_A_PATH=$(state_path "$SDIR" foo-bar baz)
+COLL_B_PATH=$(state_path "$SDIR" foo bar-baz)
+[ "$COLL_A_PATH" != "$COLL_B_PATH" ] \
+  || { echo "FAIL [collision]: state_path itself collides for foo-bar/baz and foo/bar-baz"; exit 1; }
+mkdir -p "$(dirname "$COLL_A_PATH")"
+cat > "$COLL_A_PATH" <<'EOF'
+# auto-dev state — foo-bar/baz, N=1 · merges: 0
+## In flight
+- Slot A → #1 (auto-dev) — implementing
+## Queue
+## Completed
+EOF
+rm -f "$COLL_B_PATH"
+verdict "collision A (foo-bar/baz) refuses on its own file" 2 "$(pay "$COLL_A" false)" "$SDIR" "" "foo-bar/baz"
+verdict "collision B (foo/bar-baz) allows — no file of its own, unaffected by A" 0 "$(pay "$COLL_B" false)" "$SDIR"
 
 # --------------------------------------------------------------- 10. a repo with no cwd at all
 verdict "empty cwd allows" 0 "$(jq -nc '{session_id:"x",hook_event_name:"Stop",stop_hook_active:false}')" "$SDIR"

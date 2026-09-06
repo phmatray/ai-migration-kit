@@ -74,10 +74,15 @@ repo="${owner_repo#*/}"
 case "$owner_repo" in */*) ;; *) exit 0 ;; esac
 [ -n "$owner" ] && [ -n "$repo" ] || exit 0
 case "$repo" in */*) exit 0 ;; esac
-owner_repo_dash="$owner-$repo"
 
+# Nested as TWO path segments, never flattened into one filename with a separator: `-` is legal
+# inside both a GitHub owner and repo name, so `foo-bar/baz` and `foo/bar-baz` would both dash-join
+# to `foo-bar-baz` and collide on one file — and any other ASCII separator has the same problem,
+# since it is also legal in one or the other. `/` is the one character illegal in both (case
+# "$repo" in */*) above already refuses a `repo` containing it; `owner` cannot contain it either,
+# being the first `[^/:]+` capture group), so the filesystem is the separator instead of a string.
 state_base="${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}"
-state_file="$state_base/ai-migration-kit/auto-dev-${owner_repo_dash}.md"
+state_file="$state_base/ai-migration-kit/auto-dev/$owner/$repo.md"
 [ -r "$state_file" ] || exit 0
 
 # ------------------------------------------------------------------- staleness bound (24h)
