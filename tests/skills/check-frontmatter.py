@@ -160,6 +160,7 @@ def check_trigger_eval_set(skill: str) -> list:
 
 
 compat_by_skill = {}
+body_sizes = {}
 
 
 def read_name_list(rel_path: str, var: str):
@@ -194,6 +195,7 @@ for f in skill_files:
         errors.append(f"{skill}: YAML frontmatter absent or --- delimiters missing")
         continue
     fm = m.group(1)
+    body_sizes[skill] = len(text[m.end():].encode("utf-8"))
 
     try:
         data = yaml.safe_load(fm)
@@ -338,6 +340,17 @@ for entry in req.get("tools", []) + req.get("mcps", []) + req.get("sessionSkills
             errors.append(
                 f"{skill}: compatibility does not mention '{token}' although "
                 f"requirements.json marks '{entry['name']}' as hard-required by it")
+
+# Skill body size — nothing measured this before now. Descriptions got a soft ceiling once their
+# growth was made visible (#323); the body — the pool actually paid at invocation, not merely at
+# discovery, and roughly 40x larger in total — never got the same visibility. Report it whenever
+# this point in the script is reached, regardless of whether errors or warnings were found: no
+# threshold, no effect on the exit code. The number has to exist before anyone can decide what a
+# ceiling should be (#473).
+print("body sizes (bytes, frontmatter excluded):")
+for skill, size in sorted(body_sizes.items(), key=lambda kv: -kv[1]):
+    print(f"  {skill}: {size}")
+print(f"  total: {sum(body_sizes.values())}")
 
 # Warnings first, so they are still on screen above a failure's error list.
 for warning in warnings:

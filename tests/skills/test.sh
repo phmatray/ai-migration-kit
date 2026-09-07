@@ -234,6 +234,79 @@ run_desc_case "W2 1100 chars still hard-fails    " 1 \
 run_desc_case "W3 750 chars is silent            " 0 \
   '!review-followups: description is' "$(desc_mutator 750)"
 
+echo "== the body-size report is visible and measures the real body, not a cached figure (#473) =="
+# Appends exactly $1 raw bytes to the END of profile-repo's body (not literally after the
+# frontmatter's closing --- — the assert below only proves the frontmatter parses; the checker
+# measures everything from frontmatter-end to EOF either way, so appending anywhere in the body
+# exercises the same code path). Padded with a 2-byte-in-UTF-8 character ("é"), never plain ASCII:
+# ASCII is 1 byte == 1 character, so an ASCII-only pad can't tell a correct
+# `len(body.encode("utf-8"))` apart from a regressed `len(body)` — both would report the same
+# number. This pad makes that regression fail loudly instead of passing by coincidence.
+append_body_bytes_mutator() {
+  cat <<PY
+import pathlib, sys, re
+p = pathlib.Path(sys.argv[1]) / "skills/profile-repo/SKILL.md"
+t = p.read_text(encoding="utf-8")
+m = re.match(r'^---\n.*?\n---\n', t, re.S)
+assert m, "no frontmatter delimiters found"
+n = $1
+pad = "é" * (n // 2) + ("X" * (n % 2))
+assert len(pad.encode("utf-8")) == n, (len(pad.encode("utf-8")), n)
+p.write_text(t + pad, encoding="utf-8")
+PY
+}
+
+# run_body_delta_case <label> <skill> <bytes to append>
+# Unlike run_desc_case (one fixed pattern), this reads the reported number back TWICE — once on
+# the untouched baseline, once after appending exactly N bytes — and asserts the delta equals N
+# exactly. A hardcoded absolute figure would go stale the next time <skill>'s SKILL.md is edited
+# for an unrelated reason; the delta does not (see _shared/test-seams.md's rule against an
+# expected value recomputed the same way the implementation computes it).
+run_body_delta_case() {
+  local label="$1" skill="$2" delta="$3"
+  rm -rf "$ROOT/skills"
+  cp -R "$PRISTINE/skills" "$ROOT/"
+  local before after want
+  # set +e around both reads: a body-size line that does not exist yet (pre-implementation, or a
+  # genuine miss) makes the second `grep -oE` exit 1 with no match, and under this file's
+  # `set -euo pipefail` an unguarded `before=$(... | grep ...)` would abort the WHOLE suite right
+  # here instead of letting this one case report FAIL and continue — exactly the guard
+  # `run_desc_case` already applies around its own fallible call.
+  set +e
+  before=$(python3 "$ROOT/tests/skills/check-frontmatter.py" 2>&1 \
+    | grep -oE "  ${skill}: [0-9]+" | grep -oE '[0-9]+$')
+  set -e
+  if [ -z "$before" ]; then
+    echo "FAIL: [$label] could not read a baseline body size for $skill"
+    fails=$((fails + 1))
+    return
+  fi
+  python3 -c "$(append_body_bytes_mutator "$delta")" "$ROOT"
+  set +e
+  after=$(python3 "$ROOT/tests/skills/check-frontmatter.py" 2>&1 \
+    | grep -oE "  ${skill}: [0-9]+" | grep -oE '[0-9]+$')
+  set -e
+  if [ -z "$after" ]; then
+    echo "FAIL: [$label] could not read the mutated body size for $skill"
+    fails=$((fails + 1))
+    return
+  fi
+  want=$((before + delta))
+  if [ "$after" -eq "$want" ]; then
+    echo "ok   [$label] $before -> $after (+$delta)"
+  else
+    echo "FAIL: [$label] expected $skill: $want, got $after (baseline was $before)"
+    fails=$((fails + 1))
+  fi
+}
+
+run_desc_case "B1 body-size block header appears, exit unchanged" 0 \
+  'body sizes \(bytes, frontmatter excluded\):' 'import sys'
+run_desc_case "B2 body-size total line appears                 " 0 \
+  '  total: [0-9]+' 'import sys'
+run_body_delta_case "B3 appending 100 bytes moves the reported number by exactly 100" \
+  profile-repo 100
+
 # ---------------------------------------------------------------------------------------------
 # The trigger contract has one home now: evals/<skill>-trigger-eval.json (#331). check-frontmatter.py
 # used to guard tests/skills/<skill>.triggers.md — a bullet list no tool ever read, whose presence CI
