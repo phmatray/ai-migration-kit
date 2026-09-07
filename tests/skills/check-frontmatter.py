@@ -343,9 +343,10 @@ for entry in req.get("tools", []) + req.get("mcps", []) + req.get("sessionSkills
 
 # Skill body size — nothing measured this before now. Descriptions got a soft ceiling once their
 # growth was made visible (#323); the body — the pool actually paid at invocation, not merely at
-# discovery, and roughly 40x larger in total — never got the same visibility. Report it
-# unconditionally, on every run, pass or fail: no threshold, no effect on the exit code. The number
-# has to exist before anyone can decide what a ceiling should be (#473).
+# discovery, and roughly 40x larger in total — never got the same visibility. Report it whenever
+# this point in the script is reached, regardless of whether errors or warnings were found: no
+# threshold, no effect on the exit code. The number has to exist before anyone can decide what a
+# ceiling should be (#473).
 print("body sizes (bytes, frontmatter excluded):")
 for skill, size in sorted(body_sizes.items(), key=lambda kv: -kv[1]):
     print(f"  {skill}: {size}")

@@ -235,7 +235,13 @@ run_desc_case "W3 750 chars is silent            " 0 \
   '!review-followups: description is' "$(desc_mutator 750)"
 
 echo "== the body-size report is visible and measures the real body, not a cached figure (#473) =="
-# Appends exactly $1 raw bytes to profile-repo's body, right after the frontmatter's closing ---.
+# Appends exactly $1 raw bytes to the END of profile-repo's body (not literally after the
+# frontmatter's closing --- — the assert below only proves the frontmatter parses; the checker
+# measures everything from frontmatter-end to EOF either way, so appending anywhere in the body
+# exercises the same code path). Padded with a 2-byte-in-UTF-8 character ("é"), never plain ASCII:
+# ASCII is 1 byte == 1 character, so an ASCII-only pad can't tell a correct
+# `len(body.encode("utf-8"))` apart from a regressed `len(body)` — both would report the same
+# number. This pad makes that regression fail loudly instead of passing by coincidence.
 append_body_bytes_mutator() {
   cat <<PY
 import pathlib, sys, re
@@ -243,7 +249,10 @@ p = pathlib.Path(sys.argv[1]) / "skills/profile-repo/SKILL.md"
 t = p.read_text(encoding="utf-8")
 m = re.match(r'^---\n.*?\n---\n', t, re.S)
 assert m, "no frontmatter delimiters found"
-p.write_text(t + ("X" * $1), encoding="utf-8")
+n = $1
+pad = "é" * (n // 2) + ("X" * (n % 2))
+assert len(pad.encode("utf-8")) == n, (len(pad.encode("utf-8")), n)
+p.write_text(t + pad, encoding="utf-8")
 PY
 }
 
