@@ -521,7 +521,7 @@ jobs:
 
       - name: Setup Node (bundle front committé)
         if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           # Version EXACTE, jamais `26.x` ni `26.5.x` : la précondition 2 tombe si Node flotte,
           # et `tests/ci-template/test.sh` refuse toute forme non `N.N.N`.
