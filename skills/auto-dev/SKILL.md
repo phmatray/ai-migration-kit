@@ -295,12 +295,14 @@ The **one judgment left to you is area-tagging** the QUEUE rows (infer from titl
 Persist a **state file** at the pinned, derivable path
 
 ```
-${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<owner>/<repo>.md
+${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md
 ```
 
 (`mkdir -p` its parent directory first) — still outside the repo and never a tracked path, so the
 fleet survives compaction and `loop` re-fires, and now at a location `hooks/autodev-stop-gate.sh`
-(#417) can compute from `git remote` without being told. `<owner>` and `<repo>` are two path
+(#417) can compute from `git remote` without being told. `<host>` is the remote's authority
+(`github.com`, lowercased — DNS is case-insensitive, a path is not), so two hosts sharing an
+owner/repo pair never share a file (#471). `<owner>` and `<repo>` are two path
 SEGMENTS, not a `-`-joined filename: `-` is legal inside both a GitHub owner and repo name, so a
 joined `<owner>-<repo>` string cannot tell `foo-bar/baz` apart from `foo/bar-baz` — both would
 collide on one file. The filesystem is the separator instead, so two repositories genuinely cannot
@@ -766,7 +768,7 @@ skill, so the final summary is the only place a human reliably sees a leftover w
 the state file is discarded.
 
 **Remove the state file** at its pinned path (Step 2) once the queue has fully drained — `rm -f
-"${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<owner>/<repo>.md"`.
+"${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md"`.
 This is what `hooks/autodev-stop-gate.sh` (#417) reads as "no fleet is running here": its positive
 evidence is the file's presence, so leaving a drained fleet's file behind would leave the gate
 believing work is still undrained the next time a session tries to stop in this repo. Don't remove it
