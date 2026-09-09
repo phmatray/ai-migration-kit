@@ -539,6 +539,9 @@ jobs:
       - name: Auto-dev never-wait golden test (worker prompt + recovery clause pinned)
         run: ./tests/auto-dev-never-wait/test.sh
 
+      - name: Review-angle isolation golden test (review sub-agents read-only and isolated, #477)
+        run: ./tests/review-angle-isolation/test.sh
+
       - name: Auto-dev takeover-cleanup golden test (MERGED verdict dispatches merge-pr for local cleanup)
         run: ./tests/auto-dev-takeover-cleanup/test.sh
 

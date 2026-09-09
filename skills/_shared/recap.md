@@ -6,7 +6,7 @@ a different set of things (`merge-pr` reported cleanup and `implement-issue` did
 reported cost and nobody else did), four spelled it out nowhere at all, and three of them
 independently remembered to ask for "anything assumed, deferred, or unverifiable" — three sentences
 saying the same thing, which is the drift signature this repo has already paid for in
-`tests/_lib.sh` (#72), `tests/_lib/py_module.py` (#42) and the caller-path base (#143).
+`tests/_lib.sh` (#72), `py_module` in `tests/_lib/py.sh` (#42) and the caller-path base (#143).
 
 Worse, the one line the user actually acts on next — `/implement-issue #N` after `create-issue` —
 existed as prose in exactly two of them, while [`ARCHITECTURE.md`](../../ARCHITECTURE.md) drew the
