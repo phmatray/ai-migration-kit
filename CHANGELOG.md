@@ -8,6 +8,26 @@ Starting with the version after [1.9.1], the entries below this paragraph are ge
 adopt its format (*Features* / *Bug Fixes* sections, comparison link, sha per entry) rather than
 the hand-written entries below. Earlier entries are kept as written.
 
+## [2.3.0](https://github.com/phmatray/ai-migration-kit/compare/v2.2.0...v2.3.0) (2026-09-09)
+
+
+### Features
+
+* **debug-issue:** the description binds before the first investigative command, not just before the fix ([#467](https://github.com/phmatray/ai-migration-kit/issues/467)) ([e009fc8](https://github.com/phmatray/ai-migration-kit/commit/e009fc8b5b93fabf468bbf42e41a4798756aa2da))
+* **implement-issue:** review on three axes from a staged diff file, and every prompt file reference must resolve ([#480](https://github.com/phmatray/ai-migration-kit/issues/480)) ([1a52790](https://github.com/phmatray/ai-migration-kit/commit/1a52790bffde2028c7da164c99da91743d7a8e5b))
+
+
+### Bug Fixes
+
+* **auto-dev:** decision-tally.sh reads its non-terminal verdicts from the registry ([#378](https://github.com/phmatray/ai-migration-kit/issues/378)) ([#487](https://github.com/phmatray/ai-migration-kit/issues/487)) ([35bcaf9](https://github.com/phmatray/ai-migration-kit/commit/35bcaf92f4b47a30c9640f6b1fcf660443fdd2c7))
+* **auto-dev:** generalise the never-wait rule to CI-restarting dispatches ([#478](https://github.com/phmatray/ai-migration-kit/issues/478)) ([#481](https://github.com/phmatray/ai-migration-kit/issues/481)) ([412a261](https://github.com/phmatray/ai-migration-kit/commit/412a261d5eca31c60c13c3648f2ddeff671bab5f))
+* **auto-dev:** key the Stop-gate state file by host too, not just owner/repo ([#471](https://github.com/phmatray/ai-migration-kit/issues/471)) ([#486](https://github.com/phmatray/ai-migration-kit/issues/486)) ([054e05a](https://github.com/phmatray/ai-migration-kit/commit/054e05aa69f9eb93bcb9a0cb563697dc7c3f5abc))
+* **implement-issue:** refuse a guarded write from a worktree that was destroyed mid-run ([#469](https://github.com/phmatray/ai-migration-kit/issues/469)) ([#482](https://github.com/phmatray/ai-migration-kit/issues/482)) ([18361eb](https://github.com/phmatray/ai-migration-kit/commit/18361eb8b0af1e2fce082f3d7ee9c9970cfc5c76))
+* **merge-pr:** fall back to workflow-runs by sha when check-runs fails, and make a streak of unverified loud ([#479](https://github.com/phmatray/ai-migration-kit/issues/479)) ([#483](https://github.com/phmatray/ai-migration-kit/issues/483)) ([a5c6919](https://github.com/phmatray/ai-migration-kit/commit/a5c6919be5367f0dbc8d8b2c86dc4a525cd4160d))
+* **migrate-legacy:** report-dashboard.py emits English, matching the translated reference docs ([#432](https://github.com/phmatray/ai-migration-kit/issues/432)) ([#489](https://github.com/phmatray/ai-migration-kit/issues/489)) ([c2371aa](https://github.com/phmatray/ai-migration-kit/commit/c2371aa182ebac4670c08015202cac975ad6d127))
+* **parse-sweep:** CI runs the sweep under a real bash 3.2, not only an emulation of it ([#144](https://github.com/phmatray/ai-migration-kit/issues/144)) ([#490](https://github.com/phmatray/ai-migration-kit/issues/490)) ([b38e7de](https://github.com/phmatray/ai-migration-kit/commit/b38e7de667287812ff101c4fcb20c95aef26b6fe))
+* **review-sessions:** session-retro.sh run computes its window with python3, so the harvest half is portable as its header promises ([#491](https://github.com/phmatray/ai-migration-kit/issues/491)) ([1f93624](https://github.com/phmatray/ai-migration-kit/commit/1f9362458fc10719979248e0534f7344922a8f54))
+
 ## [2.2.0](https://github.com/phmatray/ai-migration-kit/compare/v2.1.0...v2.2.0) (2026-09-06)
 
 
