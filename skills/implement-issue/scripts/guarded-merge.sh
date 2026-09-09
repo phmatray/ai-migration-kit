@@ -133,6 +133,9 @@ done
 # The checks and their order live in _assert-branch.sh; the two messages stay here, because what
 # an unguarded MERGE costs is not what an unguarded commit or push costs — it carries the whole of
 # the merged ref into someone else's branch in one write.
+# A destroyed worktree is named as one, not as a branch mismatch (#469) — see _assert-branch.sh.
+assert_worktree_live "$TOOL"
+
 assert_branch "$TOOL" \
   "HEAD is detached in $REPO — it belongs to no branch, so this merge has nowhere safe to
              land. Expected '$EXPECTED'. $NOTHING" \
