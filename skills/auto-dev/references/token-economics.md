@@ -58,6 +58,13 @@ Each tool round-trip is a turn, and every turn re-reads the whole context.
 
 Measured from a 19-merge run on bsca-dev/partners-api (2026-08-24), 37 worker sessions, via `scripts/usage_report.py`:
 
+> This is the run's one accounting: 37 sessions and 656,482,029 tokens, reproduced independently by
+> `scripts/analyze_cache.py` (`sessions=37`) and pinned by `tests/auto-dev-cost-budgets/test.sh`.
+> SKILL.md's § *Token economics* used to headline the same run as *21 sessions / 863M tokens* from
+> an earlier scan whose tool and scope were never recorded; the two cannot be reconciled and the
+> transcripts are gone, so that figure is retired as unverifiable rather than rewritten to agree
+> (#386) — a manufactured measurement looks current, which is worse than a stale one.
+
 | Tier | Sessions | Tokens | $ list-equiv | $/Mtok |
 |---|---|---|---|---|
 | opus (top) | 4 | 78,844,117 | $187.23 | $2.376 |
