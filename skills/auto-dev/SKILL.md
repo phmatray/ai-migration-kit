@@ -508,6 +508,15 @@ folding it into `DETAIL:`, and treat a `RED` as a reason to look before dispatch
 cancelled by the next merge in the train is the common
 case): record it as-is, and never upgrade it to green.
 
+**A streak of `unverified` is a finding (#479).** Keep a running count of consecutive `unverified`
+`BASE:` lines on the state board (reset by any `green` or `RED`). At **three** in a row, write
+`base health unchecked for N merges (<reason>)` on the board and carry it into Step 6's recap
+under **Assumed · skipped · unverified** — twelve merges of one run each said `unverified
+(query-failed)` and filled the board with rows that read like diligence while the base went red
+twice. The token names the remedy: `query-failed`/`api-404` is the host (the helper's by-sha
+workflow-runs fallback should have answered — check `gh api` against it by hand), `no-run-yet`
+means the base runs no CI on push or posts it late, `cancelled` is the train superseding itself.
+
 **Passing the PR number between phases** — belt and braces, because the whole pipeline stalls if this
 is lost: have phase 1 write the digits to the file you name in its prompt; fall back to the `PR:`
 field of the agent's final report (the sub-agent's last message IS its report, delivered to you
@@ -768,7 +777,8 @@ only what **auto-dev** adds on top of them.
 
 Stop dispatching when the eligible queue is empty (or the user says stop). Let the in-flight workers
 finish and land, retire them, then summarize: issues merged (with PR numbers), follow-ups filed, anything
-blocked or skipped (with reasons), what remains (e.g. held L/XL items), and any `## Needs manual
+blocked or skipped (with reasons), what remains (e.g. held L/XL items), a `base health unchecked for
+N merges` line whenever the board carries one (#479), and any `## Needs manual
 sweep` entries still on the state file — that section has no automated reader anywhere else in this
 skill, so the final summary is the only place a human reliably sees a leftover worktree/branch before
 the state file is discarded.

@@ -29,6 +29,16 @@
 # script asks a recency-shaped question; `tests/merge-base-ci/test.sh` arms a deliberately wrong
 # `gh run list` answer so a rewrite that reaches for one goes red.
 #
+# THE FALLBACK IS ALSO BY SHA (#479). On GitHub Enterprise Server the check-runs endpoint answered
+# 404 on every one of twelve just-created squash shas in one fleet run — eventually consistent —
+# while the workflow runs for those very shas were visible, so every merge reported `unverified`
+# and a base that went red twice was never seen. When check-runs FAILS (404, any error) the
+# workflow-runs endpoint is asked `?head_sha=<sha>` — keyed on the sha like check-runs, never on
+# the branch — and its runs are mapped into the check-runs shape so the same `ci.verdict`
+# reduction judges them. A verdict from that path says so in its reason: `green (base-run)`,
+# `RED (base-run)`, and `unverified (no-run-yet)` when it found nothing for the sha. Twelve
+# `unverified` in a row is a FINDING, not a default — `merge-pr` Step 5b says so.
+#
 # THE VERDICT MAPPING. `ci.verdict` answers a PRE-merge question, so its four words do not map
 # one-to-one onto a POST-merge report. This script maps them; it does not re-decide them, and it
 # adds no second rule set (#208 — one id, one program, one home):
@@ -207,6 +217,7 @@ ci=""
 # a failed poll resets to it so a gap in the readings cannot be read as two agreeing ones.
 NO_READING=$'\001none'
 prev_sig="$NO_READING"
+source=check-runs
 
 while :; do
   raw=""
@@ -215,6 +226,17 @@ while :; do
   # unauthenticated host) is NOT evidence about the base branch, so it must not read as `no-ci`
   # — which is why it is retried until the deadline rather than answered on the first attempt.
   raw=$(gh api "repos/$OWNER_REPO/commits/$SHA/check-runs" --paginate --slurp 2>/dev/null) || rc=$?
+  source=check-runs
+  if [ "$rc" -ne 0 ] || [ -z "$raw" ]; then
+    # check-runs failed (a fresh sha 404s on GHES, #479): ask workflow-runs FOR THIS SHA and map
+    # the answer into the check-runs shape — same reduction, no second rule set. Still by sha.
+    wr=""; wrc=0
+    wr=$(gh api "repos/$OWNER_REPO/actions/runs?head_sha=$SHA&per_page=100" 2>/dev/null) || wrc=$?
+    if [ "$wrc" -eq 0 ] && [ -n "$wr" ]; then
+      mapped=$(printf '%s' "$wr" | jq -c '[{total_count: 0, check_runs: [ .workflow_runs[]? | {name, id, app: {id: 0}, started_at: (.run_started_at // .created_at), html_url, status, conclusion} ]}]' 2>/dev/null) || mapped=""
+      if [ -n "$mapped" ]; then raw="$mapped"; rc=0; source=workflow-runs; fi
+    fi
+  fi
   if [ "$rc" -ne 0 ] || [ -z "$raw" ]; then
     last_reason="query-failed"
     prev_sig="$NO_READING"
@@ -234,13 +256,17 @@ while :; do
       ci=$(printf '%s' "$verdict_json" | jq -r '.verdict // ""')
       # The reduced job set, order-independent: which jobs have posted, not what they say. That is
       # the question "has the graph finished appearing?" and it is the only thing compared.
-      sig=$(printf '%s' "$verdict_json" | jq -r '[ .latest[].name ] | sort | join("\u0000")')
+      # Joined as JSON (`tojson`), not with a NUL: bash drops NUL bytes from a command
+      # substitution — with a warning on every poll — so the separator never reached the
+      # comparison and `["a b","c"]` read the same as `["a","b c"]`. A JSON array keeps every
+      # boundary, whatever a job name contains.
+      sig=$(printf '%s' "$verdict_json" | jq -c '[ .latest[].name ] | sort')
       case "$ci" in
         pending)
           last_reason="timeout" ;;
         no-ci)
           if [ "$SECONDS" -ge "$settle_deadline" ]; then break; fi
-          last_reason="no-ci" ;;
+          last_reason="no-ci"; [ "$source" = workflow-runs ] && last_reason="no-run-yet" ;;
         clear)
           if [ "$sig" = "$prev_sig" ]; then break; fi
           last_reason="timeout" ;;
@@ -265,11 +291,15 @@ done
 runs=$(printf '%s' "$verdict_json" \
   | jq -c '[ .latest[] | {name, html_url, state} ]')
 
+# A verdict read through the workflow-runs fallback says so (#479): `base-run` for a judged set,
+# `no-run-yet` for an empty one — distinct from `no-ci` (check-runs answered, and had nothing).
+src_reason=clear; [ "$source" = workflow-runs ] && src_reason=base-run
+empty_reason=no-ci; [ "$source" = workflow-runs ] && empty_reason=no-run-yet
 case "$ci" in
   clear)
-    answer green clear "$runs" ;;
+    answer green "$src_reason" "$runs" ;;
   no-ci)
-    answer unverified no-ci "$runs" ;;
+    answer unverified "$empty_reason" "$runs" ;;
   failed)
     # `ci.verdict` puts `cancelled` in `.failed` because pre-merge a cancelled check is a reason
     # NOT to merge. Post-merge it is a different fact: the merge already landed, and a cancelled
@@ -279,6 +309,7 @@ case "$ci" in
     n_real=$(printf '%s' "$verdict_json" \
       | jq '[ .failed[] | select(.state != "cancelled") ] | length')
     if [ "$n_real" -gt 0 ]; then
+      [ "$source" = workflow-runs ] && answer red base-run "$runs"
       answer red failed "$runs"
     fi
     answer unverified cancelled "$runs" ;;
