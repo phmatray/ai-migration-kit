@@ -31,3 +31,10 @@ rules and to a unique `nav_order`, and it also requires every published release 
 have a `docs/journal/<tag>.md` article, so the journal cannot silently go stale. A checkout with no
 `v*` tags at all is refused rather than treated as passing, since silence there would hide every
 missing article instead of catching it.
+
+The exemption is exactly one release wide, always: the newest tag by creation time. On a day with
+several releases (this repository has tagged six in one afternoon) the gate goes red for every open
+pull request the moment a second release is tagged, because the release that was newest a minute
+ago is now an older tag with no article. That is the gate working, not a bug. The recovery is to
+write the missing articles, oldest tag first; the refusal names every missing tag, so nothing has to
+be worked out by hand.

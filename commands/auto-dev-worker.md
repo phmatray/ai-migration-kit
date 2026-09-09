@@ -10,7 +10,7 @@ it** — a separate phase-2 sub-agent lands it in a fresh context (see "Why two 
 
 Invoke `implement-issue` with args "$1". Let it create its OWN git worktree (do NOT reuse the
 shared/main checkout — other workers are active), open a draft PR, implement each plan task, run
-code-review and apply the fixes, sync the default branch, format, and flip the PR from draft to ready.
+code-review and apply its findings yourself, sync the default branch, format, and flip the PR from draft to ready.
 
 **The worktree you were given is the worktree.** You were very likely dispatched with the Agent
 tool's `isolation: "worktree"` option, which already put you in a git worktree of your own before
@@ -46,6 +46,12 @@ it as a new issue via `create-issue`, then continue your task. Name what you fil
 run anyone reads. The carve-out is phase 1's alone: the merge phase keeps filing, since no review pass
 follows a merge-phase fix. **Never pass `--grill`** — it makes `create-issue` stop and interview the
 user, and you have nobody to interview.
+
+**Any review sub-agent you dispatch is read-only and isolated — `subagent_type: Explore`,
+`isolation: "worktree"` — and returns findings as text for YOU to apply.** A fork inherits
+your full tool access and your live worktree; one fleet run had six write-capable review forks
+editing one worker's tree at once and one pushed to the PR branch (#477). Never `--fix` through a
+sub-agent: one writer per worktree, and that writer is you.
 
 **If a guard call at `$GUARDS` is refused, you have nobody to ask.** You are the configuration
 [`skills/_shared/guard-invocation.md`](../skills/_shared/guard-invocation.md) exists for — an agent

@@ -115,23 +115,23 @@ count_in() { grep -oF "$2" "$1" | wc -l | tr -d ' '; }
 assert() { assert_in "$out" "$1"; }
 refuse() { refuse_in "$out" "$1"; }
 
-assert '<title>Migration FixtureApp — rapport exécutif</title>'
+assert '<title>Migration FixtureApp — executive report</title>'
 assert 'Migration de démonstration'
 assert '✓ Vérifié'
 assert 'migration/2026-01-01'
 assert 'Déployer avec fallback SPA'
 # La couverture vient du cobertura (calculée), jamais recopiée du JSON :
-assert 'Engine : 3/4 lignes couvertes'
-assert 'Wrapper : 1/2 lignes couvertes'
+assert 'Engine: 3/4 lines covered'
+assert 'Wrapper: 1/2 lines covered'
 # Une classe partielle (Partial.cs + Partial.Designer.cs, 2 lignes chacun) donne UNE entrée de
 # 4 lignes. Une fusion qui identifierait les lignes par leur seul numéro en compterait 2.
-assert 'Partial : 3/4 lignes couvertes'
-[ "$(count_in "$out" 'Partial : ')" = 1 ] || {
+assert 'Partial: 3/4 lines covered'
+[ "$(count_in "$out" 'Partial: ')" = 1 ] || {
   echo "ÉCHEC : la classe partielle apparaît en double au lieu d'être fusionnée"; exit 1; }
 # Le global est recalculé sur les lignes fusionnées (7/10) et sur les condition-coverage
 # (8/12) — jamais lu dans l'attribut line-rate de la racine, qui compterait deux fois le
 # produit dès qu'il y a plusieurs rapports (cf. parse_cobertura).
-assert 'Global : 70 % lignes · 67 % branches'
+assert 'Overall: 70 % lines · 67 % branches'
 # Le KPI affiché doit être CELUI qui vient d'être calculé : une tuile recopiée à la main à côté
 # d'un graphe recalculé, c'est deux chiffres contradictoires sur la page que le kit donne en
 # exemple de « couverture mesurée, jamais estimée ».
@@ -139,12 +139,12 @@ assert '<div class="v">70<small>%</small></div>'
 # Le filtre d'exclusion fonctionne :
 refuse 'ExcludedWeb'
 # Chronologie du pipeline (phases[]) : minutes par phase + total calculé, jamais recopié :
-assert 'Chronologie du pipeline'
+assert 'Pipeline timeline'
 assert '1. Assess'
 assert '6 min'
-assert 'Total : 10 min'
+assert 'Total: 10 min'
 # Leçons de la vague (lessons) : rétropropagation rendue, avec sa référence kit :
-assert 'Leçons de la vague'
+assert 'Lessons from the wave'
 assert 'Leçon de fixture.'
 assert 'kit@0000000'
 # Autonome et thémé : pas de ressource externe, thème sombre présent
@@ -180,17 +180,17 @@ python3 scripts/report-dashboard.py "$multi_dir/report.json" -o "$multi" 2>/dev/
 
 # Engine est dans les deux rapports : A couvre les lignes 1-3, B couvre la 4. Sommées, 4/4.
 # Si les rapports étaient concaténés au lieu d'être fusionnés, on lirait 3/4 ET 1/4.
-assert_in "$multi" 'Engine : 4/4 lignes couvertes'
-[ "$(count_in "$multi" 'Engine : ')" = 1 ] || {
-  echo "ÉCHEC : Engine apparaît $(count_in "$multi" 'Engine : ') fois — une classe vue par deux rapports doit être fusionnée"
+assert_in "$multi" 'Engine: 4/4 lines covered'
+[ "$(count_in "$multi" 'Engine: ')" = 1 ] || {
+  echo "ÉCHEC : Engine apparaît $(count_in "$multi" 'Engine: ') fois — une classe vue par deux rapports doit être fusionnée"
   exit 1; }
 # Une classe que seul l'un des deux rapports voit doit survivre à l'union, dans les deux sens.
-assert_in "$multi" 'Wrapper : 1/2 lignes couvertes'
-assert_in "$multi" 'Repository : 4/6 lignes couvertes'
+assert_in "$multi" 'Wrapper: 1/2 lines covered'
+assert_in "$multi" 'Repository: 4/6 lines covered'
 # Le global est recalculé sur l'union : 12/16 lignes et 14/18 branches. Chaque rapport pris
 #   seul vaut moins (70 %/67 % et 50 %/50 %) : un global qui ne monte pas au-dessus des deux
 #   est le symptôme d'un fichier écrasé.
-assert_in "$multi" 'Global : 75 % lignes · 78 % branches'
+assert_in "$multi" 'Overall: 75 % lines · 78 % branches'
 # L'exclusion s'applique à TOUS les rapports, pas seulement au premier.
 refuse_in "$multi" 'ExcludedWeb'
 
@@ -217,7 +217,7 @@ assert par_libelle.get("tests verts", "").strip() == "42", (
 tile = re.match(r"\s*(\d+)", re.sub(r"<[^>]*>", "", par_libelle["couverture mesurée (lignes)"]))
 assert tile, "la tuile de couverture ne commence pas par un nombre"
 tile = tile.group(1)
-legende = re.search(r"Global : (\d+) % lignes", html)
+legende = re.search(r"Overall: (\d+) % lines", html)
 assert legende, "la légende de couverture est absente du HTML"
 assert tile == legende.group(1), (
     f"la page publie DEUX chiffres de couverture : tuile {tile} %, légende {legende.group(1)} %. "
@@ -266,8 +266,8 @@ pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
 PY
   python3 scripts/report-dashboard.py "$dir_case/report.json" -o "$dir_case/report.html" 2>/dev/null
   # Mêmes chiffres que la liste explicite : le répertoire et le glob désignent les deux rapports.
-  assert_in "$dir_case/report.html" 'Global : 75 % lignes · 78 % branches'
-  assert_in "$dir_case/report.html" 'Engine : 4/4 lignes couvertes'
+  assert_in "$dir_case/report.html" 'Overall: 75 % lines · 78 % branches'
+  assert_in "$dir_case/report.html" 'Engine: 4/4 lines covered'
 done
 
 # Un chemin littéral manquant doit NOMMER le fichier absent, pas cracher un FileNotFoundError
@@ -570,7 +570,7 @@ fi
 #
 # `sed`, jamais `grep -o … | head -1` : sous le `set -o pipefail` de la ligne 4, la sortie anticipée
 # de head tuerait grep par SIGPIPE et le statut du tube ferait échouer l'assignation (#48).
-pct=$(sed -n 's/.*Global : \([0-9]*\) % lignes.*/\1/p' "$doc_case/migration/report.html" | sed -n '1p')
+pct=$(sed -n 's/.*Overall: \([0-9]*\) % lines.*/\1/p' "$doc_case/migration/report.html" | sed -n '1p')
 if [ -z "$pct" ] || [ "$pct" -le 0 ]; then
   echo "ÉCHEC : le chemin documenté se résout mais la couverture lue vaut « ${pct:-<absente>} » %."
   echo "        Un rapport vide passerait un simple test d'existence du répertoire."
@@ -614,12 +614,12 @@ pathlib.Path(sys.argv[1], "report.json").write_text(json.dumps(r))
 PY
 cp tests/report-dashboard/fixture-cobertura-nobranch.xml "$nd_dir/"
 python3 scripts/report-dashboard.py "$nd_dir/report.json" -o "$nd_dir/report.html" 2>/dev/null
-assert_in "$nd_dir/report.html" 'branches n/d'
+assert_in "$nd_dir/report.html" 'branches n/a'
 # La légende ENTIÈRE, pas le sous-texte « 0 % branches » : `grep -F` sur celui-ci matche aussi
 # « 50 % branches », « 30 % branches »… Le jour où ce cas basculerait à tort sur le repli racine et
 # rendrait « 60 % branches », l'assertion serait restée verte ; et si elle échouait, son message
 # aurait désigné l'inverse du comportement réel.
-assert_in "$nd_dir/report.html" 'Global : 50 % lignes · branches n/d'
+assert_in "$nd_dir/report.html" 'Overall: 50 % lines · branches n/a'
 
 # ---------------------------------------------------------------------------
 # `screenshot.path` se résout contre la même base — et échoue de la même façon (issue #102).

@@ -19,9 +19,9 @@
 #   session-retro.sh install   write and enable the weekly systemd user timer that calls `run`
 #   session-retro.sh uninstall stop and remove it
 #
-# Linux only, and deliberately: `install` writes a systemd user unit and `run` uses GNU
-# `date -d`. A macOS user schedules `run` with launchd instead — the harvest half is portable,
-# the scheduling half is not, and faking that with a second code path nobody runs would be worse
+# `install`/`uninstall` are Linux only, and deliberately: they write a systemd user unit. A
+# macOS user schedules `run` with launchd instead — the harvest half is portable (`run` computes
+# its window with python3, never GNU `date -d`), the scheduling half is not, and faking that with a second code path nobody runs would be worse
 # than saying so here.
 #
 # Environment:
@@ -42,7 +42,9 @@ harvest() { python3 "$KIT/skills/review-sessions/scripts/harvest.py" --since "$1
 
 cmd_run() {
   local since out n
-  since="$(date -d "$DAYS days ago" +%F)"
+  # python3, not `date -d`: GNU-only, and macOS's date has no -d — `run` is the harvest half,
+  # which the header promises is portable; python3 is already the harvester's own runtime.
+  since="$(python3 -c 'import datetime, sys; print((datetime.date.today() - datetime.timedelta(days=int(sys.argv[1]))).isoformat())' "$DAYS")"
 
   # Count RECORDS, not output: harvest.py prints a footer ("no signals across N session(s)",
   # "skipped N unparseable line(s)") on every run, so a non-empty report is not a signal. --json

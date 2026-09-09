@@ -69,7 +69,7 @@ table=$(printf '%s\n' "$out" | head -5)
 }
 footer=$(printf '%s\n' "$out" | tail -1)
 case "$footer" in
-  "malformed lines: 1 · log: $FIXTURE · events since program change: 67") : ;;
+  "malformed lines: 1 · log: $FIXTURE · events since program change: 67 · non-terminal: fix-check,pending,sync,wait (registry)") : ;;
   *) echo "FAIL [table]: unexpected footer: $footer"; exit 1 ;;
 esac
 echo "  ok: table+flags+footer — repeat-poll, no flag, and systematic all fire on the Spec's own numbers"
@@ -171,5 +171,38 @@ grep -qi 'MIT' "$TAXONOMY" || {
   echo "FAIL [taxonomy]: $TAXONOMY does not name the MIT license"; exit 1
 }
 echo "  ok: retro-taxonomy.md carries exactly the seven named categories, credited to mattpocock/skills (MIT)"
+
+# ------------------------------------------------------ 10. the non-terminal set comes from the
+# registry (#378). A scratch copy of the kit — the script resolves the registry from its own
+# location — whose registry declares a NEW non-terminal word (`retry`) makes `systematic` fire on
+# it, with no change to the script; and a registry the script cannot read is NAMED in the footer,
+# never silently read as the real set.
+NT_KIT="$WORK/nt-kit"
+mkdir -p "$NT_KIT/skills/auto-dev/scripts" "$NT_KIT/decisions"
+cp "$TALLY" "$NT_KIT/skills/auto-dev/scripts/decision-tally.sh"
+cat > "$NT_KIT/decisions/registry.json" <<'JSON'
+{"decisions":[{"id":"x.y","verdict":{"vocabulary":["retry","done"],"nonTerminal":["retry"]}}],"not_decisions":{}}
+JSON
+NT_LOG="$WORK/nt-events.jsonl"
+: > "$NT_LOG"
+for i in $(seq 1 6); do
+  printf '{"v":1,"ts":"2026-08-01T03:00:%02dZ","decision":"x.y","verdict":"retry","rule":"r","program":"p","input_sha256":"nt%03d"}\n' "$i" "$i" >> "$NT_LOG"
+done
+out=$("$NT_KIT/skills/auto-dev/scripts/decision-tally.sh" "$NT_LOG")
+retry_row=$(printf '%s\n' "$out" | grep -E '^\| x\.y +\| retry ' || true)
+grep -q 'systematic' <<<"$retry_row" \
+  || { echo "FAIL [registry-nonterminal]: a registry-declared non-terminal word ('retry') did not trip systematic:"; echo "$out"; exit 1; }
+printf '%s\n' "$out" | grep -qF 'non-terminal: retry (registry)' \
+  || { echo "FAIL [registry-nonterminal]: the footer does not name the registry's set:"; echo "$out"; exit 1; }
+echo "  ok: registry-nonterminal — a new nonTerminal word in the registry trips systematic with no script change"
+
+rm -f "$NT_KIT/decisions/registry.json"
+out=$("$NT_KIT/skills/auto-dev/scripts/decision-tally.sh" "$NT_LOG")
+printf '%s\n' "$out" | grep -qF '(fallback' \
+  || { echo "FAIL [registry-unreadable]: an unreadable registry is not named as a fallback in the footer:"; echo "$out"; exit 1; }
+retry_row=$(printf '%s\n' "$out" | grep -E '^\| x\.y +\| retry ' || true)
+grep -q 'systematic' <<<"$retry_row" \
+  && { echo "FAIL [registry-unreadable]: 'retry' tripped systematic without a registry declaring it"; exit 1; }
+echo "  ok: registry-unreadable — the fallback set is used and named, and an undeclared word does not trip"
 
 echo "decision-tally golden test OK"

@@ -1975,4 +1975,71 @@ grep -qF 'Conflicts:' "$MERGE_SKILL" \
 
 echo "  ok: sync-with-main.md sources the other side's intent, records the trade-off, and both reports quote it (#321)"
 
+# ---------------------------------------------------------------- 35. a worktree destroyed mid-run (#469)
+#
+# The worktree home `.claude/worktrees/` is INSIDE the main checkout, so when a worker's tree is
+# destroyed under it (rm -rf + mkdir — a sweeper, a hand deletion), git's discovery walks up and
+# every command from then on silently runs in the USER'S checkout, exit 0. Measured 2026-09-05: a
+# fleet worker kept going there. The only thing that caught the commit was assert_branch, by luck
+# (HEAD there was `main`), and it named the wrong diagnosis. make-worktree.sh now records each
+# tree's path in the common config; the guards compare it to the live toplevel and refuse BY NAME.
+#
+# Fixture: a main checkout with a real linked worktree on branch `a` (the task's branch), whose
+# path is recorded the way make-worktree.sh records it.
+
+new_linked_worktree() {           # <name> → sets $WT (the worktree) and $R_MAIN (the main checkout)
+  R_MAIN=$(new_repo "$1")
+  git -C "$R_MAIN" checkout -q b               # main checkout sits on b, so a MUST be the worktree's
+  WT_PATH="$R_MAIN/.claude/worktrees/a"
+  mkdir -p "$R_MAIN/.claude/worktrees"
+  git -C "$R_MAIN" worktree add -q "$WT_PATH" a
+  git -C "$R_MAIN" config "kit.worktree.a.path" "$(cd "$WT_PATH" && pwd -P)"
+  WT="$WT_PATH"
+}
+
+# 35a. Shape B — the silent one: the tree is rm -rf'ed and re-created empty, so the path exists
+# and discovery lands on the parent. Every guard refuses with exit 2, names the relocation (not a
+# branch mismatch), and the parent checkout gains nothing.
+new_linked_worktree relocate-b
+echo "task work" >> "$WT/seed.txt"
+git -C "$WT" add seed.txt
+rm -rf "$WT"; mkdir -p "$WT"
+before_a=$(tip "$R_MAIN" a); before_b=$(tip "$R_MAIN" b)
+
+run relocate-commit "$COMMIT" -C "$WT" a -- -m "feat: written after the tree died"
+[ "$RC" -eq 2 ] || fail relocate-commit "expected exit 2, got $RC"
+grep -q 'destroyed mid-run' "$OUT" || fail relocate-commit "the refusal must name the relocation, not a branch mismatch"
+grep -qF "$(cd "$WT" && pwd -P)" "$OUT" || fail relocate-commit "the refusal must name the recorded worktree path"
+grep -q 'REFUSED' "$OUT" || fail relocate-commit "the refusal must carry the REFUSED prefix"
+[ "$(tip "$R_MAIN" a)" = "$before_a" ] || fail relocate-commit "branch a moved"
+[ "$(tip "$R_MAIN" b)" = "$before_b" ] || fail relocate-commit "the PARENT checkout's branch gained the commit — this IS the bug"
+
+run relocate-push "$PUSH" -C "$WT" a
+[ "$RC" -eq 2 ] || fail relocate-push "expected exit 2, got $RC"
+grep -q 'destroyed mid-run' "$OUT" || fail relocate-push "push must name the relocation too — the assertion lives in the shared home"
+
+run relocate-merge "$MERGE" -C "$WT" a -- b
+[ "$RC" -eq 2 ] || fail relocate-merge "expected exit 2, got $RC"
+grep -q 'destroyed mid-run' "$OUT" || fail relocate-merge "merge must name the relocation too — the assertion lives in the shared home"
+echo "  ok: relocate (shape B) — all three guards refuse a destroyed-and-recreated worktree by name, parent checkout untouched (#469)"
+
+# 35b. Shape A — the admin record is pruned while the directory survives: the .git file points at
+# nothing, the tree is unreadable, and the guard refuses rather than passing on an unreadable
+# toplevel.
+new_linked_worktree relocate-a
+rm -rf "$R_MAIN/.git/worktrees"
+run pruned-commit "$COMMIT" -C "$WT" a -- -m "feat: written after the record was pruned"
+[ "$RC" -eq 2 ] || fail pruned-commit "expected exit 2, got $RC"
+echo "  ok: relocate (shape A) — a pruned admin record refuses rather than passing on an unreadable toplevel (#469)"
+
+# 35c. A healthy recorded worktree, addressed through a SUBDIRECTORY, still passes: the comparison
+# is against the toplevel, not against -C.
+new_linked_worktree healthy-subdir
+mkdir -p "$WT/sub"
+echo "deeper" > "$WT/sub/file.txt"
+git -C "$WT" add sub/file.txt
+run healthy-subdir "$COMMIT" -C "$WT/sub" a -- -m "feat: from a subdirectory of a live worktree"
+[ "$RC" -eq 0 ] || fail healthy-subdir "expected exit 0 from a subdirectory of a healthy recorded worktree, got $RC"
+echo "  ok: healthy recorded worktree — a -C into a subdirectory still passes (#469)"
+
 echo "guarded-git golden test OK"
