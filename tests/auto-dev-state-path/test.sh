@@ -26,7 +26,7 @@ SKILL_MD="$KIT/skills/auto-dev/SKILL.md"
 [ -f "$SKILL_MD" ] || fail "missing $SKILL_MD"
 
 # --------------------------------------------------------------- 1. the path is pinned, not prose
-PINNED='${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<owner>/<repo>.md'
+PINNED='${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md'
 grep -qF "$PINNED" "$SKILL_MD" \
   || fail "SKILL.md no longer states the pinned, derivable state-file path — $PINNED"
 

@@ -51,7 +51,7 @@ read -r active cwd <<<"$tsv"
 [ -n "$cwd" ] && [ -d "$cwd" ] || exit 0
 
 # ---------------------------------------------------------------- which repository is this?
-# The state file is keyed by owner/repo, not by worktree path, so every worktree of the same
+# The state file is keyed by host/owner/repo, not by worktree path, so every worktree of the same
 # repository resolves to the SAME file (skills/auto-dev/SKILL.md Step 2). A repo with no `origin`
 # remote, or no git at all at this cwd, gives the hook nothing to key the file on — fail open.
 # skills/auto-dev/SKILL.md's Step 2 spells this SAME derivation for whatever writes the file, so
@@ -75,6 +75,16 @@ case "$owner_repo" in */*) ;; *) exit 0 ;; esac
 [ -n "$owner" ] && [ -n "$repo" ] || exit 0
 case "$repo" in */*) exit 0 ;; esac
 
+# The HOST is a third, leading segment (#471): owner/repo alone keys `github.com/acme/widgets` and
+# `gitlab.example.com/acme/widgets` to ONE file, so a fleet in one could refuse a stop in the other
+# — the same collision class #417's dash-join fix closed, one level up the URL. The authority part
+# is what sits after an optional `scheme://` and an optional `user@`, up to the first `:` or `/`
+# — the same three remote shapes as above. Lowercased, because DNS names are case-insensitive and
+# a path segment is not. No host derivable → fail open, like an underivable owner/repo.
+host=$(printf '%s' "$remote_url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/:]*@##' -e 's#[:/].*$##' | tr '[:upper:]' '[:lower:]')
+[ -n "$host" ] || exit 0
+case "$host" in */*) exit 0 ;; esac
+
 # Nested as TWO path segments, never flattened into one filename with a separator: `-` is legal
 # inside both a GitHub owner and repo name, so `foo-bar/baz` and `foo/bar-baz` would both dash-join
 # to `foo-bar-baz` and collide on one file — and any other ASCII separator has the same problem,
@@ -82,7 +92,7 @@ case "$repo" in */*) exit 0 ;; esac
 # "$repo" in */*) above already refuses a `repo` containing it; `owner` cannot contain it either,
 # being the first `[^/:]+` capture group), so the filesystem is the separator instead of a string.
 state_base="${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}"
-state_file="$state_base/ai-migration-kit/auto-dev/$owner/$repo.md"
+state_file="$state_base/ai-migration-kit/auto-dev/$host/$owner/$repo.md"
 [ -r "$state_file" ] || exit 0
 
 # ------------------------------------------------------------------- staleness bound (24h)
