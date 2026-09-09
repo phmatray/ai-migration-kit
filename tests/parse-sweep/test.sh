@@ -492,4 +492,28 @@ printf '%s' "$out" | grep -qF 'hazard.sh:2' \
   || { echo "FAIL [multi]: the broken file in the batch was not named:"; echo "$out"; exit 1; }
 echo "  ok: multi — one bad file among good ones is named, and the batch refuses"
 
+# 23. CI runs this sweep under a REAL bash 3.2 (#144), not only under the runner's bash 5 where
+#     half 1 is a no-op. The step is asserted, not remembered: it must name the pinned image, invoke
+#     this script, and never be advisory — a sweep that did not run looks exactly like one that
+#     passed. The check is a function so its red half can be driven over a scratch workflow that
+#     lost the step, proving the assertion still bites.
+bash32_step_ok() {  # <ci.yml path> → 0 when the step is present, correct and not advisory
+  local f="$1" block
+  grep -qF 'bash:3.2' "$f" || return 1
+  grep -E 'bash:3\.2 +bash scripts/parse-sweep\.sh' "$f" > /dev/null || return 1
+  block=$(awk '/bash:3\.2 +bash scripts\/parse-sweep/ { print prev; print; getline; print } { prev = $0 }' "$f")
+  grep -q 'continue-on-error' <<<"$block" && return 1
+  return 0
+}
+CI_YML="$KIT/.github/workflows/ci.yml"
+bash32_step_ok "$CI_YML" \
+  || { echo "FAIL [ci-bash32]: .github/workflows/ci.yml has no non-advisory step running scripts/parse-sweep.sh under bash:3.2 (#144)"; exit 1; }
+grep -v 'bash:3.2' "$CI_YML" > "$FIX/ci-without-step.yml"
+bash32_step_ok "$FIX/ci-without-step.yml" \
+  && { echo "FAIL [ci-bash32]: the assertion passed a workflow with the bash:3.2 step removed — it asserts nothing"; exit 1; }
+sed 's|\(bash:3.2 bash scripts/parse-sweep.sh\)|\1\n        continue-on-error: true|' "$CI_YML" > "$FIX/ci-advisory.yml"
+bash32_step_ok "$FIX/ci-advisory.yml" \
+  && { echo "FAIL [ci-bash32]: the assertion accepted an advisory (continue-on-error) bash:3.2 step"; exit 1; }
+echo "  ok: ci-bash32 — ci.yml runs the sweep under a real bash:3.2, not advisory; the assertion goes red without it (#144)"
+
 echo "parse-sweep golden test OK"
