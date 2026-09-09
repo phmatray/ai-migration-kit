@@ -109,7 +109,9 @@ plan's examples:
 No real PR/branch exists yet at plan-authoring time, so a refusal here only means the *example* is
 wrong — but a wrong example is what `implement-issue` inherits verbatim if the plan doesn't say
 otherwise. On exit 1, fall back to the issue's own `type` label instead (`bug`→`fix`,
-`enhancement`→`feat`), the same way the repo profile's *PR title convention* already does — never by
+`enhancement`→`feat`), the same way the repo profile's *PR title convention* already does. Exit 2 is
+not a refusal: it means **no path reached the gate** — the `**Files:**` lines are missing or
+malformed, and no type can be judged. Fix the Files lines, never guess a type (#470) — never by
 hand-classifying paths against a memorized non-shipped list, which has already drifted from the
 gate's actual `NON_SHIPPED`/`SHIPPED_ANYWAY` rules twice (#233, #245, #258). `scripts/release-title-gate.sh`
 refuses a non-releasable type on a shipped path regardless of how prose-like the diff looks, and

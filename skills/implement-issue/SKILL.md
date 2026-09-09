@@ -369,7 +369,11 @@ back into "shipped" by name, and a hand-copied approximation has already drifted
 (#233, #245, #258). On exit 1 (refused), retry with `fix:` (or `feat:` when the issue's own label
 says enhancement) instead of the rejected type — a shipped-path PR is restricted to
 `feat`/`fix`/`perf`/`revert` regardless of how prose-like or mechanical the diff reads. Exit 0 means
-the candidate is releasable; use it as-is. This check runs the moment the PR is opened, so a bad guess
+the candidate is releasable; use it as-is. **Exit 2 is not a verdict about the title — it is a broken
+call**: the plan's `**Files:**` lines yielded no usable path, so the gate had nothing to classify
+(#470). Do not pick a type blind; the plan is the defect — fix its `**Files:**` line (a task with
+no files says `none expected.`, the idiom `scripts/plan-freshness.sh` recognizes) and re-run the dry-run with the paths
+it then yields. This check runs the moment the PR is opened, so a bad guess
 here becomes a red `title-gate` check almost immediately, not a late-stage surprise. Add an optional
 **scope** matching the ones already in `git log` for the touched area (the profile's area names
 usually fit).
