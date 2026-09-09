@@ -17,8 +17,10 @@
 #
 # Usage: scripts/run-all-tests.sh [--quick] [--with-network] [--list]
 #   --quick        skip the dotnet fixture build/test (samples/LegacyShop) — everything else runs.
-#   --with-network adds the renovate.json acceptance gate, which shells out to `npx` and needs
-#                  network access; skipped by default so this script also runs offline.
+#   --with-network adds the renovate.json acceptance gate, which shells out to `npx`, and the
+#                  parse sweep under a real bash 3.2, which pulls `bash:3.2` through Docker (#144);
+#                  both need network access, so both are skipped by default and this script also
+#                  runs offline.
 #   --list         print the plan (one `gate <cmd>` / `suite <path>` line per item) and exit 0.
 #                  Does not touch prerequisites, so it is cheap and always available — this is what
 #                  tests/run-all-tests/test.sh's anti-drift case relies on.
@@ -142,6 +144,13 @@ fi
 # RE2: a missing prerequisite reading as a failed suite, the very shape this script exists to end.
 if [ "$WITH_NETWORK" -eq 1 ]; then
   add_suite "tests/renovate-config/test.sh"
+fi
+
+# 7b: the parse sweep under a REAL bash 3.2 (#144) — a Docker Hub pull, so it rides the same
+# switch as the other network-bound gates. The command is spelled exactly as ci.yml's step, which
+# is what tests/run-all-tests/test.sh's drift case compares.
+if [ "$WITH_NETWORK" -eq 1 ]; then
+  add_gate 'docker run --rm -v "$PWD:/repo" -w /repo bash:3.2 bash scripts/parse-sweep.sh'
 fi
 
 # 8: plugin.json's version must match the release-please manifest.

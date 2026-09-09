@@ -139,6 +139,15 @@ jobs:
       - name: Every golden test suite PARSES (the macOS bash 3.2 sweep)
         run: ./scripts/parse-sweep.sh
 
+      # The same sweep under the REAL parser (#144). The step above runs on bash 5, where the
+      # `bash -n` half is a no-op for the #131 construct and the verdict rests entirely on the
+      # static scan — an emulation with six measured blind spots, each found by hand-running the
+      # real parser once. `bash:3.2` is 3.2.57, the build macOS ships; inside it half 1 is
+      # meaningful and half 2 stops being load-bearing. A pull failure fails the step: a sweep
+      # that did not run must not look like one that passed (#45). Never continue-on-error.
+      - name: Every golden test suite PARSES under a real bash 3.2 (#144)
+        run: docker run --rm -v "$PWD:/repo" -w /repo bash:3.2 bash scripts/parse-sweep.sh
+
       # The pinned xunit.v3 version is spelled in a dozen lines beyond the constant Renovate bumps,
       # and #69's `[7e]` sweep covered two files of them on purpose — the rest needed a policy, not
       # a wider regex (#90). This is that policy's gate: every spelling is either MARKED as derived

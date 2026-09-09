@@ -69,11 +69,14 @@
 #      than leaving a reader with bash's "unexpected EOF", which points at the end of the file and
 #      never at the line that did it.
 #
-# Half 2 is what a CI run enforces; half 1 is what makes the local fast path trustworthy. Dropping
-# either one is how this comes back.
+# On the runner's bash 5 only half 2 does any work; half 1 is what makes the local fast path
+# trustworthy. Since #144 CI ALSO runs this script inside a `bash:3.2` container (3.2.57, the build
+# macOS ships), where half 1 is the real parser — so half 2's gaps below cost a worse local
+# message on a bash-5 host, not an unguarded merge. Dropping either half is how this comes back.
 #
 # KNOWN LIMITS. This emulates one parser's character scan; it is not a parser, so the list below is
-# the guard's actual claim. Read it as the boundary of what a green run proves:
+# the guard's actual claim on a host whose bash is not 3.2. Read it as the boundary of what a green
+# run of half 2 alone proves — CI's bash:3.2 step is the one that proves the rest:
 #   * backtick command substitution is not tracked — this kit uses `$( … )` throughout. A backtick
 #     form carrying the hazard passes half 2 and is caught by half 1 on bash 3.2 only.
 #   * at most one heredoc opener is recognised per line (the shape every suite here uses).
