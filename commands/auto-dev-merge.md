@@ -16,6 +16,12 @@ tool's `isolation: "worktree"` option, which already put you in a git worktree o
 this prompt ever ran. Check out PR #$1's branch inside THAT tree; do not call `make-worktree.sh` for
 a second one — nesting is refused. Never touch a path outside the worktree you were given.
 
+**Any review sub-agent you dispatch is read-only and isolated — `subagent_type: Explore`,
+`isolation: "worktree"` — and returns findings as text for YOU to apply.** A fork inherits
+your full tool access and your live worktree; one fleet run had six write-capable review forks
+editing one worker's tree at once and one pushed to the PR branch (#477). Never `--fix` through a
+sub-agent: one writer per worktree, and that writer is you.
+
 **Your first act, before you touch anything else: verify it actually worked.** Run
 `git rev-parse --show-toplevel` and compare it to the `SUPERVISOR_TOPLEVEL` value in this prompt,
 with the `worker-toplevel guard` block in `skills/auto-dev/SKILL.md` Step 3 (`WORKER_TOPLEVEL` =

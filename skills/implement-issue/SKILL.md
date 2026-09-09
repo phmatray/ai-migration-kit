@@ -525,8 +525,7 @@ commit) along **three axes, run in parallel and never merged**:
 - **Standards** — is this good code by this repo's lights? Correctness bugs, missed reuse, cross-task
   inconsistencies, the profile's *Coding standards*. Run the **`code-review` skill**, matching effort
   to Step 3: `/code-review` (default) for inline/small, `/code-review high` (or `ultra` for a very
-  large change) for subagent/broad. `--fix` is the fast path; otherwise read the findings and fix them
-  yourself.
+  large change) for subagent/broad. **Never `--fix`**: read the findings and apply them yourself.
 - **Spec** — is this what the issue *promised*? Dispatch **one sub-agent** with the brief in
   [`references/spec-review.md`](references/spec-review.md): the diff file, the commit list and the
   issue's 📋 Spec as a second file **read after the diff**, reporting (a) requirements missing or
@@ -536,6 +535,16 @@ commit) along **three axes, run in parallel and never merged**:
   with the brief in [`references/verification-gap-review.md`](references/verification-gap-review.md):
   the diff file and the worktree for reading, reporting each behavioural change whose consumer no
   running assertion protects, with the test it read or the searches it ran.
+
+<!-- review-dispatch:start -->
+**Every review sub-agent is read-only by construction and isolated: `subagent_type: Explore`,
+`isolation: "worktree"`.** A fork inherits the parent's full tool access and its checkout, so a
+prompt saying "report only" competes with the `--fix` it also inherited — on one fleet run six
+write-capable review forks edited one worker's live tree concurrently and one pushed to the PR
+branch (#477). The agent type removes `Edit`/`Write`; the isolation puts any stray write in a
+throwaway tree; the guards refuse the push. Review sub-agents return findings as text and **the
+parent applies them** — one writer per worktree, always.
+<!-- review-dispatch:end -->
 
 A change can pass one axis and fail another: code that follows every convention and implements the
 wrong feature passes Standards and fails Spec; code that does exactly what was asked, tested at its
