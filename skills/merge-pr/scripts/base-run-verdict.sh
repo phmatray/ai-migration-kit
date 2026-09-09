@@ -256,7 +256,11 @@ while :; do
       ci=$(printf '%s' "$verdict_json" | jq -r '.verdict // ""')
       # The reduced job set, order-independent: which jobs have posted, not what they say. That is
       # the question "has the graph finished appearing?" and it is the only thing compared.
-      sig=$(printf '%s' "$verdict_json" | jq -r '[ .latest[].name ] | sort | join("\u0000")')
+      # Joined as JSON (`tojson`), not with a NUL: bash drops NUL bytes from a command
+      # substitution — with a warning on every poll — so the separator never reached the
+      # comparison and `["a b","c"]` read the same as `["a","b c"]`. A JSON array keeps every
+      # boundary, whatever a job name contains.
+      sig=$(printf '%s' "$verdict_json" | jq -c '[ .latest[].name ] | sort')
       case "$ci" in
         pending)
           last_reason="timeout" ;;
