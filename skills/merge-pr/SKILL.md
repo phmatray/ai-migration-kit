@@ -589,6 +589,16 @@ construction, and delegates the rules to the registered `ci.verdict` decision ra
 second CI reader. The resolution recipe lives beside §3's in `references/merge-mechanics.md`; the
 `gh run list` trap is pinned red by `tests/merge-base-ci/test.sh`.
 
+**When check-runs fails, the helper falls back to the workflow-runs endpoint — still by sha
+(`actions/runs?head_sha=<sha>`), never by branch (#479).** On GitHub Enterprise Server the
+check-runs endpoint 404s on a just-created squash sha while the run is already visible; twelve
+merges of one fleet run reported `unverified (query-failed)` that way and a base that went red
+twice was never seen. A verdict from the fallback says so: `green (base-run)`, `RED (base-run)`,
+`unverified (no-run-yet)`. **A repeated `unverified` is a finding, not a default** — one is an
+honest answer about one merge; the same reason three merges running means the base has no
+health check at all, and the recap says that in those words rather than recording another
+quiet row.
+
 Then act on `$base_verdict_word` — three outcomes, and all three are reported as `$BASE_LINE`:
 
 - **`green`** → nothing to do. Continue to Step 6 unchanged.
