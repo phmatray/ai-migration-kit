@@ -45,9 +45,9 @@ repo_no_remote() {
 # joined into one filename with a separator (a dash-joined `auto-dev-<owner>-<repo>.md` collided:
 # `-` is legal inside both a GitHub owner and repo name, so `foo-bar/baz` and `foo/bar-baz` both
 # flattened to the same `auto-dev-foo-bar-baz.md`):
-# ${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<owner>/<repo>.md
-state_path() { # $1 AUTODEV_STATE_DIR base  $2 owner  $3 repo
-  printf '%s/ai-migration-kit/auto-dev/%s/%s.md' "$1" "$2" "$3"
+# ${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md
+state_path() { # $1 AUTODEV_STATE_DIR base  $2 host  $3 owner  $4 repo
+  printf '%s/ai-migration-kit/auto-dev/%s/%s/%s.md' "$1" "$2" "$3" "$4"
 }
 
 pay() { # $1 cwd  $2 stop_hook_active (true|false)  $3 optional session_id
@@ -79,7 +79,7 @@ verdict() {
 REPO=$(repo_with_remote "https://github.com/acme/widgets.git")
 NOREMOTE=$(repo_no_remote)
 SDIR=$(mktemp -d "$WORK/state.XXXXXX")
-SPATH=$(state_path "$SDIR" acme widgets)
+SPATH=$(state_path "$SDIR" github.com acme widgets)
 mkdir -p "$(dirname "$SPATH")"
 
 write_state() { # $1 in-flight body  $2 queue body
@@ -179,8 +179,8 @@ verdict "malformed remote allows (nothing to derive)" 0 "$(pay "$MALFORMED" fals
 # `auto-dev-foo-bar-baz.md` under the old scheme — the exact collision this test exists to refuse.
 COLL_A=$(repo_with_remote "https://github.com/foo-bar/baz.git")
 COLL_B=$(repo_with_remote "https://github.com/foo/bar-baz.git")
-COLL_A_PATH=$(state_path "$SDIR" foo-bar baz)
-COLL_B_PATH=$(state_path "$SDIR" foo bar-baz)
+COLL_A_PATH=$(state_path "$SDIR" github.com foo-bar baz)
+COLL_B_PATH=$(state_path "$SDIR" github.com foo bar-baz)
 [ "$COLL_A_PATH" != "$COLL_B_PATH" ] \
   || { echo "FAIL [collision]: state_path itself collides for foo-bar/baz and foo/bar-baz"; exit 1; }
 mkdir -p "$(dirname "$COLL_A_PATH")"
@@ -193,6 +193,20 @@ cat > "$COLL_A_PATH" <<'EOF'
 EOF
 rm -f "$COLL_B_PATH"
 verdict "collision A (foo-bar/baz) refuses on its own file" 2 "$(pay "$COLL_A" false)" "$SDIR" "" "foo-bar/baz"
+
+# ---------------------------------------------------- 9f. same owner/repo on two HOSTS must resolve
+# to DIFFERENT files (#471): the two-segment key dropped the host, so a fleet on github.com could
+# refuse a stop in gitlab.example.com's checkout of an identically named repository.
+HOST_A=$(repo_with_remote "https://github.com/acme/widgets.git")
+HOST_B=$(repo_with_remote "https://gitlab.example.com/acme/widgets.git")
+HOST_B_PATH=$(state_path "$SDIR" gitlab.example.com acme widgets)
+[ "$SPATH" != "$HOST_B_PATH" ] || { echo "FAIL [host]: state_path collides across hosts"; exit 1; }
+rm -f "$HOST_B_PATH"
+verdict "host A (github.com) refuses on its own undrained file" 2 "$(pay "$HOST_A" false)" "$SDIR" "" "acme/widgets"
+verdict "host B (gitlab.example.com) allows — the other host's file is not its evidence" 0 "$(pay "$HOST_B" false)" "$SDIR"
+# Case in the host is not a different host: `GitHub.COM` keys the same file as `github.com`.
+HOST_UPPER=$(repo_with_remote "https://GitHub.COM/acme/widgets.git")
+verdict "host case-folds (GitHub.COM == github.com)" 2 "$(pay "$HOST_UPPER" false)" "$SDIR" "" "acme/widgets"
 verdict "collision B (foo/bar-baz) allows — no file of its own, unaffected by A" 0 "$(pay "$COLL_B" false)" "$SDIR"
 
 # --------------------------------------------------------------- 10. a repo with no cwd at all
