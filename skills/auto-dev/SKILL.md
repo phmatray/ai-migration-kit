@@ -569,6 +569,26 @@ scripts/wait-ci.sh <pr> [pr...]     # supervisor-side, backgrounded; waits on EV
 **Measured effect on the same repo and the same PRs: ~11 minutes of idle-and-die → 17–55 s to a clean
 squash-merge.** Five consecutive merges, no further losses.
 
+<!-- push-and-land:start -->
+**The general form — never ask one agent to both push and land (#478).** The rule above is stated
+for the "dispatched at PR ready" trigger; the property behind it is wider: *if the work you are
+dispatching ends in a push, the same agent must not also be asked to land, verify or report on the
+run that push starts.* A supervisor who checks "is CI pending right now?" answers no, dispatches, and
+the dispatched work itself restarts CI — correct by the letter, fatal in effect: two of two such
+dispatches died on one run (a conflict resolution, a final plan task), each after doing the work
+right. The temptation is created by dispatch timing, not by worker judgement — the worker has no
+winning move, which is why #187's worker-side never-wait clause cannot save it.
+
+Known CI-restarting dispatch kinds, **non-exhaustive**: resolving a conflict, finishing a last plan
+task, applying review fixes, a forced re-sync onto a moved base. Any of them splits in two, at the
+push: the **do-the-work agent** pushes and reports → **you** run `scripts/wait-ci.sh` → a **fresh**
+agent lands it with the finished check table inline, so it has nothing left to wait for. A
+phase-2 worker that had to push says so by name —
+`STATUS: BLOCKED | DETAIL: pushed <sha>, CI restarted — wait-ci then re-dispatch` — and that is
+the split reporting itself, not a block: never tier-escalate it, wait, re-dispatch phase 2. A dispatch that pushes with no follow-on instruction
+("resolve and report") needs no split; the defect is the conjunction.
+<!-- push-and-land:end -->
+
 Also tell the phase-2 worker to **skip its local `dotnet build`/`dotnet test` gate** when CI already
 ran the full suite on that exact head commit — it is another ~16 min for no new information. Keep the
 local gate only when the branch was just re-synced and CI has not re-run.
@@ -687,6 +707,7 @@ escalation**. A budget exhaustion is by construction a *length* failure, not a "
 strong enough" one; this run's own outlier was an `effort: medium` issue that succeeded on the mid
 tier and simply took 434 turns, so promoting it to the top model would put the fleet's most
 expensive issue on its most expensive tier for no reason.
+- **Reported BLOCKED with `DETAIL: pushed <sha>, CI restarted`** → not a block: the phase-2 worker had to push (conflict, re-sync, fix) and stopped instead of waiting (#478). Run `scripts/wait-ci.sh <pr>`, then re-dispatch phase 2 with the finished check table inline. Never tier-escalate it.
 - **Reported BLOCKED/FAILED** → first **tier-escalate if it was on a lower model**: if the failure looks like the model wasn't strong enough (rather than a genuine hard blocker — un-mergeable conflict, missing approval, no plan), re-dispatch the *same* issue **once** on the top model. If already on top, or it fails again → record it, surface it, retire the slot (it reported, so it has returned — nothing to stop), refill the slot (don't let one blocked issue stall the fleet). This escalation is what makes cheap-by-default tiering safe.
 
 After any change, update the state file (in flight, completed, filed, queue).

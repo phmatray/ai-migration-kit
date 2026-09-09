@@ -539,6 +539,9 @@ jobs:
       - name: Auto-dev never-wait golden test (worker prompt + recovery clause pinned)
         run: ./tests/auto-dev-never-wait/test.sh
 
+      - name: Dispatch push-and-land golden test (no template asks one agent to push and land, #478)
+        run: ./tests/dispatch-push-and-land/test.sh
+
       - name: Auto-dev takeover-cleanup golden test (MERGED verdict dispatches merge-pr for local cleanup)
         run: ./tests/auto-dev-takeover-cleanup/test.sh
 
