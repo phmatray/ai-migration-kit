@@ -49,15 +49,16 @@
 #                — the same input polled over and over (a PR checked twenty times is one PR, not
 #                  twenty separate situations).
 #   systematic   events >= 5  AND  distinct inputs >= events * 0.8  AND the verdict is one of the
-#                non-terminal words {sync, wait, pending, fix-check}
+#                NON-TERMINAL words — the union of every `verdict.nonTerminal` array in
+#                decisions/registry.json (today {sync, wait, pending, fix-check}), read at run time
 #                — near-every event carries a DIFFERENT input yet still lands on a verdict that
 #                  asks for another look; that pattern recurring across many distinct situations is
 #                  a candidate defect upstream of the decision, not noise in any one of them.
 #   Both are mutually exclusive by construction (repeat-poll needs a LOW distinct count, systematic
 #   a HIGH one) and neither is a verdict — see decide.sh's own header on that distinction. The
-#   non-terminal word list is the issue's own Spec, verbatim; `decisions/registry.json` has no
-#   terminal/non-terminal axis on its verdict vocabularies to derive it from instead (a real
-#   candidate for that registry's own `steering` category, filed separately rather than grown here).
+#   non-terminal set lives in the registry, beside each vocabulary (#378): registering a decision
+#   with a new non-terminal word is a one-file change, and this script cannot drift from it. If the
+#   registry cannot be read, the footer says so and the flag falls back to the four words above.
 #
 # Exit codes:
 #   0  a table (or "no decision events") was printed, always — an unanswerable question about
@@ -162,7 +163,7 @@ def is_str($v): ($v|type) == "string";
           flag: (
             if (.events >= 5 and .distinct <= (.events / 5)) then "repeat-poll"
             elif (.events >= 5 and .distinct >= (.events * 0.8)
-                  and (.verdict as $v | ["sync","wait","pending","fix-check"] | index($v) != null))
+                  and (.verdict as $v | $nonterminal | index($v) != null))
             then "systematic"
             else "" end
           )
@@ -198,9 +199,25 @@ def is_str($v): ($v|type) == "string";
     | ($events | map(select((.program // null) == $lastprog)) | length) as $sincechange
     | ("malformed lines: " + ($malformed|tostring)
        + " · log: " + $logpath
-       + " · events since program change: " + ($sincechange|tostring)) as $footer
+       + " · events since program change: " + ($sincechange|tostring)
+       + " · non-terminal: " + ($nonterminal | join(",")) + " (" + $ntsource + ")") as $footer
     | ([$headerline, $dividerline] + $datalines + [$footer]) | join("\n")
   end
 JQ
 
-jq -Rn -r --arg logpath "$LOG" -f "$JQPROG" "$LOG"
+# The non-terminal set, from the registry (#378). Resolved from this script's own location, through
+# any symlink a plugin install reaches it by; the fallback is the historical list, NAMED in the
+# footer so a tally over an unreadable registry never reads as one over the real set.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in /*) SELF="$_link" ;; *) SELF="$(dirname -- "$SELF")/$_link" ;; esac
+done
+REGISTRY="$(CDPATH= cd -- "$(dirname -- "$SELF")/../../.." 2>/dev/null && pwd -P)/decisions/registry.json"
+NONTERMINAL=$(jq -c '[ .decisions[]?.verdict.nonTerminal[]? ] | unique' "$REGISTRY" 2>/dev/null) || NONTERMINAL=""
+NT_SOURCE="registry"
+case "$NONTERMINAL" in
+  ''|'[]') NONTERMINAL='["sync","wait","pending","fix-check"]'; NT_SOURCE="fallback (registry unreadable or declares none)" ;;
+esac
+
+jq -Rn -r --arg logpath "$LOG" --argjson nonterminal "$NONTERMINAL" --arg ntsource "$NT_SOURCE" -f "$JQPROG" "$LOG"
