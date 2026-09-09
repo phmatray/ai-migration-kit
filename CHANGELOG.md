@@ -8,6 +8,13 @@ Starting with the version after [1.9.1], the entries below this paragraph are ge
 adopt its format (*Features* / *Bug Fixes* sections, comparison link, sha per entry) rather than
 the hand-written entries below. Earlier entries are kept as written.
 
+## [2.3.1](https://github.com/phmatray/ai-migration-kit/compare/v2.3.0...v2.3.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **deps:** update actions/setup-node action to v7 ([#493](https://github.com/phmatray/ai-migration-kit/issues/493)) ([fb20132](https://github.com/phmatray/ai-migration-kit/commit/fb201327930aac0a73ce1c3400989984086126b8))
+
 ## [2.3.0](https://github.com/phmatray/ai-migration-kit/compare/v2.2.0...v2.3.0) (2026-09-09)
 
 
