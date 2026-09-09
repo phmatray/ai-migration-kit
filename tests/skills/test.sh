@@ -1962,6 +1962,31 @@ else
   fails=$((fails + 1))
 fi
 
+# Every file reference in a shipped prompt resolves (check-file-refs.py). The green half runs over the
+# real tree; the red half over a two-file scratch world, so a checker that stops matching cannot pass.
+echo "== every file reference in a shipped prompt resolves =="
+set +e
+fr_out=$(python3 "$KIT_ROOT/tests/skills/check-file-refs.py" 2>&1); fr_rc=$?
+set -e
+if [ "$fr_rc" -eq 0 ]; then echo "ok   [F1 real tree: $fr_out]"; else echo "FAIL: [F1 real tree] $fr_out"; fails=$((fails + 1)); fi
+_fr="$WORK/file-refs"
+run_file_refs_case() {  # <label> <expect: pass|fail> <marker> <SKILL.md body>
+  local label="$1" expect="$2" marker="$3" body="$4"
+  rm -rf "$_fr"; mkdir -p "$_fr/skills/demo/references"
+  printf 'x\n' > "$_fr/skills/demo/references/real.md"
+  printf '%s\n' "$body" > "$_fr/skills/demo/SKILL.md"
+  local out rc; set +e; out=$(python3 "$KIT_ROOT/tests/skills/check-file-refs.py" "$_fr" 2>&1); rc=$?; set -e
+  if [ "$expect" = fail ] && [ "$rc" -ne 0 ] && grep -q "$marker" <<<"$out"; then echo "ok   [$label] rejected"
+  elif [ "$expect" = pass ] && [ "$rc" -eq 0 ]; then echo "ok   [$label] accepted"
+  else echo "FAIL: [$label] rc=$rc $out"; fails=$((fails + 1)); fi
+}
+run_file_refs_case "F2 dead markdown link            " fail "references/gone.md" 'see [it](references/gone.md) and [ok](references/real.md)'
+run_file_refs_case "F3 dead backticked kit path      " fail "scripts/gone.sh" 'run `scripts/gone.sh`, see `references/real.md`'
+run_file_refs_case "F4 dead path inside a fence      " pass "" '```
+`scripts/gone.sh`
+```'
+run_file_refs_case "F5 target-repo and placeholder   " pass "" 'edit `.github/workflows/ci.yml`, `{kit}/scripts/x.sh`, `/abs/x.sh`'
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1

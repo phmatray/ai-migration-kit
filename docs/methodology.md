@@ -101,7 +101,7 @@ triggering contract, measured by `evals/`.
 | You have… | Reach for | It produces | It stops at | It does NOT do | Next |
 |---|---|---|---|---|---|
 | an idea, a defect, a task to track | `create-issue <idea>` — "track this idea", « ouvre une issue pour X » | a seeded issue: template fields, brainstorm, spec with a contract, a tickable plan; large work becomes a parent plus children | the issue filed (or seeded in place with `--seed #N`) | manage existing issues; brainstorm with nothing to file | `/implement-issue #<issue>` |
-| an issue that carries a `🛠️ Implementation plan` | `implement-issue #N` — "implement issue 47", « implémente l'issue 47 » | its own worktree, a draft PR, one commit per task with the issue's boxes ticked live, a two-axis review, a sync with `main` | the PR **ready**, not landed | plan a new issue; land a PR; ad-hoc coding | `/merge-pr #<pr>` |
+| an issue that carries a `🛠️ Implementation plan` | `implement-issue #N` — "implement issue 47", « implémente l'issue 47 » | its own worktree, a draft PR, one commit per task with the issue's boxes ticked live, a three-axis review, a sync with `main` | the PR **ready**, not landed | plan a new issue; land a PR; ad-hoc coding | `/merge-pr #<pr>` |
 | a ready PR | `merge-pr #N` — "merge PR 279", « fais atterrir la 281 » | CI waited for, blockers corrected in a loop, squash-merged, follow-ups triaged and filed, branch and worktree torn down | merged, follow-ups filed | open or build a PR; sync one still being built; review without merging | `/implement-issue #<next-issue>` |
 | one idea or issue you want merged, hands-off | `deliver-issue <idea>` or `#N` — "deliver issue 47 end to end", « de l'idée à la PR mergée » | the three above, each phase in a fresh sub-agent; `--stop-at ready` leaves the merge to you | merged (or ready) | many issues; a PR already open; filing only | `/implement-issue #<follow-up>` for a follow-up the merge filed — or `/implement-issue #<issue>` to resume a draft a stopped phase 1 left; `/merge-pr #<pr>` only for a PR reported READY under `--stop-at ready`; else — |
 | many planned issues | `auto-dev` — "burn down the backlog with 3 agents", « vide le backlog avec 3 agents » | a fleet of N area-isolated workers, each issue implement → merge, CI waited for by the supervisor, verified merge state, a retro | the eligible queue drained | build one issue; land one PR; file one issue | `/implement-issue #<held-issue>` for L/XL held back, else — |
@@ -144,9 +144,10 @@ an issue-scoped GitHub search so a second PR closing the same issue cannot be sc
 opens a draft PR whose title carries the Conventional Commits type and the issue number. Step 6 is
 the loop: implement the task at the seam the plan named, verify green, commit through
 `guarded-commit.sh`, **tick the boxes on the live issue** through `tick-plan.sh` (which refuses
-any edit that is not a checkbox flip), push through `guarded-push.sh`. Step 7 reviews on two axes
-that are never merged — **Standards** (the `code-review` skill) and **Spec** (a sub-agent comparing
-the diff to the issue's 📋 Spec). Step 8 syncs with `main`; Step 9 runs the profile's gates and
+any edit that is not a checkbox flip), push through `guarded-push.sh`. Step 7 reviews on three axes
+that are never merged — **Standards** (the `code-review` skill), **Spec** (a sub-agent comparing
+the diff to the issue's 📋 Spec, read after the diff) and **Verification** (a sub-agent asking
+whether a test would fail if each changed behaviour broke where it is consumed). Step 8 syncs with `main`; Step 9 runs the profile's gates and
 flips the PR ready. In a C# repository, existing code is read and changed through RoselineMCP.
 
 ### merge-pr
@@ -300,7 +301,7 @@ repeatable — with different shapes. This maps concepts; it does not rank.
 | The project's standing facts | `PROJECT.md` | the constitution (`/speckit.constitution`) | the project brief, `bmad-core` config | the committed **profile** (`profile-repo`) + the ADRs |
 | From idea to design | `/gsd:new-project`, `/gsd:plan-phase` | `/speckit.specify` → `/speckit.clarify` → `/speckit.plan` | analyst → PM → architect agents | `create-issue`'s 🧠 Brainstorm → 📋 Spec (with a contract) — hands-off, `--grill` for one interview round |
 | The executable plan | `ROADMAP.md`, phase plans | `/speckit.tasks` | story files from the scrum master | the 🛠️ Implementation plan **in the issue body**, every step a checkbox ticked live |
-| Building it | `/gsd:execute-phase` | `/speckit.implement` | the dev agent | `implement-issue` — own worktree, draft PR, one commit per task, two-axis review |
+| Building it | `/gsd:execute-phase` | `/speckit.implement` | the dev agent | `implement-issue` — own worktree, draft PR, one commit per task, three-axis review |
 | Landing it | (git, by hand) | (git, by hand) | (git, by hand) | `merge-pr` — CI wait, corrections loop, squash, follow-ups, teardown |
 | State between sessions | `STATE.md` | the spec and plan files | story status | the issue's checkboxes + the PR; `migration/report.json` for a migration; gate commits |
 | Quality gates | `/gsd:verify-work` | `/speckit.analyze`, `/speckit.checklist` | the QA agent | gates at every phase and step: golden suites, decision registry, guards, hooks, trigger evals |
@@ -321,7 +322,7 @@ the last section of this guide.
    four label axes, reads the body back. Recap: *Filed #412 … Next: `/implement-issue #412`*.
 2. `/implement-issue #412` → the plan is read and checked fresh, a worktree `feat/412-<slug>` is
    created through the guard, a draft PR opens, each task lands as one commit with its boxes ticked
-   on the issue, the Standards and Spec reviews run, `main` is merged in, the gates run, the PR flips
+   on the issue, the Standards, Spec and Verification reviews run, `main` is merged in, the gates run, the PR flips
    ready. Recap: *PR #418 ready … Next: `/merge-pr #418`*.
 3. `/merge-pr #418` → CI is waited for, a flaky check re-run, the branch synced, the PR
    squash-merged and its state read back, the base CI run reported, one follow-up filed and two
