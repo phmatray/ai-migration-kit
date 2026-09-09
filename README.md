@@ -299,7 +299,7 @@ skill is `verb-object` (`create-issue`, `profile-repo`, `debug-issue`), and a me
 |---|---|
 | [`migrate-legacy`](skills/migrate-legacy/SKILL.md) | The seven-phase pipeline orchestrator that `/migrate` drives — phase references and playbooks. |
 | [`create-issue`](skills/create-issue/SKILL.md) | File a template-compliant issue whose body carries a brainstorm → spec → implementation-plan trail with tickable task checkboxes. |
-| [`implement-issue`](skills/implement-issue/SKILL.md) | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, code review, sync with `main`, ready-flip. |
+| [`implement-issue`](skills/implement-issue/SKILL.md) | Execute an issue's plan: worktree, draft PR, one commit per task with live checkbox ticking, review on three axes (standards, spec, verification gap) by read-only sub-agents over a staged diff file, sync with `main`, ready-flip. |
 | [`merge-pr`](skills/merge-pr/SKILL.md) | Land a ready PR: wait for CI, clear blockers (red checks, conflicts, review) in a corrections loop, squash-merge, triage follow-ups (cluster by root cause, fold into the issue that owns them, file at most 3), tear down. |
 | [`auto-dev`](skills/auto-dev/SKILL.md) | Supervise a FLEET of N parallel workers over the whole backlog: survey and order the open issues, dispatch area-isolated workers (`implement-issue` → `merge-pr`), wait for CI, verify real merge state, refill each slot as a PR lands. |
 | [`deliver-issue`](skills/deliver-issue/SKILL.md) | The single-item form of that chain: one idea or one planned issue to a merged PR, hands-off — files or seeds it through `create-issue`, then dispatches the same two worker commands `auto-dev` uses, each in a fresh sub-agent, waiting for CI in between. `--stop-at ready` leaves the merge to you. |
@@ -353,6 +353,16 @@ omarchy plugin add https://github.com/Atypical-Consulting/omarchy-aikit.git --en
 - A `GIT_GATE=off` prefix lets one command through; launching Claude with `GIT_GATE=off` in its
   environment disables the gate for the session (an `export` inside a Bash call never reaches the
   hook). `GIT_GATE=on` forces it past the profile probe.
+- The guards also refuse a write from a worktree that was destroyed mid-run: `make-worktree.sh`
+  records each worktree's path in the repo config, and `guarded-commit/push/merge.sh` compare it to
+  where they actually stand before touching the branch (#469).
+- `merge-pr` judges the base branch **by sha, never by recency**
+  ([`base-run-verdict.sh`](skills/merge-pr/scripts/base-run-verdict.sh)): when the check-runs API
+  fails it falls back to the workflow runs for that same sha, and three `unverified` verdicts in a
+  row are reported as a finding instead of being absorbed (#479).
+- Review sub-agents are read-only and isolated (`subagent_type: Explore`, `isolation: "worktree"`);
+  they receive a diff *file* and return findings as text, and the caller applies them — pinned by
+  `tests/review-angle-isolation/`.
 
 ## Repository layout
 
@@ -377,7 +387,7 @@ skills/setup-repo/       the write half of that: plan/apply a repo's labels, iss
 skills/_shared/          procedures shared by the lifecycle skills (preconditions, sync-with-main, filing-bar, worktree-ignore-check, untrusted-input-boundary, test-seams, grilling, brainstorm-and-spec, plan-shape, tdd-loop, recap)
 scripts/                 preflight.sh (phase-0 gate) · run-all-tests.sh (one command for everything CI checks, exit 2 on a missing prerequisite) · audit-inventory.sh (JSON inventory) · report-dashboard.py (report generator) · contrast-check.py (WCAG AA gate) · followups.py (open-tail aggregator) · release-title-gate.sh + release-title-diff.sh (a change to shipped content must carry a title that cuts a release) · recap-wiring-check.py (every skill closes with the shared recap, and its hand-off table matches ARCHITECTURE.md's dashed edges)
 templates/               ci-dotnet.yml + deploy-pages-blazor.yml — CI/deployment a migration drops into the target repo · repo-setup.yml + issue-forms/ — the desired GitHub configuration setup-repo applies · bundle-gate.json.example — copy-pasteable config for the opt-in committed-bundle drift gate
-tests/                   one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired. Run them all with `./scripts/run-all-tests.sh`
+tests/                   one golden suite per contract, each a tests/<name>/test.sh that CI runs — and a CI step fails the build if a suite is ever left unwired. Run them all with `./scripts/run-all-tests.sh`. tests/skills/ also lints every prompt: frontmatter, shared refs, and every file path a prompt names must resolve (check-file-refs.py)
 samples/LegacyShop/      deliberately-legacy .NET solution (demo fixture, CI-guarded)
 docs/methodology.md      the user guide: the two loops, when to call which skill, one page per skill, the machinery, MCP usage, how it compares to GSD · SpecKit · BMAD
 docs/adr/                the kit's own architectural decisions (MADR 4.0) — index in docs/adr/README.md, served by AdrMcp
