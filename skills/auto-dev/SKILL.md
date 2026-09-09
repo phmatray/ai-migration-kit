@@ -295,12 +295,14 @@ The **one judgment left to you is area-tagging** the QUEUE rows (infer from titl
 Persist a **state file** at the pinned, derivable path
 
 ```
-${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<owner>/<repo>.md
+${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md
 ```
 
 (`mkdir -p` its parent directory first) — still outside the repo and never a tracked path, so the
 fleet survives compaction and `loop` re-fires, and now at a location `hooks/autodev-stop-gate.sh`
-(#417) can compute from `git remote` without being told. `<owner>` and `<repo>` are two path
+(#417) can compute from `git remote` without being told. `<host>` is the remote's authority
+(`github.com`, lowercased — DNS is case-insensitive, a path is not), so two hosts sharing an
+owner/repo pair never share a file (#471). `<owner>` and `<repo>` are two path
 SEGMENTS, not a `-`-joined filename: `-` is legal inside both a GitHub owner and repo name, so a
 joined `<owner>-<repo>` string cannot tell `foo-bar/baz` apart from `foo/bar-baz` — both would
 collide on one file. The filesystem is the separator instead, so two repositories genuinely cannot
@@ -389,6 +391,12 @@ compares its own `git rev-parse --show-toplevel` against `SUPERVISOR_TOPLEVEL` �
 Step 1 and handed to it as a per-dispatch fact in Step 3's prompt — with the marked decision below,
 run verbatim rather than paraphrased — one home for it, `tests/auto-dev-dispatch/test.sh` extracts
 and runs this exact block:
+
+**That first-act check is one-shot.** It answers *was this worker dispatched into isolation at all?*
+and nothing about the rest of the run. A worktree destroyed mid-run is covered elsewhere, by the
+shared git guard (#469): `make-worktree.sh` records each tree's path in the common `.git/config`
+and `assert_worktree_live` in `_assert-branch.sh` refuses every guarded commit, push or merge whose
+live toplevel is not that record — so a relocated worker is stopped at its next write, by name.
 
 ```bash
 # >>> worker-toplevel guard
@@ -499,6 +507,15 @@ folding it into `DETAIL:`, and treat a `RED` as a reason to look before dispatch
 — the bug is already filed, so this is triage, not a stop. `unverified` is an answer too (a run
 cancelled by the next merge in the train is the common
 case): record it as-is, and never upgrade it to green.
+
+**A streak of `unverified` is a finding (#479).** Keep a running count of consecutive `unverified`
+`BASE:` lines on the state board (reset by any `green` or `RED`). At **three** in a row, write
+`base health unchecked for N merges (<reason>)` on the board and carry it into Step 6's recap
+under **Assumed · skipped · unverified** — twelve merges of one run each said `unverified
+(query-failed)` and filled the board with rows that read like diligence while the base went red
+twice. The token names the remedy: `query-failed`/`api-404` is the host (the helper's by-sha
+workflow-runs fallback should have answered — check `gh api` against it by hand), `no-run-yet`
+means the base runs no CI on push or posts it late, `cancelled` is the train superseding itself.
 
 **Passing the PR number between phases** — belt and braces, because the whole pipeline stalls if this
 is lost: have phase 1 write the digits to the file you name in its prompt; fall back to the `PR:`
@@ -760,13 +777,14 @@ only what **auto-dev** adds on top of them.
 
 Stop dispatching when the eligible queue is empty (or the user says stop). Let the in-flight workers
 finish and land, retire them, then summarize: issues merged (with PR numbers), follow-ups filed, anything
-blocked or skipped (with reasons), what remains (e.g. held L/XL items), and any `## Needs manual
+blocked or skipped (with reasons), what remains (e.g. held L/XL items), a `base health unchecked for
+N merges` line whenever the board carries one (#479), and any `## Needs manual
 sweep` entries still on the state file — that section has no automated reader anywhere else in this
 skill, so the final summary is the only place a human reliably sees a leftover worktree/branch before
 the state file is discarded.
 
 **Remove the state file** at its pinned path (Step 2) once the queue has fully drained — `rm -f
-"${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<owner>/<repo>.md"`.
+"${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md"`.
 This is what `hooks/autodev-stop-gate.sh` (#417) reads as "no fleet is running here": its positive
 evidence is the file's presence, so leaving a drained fleet's file behind would leave the gate
 believing work is still undrained the next time a session tries to stop in this repo. Don't remove it
@@ -857,6 +875,7 @@ that frees. Hold the line at N unless told otherwise.
 - **A worker idling at "ready" is usually YOUR bug, not its judgement.** If you dispatched phase 2 while CI was still pending, the sub-agent had no winning move — it backgrounded a watch, ended its turn, and returned a deferral. Wait for CI yourself first (`scripts/wait-ci.sh`), then dispatch. Cost five lost workers in one run before it was diagnosed; the fix took merges to 17–55 s. See Step 3.
 - **Don't read a worker's transcript** — it overflows your context. Use its structured report + `gh`.
 - **One area per concurrent worker** — the entire conflict strategy. If the next-queued issue shares an area with an in-flight one, skip down to a disjoint area (note the reorder).
+- **A worktree destroyed mid-run does not fail — it silently becomes the user's checkout** (#469). The worktree home `.claude/worktrees/` sits inside the main checkout, so when a tree is `rm -rf`ed and re-created (shape B) git's upward discovery walks out of it and `git rev-parse --show-toplevel` answers the PARENT, exit 0, no warning; only a pruned admin record with the directory surviving (shape A) fails loudly. Measured 2026-09-05 on a journal-backfill run: the worker for #447 lost its tree mid-run and kept going in the main checkout; the only thing that caught it was `assert_branch` refusing the commit, by luck (HEAD there was `main`), with the wrong diagnosis. `git worktree prune` skips locked trees and the three locked siblings survived — that is the lead; the sweeper was NOT identified. The shared guard now refuses a guarded write from a relocated tree by name (`assert_worktree_live`), so a worker's alertness is no longer the only thing standing there.
 - **A background sub-agent inherits the supervisor's cwd — it does not get one of its own** (#314, #412). A supervisor running in a worktree that dispatches without Step 3's `isolation: "worktree"` puts every worker in that SAME tree: nothing in `survey.sh` or `reconcile.sh` can see this, because neither queries a worktree or maps a PR back to one — a worker's own good judgement is the only thing that ever caught it. Always pass `isolation: "worktree"` on both spawns (Step 3); a worker that somehow lands without it is refused by the first-act toplevel assertion before it edits anything.
 - **`mergeable=UNKNOWN` is normal right after `main` moves** — GitHub recomputes; it resolves to CLEAN once the branch syncs. Not a blocker.
 - **Retire finished slots** once their PR merges — stop the sub-agent only if it is still running; a returned one is already gone. The fresh replacement starts clean.

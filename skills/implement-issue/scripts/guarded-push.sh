@@ -151,6 +151,9 @@ done
 # unguarded push costs is not what an unguarded commit costs. `{found}` is the branch HEAD turned
 # out to be on. Sets $head_sha — the sha this push must be able to prove reached the remote.
 
+# A destroyed worktree is named as one, not as a branch mismatch (#469) — see _assert-branch.sh.
+assert_worktree_live "$TOOL"
+
 assert_branch "$TOOL" \
   "HEAD is detached in $REPO — it belongs to no branch, so there is nothing safe to push.
             Expected '$EXPECTED'. Nothing sent." \

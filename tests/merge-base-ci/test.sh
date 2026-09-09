@@ -96,6 +96,23 @@ case "$*" in
   *"run list"*)
     printf '%s' "$RUN_LIST_TRAP"
     ;;
+  *actions/runs*)
+    # The #479 fallback. Keyed by sha or it is the recency trap again: a query without head_sha=
+    # gets the sibling's failing run, whatever it asked for.
+    case "$*" in
+      *head_sha=*)
+        all="$*"; sha="${all#*head_sha=}"; sha="${sha%%&*}"   # ${*#…} would strip each word, not the join
+        # An OUTAGE (rate limit, network) takes both endpoints down, not just check-runs; a case
+        # models one by touching this marker after arming.
+        [ -e "$GH_RESPONSES/$sha/outage" ] && { echo "API rate limit exceeded" >&2; exit 1; }
+        f="$GH_RESPONSES/$sha/workflow-runs.json"
+        if [ -f "$f" ]; then cat "$f"; else printf '%s' '{"total_count":0,"workflow_runs":[]}'; fi
+        ;;
+      *)
+        printf '%s' '{"total_count":1,"workflow_runs":[{"id":33346395704,"name":"kit","head_sha":"'"$SIBLING_SHA"'","status":"completed","conclusion":"failure","html_url":"https://github.invalid/run/33346395704","run_started_at":"2026-08-30T09:00:00Z"}]}'
+        ;;
+    esac
+    ;;
   *)
     echo "STUB: unhandled gh invocation: $*" >&2
     exit 1
@@ -107,7 +124,7 @@ export PATH="$WORK/bin:$PATH"
 
 # The sibling merge in the train: its run is red, and it is what every recency-shaped query
 # returns. Nothing in this suite may ever report red because of it.
-SIBLING_SHA=b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2
+export SIBLING_SHA=b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2
 export RUN_LIST_TRAP='[{"databaseId":33346395704,"headSha":"'"$SIBLING_SHA"'","conclusion":"failure","status":"completed","name":"kit","url":"https://github.invalid/run/33346395704"}]'
 
 # ------------------------------------------------------------------ arming helpers
@@ -349,6 +366,7 @@ echo "  ok: transient-error — a failing gh call is retried, not reported as 'n
 reset_case query-failed
 SHA=4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b
 arm "$SHA" 'ERR:API rate limit exceeded'
+touch "$GH_RESPONSES/$SHA/outage"          # the outage reaches the #479 fallback too
 v=$(verdict_of "$SHA" --timeout 0 --poll-seconds 0)
 expect_verdict query-failed unverified "$v"
 printf '%s' "$v" | jq -e '.reason == "query-failed"' > /dev/null || {
@@ -483,5 +501,53 @@ grep -qi 're-derive' skills/auto-dev/SKILL.md || {
   echo "FAIL: skills/auto-dev/SKILL.md never says a non-matching BASE: value is re-derived"
   exit 1; }
 echo "  ok: auto-dev-skill-prose — the BASE: field states its grammar and the re-derive backstop"
+
+# ---------------------------------------------------------------- 20. check-runs 404s, the workflow
+# runs for the sha exist (#479)
+#
+# Twelve merges of one GHES fleet run answered `unverified (query-failed)` because check-runs
+# 404s on a just-created squash sha while `actions/runs?head_sha=<sha>` already lists the run.
+# The fallback must read THAT — keyed by sha, so the sibling-merge trap stays armed — and say
+# which path answered.
+wf_run() {   # <completed-<conclusion>|<status>> → one workflow-run object for $SHA
+  case "$1" in
+    completed-*) printf '{"id":777,"name":"kit","head_sha":"%s","status":"completed","conclusion":"%s","html_url":"https://github.invalid/run/777","run_started_at":"2026-09-09T09:00:00Z"}' "$SHA" "${1#completed-}" ;;
+    *)           printf '{"id":777,"name":"kit","head_sha":"%s","status":"%s","conclusion":null,"html_url":"https://github.invalid/run/777","run_started_at":"2026-09-09T09:00:00Z"}' "$SHA" "$1" ;;
+  esac
+}
+arm_wf() { mkdir -p "$GH_RESPONSES/$SHA"; printf '{"total_count":1,"workflow_runs":[%s]}' "$1" > "$GH_RESPONSES/$SHA/workflow-runs.json"; }
+
+reset_case fallback-red
+SHA=d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5
+arm "$SHA" 'ERR:HTTP 404: Not Found'
+arm_wf "$(wf_run completed-failure)"
+out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "RED (base-run)" ] || { echo "FAIL [fallback-red]: expected 'RED (base-run)', got '$out'"; cat "$GH_CALL_LOG"; exit 1; }
+grep -qF "head_sha=$SHA" "$GH_CALL_LOG" || { echo "FAIL [fallback-red]: the fallback did not ask workflow-runs BY SHA"; cat "$GH_CALL_LOG"; exit 1; }
+if grep -qE 'actions/runs\?branch=|run list' "$GH_CALL_LOG"; then
+  echo "FAIL [fallback-red]: the fallback asked a recency-shaped question"; cat "$GH_CALL_LOG"; exit 1; fi
+echo "  ok: fallback-red — check-runs 404 + a failing workflow run for the sha prints 'RED (base-run)' (#479)"
+
+reset_case fallback-green
+SHA=e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6
+arm "$SHA" 'ERR:HTTP 404: Not Found'
+arm_wf "$(wf_run completed-success)"
+out=$("$HELPER" "$SHA" --report-line --timeout 5 --poll-seconds 0)
+[ "$out" = "green (base-run)" ] || { echo "FAIL [fallback-green]: expected 'green (base-run)', got '$out'"; exit 1; }
+echo "  ok: fallback-green — check-runs 404 + a passing workflow run for the sha prints 'green (base-run)'"
+
+reset_case fallback-no-run-yet
+SHA=f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7
+arm "$SHA" 'ERR:HTTP 404: Not Found'
+out=$("$HELPER" "$SHA" --report-line --timeout 0 --settle 0 --poll-seconds 0)
+[ "$out" = "unverified (no-run-yet)" ] || { echo "FAIL [fallback-no-run-yet]: expected 'unverified (no-run-yet)', got '$out'"; exit 1; }
+echo "  ok: fallback-no-run-yet — check-runs 404 + nothing for the sha yet prints 'unverified (no-run-yet)', not 'no-ci'"
+
+# Every fallback line still matches #455's grammar.
+for line in "RED (base-run)" "green (base-run)" "unverified (no-run-yet)"; do
+  printf '%s\n' "$line" | grep -qE '^(green|RED|unverified) \([a-z-]+\)$' \
+    || { echo "FAIL [fallback-grammar]: '$line' breaks the report-line grammar"; exit 1; }
+done
+echo "  ok: fallback-grammar — the three fallback tokens match ^(green|RED|unverified) \\([a-z-]+\\)$"
 
 echo "merge-base-ci golden test OK"
