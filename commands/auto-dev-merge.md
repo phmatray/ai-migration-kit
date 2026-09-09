@@ -54,6 +54,12 @@ that). Protect that advantage:
 OFF-SCOPE PROTOCOL: anything you trip over that is not part of landing PR #$1 gets FILED via
 `create-issue`, not fixed inline.
 
+**If landing needs a push of your own — a conflict resolution, a re-sync onto a moved base, a fix —
+push it, do NOT wait for the run that push starts, and stop with `STATUS: BLOCKED | DETAIL: pushed
+<sha>, CI restarted — wait-ci then re-dispatch`.** That phrase is what the supervisor recognizes as
+the push-and-land split (#478): it waits on CI itself and dispatches a fresh agent with the finished
+check table. A sub-agent that ends its turn to wait has returned; nothing resumes it.
+
 **If a guard call at `$GUARDS` is refused, you have nobody to ask.** You are the configuration
 [`skills/_shared/guard-invocation.md`](../skills/_shared/guard-invocation.md) exists for — an agent
 confined to a worktree, invoking a guard whose path can resolve outside it. Follow that fallback
