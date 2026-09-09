@@ -118,6 +118,14 @@
 #       `<unreadable>` — git's ref rules permit it — cannot make a guard describe a healthy
 #       repository as gone.
 #
+#   assert_worktree_live <tool-name>
+#       Refuses (exit 2) when make-worktree.sh recorded a path for $EXPECTED and $REPO's live
+#       toplevel is not it — the worktree was destroyed mid-run and discovery walked up to the
+#       parent checkout (#469). No record, or an unreadable $REPO: returns 0 and leaves the
+#       diagnosis to assert_branch. Every guard calls it immediately BEFORE assert_branch, so a
+#       relocation is named as one rather than as a branch mismatch. Contract in full above its
+#       definition below.
+#
 #   assert_branch <tool-name> <detached-message> <mismatch-message>
 #       Reads   $REPO      the worktree to inspect
 #               $EXPECTED  the branch the caller says this task owns
@@ -197,6 +205,40 @@ head_state() {
 }
 
 head_state_unreadable() { [ -z "${1:-}" ] && [ "${2:-}" = '<unreadable>' ]; }
+
+# assert_worktree_live <tool-name>  (#469)
+#     Reads   $REPO      the worktree the caller named
+#             $EXPECTED  the branch this task owns
+#     Returns 0 when make-worktree.sh recorded no path for $EXPECTED (nothing was ever asserted
+#             about this branch — every non-kit caller and every pre-existing worktree, byte for
+#             byte as before), or when the record equals $REPO's live toplevel. Also 0 when
+#             $REPO cannot be read as a repository at all: assert_branch refuses that a moment
+#             later with its own diagnosis, and refusing here would only respell it.
+#     Refuses with exit 2, naming the recorded path and the toplevel actually found, otherwise.
+#
+#     Why: the worktree home `.claude/worktrees/` sits INSIDE the main checkout, so a worktree
+#     destroyed mid-run (`rm -rf` + `mkdir`, or any sweeper) does not fail — git's upward
+#     discovery walks out of the dead tree and lands on the parent, and every command from then
+#     on runs in the USER'S checkout with exit 0. Measured 2026-09-05: a fleet worker kept going
+#     there; assert_branch caught only the commit, by luck (HEAD was `main`, not the task's
+#     branch), and diagnosed it as a branch mismatch. The record make-worktree.sh writes lives
+#     in the common .git/config, so it survives the tree it describes; comparing it to the live
+#     toplevel names the relocation as a relocation. Both sides through `pwd -P`, because
+#     `rev-parse --show-toplevel` answers with symlinks resolved.
+assert_worktree_live() {
+  local tool="$1" recorded top
+  [ -n "${REPO:-}" ]     || refuse "$tool" "internal: \$REPO is unset — the caller must set it before calling assert_worktree_live."
+  [ -n "${EXPECTED:-}" ] || refuse "$tool" "internal: \$EXPECTED is unset — the caller must set it before calling assert_worktree_live."
+  repo_readable "$REPO" || return 0
+  recorded=$(git -C "$REPO" config --get "kit.worktree.${EXPECTED}.path" 2>/dev/null || true)
+  [ -n "$recorded" ] || return 0
+  top=$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$top" ] || refuse "$tool" "the worktree recorded for '$EXPECTED' at $recorded has no readable toplevel from $REPO — it was destroyed mid-run. Nothing written."
+  top=$(CDPATH= cd -- "$top" 2>/dev/null && pwd -P) || true
+  recorded=$(CDPATH= cd -- "$recorded" 2>/dev/null && pwd -P) || recorded="$recorded (gone)"
+  [ "$top" = "$recorded" ] \
+    || refuse "$tool" "the worktree for '$EXPECTED' was recorded at $recorded, but $REPO now resolves to $top — the worktree was destroyed mid-run and git discovery walked up to the parent checkout. Nothing written. Recreate the worktree (make-worktree.sh) and retry there."
+}
 
 # assert_branch is defined LAST on purpose, and each guard's bootstrap leans on it: that check
 # tests for `assert_branch` and `refuse`, the last and the first function here, so a helper

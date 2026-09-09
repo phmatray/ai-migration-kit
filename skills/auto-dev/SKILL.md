@@ -392,6 +392,12 @@ Step 1 and handed to it as a per-dispatch fact in Step 3's prompt — with the m
 run verbatim rather than paraphrased — one home for it, `tests/auto-dev-dispatch/test.sh` extracts
 and runs this exact block:
 
+**That first-act check is one-shot.** It answers *was this worker dispatched into isolation at all?*
+and nothing about the rest of the run. A worktree destroyed mid-run is covered elsewhere, by the
+shared git guard (#469): `make-worktree.sh` records each tree's path in the common `.git/config`
+and `assert_worktree_live` in `_assert-branch.sh` refuses every guarded commit, push or merge whose
+live toplevel is not that record — so a relocated worker is stopped at its next write, by name.
+
 ```bash
 # >>> worker-toplevel guard
 # WORKER_TOPLEVEL — the worker's own first-act `git rev-parse --show-toplevel`.
@@ -859,6 +865,7 @@ that frees. Hold the line at N unless told otherwise.
 - **A worker idling at "ready" is usually YOUR bug, not its judgement.** If you dispatched phase 2 while CI was still pending, the sub-agent had no winning move — it backgrounded a watch, ended its turn, and returned a deferral. Wait for CI yourself first (`scripts/wait-ci.sh`), then dispatch. Cost five lost workers in one run before it was diagnosed; the fix took merges to 17–55 s. See Step 3.
 - **Don't read a worker's transcript** — it overflows your context. Use its structured report + `gh`.
 - **One area per concurrent worker** — the entire conflict strategy. If the next-queued issue shares an area with an in-flight one, skip down to a disjoint area (note the reorder).
+- **A worktree destroyed mid-run does not fail — it silently becomes the user's checkout** (#469). The worktree home `.claude/worktrees/` sits inside the main checkout, so when a tree is `rm -rf`ed and re-created (shape B) git's upward discovery walks out of it and `git rev-parse --show-toplevel` answers the PARENT, exit 0, no warning; only a pruned admin record with the directory surviving (shape A) fails loudly. Measured 2026-09-05 on a journal-backfill run: the worker for #447 lost its tree mid-run and kept going in the main checkout; the only thing that caught it was `assert_branch` refusing the commit, by luck (HEAD there was `main`), with the wrong diagnosis. `git worktree prune` skips locked trees and the three locked siblings survived — that is the lead; the sweeper was NOT identified. The shared guard now refuses a guarded write from a relocated tree by name (`assert_worktree_live`), so a worker's alertness is no longer the only thing standing there.
 - **A background sub-agent inherits the supervisor's cwd — it does not get one of its own** (#314, #412). A supervisor running in a worktree that dispatches without Step 3's `isolation: "worktree"` puts every worker in that SAME tree: nothing in `survey.sh` or `reconcile.sh` can see this, because neither queries a worktree or maps a PR back to one — a worker's own good judgement is the only thing that ever caught it. Always pass `isolation: "worktree"` on both spawns (Step 3); a worker that somehow lands without it is refused by the first-act toplevel assertion before it edits anything.
 - **`mergeable=UNKNOWN` is normal right after `main` moves** — GitHub recomputes; it resolves to CLEAN once the branch syncs. Not a blocker.
 - **Retire finished slots** once their PR merges — stop the sub-agent only if it is still running; a returned one is already gone. The fresh replacement starts clean.

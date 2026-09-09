@@ -5,6 +5,10 @@
 #
 #     git commit -am "<message>"
 #
+# Lineage: #26 (2026-08-10, below), #280 (a commit in the wrong checkout), #469 (2026-09-05, a
+# worktree destroyed mid-run relocated the worker into the user's checkout — refused by
+# assert_worktree_live in _assert-branch.sh, called just before assert_branch below).
+#
 # Measured failure mode of that call (#26, incident of 2026-08-10): four agents shared one
 # checkout; a concurrent `git checkout` moved HEAD between the branch creation and the commit;
 # the commit landed on the OTHER agent's branch and `git push` carried it into the OTHER
@@ -119,6 +123,9 @@ done
 # The checks and their order are in _assert-branch.sh; the prose is here, because what an
 # unguarded commit costs is not what an unguarded push costs. `{found}` is the branch HEAD turned
 # out to be on. Sets $head_sha, the tip this commit is expected to move.
+
+# A destroyed worktree is named as one, not as a branch mismatch (#469) — see _assert-branch.sh.
+assert_worktree_live "$TOOL"
 
 assert_branch "$TOOL" \
   "HEAD is detached in $REPO — it belongs to no branch, so this commit has nowhere safe to
