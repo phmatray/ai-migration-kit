@@ -64,9 +64,14 @@ A long run's cost is **~83% per-turn context cache-read, ~16% output** — you p
 turns*, not for thinking. Apply these rules; full rationale + measurement in
 [references/token-economics.md](references/token-economics.md).
 
-> **Measured on a real 19-merge run (a .NET/Blazor repo, N=3, 21 worker sessions, 863M tokens):**
-> 224 turns/session · context 30K → 350K · **181K average context per turn** · **0.55 tool calls per
-> turn**. Cache-read was 98.3% of tokens. Cost = **Σ over turns of context size**, so late turns cost
+> **Measured on a real 19-merge run (a .NET/Blazor repo, N=3):** 224 turns/session · context
+> 30K → 350K · **181K average context per turn** · **0.55 tool calls per turn**. Cache-read was
+> 98.3% of tokens. The run's session and token totals are in
+> [references/token-economics.md](references/token-economics.md) — **37 sessions / 656M tokens**,
+> the accounting two scripts reproduce today. An earlier scan of what is described as the same run
+> recorded *21 sessions / 863M tokens*; its tool and scope were not written down, the transcripts are
+> no longer on any machine that was checked, and the two do not reconcile in either direction, so
+> that figure is **unverifiable and not quoted as this run's** (#386). Cost = **Σ over turns of context size**, so late turns cost
 > ~10× early ones and *turn count is superlinear* — it drives both factors at once. Rank levers by
 > that, not by intuition.
 >
