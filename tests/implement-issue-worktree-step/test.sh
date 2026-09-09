@@ -164,6 +164,34 @@ printf '%s\n' "$out" | grep -qF "BRANCH=$BRANCH_D" \
 
 echo "  ok: end-of-options — '--' before <branch> does not discard it"
 
+# ---------------------------------------------------------------- 5. the tree's path is recorded (#469)
+#
+# The guards' mid-run liveness assertion reads `kit.worktree.<branch>.path` from the common
+# .git/config; this is the one place it is written. Three shapes: a fresh create, a reuse (the
+# record is rewritten, so a recreated tree on the same branch matches), and a branch carrying `/`
+# (the `.path` third component is what keeps the slash inside git's subsection).
+
+caseE="$WORK/case-e"
+init_repo "$caseE" '.claude/worktrees/\n.worktrees/\n'
+BRANCH_E="fix/469-worktree/liveness"
+
+out=$("$KIT/$HELPER" -C "$caseE" "$BRANCH_E")
+wt_e=$(printf '%s\n' "$out" | sed -n 's/^WORKTREE=//p')
+rec=$(git -C "$caseE" config --get "kit.worktree.${BRANCH_E}.path" 2>/dev/null || true)
+[ -n "$rec" ] || { echo "FAIL [record-create]: no kit.worktree.$BRANCH_E.path recorded after a fresh create"; exit 1; }
+[ "$rec" = "$(cd "$wt_e" && pwd -P)" ] \
+  || { echo "FAIL [record-create]: recorded '$rec' is not the tree's absolute path '$(cd "$wt_e" && pwd -P)'"; exit 1; }
+# The record must be readable FROM the worktree too — that is where the guards run.
+[ "$(git -C "$wt_e" config --get "kit.worktree.${BRANCH_E}.path")" = "$rec" ] \
+  || { echo "FAIL [record-create]: the record is not visible through the worktree's own config"; exit 1; }
+echo "  ok: record-create — kit.worktree.<branch>.path holds the tree's absolute path, slash in the branch and all"
+
+git -C "$caseE" config "kit.worktree.${BRANCH_E}.path" "/stale/from/an/earlier/run"
+out=$("$KIT/$HELPER" -C "$caseE" "$BRANCH_E")
+[ "$(git -C "$caseE" config --get "kit.worktree.${BRANCH_E}.path")" = "$rec" ] \
+  || { echo "FAIL [record-reuse]: a reuse did not re-record the tree's path over a stale value"; exit 1; }
+echo "  ok: record-reuse — reusing the tree re-records its path"
+
 # ---------------------------------------------------------------- 5. Step 4 calls the guard, not a re-spelling
 #
 # A tool the kit ships is a tool Step 4 actually reaches for — pin that the prose names it, and pin

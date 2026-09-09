@@ -314,7 +314,7 @@ def hbar_chart(rows, aria, note, multi_hue=False):
     # entièrement exclu par `coverage.exclude`, ou une collecte qui n'a rien instrumenté.
     if not rows:
         return (f'<svg viewBox="0 0 {width} 40" role="img" aria-label="{esc(aria)}">'
-                f'<text x="0" y="24" fill="var(--muted)">{esc(note or "Aucune donnée")}</text></svg>')
+                f'<text x="0" y="24" fill="var(--muted)">{esc(note or "No data")}</text></svg>')
     largest = max(r["value"] for r in rows)
     scale = (width - gutter - right_pad) / largest if largest else 0
     row_h, y = 34, 8
@@ -394,20 +394,20 @@ def render(r):
     business = "".join(
         f'<li><strong>{esc(b["strong"])}</strong> {esc(b["text"])}</li>' for b in r["business"])
     cov_rows = [{"label": c["name"], "value": c["pct"], "display": f'{c["pct"]} %',
-                 "tip": f'{c["name"]} : {c["covered"]}/{c["total"]} lignes couvertes'}
+                 "tip": f'{c["name"]}: {c["covered"]}/{c["total"]} lines covered'}
                 for c in cov["classes"]]
     # « n/d » et jamais « 0 % » quand la grandeur n'a pas été mesurée : un zéro est un chiffre, et
     # sur cette page un chiffre se lit comme une mesure (#50). Vaut pour les deux axes — un
     # périmètre filtré jusqu'au vide affichait « 0 % lignes » avec le même aplomb.
-    lignes = (f'{cov["line_pct"]} % lignes' if cov["line_pct"] is not None else 'lignes n/d')
+    lignes = (f'{cov["line_pct"]} % lines' if cov["line_pct"] is not None else 'lines n/a')
     branches = (f'{cov["branch_pct"]} % branches' if cov["branch_pct"] is not None
-                else 'branches n/d')
-    cov_note = (f'Global : {lignes} · {branches}'
+                else 'branches n/a')
+    cov_note = (f'Overall: {lignes} · {branches}'
                 + (f' — {r["coverage"]["note"]}' if r["coverage"].get("note") else ""))
-    cov_svg = hbar_chart(cov_rows, "Couverture de lignes par classe", cov_note)
+    cov_svg = hbar_chart(cov_rows, "Line coverage by class", cov_note)
     code_rows = [{"label": b["label"], "value": b["loc"], "display": str(b["loc"]),
                   "tip": b["tip"], "hue": i} for i, b in enumerate(r["code_bodies"])]
-    code_svg = hbar_chart(code_rows, "Lignes de code par corps", r.get("code_note", ""), multi_hue=True)
+    code_svg = hbar_chart(code_rows, "Lines of code per body", r.get("code_note", ""), multi_hue=True)
     rows_ba = "".join(
         f'<tr><td>{esc(a)}</td><td>{esc(b)}</td><td class="win">{esc(c)}</td></tr>'
         for a, b, c in r["before_after"])
@@ -416,7 +416,7 @@ def render(r):
         f' <code>{esc(g["commit"])}</code></span></li>' for g in r["gates"])
     steps = "".join(
         '<li><span class="box" aria-hidden="true"></span><span>'
-        + ('<span class="owner">Décision</span> ' if s.get("owner") else "")
+        + ('<span class="owner">Decision</span> ' if s.get("owner") else "")
         + f'{esc(s["text"])}</span><span class="eff">{esc(s.get("effort", "—"))}</span></li>'
         for s in r["next_steps"])
     deferred = "".join(
@@ -425,15 +425,15 @@ def render(r):
     if r.get("phases"):
         ph_rows = [{"label": f'{p["phase"]}. {p["name"]}', "value": max(p["minutes"], 0.1),
                     "display": f'{p["minutes"]} min',
-                    "tip": f'{p["name"]} : {p["start"]} → {p["end"]}', "hue": i}
+                    "tip": f'{p["name"]}: {p["start"]} → {p["end"]}', "hue": i}
                    for i, p in enumerate(r["phases"])]
         total = round(sum(p["minutes"] for p in r["phases"]))
         ph_svg = hbar_chart(
-            ph_rows, "Minutes par phase du pipeline",
-            f"Total : {total} min — dérivé des commits de porte (git), jamais chronométré à la main",
+            ph_rows, "Minutes per pipeline phase",
+            f"Total: {total} min — derived from the gate commits (git), never hand-timed",
             multi_hue=True)
-        timeline = ('<div class="card"><h2>Chronologie du pipeline</h2>'
-                    '<p class="sub">Minutes par phase, mesurées depuis les commits de porte.</p>'
+        timeline = ('<div class="card"><h2>Pipeline timeline</h2>'
+                    '<p class="sub">Minutes per phase, measured from the gate commits.</p>'
                     f'{ph_svg}</div>')
     lessons = ""
     if r.get("lessons"):
@@ -441,24 +441,24 @@ def render(r):
             f'<li><strong>{esc(l["strong"])}</strong> {esc(l["text"])}'
             + (f' <code>{esc(l["ref"])}</code>' if l.get("ref") else "") + "</li>"
             for l in r["lessons"])
-        lessons = ('<div class="card"><h2>Leçons de la vague</h2>'
-                   '<p class="sub">Ce que cette migration a appris au kit — rétropropagé à la source.</p>'
+        lessons = ('<div class="card"><h2>Lessons from the wave</h2>'
+                   '<p class="sub">What this migration taught the kit — fed back at the source.</p>'
                    f'<ul class="value">{lesson_items}</ul></div>')
     shot = ""
     if r.get("screenshot"):
         s = r["screenshot"]
-        shot = (f'<div class="card"><h2>Le produit, dans le navigateur</h2>'
+        shot = (f'<div class="card"><h2>The product, in the browser</h2>'
                 f'<p class="sub">{esc(s["caption"])}</p>'
                 f'<img class="shot" src="{data_uri(s["path"])}" alt="{esc(s["alt"])}" /></div>')
     css_vars_light = "".join(f"--s{i + 1}: {c};" for i, c in enumerate(PALETTE_LIGHT))
     css_vars_dark = "".join(f"--s{i + 1}: {c};" for i, c in enumerate(PALETTE_DARK))
 
     return f"""<!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Migration {esc(r["app"])} — rapport exécutif</title>
+<title>Migration {esc(r["app"])} — executive report</title>
 <style>
   :root {{ color-scheme: light; --plane:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e;
     --muted:#898781; --grid:#e1e0d9; --axis:#c3c2b7; --ring:rgba(11,11,11,0.10);
@@ -522,31 +522,31 @@ def render(r):
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow">Rapport de migration · {esc(r["app"])} → {esc(r["target"])} · {esc(r["date"])}</div>
+    <div class="eyebrow">Migration report · {esc(r["app"])} → {esc(r["target"])} · {esc(r["date"])}</div>
     <h1>{esc(r["headline"])}<span class="badge">✓ {esc(r["badge"])}</span></h1>
     <p>{r["summary"]}</p>
   </header>
   <div class="tiles">{kpis}</div>
-  <div class="card"><h2>Valeur business</h2>
-    <p class="sub">Ce que cette migration change concrètement.</p><ul class="value">{business}</ul></div>
+  <div class="card"><h2>Business value</h2>
+    <p class="sub">What this migration changes, concretely.</p><ul class="value">{business}</ul></div>
   <div class="grid2">
     {shot}
-    <div class="card"><h2>Couverture du cœur porté</h2>
-      <p class="sub">Lignes couvertes par les tests (cobertura, mesuré — jamais déclaré).</p>{cov_svg}</div>
+    <div class="card"><h2>Coverage of the ported core</h2>
+      <p class="sub">Lines covered by tests (cobertura, measured — never declared).</p>{cov_svg}</div>
   </div>
   <div class="grid2">
-    <div class="card"><h2>Avant / après</h2><div style="overflow-x:auto"><table>
-      <thead><tr><th></th><th>Avant</th><th>Après</th></tr></thead><tbody>{rows_ba}</tbody></table></div></div>
-    <div class="card"><h2>Le code : porté, écrit, testé</h2>
-      <p class="sub">Lignes de code par corps.</p>{code_svg}</div>
+    <div class="card"><h2>Before / after</h2><div style="overflow-x:auto"><table>
+      <thead><tr><th></th><th>Before</th><th>After</th></tr></thead><tbody>{rows_ba}</tbody></table></div></div>
+    <div class="card"><h2>The code: ported, written, tested</h2>
+      <p class="sub">Lines of code per body.</p>{code_svg}</div>
   </div>
-  <div class="card"><h2>Portes franchies</h2>
-    <p class="sub">Une porte = un commit vert sur la branche <code>{esc(r["branch"])}</code>.</p>
+  <div class="card"><h2>Gates passed</h2>
+    <p class="sub">One gate = one green commit on branch <code>{esc(r["branch"])}</code>.</p>
     <ol class="gates">{gates}</ol></div>
   {timeline}
-  <div class="card"><h2>Prochaines étapes</h2>
-    <p class="sub">Chemin critique vers la production, dans l'ordre.</p><ul class="steps">{steps}</ul></div>
-  <div class="card"><h2>Suivis différés</h2><ul class="defer">{deferred}</ul></div>
+  <div class="card"><h2>Next steps</h2>
+    <p class="sub">Critical path to production, in order.</p><ul class="steps">{steps}</ul></div>
+  <div class="card"><h2>Deferred follow-ups</h2><ul class="defer">{deferred}</ul></div>
   {lessons}
   <footer><p><strong>Méthode.</strong> {esc(r["method"])}</p></footer>
 </div>

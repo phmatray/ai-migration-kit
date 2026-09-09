@@ -216,5 +216,15 @@ else
   fi
 fi
 
+# Record the tree's absolute path in the COMMON .git/config, keyed by branch, so the guards can
+# tell a destroyed-and-relocated worktree from a healthy one (#469): the record outlives the tree
+# it describes, which is the whole point. The `.path` third component keeps a `/` in the branch
+# name inside git's subsection, where any character is allowed. Not fatal — this script's
+# contract is to produce a worktree — but never silent.
+WORKTREE_ABS=$(CDPATH= cd -- "$WORKTREE" && pwd -P) || WORKTREE_ABS="$WORKTREE"
+git -C "$REPO_ROOT" config "kit.worktree.${BRANCH}.path" "$WORKTREE_ABS" \
+  || printf '%s: warning: could not record kit.worktree.%s.path — the mid-run liveness guard (#469) will not cover this tree.\n' \
+       "$TOOL" "$BRANCH" >&2
+
 printf 'WORKTREE=%s\n' "$WORKTREE"
 printf 'BRANCH=%s\n' "$BRANCH"
