@@ -24,7 +24,7 @@ kit_init "$KIT"
 
 fail() { echo "FAIL: $1"; exit 1; }
 
-SKILL_MD="$KIT/skills/implement-issue/SKILL.md"
+SKILL_MD="$KIT/skills/implement-issue/references/steps/07-review.md"   # Step 7 lives in its step file (#499)
 [ -f "$SKILL_MD" ] || fail "missing $SKILL_MD"
 
 # 1. The marked block exists exactly once, and carries both structural constraints.

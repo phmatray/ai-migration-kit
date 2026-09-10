@@ -108,3 +108,4 @@ This ensures commits are authored with the canonical identity (usually GitHub, n
 - `skills/review-sessions/SKILL.md` — Step 1 loads the repo profile (the *ADRs* root and the *Identity* slug feed later steps)
 - `skills/triage-backlog/SKILL.md` — Step 1 loads the repo profile, verifies authentication, and prepares the commit-identity shorthand
 - `skills/_shared/recap.md` — cites this file as an example reference the skills link rather than `cat`
+- `skills/implement-issue/references/steps/01-preconditions.md` — Step 1 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)

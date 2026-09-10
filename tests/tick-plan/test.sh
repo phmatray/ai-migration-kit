@@ -517,7 +517,7 @@ echo "  ok: refused-means-nothing-sent — the only post-write die() is the fail
 #      documented recovery at the point of use. A run that stalls despite a documented timeout is
 #      also indistinguishable from one with no timeout at all, which is how #135 was first
 #      misdiagnosed as "the deadline shells out to timeout(1), which macOS lacks".
-grep -q 'TICK_PLAN_PATCH_TIMEOUT' skills/implement-issue/SKILL.md \
+grep -q 'TICK_PLAN_PATCH_TIMEOUT' skills/implement-issue/references/steps/06-implementation-loop.md \
   || { echo "FAIL [docs-name-the-knob]: SKILL.md never names TICK_PLAN_PATCH_TIMEOUT, so the agent
         ticking a box cannot tell a bounded call from a broken one"; exit 1; }
 echo "  ok: docs-name-the-knob — SKILL.md names the deadline knob"

@@ -198,7 +198,7 @@ echo "  ok: record-reuse — reusing the tree re-records its path"
 # the ⛔ clause naming BOTH observed failure spellings from the incident this whole suite is about,
 # so a future edit cannot quietly drop either warning without going red.
 
-SKILL="$KIT/skills/implement-issue/SKILL.md"
+SKILL="$(kit_skill_prose "$KIT" implement-issue)"   # router + references/steps/*.md (#499)
 [ -f "$SKILL" ] || { echo "FAIL [skill-doc]: $SKILL not found"; exit 1; }
 
 STEP4=$(sed -n '/^## Step 4 /,/^## Step 5 /p' "$SKILL")

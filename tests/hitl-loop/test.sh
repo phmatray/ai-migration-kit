@@ -144,7 +144,7 @@ echo "  ok: d/merge-pr — the fix-check correction points at debug-issue"
 # Herestring, not a pipe into `grep -q` (#391): `grep -n` over a 700+ line file can still be
 # writing when the second grep's match closes the read end, and pipefail turns that SIGPIPE into
 # this check's verdict.
-honest_effort=$(grep -n 'honest effort' "skills/implement-issue/SKILL.md")
+honest_effort=$(grep -n 'honest effort' "$(kit_skill_prose "$KIT" implement-issue)")
 grep -q 'debug-issue' <<<"$honest_effort" || {
   echo "FAIL [d/implement-issue]: the Autonomy-contract green-wall bullet ('honest effort') does not"
   echo "                          name debug-issue on the same line. 'Honest effort' has to"

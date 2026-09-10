@@ -25,7 +25,7 @@ kit_init "$KIT_ROOT"
 kit_guard kit_guard_samples_unchanged
 
 SCRIPT="$KIT_ROOT/skills/implement-issue/scripts/plan-freshness.sh"
-SKILL="$KIT_ROOT/skills/implement-issue/SKILL.md"
+SKILL="$(kit_skill_prose "$KIT_ROOT" implement-issue)"   # router + references/steps/*.md (#499)
 MECHANICS="$KIT_ROOT/skills/implement-issue/references/github-mechanics.md"
 SPEC_REVIEW="$KIT_ROOT/skills/implement-issue/references/spec-review.md"
 WORK=$(kit_scratch)
@@ -506,7 +506,7 @@ else
   note_fail "P11 references/spec-review.md exists — $SPEC_REVIEW is missing"
 fi
 STEP7=$(section "$SKILL" "## Step 7 — " "## Step 8 — ")
-want_in "P12 Step 7 links the Spec brief   " "$STEP7" "](references/spec-review.md)"
+want_in "P12 Step 7 links the Spec brief   " "$STEP7" "spec-review.md)"
 want_in "P13 Step 7 routes creep to the PR " "$STEP7" "### Follow-ups"
 want_in "P14 Step 7 refuses to rerank      " "$STEP7" "rerank"
 

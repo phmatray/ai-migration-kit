@@ -118,3 +118,5 @@ and why a resolved merge is re-built and re-tested on the merged tree.
 ## Consumers
 
 - `skills/implement-issue/SKILL.md` — Step 6 runs every task through this loop; its Autonomy contract states the same evidence rule in its own words
+- `skills/implement-issue/references/steps/03-execution-mode.md` — Step 3 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/implement-issue/references/steps/06-implementation-loop.md` — Step 6 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)

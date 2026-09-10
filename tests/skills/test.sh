@@ -1199,9 +1199,10 @@ PY
 
 # The two naming consumers must point at the target repo's CONTEXT.md, and say what they refuse.
 echo "== create-issue and implement-issue read the target repo's CONTEXT.md (#313) =="
-for consumer in skills/create-issue/SKILL.md skills/implement-issue/SKILL.md; do
-  grep -q "CONTEXT.md" "$consumer" || { echo "FAIL: $consumer does not mention CONTEXT.md"; exit 1; }
-  grep -q "_Avoid_" "$consumer" || { echo "FAIL: $consumer does not mention _Avoid_"; exit 1; }
+for consumer in create-issue implement-issue; do
+  prose="$(kit_skill_prose "$KIT_ROOT" "$consumer")"   # router + references/steps/*.md (#499)
+  grep -q "CONTEXT.md" "$prose" || { echo "FAIL: $consumer does not mention CONTEXT.md"; exit 1; }
+  grep -q "_Avoid_" "$prose" || { echo "FAIL: $consumer does not mention _Avoid_"; exit 1; }
 done
 echo "ok   create-issue and implement-issue both point at CONTEXT.md and its _Avoid_ lists"
 
@@ -1701,9 +1702,9 @@ echo "ok   create-issue names search_adrs, the contradiction verdict and the doc
 # `suggest_adr_from_change` AND the `## Follow-ups` heading the draft lands under, because a draft
 # named without a destination is the failure mode this touchpoint exists to avoid.
 echo "== implement-issue and merge-pr propose an ADR update, never write one (#316) =="
-for f in "skills/implement-issue/SKILL.md" "skills/merge-pr/SKILL.md"; do
-  path="$KIT_ROOT/$f"
-  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+for f in implement-issue merge-pr; do
+  path="$(kit_skill_prose "$KIT_ROOT" "$f")"   # router + references/steps/*.md (#499)
+  [ -s "$path" ] || { echo "FAIL: $f prose is empty"; exit 1; }
   for needle in 'suggest_adr_from_change' '## Follow-ups' 'code_refs' 'docs/adr'; do
     grep -q -- "$needle" "$path" \
       || { echo "FAIL: $path does not mention '$needle'"; exit 1; }
