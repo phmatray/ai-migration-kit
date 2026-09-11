@@ -56,6 +56,8 @@ class NoVerdict(Exception):
 def read_source(repo, rel):
     try:
         return (repo / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
+    except UnicodeDecodeError as exc:
+        raise NoVerdict(f"{rel} is not UTF-8 ({exc.reason})") from exc
     except OSError as exc:
         raise NoVerdict(f"cannot read {rel}: {exc.strerror or exc}") from exc
 
@@ -78,15 +80,19 @@ def build(repo):
 def check(repo):
     refusals = []
     for rel, want in generated(repo).items():
+        # A copy that is missing or not UTF-8 is drift like any other — build rewrites it — while a
+        # SOURCE that cannot be read is no verdict at all (read_source, exit 2).
         try:
             have = (repo / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
         except FileNotFoundError:
-            have = None
+            refusals.append(f"REFUSE: {rel} is missing — {FIX}")
+            continue
+        except UnicodeDecodeError:
+            refusals.append(f"REFUSE: {rel} is not UTF-8 — {FIX}")
+            continue
         except OSError as exc:
             raise NoVerdict(f"cannot read {rel}: {exc.strerror or exc}") from exc
-        if have is None:
-            refusals.append(f"REFUSE: {rel} is missing — {FIX}")
-        elif have != want:
+        if have != want:
             refusals.append(f"REFUSE: {rel} drifted from {SOURCE} — {FIX}")
     for line in refusals:
         print(line)

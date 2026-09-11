@@ -90,6 +90,20 @@ awk '{ printf "%s\r\n", $0 }' "$REPO/.clinerules/ai-migration-kit.md" > "$T/.cli
 run_check "$T"
 [ "$RC" -eq 0 ] && ok "a CRLF copy is in step" || bad "exit $RC on a CRLF copy: $OUT"
 
+echo "== F2. a non-UTF-8 file: a copy is drift, the source is no verdict — never a traceback =="
+utf16() { python3 -c 'import sys; open(sys.argv[2], "w", encoding="utf-16").write(open(sys.argv[1], encoding="utf-8").read())' "$1" "$2"; }
+T="$WORK/f2"; scratch_tree "$T"
+utf16 "$REPO/.windsurf/rules/ai-migration-kit.md" "$T/.windsurf/rules/ai-migration-kit.md"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "a UTF-16 copy exits 1" || bad "a UTF-16 copy exited $RC, want 1: $OUT"
+names ".windsurf/rules/ai-migration-kit.md" && ok "names the UTF-16 copy" || bad "does not name the UTF-16 copy: $OUT"
+names "Traceback" && bad "a UTF-16 copy produced a traceback: $OUT" || ok "no traceback"
+T="$WORK/f3"; scratch_tree "$T"
+utf16 "$REPO/AGENTS.md" "$T/AGENTS.md"
+run_check "$T"
+[ "$RC" -eq 2 ] && ok "a UTF-16 AGENTS.md exits 2" || bad "a UTF-16 AGENTS.md exited $RC, want 2: $OUT"
+names "Traceback" && bad "a UTF-16 AGENTS.md produced a traceback: $OUT" || ok "no traceback"
+
 echo "== G. usage =="
 OUT=$(python3 "$CHECK" --repo "$REPO" 2>&1); RC=$?
 [ "$RC" -eq 2 ] && ok "no subcommand exits 2" || bad "no subcommand exited $RC"

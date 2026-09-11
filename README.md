@@ -183,7 +183,7 @@ working directory is not this repository (#416). `AGENTS.md` is the table's one 
 file every other host reads as well — and there is no second copy: a heading rename or removal there
 empties the extraction rather than reading stale.
 
-- **Fails open, always** — no `jq`, no `CLAUDE_PLUGIN_ROOT`, an unreadable `.claude/CLAUDE.md`, or an
+- **Fails open, always** — no `jq`, no `CLAUDE_PLUGIN_ROOT`, an unreadable `AGENTS.md`, or an
   empty extraction, and the hook prints nothing and exits 0; it never blocks anything (it has no deny
   path to begin with).
 - **`ROUTING_CONTEXT=off`** (also `0|false|no|disabled`) disables it outright — set where Claude is

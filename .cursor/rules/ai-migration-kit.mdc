@@ -12,7 +12,8 @@ issue → pull request lifecycle. Guide: https://phmatray.github.io/ai-migration
 ## Which kit skill, for what
 
 Reach for the kit's own skills first, before any third-party plugin's equivalent (`superpowers`):
-`<kit>/skills/_shared/` is the one home of their doctrine (#324). Full guide:
+`<kit>/skills/_shared/` is the one home of their doctrine (#324), `<kit>` being the kit root — the
+plugin's install directory, or a clone at `~/.ai-migration-kit`. Full guide:
 `<kit>/docs/methodology.md`. Short form — broken/flaky → `debug-issue`; a new idea →
 `create-issue` (`--seed #N` plans a raw issue); a planned issue → `implement-issue #N`; a ready PR →
 `merge-pr #N`; many issues hands-off → `auto-dev`; the queue → `triage-backlog`; profile/labels →

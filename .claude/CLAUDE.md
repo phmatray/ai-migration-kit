@@ -8,8 +8,10 @@ first.
 ## Routing
 
 The kit is what is being dogfooded here, so its own skills come first. Which one, for what: the
-routing table in [`AGENTS.md`](../AGENTS.md) — its one home since #525, where every host reads it —
-which `hooks/routing-context.sh` injects at session start.
+routing table in `AGENTS.md` — its one home since #525, where every host reads it — imported here so
+a session in this repository sees it whether or not the plugin is installed:
+
+@../AGENTS.md
 
 ## Where each concern lives
 
