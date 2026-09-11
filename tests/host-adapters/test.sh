@@ -211,6 +211,7 @@ for md in mds:
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert set(data) == {"description", "prompt"}, f"{toml.name}: keys {sorted(data)}"
     assert "$ARGUMENTS" not in data["prompt"], f"{toml.name}: $ARGUMENTS survived"
+    assert "$1" not in data["prompt"], f"{toml.name}: a positional $1 survived — Gemini fills only {{args}}"
 m = tomllib.loads((repo / "commands" / "migrate.toml").read_text(encoding="utf-8"))
 want = "Run the full seven-phase legacy upgrade pipeline (assess → verified production) powered by RoselineMCP"
 assert m["description"] == want, m["description"]

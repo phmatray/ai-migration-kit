@@ -101,7 +101,13 @@ def toml_command(repo, md_rel):
     description = fields.get("description", "").strip()
     if not description:
         raise NoVerdict(f"{md_rel} front matter carries no description")
-    prompt = body.lstrip("\n").replace("$ARGUMENTS", "{{args}}")
+    # Claude Code fills `$ARGUMENTS` with the whole argument string and `$1` with the first; Gemini
+    # has one placeholder, `{{args}}`. Every kit command takes a single argument, so both map to it
+    # — and a command reading a second positional argument cannot be expressed at all.
+    for n in "23456789":
+        if f"${n}" in body:
+            raise NoVerdict(f"{md_rel} reads ${n} — Gemini commands take one argument, {{{{args}}}}")
+    prompt = body.lstrip("\n").replace("$ARGUMENTS", "{{args}}").replace("$1", "{{args}}")
     # A TOML literal string cannot contain its own closing delimiter, and nothing can escape it.
     if "'''" in prompt:
         raise NoVerdict(f"{md_rel} contains ''' — it cannot be written as a TOML literal string")

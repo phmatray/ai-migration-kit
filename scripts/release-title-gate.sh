@@ -137,8 +137,15 @@ SHIPPED_ANYWAY=(
 # So both halves must hold — release-please's exact title AND a changeset that is a subset of what
 # it writes.
 RELEASE_PR_TITLE_PREFIX="chore(main): release "
+# Every file release-please's extra-files bump, plus its manifest and changelog. A manifest added to
+# extra-files and not here makes every release PR refuse its own title (#526 added three hosts');
+# tests/release-title-gate/test.sh builds a release PR from the live release-please-config.json so
+# the next one cannot be forgotten.
 RELEASE_PR_FILES=(
   .claude-plugin/plugin.json
+  .codex-plugin/plugin.json
+  .github/plugin/plugin.json
+  gemini-extension.json
   .release-please-manifest.json
   CHANGELOG.md
 )
