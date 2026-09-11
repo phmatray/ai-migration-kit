@@ -21,6 +21,8 @@
 # mapping around it: which ci.verdict word becomes green, which becomes red, and — the case the
 # incident turns on — which becomes the honest NON-VERDICT `unverified`.
 set -euo pipefail
+# A GH_HOST in the developer's or CI's shell would decide the host cases (#514) on its own.
+unset GH_HOST
 cd "$(dirname "$0")/../.."
 
 HELPER="./skills/merge-pr/scripts/base-run-verdict.sh"
@@ -57,10 +59,19 @@ export KIT_DECISION_LOG="$WORK/decision-events.jsonl"
 #
 # Anything else is an unhandled invocation and fails loudly rather than answering a question this
 # suite never scripted.
+#
+# Each log line carries the GH_HOST the call ran under (#514). `gh auth token --hostname H`, the
+# host helper's credential probe, succeeds only for a host listed in $GH_STUB_HOSTS.
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-echo "ARGS: $*" >> "$GH_CALL_LOG"
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_CALL_LOG"
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  host=""; prev=""
+  for a in "$@"; do [ "$prev" = "--hostname" ] && host="$a"; prev="$a"; done
+  case " ${GH_STUB_HOSTS:-} " in *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;; esac
+  exit 1
+fi
 case "$*" in
   *check-runs*)
     sha=""
@@ -550,5 +561,92 @@ for line in "RED (base-run)" "green (base-run)" "unverified (no-run-yet)"; do
     || { echo "FAIL [fallback-grammar]: '$line' breaks the report-line grammar"; exit 1; }
 done
 echo "  ok: fallback-grammar — the three fallback tokens match ^(green|RED|unverified) \\([a-z-]+\\)$"
+
+# ---------------------------------------------------------------- 21. the repository's own host (#514)
+#
+# `gh api` never infers a host, so on a GitHub Enterprise checkout both reads — check-runs and the
+# #479 workflow-runs fallback — reached github.com, and that base's verdict was never read. The seam
+# is the stub's log: the GH_HOST each call ran under, and its endpoint. Each case arms the check-runs
+# 404 so that BOTH reads are made, and runs the script by its absolute path from the checkout whose
+# origin decides the host.
+HELPER_ABS="$KIT_ROOT/skills/merge-pr/scripts/base-run-verdict.sh"
+expect_call() {   # expect_call <label> <fixed string> — the case's gh log holds a line containing it
+  grep -qF -- "$2" "$GH_CALL_LOG" || {
+    echo "FAIL [$1]: gh was never called as '$2':"; sed 's/^/      /' "$GH_CALL_LOG"; exit 1; }
+}
+arm_ghe() {   # check-runs 404s and the sha's workflow run failed: the fallback answers red
+  arm "$SHA" 'ERR:HTTP 404: Not Found'
+  arm_wf "$(wf_run completed-failure)"
+}
+CO_GHE="$WORK/co-ghe"
+git init -q "$CO_GHE"
+git -C "$CO_GHE" remote add origin git@ghe.example.com:acme/widgets.git
+
+reset_case ghe-origin
+SHA=1a2b1a2b1a2b1a2b1a2b1a2b1a2b1a2b1a2b1a2b
+arm_ghe
+out=$(cd "$CO_GHE" && GH_STUB_HOSTS=ghe.example.com "$HELPER_ABS" "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "RED (base-run)" ] || { echo "FAIL [ghe-origin]: expected 'RED (base-run)', got '$out'"; cat "$GH_CALL_LOG"; exit 1; }
+expect_call ghe-origin "GH_HOST=ghe.example.com ARGS: api repos/{owner}/{repo}/commits/$SHA/check-runs "
+expect_call ghe-origin "GH_HOST=ghe.example.com ARGS: api repos/{owner}/{repo}/actions/runs?head_sha=$SHA&"
+echo "  ok: ghe-origin — with no -R, both reads ask repos/{owner}/{repo}/… under GH_HOST=ghe.example.com"
+
+reset_case ghe-repo
+SHA=2b3c2b3c2b3c2b3c2b3c2b3c2b3c2b3c2b3c2b3c
+arm_ghe
+out=$(cd "$CO_GHE" && GH_STUB_HOSTS=ghe.example.com "$HELPER_ABS" -R acme/widgets "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "RED (base-run)" ] || { echo "FAIL [ghe-repo]: expected 'RED (base-run)', got '$out'"; cat "$GH_CALL_LOG"; exit 1; }
+expect_call ghe-repo "GH_HOST=ghe.example.com ARGS: api repos/acme/widgets/commits/$SHA/check-runs "
+expect_call ghe-repo "GH_HOST=ghe.example.com ARGS: api repos/acme/widgets/actions/runs?head_sha=$SHA&"
+echo "  ok: ghe-repo — -R acme/widgets: both reads ask repos/acme/widgets/… under GH_HOST=ghe.example.com"
+
+# A HOST/ prefix on -R names the host outright — even from this checkout, whose origin is
+# github.com — and only OWNER/REPO reaches the endpoint.
+reset_case ghe-prefix
+SHA=3c4d3c4d3c4d3c4d3c4d3c4d3c4d3c4d3c4d3c4d
+arm_ghe
+out=$("$HELPER" -R ghe.example.com/acme/widgets "$SHA" --report-line --timeout 0 --poll-seconds 0)
+[ "$out" = "RED (base-run)" ] || { echo "FAIL [ghe-prefix]: expected 'RED (base-run)', got '$out'"; cat "$GH_CALL_LOG"; exit 1; }
+expect_call ghe-prefix "GH_HOST=ghe.example.com ARGS: api repos/acme/widgets/commits/$SHA/check-runs "
+expect_call ghe-prefix "GH_HOST=ghe.example.com ARGS: api repos/acme/widgets/actions/runs?head_sha=$SHA&"
+if grep -qF 'repos/ghe.example.com' "$GH_CALL_LOG"; then
+  echo "FAIL [ghe-prefix]: the host leaked into the endpoint:"; sed 's/^/      /' "$GH_CALL_LOG"; exit 1
+fi
+echo "  ok: ghe-prefix — -R HOST/OWNER/REPO: the reads ask repos/acme/widgets/… under GH_HOST=ghe.example.com"
+
+# github.com stays as it was: this checkout's origin names a host the stub holds no token for, so
+# no read runs under a GH_HOST and gh keeps its own default.
+reset_case github-unchanged
+SHA=4d5e4d5e4d5e4d5e4d5e4d5e4d5e4d5e4d5e4d5e
+arm "$SHA" "$(page "$(run_obj kit 996 success)")"
+v=$(verdict_of "$SHA" --timeout 60 --poll-seconds 0)
+expect_verdict github-unchanged green "$v"
+if grep -qE '^GH_HOST=[^<]' "$GH_CALL_LOG"; then
+  echo "FAIL [github-unchanged]: a read ran under a GH_HOST nobody asked for:"; sed 's/^/      /' "$GH_CALL_LOG"; exit 1
+fi
+echo "  ok: github-unchanged — no credentials for the origin's host: every read keeps gh's default"
+
+# A malformed -R is a usage error: exit 64, the slug named, gh never called.
+reset_case malformed-slug
+rc=0; out=$("$HELPER" -R acme 5e6f5e6f5e6f5e6f5e6f5e6f5e6f5e6f5e6f5e6f --timeout 0 --poll-seconds 0 2>&1) || rc=$?
+[ "$rc" -eq 64 ] || { echo "FAIL [malformed-slug]: expected exit 64, got $rc"; echo "$out"; exit 1; }
+grep -qF "malformed repository slug 'acme'" <<<"$out" || { echo "FAIL [malformed-slug]: stderr does not name the slug: $out"; exit 1; }
+[ ! -s "$GH_CALL_LOG" ] || { echo "FAIL [malformed-slug]: gh was called:"; cat "$GH_CALL_LOG"; exit 1; }
+echo "  ok: malformed-slug — -R acme is exit 64, the slug named, no gh call"
+
+# The host helper is part of the install: without it the reader refuses, naming the missing file,
+# rather than reading gh's default host — the exact #514 failure.
+NOHELPER="$WORK/nohelper"
+mkdir -p "$NOHELPER/skills/merge-pr/scripts" "$NOHELPER/scripts"
+cp "$HELPER_ABS" "$NOHELPER/skills/merge-pr/scripts/base-run-verdict.sh"
+# The script's own `[ -x "$DECIDE" ]` check runs before the helper loads; this stand-in is never run.
+printf '#!/bin/sh\nexit 99\n' > "$NOHELPER/scripts/decide.sh"
+chmod +x "$NOHELPER/scripts/decide.sh"
+reset_case missing-helper
+rc=0; out=$(bash "$NOHELPER/skills/merge-pr/scripts/base-run-verdict.sh" 6f7a6f7a6f7a6f7a6f7a6f7a6f7a6f7a6f7a6f7a --timeout 0 --poll-seconds 0 2>&1) || rc=$?
+[ "$rc" -eq 64 ] || { echo "FAIL [missing-helper]: expected exit 64, got $rc"; echo "$out"; exit 1; }
+grep -qF '_shared/scripts/_gh-host.sh; reinstall the kit' <<<"$out" || { echo "FAIL [missing-helper]: stderr does not name the helper: $out"; exit 1; }
+[ ! -s "$GH_CALL_LOG" ] || { echo "FAIL [missing-helper]: gh was called:"; cat "$GH_CALL_LOG"; exit 1; }
+echo "  ok: missing-helper — exit 64, the missing helper named, no gh call"
 
 echo "merge-base-ci golden test OK"

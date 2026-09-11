@@ -11,6 +11,8 @@
 # script's own `gh issue edit --body-file -` call and read back by the next `gh issue view`, so the
 # suite exercises the real read-modify-write-readback cycle rather than a canned response per call.
 set -euo pipefail
+# A GH_HOST in the developer's or CI's shell would decide the host cases (#514) on its own.
+unset GH_HOST
 cd "$(dirname "$0")/../.."
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -45,9 +47,18 @@ STATE_BODY="$WORK/state-body.txt"
 # `--json body` view, and overwritten by `gh issue edit`'s stdin. That is what lets the
 # idempotent-rerun and second-child cases assert against what the FIRST call actually produced,
 # not a hand-written expectation of it.
+#
+# Each log line carries the GH_HOST the call ran under (#514). `gh auth token --hostname H`, the
+# host helper's credential probe, succeeds only for a host listed in $GH_STUB_HOSTS.
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-echo "ARGS: $*" >> "$GH_CALL_LOG"
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_CALL_LOG"
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  host=""; prev=""
+  for a in "$@"; do [ "$prev" = "--hostname" ] && host="$a"; prev="$a"; done
+  case " ${GH_STUB_HOSTS:-} " in *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;; esac
+  exit 1
+fi
 
 noun="${1:-}"; shift || true
 case "$noun" in
@@ -257,6 +268,81 @@ expect_rc 1 && expect_stderr_contains "parent-decision-note:" \
 if [ "$(cat "$STATE_BODY")" != "$(printf '## Destination\n\nShip the epic.')" ]; then
   echo "FAIL: [$CASE] the parent body was mutated despite the PR lookup failing"; fails=$((fails + 1))
 fi
+
+# ------------------------------------------------------------ 8. the repository's own host (#514)
+#
+# `gh -R OWNER/REPO` takes gh's DEFAULT host, even inside a GitHub Enterprise checkout, so on a GHE
+# repository every call this script makes reached github.com. The seam is the stub's log: the
+# GH_HOST each call ran under, and the -R it was given.
+expect_call() {   # expect_call <ERE> — the case's gh log holds a line matching <ERE>
+  if ! grep -qE -- "$1" "$GH_CALL_LOG"; then
+    echo "FAIL: [$CASE] gh was never called as /$1/"; echo "--- calls"; cat "$GH_CALL_LOG"
+    fails=$((fails + 1)); return 1
+  fi
+}
+expect_all_hosted() {   # every issue/pr call ran under GH_HOST=ghe.example.com, none without it
+  if grep -qE '^GH_HOST=<unset> ARGS: (issue|pr) ' "$GH_CALL_LOG"; then
+    echo "FAIL: [$CASE] an issue/pr call ran without the host:"; cat "$GH_CALL_LOG"
+    fails=$((fails + 1)); return 1
+  fi
+}
+
+# A checkout whose origin is on a GHE host: all five calls — the parent lookup, the PR lookup, the
+# body read, the write and the read-back — reach that host.
+CO_GHE="$WORK/co-ghe"
+git init -q "$CO_GHE"
+git -C "$CO_GHE" remote add origin git@ghe.example.com:acme/widgets.git
+printf '## Destination\n\nShip the epic.\n' > "$STATE_BODY"
+cd "$CO_GHE"
+GH_STUB_HOSTS=ghe.example.com \
+  GH_PARENT_JSON='{"parent":{"number":300}}' \
+  GH_PR_JSON='{"title":"feat(z): ghe slice (#61) (#91)","url":"https://ghe.example.com/acme/widgets/pull/91"}' \
+  run_case "ghe-origin" 61 91 "acme/widgets"
+cd "$KIT_ROOT"
+expect_rc 0 \
+  && expect_stdout "appended #61's PR #91 to parent #300's Decisions so far" \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: issue view 61 -R acme/widgets --json parent$' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: pr view 91 -R acme/widgets --json title,url$' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: issue view 300 -R acme/widgets --json body$' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: issue edit 300 -R acme/widgets --body-file -$' \
+  && expect_all_hosted \
+  && ok "a GHE checkout: all five issue/pr calls ran under GH_HOST=ghe.example.com"
+
+# A HOST/ prefix names the host outright — even from this checkout, whose origin is github.com —
+# and the calls get OWNER/REPO, never the prefixed slug.
+printf '## Destination\n\nShip the epic.\n' > "$STATE_BODY"
+GH_PARENT_JSON='{"parent":{"number":300}}' \
+  GH_PR_JSON='{"title":"feat(z): prefixed slice (#62) (#92)","url":"https://ghe.example.com/acme/widgets/pull/92"}' \
+  run_case "ghe-prefix" 62 92 "ghe.example.com/acme/widgets"
+expect_rc 0 \
+  && expect_stdout "appended #62's PR #92 to parent #300's Decisions so far" \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: issue view 62 -R acme/widgets --json parent$' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: issue edit 300 -R acme/widgets --body-file -$' \
+  && expect_all_hosted \
+  && ok "HOST/OWNER/REPO is accepted: every call got -R acme/widgets under GH_HOST=ghe.example.com"
+if grep -qF -- '-R ghe.example.com/' "$GH_CALL_LOG"; then
+  echo "FAIL: [$CASE] the host leaked into a -R value:"; cat "$GH_CALL_LOG"; fails=$((fails + 1))
+fi
+
+# Four segments is no slug at all: the host helper refuses it, and gh is never called.
+run_case "malformed-slug" 42 76 "a/b/c/d"
+expect_rc 2 && expect_no_calls && expect_stderr_contains "malformed repository slug 'a/b/c/d'" \
+  && ok "a four-segment slug is exit 2, named on stderr, calls nothing"
+
+# Admitting HOST/OWNER/REPO must not admit an empty segment with it.
+run_case "empty-segment" 42 76 "acme//widgets"
+expect_rc 2 && expect_no_calls && ok "a slug with an empty segment is still exit 2, calls nothing"
+
+# The host helper is part of the install: without it the note refuses, naming the missing file,
+# rather than falling back to gh's default host — the exact #514 failure.
+NOHELPER="$WORK/nohelper/skills/merge-pr/scripts"
+mkdir -p "$NOHELPER"
+cp "$SCRIPT" "$NOHELPER/parent-decision-note.sh"
+SCRIPT_KEEP="$SCRIPT"; SCRIPT="$NOHELPER/parent-decision-note.sh"
+run_case "missing-helper" 42 76 "$REPO"
+SCRIPT="$SCRIPT_KEEP"
+expect_rc 2 && expect_no_calls && expect_stderr_contains "_shared/scripts/_gh-host.sh; reinstall the kit" \
+  && ok "without its host helper: exit 2, the missing file named, calls nothing"
 
 # ----------------------------------------------------------------------------------- verdict
 if [ "$fails" -ne 0 ]; then

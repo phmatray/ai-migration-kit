@@ -18,20 +18,24 @@
 # is permanent while an extra `ls-remote` is one cheap network call. Simplicity and correctness
 # both point the same way here, so there is no branch on the setting at all.
 #
-# Usage: remote-branch-teardown.sh <head-branch> <owner>/<repo>
+# Usage: remote-branch-teardown.sh <head-branch> [<host>/]<owner>/<repo>
 #   Checks whether <head-branch> still exists on `origin` and deletes it via the GitHub API when it
 #   does. Tolerant of the branch already being gone — either before the check (Step 5's
 #   --delete-branch, GitHub's own delete_branch_on_merge) or in the race between the check and the
 #   delete call (the same 422/404 "Reference does not exist" gh's own deleteRemoteBranch tolerates).
 #   Any other delete failure is reported on stderr, not swallowed.
+#   <host>/ names a GitHub Enterprise host outright; with a bare <owner>/<repo> the host is the
+#   checkout's origin's, when origin is that repository. Resolved once, before the ls-remote, by
+#   skills/_shared/scripts/_gh-host.sh (#514).
 #
 # Prints exactly one word to stdout and exits 0 on either non-error outcome: already-gone | deleted
-# Exits 2 on a usage/prerequisite error, before touching the network.
+# Exits 2 on a usage/prerequisite error — a malformed slug and a missing host helper included —
+# before touching the network.
 # Exits 1 on a genuine delete failure — the branch survived and still needs a human's attention.
 set -euo pipefail
 
 usage() {
-  echo "usage: remote-branch-teardown.sh <head-branch> <owner>/<repo>" >&2
+  echo "usage: remote-branch-teardown.sh <head-branch> [<host>/]<owner>/<repo>" >&2
 }
 
 HEAD_BRANCH="${1:-}"
@@ -54,6 +58,32 @@ command -v jq > /dev/null 2>&1 || {
   echo "remote-branch-teardown: jq is missing" >&2
   exit 2
 }
+
+# The repository's own host (#514): `gh api` never infers one, so on a GitHub Enterprise repository
+# the DELETE below reached github.com and the branch survived on the real remote. Decided in ONE
+# place, the helper below; its exported GH_HOST is what the DELETE inherits. Resolved after every
+# check above and before the ls-remote, so a refusal still means nothing was touched.
+#
+# $0 through any symlinks first, as guarded-commit.sh does: `pwd -P` canonicalizes the directory,
+# not the link, and macOS's readlink has no -f.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$SELF")
+GH_HOST_LIB="$SCRIPT_DIR/../../_shared/scripts/_gh-host.sh"
+# CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+command -v gh_host_resolve > /dev/null 2>&1 || {
+  echo "remote-branch-teardown: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2
+  exit 2
+}
+gh_host_resolve "$REPO" || exit 2
+REPO="$KIT_REPO_SLUG"
 
 # Fully-qualified, not the bare branch name: `git ls-remote --heads origin <pattern>` matches a
 # pattern that is a SUFFIX of the full refname at a `/` boundary, not just an exact name — so a

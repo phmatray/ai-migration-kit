@@ -14,6 +14,8 @@
 # documents tolerating (a concurrent delete winning between the ls-remote and the DELETE call) and
 # the two refusal paths (bad usage, a genuine ls-remote failure).
 set -euo pipefail
+# A GH_HOST in the developer's or CI's shell would decide the host cases (#514) on its own.
+unset GH_HOST
 cd "$(dirname "$0")/../.."
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -39,14 +41,26 @@ GH_OUT="$STUBS/gh-delete.out"
 GH_RC="$STUBS/gh-delete.rc"
 GH_CALLED="$STUBS/gh-called"
 GH_ARGS="$STUBS/gh-args"
+GH_LOG="$STUBS/gh-log"
+GIT_ORIGIN="$STUBS/git-origin"
 
 # Stubs read their behaviour from the files above rather than from arguments baked into the script
 # text — so a case only has to rewrite the files, never regenerate the stub. Absolute paths are
 # baked in at write time (the heredoc is deliberately unquoted); $STUBS never contains a quote or a
 # `$`, since kit_scratch built it with mktemp. Both record the FULL argument list they were called
 # with, so a case can assert on the exact ref path/pattern the script built, not just its outcome.
+#
+# The repository's own host (#514): `git remote get-url origin` answers from $GIT_ORIGIN — absent
+# (every case but the GHE one) there is no origin — and leaves $GIT_ARGS alone. Every gh call is
+# appended to $GH_LOG with the GH_HOST it ran under; `gh auth token --hostname H`, the host
+# helper's credential probe, succeeds only for a host listed in $GH_STUB_HOSTS.
 cat > "$STUBS/git" <<STUBEOF
 #!/usr/bin/env bash
+if [ "\$1" = "remote" ] && [ "\${2:-}" = "get-url" ]; then
+  [ -f "$GIT_ORIGIN" ] || { echo "error: No such remote '\${3:-}'" >&2; exit 2; }
+  cat "$GIT_ORIGIN"
+  exit 0
+fi
 printf '%s\n' "\$*" > "$GIT_ARGS"
 if [ "\$1" = "ls-remote" ]; then
   cat "$GIT_OUT" 2>/dev/null
@@ -59,6 +73,13 @@ chmod +x "$STUBS/git"
 
 cat > "$STUBS/gh" <<STUBEOF
 #!/usr/bin/env bash
+echo "GH_HOST=\${GH_HOST-<unset>} ARGS: \$*" >> "$GH_LOG"
+if [ "\$1" = "auth" ] && [ "\${2:-}" = "token" ]; then
+  host=""; prev=""
+  for a in "\$@"; do [ "\$prev" = "--hostname" ] && host="\$a"; prev="\$a"; done
+  case " \${GH_STUB_HOSTS:-} " in *" \$host "*) echo "gho_stub_token_for_\$host"; exit 0 ;; esac
+  exit 1
+fi
 if [ "\$1" = "api" ]; then
   : > "$GH_CALLED"
   printf '%s\n' "\$*" > "$GH_ARGS"
@@ -268,6 +289,77 @@ elif ! printf '%s' "$out" | grep -qF 'usage:'; then
 else
   echo "ok: usage — missing arguments exit 2 with a usage line"
 fi
+
+# --- 10. the repository's own host (#514). `gh api` never infers a host, so on a GitHub Enterprise
+# repository the DELETE reached github.com and the branch survived on the real remote. The seam is
+# the gh stub's log: the GH_HOST each call ran under, and the endpoint it was asked for.
+want_no_gh_call() {
+  local name="$1" what="$2"
+  if [ -s "$GH_LOG" ]; then
+    note_fail "$name — $what
+      gh was called: $(cat "$GH_LOG")"
+    return 1
+  fi
+  return 0
+}
+REPO_KEEP="$REPO"
+SCRIPT_KEEP="$SCRIPT"
+
+# A HOST/ prefix names the host outright; only OWNER/REPO reaches the endpoint.
+set_git "$(printf 'deadbeef\trefs/heads/%s' "$BRANCH")" 0
+set_gh "" 0
+: > "$GH_LOG"
+REPO="ghe.example.com/acme/widgets"
+if run_case ghe-prefix 0 'a HOST/OWNER/REPO slug deletes the branch on that host'; then
+  want_stdout ghe-prefix deleted 'prints the exact word deleted' \
+  && want_file_contains ghe-prefix "$GH_LOG" "GH_HOST=ghe.example.com ARGS: api -X DELETE repos/acme/widgets/git/refs/heads/$BRANCH" \
+    'the DELETE runs under GH_HOST=ghe.example.com, against repos/acme/widgets/…' \
+  && want_file_not_contains ghe-prefix "$GH_LOG" "repos/ghe.example.com" \
+    'the host never leaks into the endpoint' \
+  && echo "ok: ghe-prefix — DELETE repos/acme/widgets/… under GH_HOST=ghe.example.com"
+fi
+
+# A checkout whose origin is on a GHE host, given a bare OWNER/REPO: the origin's host is used.
+set_git "$(printf 'deadbeef\trefs/heads/%s' "$BRANCH")" 0
+set_gh "" 0
+printf '%s\n' 'git@ghe.example.com:acme/widgets.git' > "$GIT_ORIGIN"
+: > "$GH_LOG"
+REPO="acme/widgets"
+if GH_STUB_HOSTS=ghe.example.com run_case ghe-origin 0 'a checkout on a GHE host deletes the branch on that host'; then
+  want_stdout ghe-origin deleted 'prints the exact word deleted' \
+  && want_file_contains ghe-origin "$GH_LOG" "GH_HOST=ghe.example.com ARGS: api -X DELETE repos/acme/widgets/git/refs/heads/$BRANCH" \
+    "the DELETE runs under the origin's host, GH_HOST=ghe.example.com" \
+  && echo "ok: ghe-origin — the origin's GHE host reaches the DELETE"
+fi
+rm -f "$GIT_ORIGIN"
+
+# A malformed slug is a usage error: exit 2, the slug named, gh never called.
+set_git "$(printf 'deadbeef\trefs/heads/%s' "$BRANCH")" 0
+set_gh "" 0
+: > "$GH_LOG"
+REPO="acme"
+if run_case malformed-slug 2 'a one-segment slug is a usage error, exit 2'; then
+  want_contains malformed-slug "malformed repository slug 'acme'" 'names the slug it refused' \
+  && want_no_gh_call malformed-slug 'a malformed slug is refused before any gh call' \
+  && echo "ok: malformed-slug — exit 2, the slug named, no gh call"
+fi
+REPO="$REPO_KEEP"
+
+# The host helper is part of the install: without it the teardown refuses, naming the missing file,
+# rather than deleting on gh's default host — the exact #514 failure.
+NOHELPER="$STUBS/nohelper/skills/merge-pr/scripts"
+mkdir -p "$NOHELPER"
+cp "$SCRIPT" "$NOHELPER/remote-branch-teardown.sh"
+SCRIPT="$NOHELPER/remote-branch-teardown.sh"
+set_git "$(printf 'deadbeef\trefs/heads/%s' "$BRANCH")" 0
+set_gh "" 0
+: > "$GH_LOG"
+if run_case missing-helper 2 'without its host helper the teardown refuses, exit 2'; then
+  want_contains missing-helper "_shared/scripts/_gh-host.sh; reinstall the kit" 'names the missing helper' \
+  && want_no_gh_call missing-helper 'refused before any gh call' \
+  && echo "ok: missing-helper — exit 2, the missing helper named, no gh call"
+fi
+SCRIPT="$SCRIPT_KEEP"
 
 if [ "$FAILED" -ne 0 ]; then
   echo
