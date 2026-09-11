@@ -192,4 +192,46 @@ if grep -qF 'release-branch.sh then re-dispatch' <<<"$flat"; then
   fail "04-worktree.md restates the branch-held signature — its one home is the two command files"
 fi
 
+# --- #510 Task 3: the supervisor releases before every dispatch onto an existing PR branch ------
+#
+# The release has one home (release-branch.sh) and one caller (the supervisor), so Step 3 must
+# carry the guard that runs it — scoped to its own subsection, never a whole-file grep, for the
+# reason 3a gives — and name every entry point that re-enters a branch an earlier tree may hold.
+RELEASE_SECTION=$(printf '%s\n' "$STEP3" | awk '
+  /^### ⛔ Dispatch-time guard — release the PR branch before re-dispatching onto it/ { flag=1 }
+  flag && /^### The worker-prompt contract/ { exit }
+  flag { print }
+')
+[ -n "$RELEASE_SECTION" ] \
+  || fail "Step 3 has no '### ⛔ Dispatch-time guard — release the PR branch before re-dispatching onto it' subsection (#510)"
+grep -qF 'release-branch.sh' <<<"$RELEASE_SECTION" \
+  || fail "the release guard does not name release-branch.sh"
+for entry in 'PARTIAL' 'tier' 'phase 2' 'push-and-land' 'crash'; do
+  grep -qi -- "$entry" <<<"$RELEASE_SECTION" \
+    || fail "the release guard does not name the '$entry' entry point"
+done
+grep -qF 'HELD' <<<"$RELEASE_SECTION" || fail "the release guard does not say what a HELD verdict does"
+grep -qF 'Needs manual sweep' <<<"$RELEASE_SECTION" \
+  || fail "the release guard does not record a HELD verdict under '## Needs manual sweep'"
+grep -Eqi 'never.{0,40}FREE' <<<"$RELEASE_SECTION" \
+  || fail "the release guard does not forbid reading a no-verdict exit 2 as FREE"
+
+# The Cleanup nuance paragraph keeps its decision — the tree stays for the sweep — and now says
+# the branch does not stay with it.
+CLEANUP=$(awk '/^\*\*Cleanup nuance for / { flag=1 } flag && /^$/ { exit } flag { print }' "$SKILL_MD" | tr '\n' ' ')
+[ -n "$CLEANUP" ] || fail "skills/auto-dev/SKILL.md has no '**Cleanup nuance for …' paragraph"
+grep -qi 'tree stays' <<<"$CLEANUP" || fail "the Cleanup nuance paragraph no longer says the tree stays for the sweep"
+grep -qF 'release-branch.sh' <<<"$CLEANUP" \
+  || fail "the Cleanup nuance paragraph does not say the branch is released (release-branch.sh) while the tree stays"
+
+# Step 4 handles the worker's named refusal as a dispatch defect: release, re-dispatch at the same
+# tier, never tier-escalate, and outside the PARTIAL cap. Step 4's bullets are one line each.
+STEP4=$(awk '/^## Step 4 —/ { flag=1; print; next } flag && /^## / { flag=0 } flag' "$SKILL_MD")
+BH_BULLET=$(printf '%s\n' "$STEP4" | grep -F -- '- **Reported BLOCKED with `DETAIL: branch-held guard' || true)
+[ -n "$BH_BULLET" ] || fail "Step 4 has no '- **Reported BLOCKED with \`DETAIL: branch-held guard' bullet (#510)"
+grep -qF 'release-branch.sh' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not run release-branch.sh"
+grep -qi 're-dispatch' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not say to re-dispatch"
+grep -Eqi 'never tier-escalate' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not forbid a tier escalation"
+grep -qF 'PARTIAL' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not keep it outside the PARTIAL cap"
+
 echo "PASS: auto-dev-dispatch"
