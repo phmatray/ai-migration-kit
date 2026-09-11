@@ -270,3 +270,4 @@ the surest path to a clean integration.
 - `skills/_shared/recap.md` — cites this file as an example reference the skills link rather than `cat`
 - `skills/implement-issue/references/steps/05-open-the-draft-pr.md` — Step 5 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)
 - `skills/implement-issue/references/steps/08-sync-with-main.md` — Step 8 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/merge-pr/references/steps/04-corrections-loop.md` — Step 4 of merge-pr, split out of its SKILL.md for progressive disclosure (#499)

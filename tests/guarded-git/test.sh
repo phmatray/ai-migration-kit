@@ -1945,7 +1945,7 @@ echo "  ok: stalled-branch-unreadable — when even the stalled sha cannot be re
 
 SYNC_DOC="$KIT_ROOT/skills/_shared/sync-with-main.md"
 IMPL_SKILL="$(kit_skill_prose "$KIT_ROOT" implement-issue)"   # router + references/steps/*.md (#499)
-MERGE_SKILL="$KIT_ROOT/skills/merge-pr/SKILL.md"
+MERGE_SKILL="$(kit_skill_prose "$KIT_ROOT" merge-pr)"   # router + references/steps/*.md (#499)
 
 [ -f "$SYNC_DOC" ] || fail sync-doc-exists "missing $SYNC_DOC"
 

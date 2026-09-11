@@ -113,10 +113,14 @@ link, and a file that adds one without appearing below.
 - `skills/implement-issue/references/steps/02-read-the-plan.md` — Step 2 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)
 - `skills/implement-issue/references/spec-review.md` — the issue's 📋 Spec, handed to the Spec-axis sub-agent as the thing to compare the diff against
 - `skills/merge-pr/SKILL.md` — review comments, and the PR body scanned for follow-ups
+- `skills/merge-pr/references/steps/06-follow-ups.md` — Step 6 of merge-pr, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/merge-pr/references/steps/04-corrections-loop.md` — Step 4 of merge-pr, split out of its SKILL.md for progressive disclosure (#499)
 - `skills/auto-dev/SKILL.md` — issue titles, labels and bodies at survey, and what a worker inherits
 - `skills/deliver-issue/SKILL.md` — the body of the one issue it is handed (`#N`), probed for a plan
   before the worker that will execute that plan is dispatched
 - `skills/create-issue/SKILL.md` — other issues' bodies, during the duplicate and root-cause sweep
+- `skills/create-issue/references/steps/03-duplicates-and-root-causes.md` — Step 3 of create-issue, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/create-issue/references/steps/02-capture-the-idea.md` — Step 2 of create-issue, split out of its SKILL.md for progressive disclosure (#499)
 - `skills/triage-backlog/SKILL.md` — open issue and PR bodies, read to fold, reopen and close
 - `skills/migrate-legacy/references/phase-1-assess.md` — a customer's source, READMEs and `.csproj`
 - `commands/auto-dev-worker.md` — the standing rules a dispatched worker reads in a fresh context

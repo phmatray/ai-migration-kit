@@ -1688,8 +1688,8 @@ PY
 # the verdict it must write when an idea contradicts a decision, and the file fallback for a host
 # with no AdrMcp.
 echo "== create-issue checks the idea against accepted ADRs (#316) =="
-CREATE_ISSUE="$KIT_ROOT/skills/create-issue/SKILL.md"
-[ -f "$CREATE_ISSUE" ] || { echo "FAIL: $CREATE_ISSUE missing"; exit 1; }
+CREATE_ISSUE="$(kit_skill_prose "$KIT_ROOT" create-issue)"   # router + references/steps/*.md (#499)
+[ -s "$CREATE_ISSUE" ] || { echo "FAIL: create-issue prose is empty"; exit 1; }
 for needle in 'search_adrs' 'contradicts ADR-' 'docs/adr'; do
   grep -q "$needle" "$CREATE_ISSUE" \
     || { echo "FAIL: $CREATE_ISSUE does not mention '$needle'"; exit 1; }
@@ -1739,8 +1739,8 @@ echo "ok   README and ARCHITECTURE both name AdrMcp and docs/adr"
 # report is indistinguishable from the silence this whole change removes — a merge whose base run
 # was cancelled by the next merge in the train is the COMMON case, not an edge one.
 echo "== merge-pr reports the base CI verdict its own merge produced (#355) =="
-skill="$KIT_ROOT/skills/merge-pr/SKILL.md"
-[ -f "$skill" ] || { echo "FAIL: $skill missing"; exit 1; }
+skill="$(kit_skill_prose "$KIT_ROOT" merge-pr)"   # router + references/steps/*.md (#499)
+[ -s "$skill" ] || { echo "FAIL: merge-pr prose is empty"; exit 1; }
 for needle in 'Step 5b' 'base-run-verdict.sh' 'base green at' 'base RED at' 'base unverified at'; do
   grep -q -F -- "$needle" "$skill" \
     || { echo "FAIL: $skill does not name '$needle' — Step 5b is not wired into the skill"; exit 1; }

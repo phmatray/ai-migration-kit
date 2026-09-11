@@ -164,3 +164,5 @@ note rather than the verdict alone).
 - `skills/merge-pr/references/merge-mechanics.md` — states the exact check merge-pr's Steps 2 and 4 are followed through
 - `skills/_shared/preconditions.md` — cites this file as sharing the same `<kit>` root placeholder convention
 - `skills/implement-issue/references/steps/04-worktree.md` — Step 4 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/merge-pr/references/steps/02-worktree.md` — Step 2 of merge-pr, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/merge-pr/references/steps/04-corrections-loop.md` — Step 4 of merge-pr, split out of its SKILL.md for progressive disclosure (#499)

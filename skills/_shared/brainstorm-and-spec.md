@@ -87,3 +87,4 @@ the brainstorm states rather than a decision it makes silently.
 ## Consumers
 
 - `skills/create-issue/SKILL.md` — Step 5 writes the 🧠 Brainstorm and 📋 Spec sections of every filed issue to this shape
+- `skills/create-issue/references/steps/05-brainstorm-and-spec.md` — Step 5 of create-issue, split out of its SKILL.md for progressive disclosure (#499)
