@@ -135,6 +135,13 @@ run origin-case "$CO_CASE" acme/widgets
 expect origin-case ghe.example.com repos/acme/widgets/x
 run empty-slug "$CO_SCP" ""
 expect empty-slug ghe.example.com repos//x
+# The merge-pr prose passes gh's own placeholder verbatim (`remote-branch-teardown.sh "$HEAD_BRANCH"
+# "{owner}/{repo}"`). It names the checkout's repository by definition, so origin's host applies, and
+# the placeholder itself reaches gh untouched for `gh api` to expand.
+run placeholder "$CO_SCP" '{owner}/{repo}'
+expect placeholder ghe.example.com 'repos/{owner}/{repo}/x'
+run placeholder-other-repository "$CO_OTHER" '{owner}/{repo}'
+expect placeholder-other-repository ghe.example.com 'repos/{owner}/{repo}/x'
 
 echo "rule 4: nothing resolves — gh's default host, exactly as before"
 run alias-uncredentialed "$CO_ALIAS" acme/widgets

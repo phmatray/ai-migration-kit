@@ -27,8 +27,10 @@
 #            everything, a preset GH_HOST included.
 #         2. a GH_HOST the caller already set: kept, and never unset.
 #         3. origin's host, when origin names the same OWNER/REPO as the slug (compared
-#            case-insensitively) or the slug is empty, AND `gh auth token --hostname <host>`
-#            succeeds. That probe is a local credential lookup, not `gh auth status`, which
+#            case-insensitively), or the slug is empty, or it is gh's own `{owner}/{repo}`
+#            placeholder — which the merge-pr prose passes verbatim, `gh api` expands from the
+#            checkout itself, and KIT_REPO_SLUG therefore keeps untouched — AND
+#            `gh auth token --hostname <host>` succeeds. That probe is a local credential lookup, not `gh auth status`, which
 #            validates over the network; its stdout, the token itself, goes to /dev/null. A checkout
 #            of a DIFFERENT repository must not lend its host to this one, and an origin host gh
 #            holds no credentials for (an SSH config alias such as `github-work`) is left alone
@@ -84,7 +86,7 @@ gh_host_resolve() {
     | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/:]*@##' -e 's#[:/].*$##' \
     | tr '[:upper:]' '[:lower:]')
   case "$origin_host" in ''|*/*) return 0 ;; esac
-  if [ -n "$KIT_REPO_SLUG" ]; then
+  if [ -n "$KIT_REPO_SLUG" ] && [ "$KIT_REPO_SLUG" != "{owner}/{repo}" ]; then
     origin_slug=$(printf '%s' "$url" \
       | sed -E -e 's#(\.git)?/*$##' -e 's#.*[:/]([^/:]+)/([^/:]+)$#\1/\2#' \
       | tr '[:upper:]' '[:lower:]')
