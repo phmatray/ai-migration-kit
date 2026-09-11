@@ -845,6 +845,15 @@ else
   fails=$((fails + 1))
 fi
 
+# The loop runs every suite through a log and reads only its tail (#499): a passing run's
+# hundreds of `ok` lines are otherwise re-read on every later turn of the session.
+if grep -qF -- '-test.log' "$KIT_ROOT/skills/_shared/tdd-loop.md" && grep -qF 'tail -n' "$KIT_ROOT/skills/_shared/tdd-loop.md"; then
+  echo "ok   [DR3 _shared/tdd-loop.md runs suites through a log and tails it]"
+else
+  echo "FAIL: [DR3 _shared/tdd-loop.md runs suites through a log and tails it] missing the '-test.log' redirect or the 'tail -n' read (#499)"
+  fails=$((fails + 1))
+fi
+
 # The header note has one home. plan-shape.md states it; create-issue cites it rather than carrying
 # a second copy that can drift; and the new-note fixture SP2 locates is that exact line.
 PLAN_NOTE=$(grep -m1 '^> \*\*For agentic workers:\*\*' "$KIT_ROOT/skills/_shared/plan-shape.md" 2>/dev/null || true)

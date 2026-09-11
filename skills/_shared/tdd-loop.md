@@ -29,6 +29,19 @@ Each plan task is one or more passes through this cycle, in this order, with not
    test; if another test fails, fix that now.
 5. **Commit** with the message the plan's final step gives, then take the next slice.
 
+**Run every suite through a log, and read only its tail** (#499). A golden suite prints one line
+per case and a build prints one per project; on the twenty-odd runs a task takes, that output
+outweighs the code, and every line of it is re-read on every later turn. So:
+
+```bash
+<the profile's test command> > "/tmp/issue-$ISSUE-test.log" 2>&1; rc=$?
+tail -n 40 "/tmp/issue-$ISSUE-test.log"; echo "exit=$rc"
+```
+
+Green costs the context its last lines and an exit code; red shows the tail, and `grep -n FAIL`
+over the log finds the rest. Never paste a whole passing run. "Read the output" in steps 2 and 4
+means the tail plus the exit code — that is where a red-that-is-really-an-error shows.
+
 **Refactoring is not part of the loop.** It belongs to the review stage — `implement-issue` Step 7's
 `code-review` pass over the whole branch — not to the red → green cycle of a single task. Inside the
 loop, a passing test is the signal to move on, not to tidy.

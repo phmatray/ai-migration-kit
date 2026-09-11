@@ -38,61 +38,40 @@ Then, for each task in plan order whose checkboxes aren't all `- [x]`:
 2. **Verify green before you commit.** Run the task's test filter and confirm it passes — read the
    output, don't assume. A red bar means it isn't done; fix it or stop. Never commit over failing tests.
 
-3. **Commit** with the project identity and the **commit message from the task's final step** —
-   through `guarded-commit.sh`, which refuses rather than let the work land on a branch that was
-   checked out under you:
+3. **Close the task in one call** — commit, tick, mirror, push, in that order, each through its
+   guard (#499):
    ```bash
-   "$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" \
-     -- -am "<message from the task's last - [ ] step>"
+   "$GUARDS/finish-task.sh" --repo {owner}/{repo} --issue "$ISSUE" --task <N> --pr "$PR" \
+     --worktree "$WORKTREE" --branch "$BRANCH" <commit-identity>
    ```
-   A non-zero exit is never something to retry blindly: **2** means nothing was written and HEAD is
-   on the wrong branch (fix that first), **3** means the commit exists somewhere else and the message
-   names where.
+   It takes the commit message from the task's last step (`Commit: \`…\``; pass `-m` when the
+   plan spells it otherwise), flips **only** `### Task <N>`'s `- [ ]` lines, writes the issue plan
+   through `tick-plan.sh` (fail-closed, read back) and the PR's `### Plan` mirror through
+   `gh pr edit --body-file`, then pushes through `guarded-push.sh`. Re-running it is safe: a stage
+   already done says so and is skipped. `--comment-id <id>` when the plan lives in a comment.
 
-4. **Tick the task — on the issue plan AND the PR description.** Flip it in **both** so neither goes
-   stale (issue canonical, PR list its mirror). In each file flip *only this task's* `- [ ]` lines
-   with the **Edit tool per line** — never a blunt `sed s/\[ \]/[x]/g`, which ticks *other* tasks
-   too. Then write the issue plan back **through `scripts/tick-plan.sh`, never by piping `jq`
-   straight into `gh api`** — that pipeline wiped two live issue bodies, and it fails silently
-   with exit 0 (see `references/github-mechanics.md` §4):
-   ```bash
-   ./skills/implement-issue/scripts/tick-plan.sh \
-     --repo {owner}/{repo} --issue "$ISSUE" \
-     --before /tmp/plan-$ISSUE.orig.md --after /tmp/plan-$ISSUE.md
-   ```
-   It refuses unless the new body is the old one with checkbox characters — and nothing else —
-   changed, so a missing, empty or truncated file can never reach GitHub. The PR mirror is a
-   plain `gh pr edit --body-file`. Exact recipes for both paths: `references/github-mechanics.md` §4.
+   **When a stage fails, the exit code is that guard's own, and the line names the stage** — read
+   it as you would the guard itself:
+   - `commit:` exit **2** — HEAD is on the wrong branch, nothing was written; fix that first.
+     Exit **3** — the commit exists somewhere else and the message names where.
+   - `tick:` — `tick-plan.sh` refused or could not verify. `the PATCH … exceeded 60s and was
+     bounded` is informational; `ALERT … re-run the tick` (exit 1) means **re-run finish-task
+     unchanged** — it is idempotent. Never restore the plan from a copy: a write that was cut short
+     may still arrive, and the restore would silently un-tick it (#135). Both `gh` calls run under
+     `TICK_PLAN_PATCH_TIMEOUT` (default 60s); a tick that takes minutes is a bug, not a slow network.
+   - `mirror:` — the PR body carries no `### Task <N>` block: resync the mirror (top of this step)
+     and re-run.
+   - `push:` exit **4** — the remote was **read** and **disagrees**: `… is NOT this HEAD` / `… has
+     no '<branch>' to show for it` is the silent mis-push (#172); go and look at what the remote
+     holds before pushing again. Exit **6** — verification **never ran** (`push is UNVERIFIED`):
+     nothing disproves the push and nothing confirms it; fix what broke the listing, then
+     `"$GUARDS/guarded-push.sh" -C "$WORKTREE" --verify-only "$BRANCH"`. Per-condition recovery:
+     the Troubleshooting table in `references/github-mechanics.md`.
 
-   **Both of its `gh` calls run under `TICK_PLAN_PATCH_TIMEOUT` (default 60s), and expiry is not
-   failure** — killing a call does not un-send it, so the read-back decides (#135). Two lines to
-   recognise, neither of which means the tick is lost:
-   - `the PATCH … exceeded 60s and was bounded` — informational; **read the next line** for the
-     verdict.
-   - `ALERT … re-run the tick` (exit 1) — **re-run it, unchanged; it is idempotent.** Do **not**
-     restore from `/tmp/plan-$ISSUE.orig.md`: a write that was cut short may still arrive, and the
-     restore would silently un-tick it.
-
-   If a tick ever takes minutes, that is a bug in the script and not a slow network — it was one
-   until #135. Say so rather than raising the timeout.
-
-5. **Push** so the PR reflects the new commit — through `guarded-push.sh`, which reads the remote
-   back and requires it to equal this HEAD:
-   ```bash
-   "$GUARDS/guarded-push.sh" -C "$WORKTREE" "$BRANCH"
-   ```
-   Exit **4** means the remote was **read** and **disagrees** with the push — the guard is making a
-   positive claim, not a shrug (#172). `… is NOT this HEAD` / `… has no '<branch>' to show for it`
-   is the silent mis-push, the remote contradicting the delivery; `HEAD moved while it ran` means
-   the push may have carried another branch instead. For either, go and look at what the remote
-   actually holds before pushing again.
-
-   Exit **6** is a different answer: verification **never ran** — `… could not be listed` /
-   `push is UNVERIFIED`. Nothing here disproves the push, and nothing here confirms it either.
-   **Don't act on this code alone.** Fix what broke the listing (a `--remote` naming a remote the
-   push never wrote to, connectivity, credentials), then re-run with **`--verify-only`**
-   (`"$GUARDS/guarded-push.sh" -C "$WORKTREE" --verify-only "$BRANCH"`) — it repeats the branch
-   assertion and the remote read-back without pushing again, which is the precise way to find out.
-   Per-condition recovery: the Troubleshooting table in `references/github-mechanics.md`.
+   The guards it composes are the same ones, callable one at a time when a stage needs a hand:
+   `guarded-commit.sh -C "$WORKTREE" <commit-identity> "$BRANCH" -- -am "<message>"`,
+   `tick-plan.sh --repo … --issue … --before … --after …` (never `jq | gh api` — that pipeline
+   wiped two live issue bodies with exit 0, `references/github-mechanics.md` §4),
+   `gh pr edit --body-file`, `guarded-push.sh -C "$WORKTREE" "$BRANCH"`.
 
 Continue until no task has an unchecked box. The issue's plan now reads all-`- [x]`.
