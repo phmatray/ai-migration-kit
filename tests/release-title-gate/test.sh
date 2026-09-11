@@ -94,7 +94,10 @@ refuses chore-scripts      "'chore'" "chore(ci): tidy the inventory script"   sc
 refuses chore-commands     "'chore'" "chore: reword the migrate command"     commands/migrate.md
 refuses chore-templates    "'chore'" "chore: bump the workflow action"       templates/ci-dotnet.yml
 refuses chore-requirements "'chore'" "chore: add a prerequisite"             requirements.json
-refuses chore-hooks        "'chore'" "chore: adjust the hook"                hooks/hooks.json
+refuses chore-hooks        "'chore'" "chore: adjust the hook"                hooks/claude-hooks.json
+# The Copilot CLI plugin manifest lives under .github/, which is otherwise not shipped — yet it is
+# what `copilot plugin install` reads (#526), so a chore: edit to it must still cut a release.
+refuses chore-copilot-manifest "'chore'" "chore: reword the Copilot manifest" .github/plugin/plugin.json
 
 # 8c. One shipped path is enough — a mixed changeset gates on the shipped half, exactly as the old
 #     anchor gated a skills/+README changeset.

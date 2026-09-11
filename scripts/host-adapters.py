@@ -184,6 +184,16 @@ def invariants(repo):
             if isinstance(target, str) and not (repo / target.removeprefix("./")).exists():
                 refusals.append(f"REFUSE: {rel} names {key} {target!r}, which does not exist")
 
+    # A TOML command outlives a deleted .md otherwise — build never touches it again, and Gemini keeps
+    # offering a command the kit no longer has.
+    for toml in sorted((repo / "commands").glob("*.toml")):
+        if not toml.with_suffix(".md").exists():
+            refusals.append(f"REFUSE: commands/{toml.name} has no commands/{toml.stem}.md to be built "
+                            f"from — delete it")
+    for target in read_json(repo, "package.json").get("pi", {}).get("skills", []):
+        if not (repo / target.removeprefix("./")).exists():
+            refusals.append(f"REFUSE: package.json names pi skills {target!r}, which does not exist")
+
     readme = read_source(repo, "README.md")
     for host in load_hosts(repo):
         hid = host.get("id", "?")

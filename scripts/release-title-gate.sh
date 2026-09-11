@@ -123,6 +123,7 @@ NON_SHIPPED=(
 SHIPPED_ANYWAY=(
   tests/xunit-v3/apply-transform.py
   docs/backlog.md
+  .github/plugin/plugin.json
 )
 
 # --------------------------------------------------------------------- release-please's own PR

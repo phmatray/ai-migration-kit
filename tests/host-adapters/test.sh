@@ -26,6 +26,9 @@
 #   Q. package.json declares the skills for pi and stays private
 #   R. README.md missing a plugin host's install line -> exit 1, naming README.md and the host
 #   S. a host table row naming an adapter that does not exist -> exit 1, naming the adapter
+#   T. the manifests name the paths their hosts load; both marketplaces name the same plugin
+#   U. a TOML command whose .md is gone          -> exit 1, naming the orphan
+#   V. package.json naming a pi skills folder that does not exist -> exit 1, naming it
 #
 # The seam is the check's exit code and its STDOUT: a refusal is named there, and stderr is read
 # only to prove no traceback escaped. Expected paths and values are literals here, never read back
@@ -252,8 +255,41 @@ run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a missing adapter, want 1: $OUT $ERR"
 names "nope.json" && ok "names the missing adapter on stdout" || bad "stdout does not name nope.json: $OUT"
 
+echo "== T. the manifests name what their hosts load, and both marketplaces the same plugin =="
+if python3 - "$REPO" > "$WORK/t.out" 2>&1 <<'PY'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+def load(rel): return json.loads((root / rel).read_text(encoding="utf-8"))
+assert load(".claude-plugin/plugin.json")["hooks"] == "./hooks/claude-hooks.json", "Claude manifest hooks"
+codex = load(".codex-plugin/plugin.json")
+assert (codex["skills"], codex["hooks"], codex["mcpServers"]) == ("./skills/", "./hooks/claude-hooks.json", "./.mcp.json"), codex
+copilot = load(".github/plugin/plugin.json")
+assert (copilot["skills"], copilot["mcpServers"]) == ("skills/", ".mcp.json"), copilot
+assert "hooks" not in copilot and "commands" not in copilot, "Copilot's manifest names no hooks and no commands"
+for rel in (".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"):
+    market = load(rel)
+    assert market["name"] == "ai-migration-kit-marketplace", (rel, market["name"])
+    assert market["plugins"][0]["name"] == "ai-migration-kit", (rel, market["plugins"][0]["name"])
+PY
+then ok "Claude, Codex and Copilot manifests name their paths; both marketplaces are ai-migration-kit-marketplace"
+else bad "the manifests: $(cat "$WORK/t.out")"; fi
+
+echo "== U. a TOML command whose .md is gone =="
+T="$WORK/u"; scratch_tree "$T"
+printf 'description = "retired"\nprompt = """x"""\n' > "$T/commands/retired.toml"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with an orphaned TOML command, want 1: $OUT $ERR"
+names "commands/retired.toml" && ok "names commands/retired.toml on stdout" || bad "stdout does not name the orphan: $OUT"
+
+echo "== V. package.json naming a pi skills folder that does not exist =="
+T="$WORK/v"; scratch_tree "$T"
+jedit "$T/package.json" 'd["pi"]["skills"] = ["./nope"]'
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a missing pi skills folder, want 1: $OUT $ERR"
+names "./nope" && ok "names the missing folder on stdout" || bad "stdout does not name ./nope: $OUT"
+
 if [ "$fails" -eq 0 ]; then
-  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi, host table"
+  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi, host table, manifest paths, orphans"
 else
   echo "FAIL: host-adapters — $fails assertion(s) failed"; exit 1
 fi
