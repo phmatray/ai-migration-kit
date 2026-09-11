@@ -129,3 +129,5 @@ evidence than a `0 hits` from semantic search, and the recap has to let the owne
 - `skills/triage-backlog/SKILL.md` — Step 6 applies the bar to items already in the queue before deciding their disposition
 - `ARCHITECTURE.md` — the *Skill call graph* section's cycle paragraph cites the bar as what closes the "three inlets, no outlet" loop
 - `README.md` — the "Why these skills exist" table cites the bar as the standard shared by every inlet
+- `skills/create-issue/references/steps/03-duplicates-and-root-causes.md` — Step 3 of create-issue, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/merge-pr/references/steps/06-follow-ups.md` — Step 6 of merge-pr, split out of its SKILL.md for progressive disclosure (#499)

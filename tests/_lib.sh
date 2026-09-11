@@ -217,6 +217,25 @@ kit_guard() {
   KIT_LIB_GUARDS+=("${1:?kit_guard needs a function name}")
 }
 
+# kit_skill_prose <kit-root> <skill> — print the path of a scratch file holding the skill's WHOLE
+# prose: SKILL.md followed by references/steps/*.md in order. A skill split for progressive
+# disclosure (#499) keeps only its router in SKILL.md and one file per `## Step N`; a suite that
+# pins a step's wording reads this assembly, so the pin survives the split and a step file that
+# goes missing fails the assertion the same way a deleted paragraph would.
+kit_skill_prose() {
+  local root="${1:?kit_skill_prose needs the kit root}" skill="${2:?kit_skill_prose needs a skill}" out
+  out="$(kit_scratch)/$skill-prose.md"
+  cat "$root/skills/$skill/SKILL.md" > "$out"
+  if [ -d "$root/skills/$skill/references/steps" ]; then
+    local f
+    for f in "$root/skills/$skill/references/steps/"*.md; do
+      [ -f "$f" ] || continue
+      printf '\n' >> "$out"; cat "$f" >> "$out"
+    done
+  fi
+  printf '%s\n' "$out"
+}
+
 kit_cleanup() {
   # FIRST statement, always. A `rm`, an `echo`, even a `local d` with a command substitution in it
   # would replace the status this handler exists to report.

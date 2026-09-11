@@ -137,3 +137,5 @@ Fix inline; no second pass.
 - `skills/implement-issue/SKILL.md` — Step 2 parses the plan by this shape; Step 6 commits with each task's final step
 - `docs/methodology.md` — cites this shape describing what create-issue's Step 6 writes
 - `skills/_shared/brainstorm-and-spec.md` — cites this shape as where the written Spec ends up
+- `skills/implement-issue/references/steps/02-read-the-plan.md` — Step 2 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/create-issue/references/steps/06-implementation-plan.md` — Step 6 of create-issue, split out of its SKILL.md for progressive disclosure (#499)

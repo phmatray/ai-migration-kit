@@ -845,6 +845,15 @@ else
   fails=$((fails + 1))
 fi
 
+# The loop runs every suite through a log and reads only its tail (#499): a passing run's
+# hundreds of `ok` lines are otherwise re-read on every later turn of the session.
+if grep -qF -- '-test.log' "$KIT_ROOT/skills/_shared/tdd-loop.md" && grep -qF 'tail -n' "$KIT_ROOT/skills/_shared/tdd-loop.md"; then
+  echo "ok   [DR3 _shared/tdd-loop.md runs suites through a log and tails it]"
+else
+  echo "FAIL: [DR3 _shared/tdd-loop.md runs suites through a log and tails it] missing the '-test.log' redirect or the 'tail -n' read (#499)"
+  fails=$((fails + 1))
+fi
+
 # The header note has one home. plan-shape.md states it; create-issue cites it rather than carrying
 # a second copy that can drift; and the new-note fixture SP2 locates is that exact line.
 PLAN_NOTE=$(grep -m1 '^> \*\*For agentic workers:\*\*' "$KIT_ROOT/skills/_shared/plan-shape.md" 2>/dev/null || true)
@@ -1199,9 +1208,10 @@ PY
 
 # The two naming consumers must point at the target repo's CONTEXT.md, and say what they refuse.
 echo "== create-issue and implement-issue read the target repo's CONTEXT.md (#313) =="
-for consumer in skills/create-issue/SKILL.md skills/implement-issue/SKILL.md; do
-  grep -q "CONTEXT.md" "$consumer" || { echo "FAIL: $consumer does not mention CONTEXT.md"; exit 1; }
-  grep -q "_Avoid_" "$consumer" || { echo "FAIL: $consumer does not mention _Avoid_"; exit 1; }
+for consumer in create-issue implement-issue; do
+  prose="$(kit_skill_prose "$KIT_ROOT" "$consumer")"   # router + references/steps/*.md (#499)
+  grep -q "CONTEXT.md" "$prose" || { echo "FAIL: $consumer does not mention CONTEXT.md"; exit 1; }
+  grep -q "_Avoid_" "$prose" || { echo "FAIL: $consumer does not mention _Avoid_"; exit 1; }
 done
 echo "ok   create-issue and implement-issue both point at CONTEXT.md and its _Avoid_ lists"
 
@@ -1687,8 +1697,8 @@ PY
 # the verdict it must write when an idea contradicts a decision, and the file fallback for a host
 # with no AdrMcp.
 echo "== create-issue checks the idea against accepted ADRs (#316) =="
-CREATE_ISSUE="$KIT_ROOT/skills/create-issue/SKILL.md"
-[ -f "$CREATE_ISSUE" ] || { echo "FAIL: $CREATE_ISSUE missing"; exit 1; }
+CREATE_ISSUE="$(kit_skill_prose "$KIT_ROOT" create-issue)"   # router + references/steps/*.md (#499)
+[ -s "$CREATE_ISSUE" ] || { echo "FAIL: create-issue prose is empty"; exit 1; }
 for needle in 'search_adrs' 'contradicts ADR-' 'docs/adr'; do
   grep -q "$needle" "$CREATE_ISSUE" \
     || { echo "FAIL: $CREATE_ISSUE does not mention '$needle'"; exit 1; }
@@ -1701,9 +1711,9 @@ echo "ok   create-issue names search_adrs, the contradiction verdict and the doc
 # `suggest_adr_from_change` AND the `## Follow-ups` heading the draft lands under, because a draft
 # named without a destination is the failure mode this touchpoint exists to avoid.
 echo "== implement-issue and merge-pr propose an ADR update, never write one (#316) =="
-for f in "skills/implement-issue/SKILL.md" "skills/merge-pr/SKILL.md"; do
-  path="$KIT_ROOT/$f"
-  [ -f "$path" ] || { echo "FAIL: $path missing"; exit 1; }
+for f in implement-issue merge-pr; do
+  path="$(kit_skill_prose "$KIT_ROOT" "$f")"   # router + references/steps/*.md (#499)
+  [ -s "$path" ] || { echo "FAIL: $f prose is empty"; exit 1; }
   for needle in 'suggest_adr_from_change' '## Follow-ups' 'code_refs' 'docs/adr'; do
     grep -q -- "$needle" "$path" \
       || { echo "FAIL: $path does not mention '$needle'"; exit 1; }
@@ -1738,8 +1748,8 @@ echo "ok   README and ARCHITECTURE both name AdrMcp and docs/adr"
 # report is indistinguishable from the silence this whole change removes — a merge whose base run
 # was cancelled by the next merge in the train is the COMMON case, not an edge one.
 echo "== merge-pr reports the base CI verdict its own merge produced (#355) =="
-skill="$KIT_ROOT/skills/merge-pr/SKILL.md"
-[ -f "$skill" ] || { echo "FAIL: $skill missing"; exit 1; }
+skill="$(kit_skill_prose "$KIT_ROOT" merge-pr)"   # router + references/steps/*.md (#499)
+[ -s "$skill" ] || { echo "FAIL: merge-pr prose is empty"; exit 1; }
 for needle in 'Step 5b' 'base-run-verdict.sh' 'base green at' 'base RED at' 'base unverified at'; do
   grep -q -F -- "$needle" "$skill" \
     || { echo "FAIL: $skill does not name '$needle' — Step 5b is not wired into the skill"; exit 1; }
