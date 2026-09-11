@@ -17,6 +17,8 @@
 #   H. each host's front matter, on the real copies, as the host documents it
 #   I. a hooks/hooks.json in the tree           -> exit 1, naming it (Gemini and Copilot auto-load it)
 #   J. a manifest naming a hooks map that does not exist -> exit 1, naming the path
+#   K. a manifest at another version than the release-please manifest -> exit 1, naming it
+#   L. a versioned manifest missing from release-please's extra-files -> exit 1, naming it
 #
 # The seam is the check's exit code and its STDOUT: a refusal is named there, and stderr is read
 # only to prove no traceback escaped. Expected paths and front matter are literals here, never read
@@ -37,18 +39,19 @@ ok()  { printf '  ok    %s\n' "$1"; }
 bad() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
 COPIES=".cursor/rules/ai-migration-kit.mdc .windsurf/rules/ai-migration-kit.md .clinerules/ai-migration-kit.md .kiro/steering/ai-migration-kit.md .github/copilot-instructions.md .agents/rules/ai-migration-kit.md"
+# What the invariants read, beside the copies: the manifests, the files their paths name, and
+# release-please's two files. `skills/` only has to exist for a manifest's `skills` path to resolve.
+SOURCES=".claude-plugin/plugin.json .codex-plugin/plugin.json .github/plugin/plugin.json hooks/claude-hooks.json .mcp.json .release-please-manifest.json release-please-config.json"
 
 # scratch_tree <dir> — a copy of what the check reads, and nothing else.
 scratch_tree() {
   local d="$1" f
-  mkdir -p "$d/.claude-plugin" "$d/hooks"
+  mkdir -p "$d/skills"
   cp "$REPO/AGENTS.md" "$d/AGENTS.md"
-  for f in $COPIES; do
+  for f in $COPIES $SOURCES; do
     mkdir -p "$d/$(dirname "$f")"
     cp "$REPO/$f" "$d/$f" 2>/dev/null || true
   done
-  cp "$REPO/.claude-plugin/plugin.json" "$d/.claude-plugin/plugin.json"
-  cp "$REPO/hooks/claude-hooks.json" "$d/hooks/claude-hooks.json" 2>/dev/null || true
 }
 
 # run_check <repo> [subcommand] — sets OUT (stdout), ERR (stderr) and RC.
@@ -159,8 +162,22 @@ run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a missing hooks map, want 1: $OUT $ERR"
 names "./hooks/nope.json" && ok "names the missing path on stdout" || bad "stdout does not name ./hooks/nope.json: $OUT"
 
+echo "== K. a manifest at another version than the release-please manifest =="
+T="$WORK/k"; scratch_tree "$T"
+jedit "$T/.codex-plugin/plugin.json" 'd["version"] = "0.0.1"'
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a stale Codex version, want 1: $OUT $ERR"
+names ".codex-plugin/plugin.json" && ok "names .codex-plugin/plugin.json on stdout" || bad "stdout does not name the stale manifest: $OUT"
+
+echo "== L. a versioned manifest missing from release-please's extra-files =="
+T="$WORK/l"; scratch_tree "$T"
+jedit "$T/release-please-config.json" 'd["packages"]["."]["extra-files"] = [e for e in d["packages"]["."]["extra-files"] if e["path"] != ".github/plugin/plugin.json"]'
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a manifest outside extra-files, want 1: $OUT $ERR"
+names ".github/plugin/plugin.json" && ok "names .github/plugin/plugin.json on stdout" || bad "stdout does not name the unbumped manifest: $OUT"
+
 if [ "$fails" -eq 0 ]; then
-  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map"
+  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions"
 else
   echo "FAIL: host-adapters — $fails assertion(s) failed"; exit 1
 fi

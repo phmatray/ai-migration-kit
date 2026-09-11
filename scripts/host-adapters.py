@@ -16,7 +16,9 @@ Two kinds of thing are checked:
              GitHub Copilot, Antigravity).
   invariants what cannot be generated but must hold (`invariants(repo)`, one REFUSE line each): the
              Claude hooks map stays off `hooks/hooks.json`, the path Gemini CLI and Copilot CLI
-             auto-load in formats of their own, and every path a manifest names resolves.
+             auto-load in formats of their own; every path a manifest names resolves; and every
+             plugin manifest carries the release-please version and is one of its `extra-files`,
+             so a release can never leave one host a version behind.
 
 Line endings: text is compared after CRLF -> LF, so a Windows checkout is not drift; `build` always
 writes LF, the repository's own convention (`.gitattributes`).
@@ -58,8 +60,14 @@ RULE_COPIES = (
 # path from an installed extension or plugin, each in an event vocabulary of its own (#526).
 OLD_HOOKS = "hooks/hooks.json"
 
-# The plugin manifests whose component paths (skills, hooks, mcpServers) must resolve.
-MANIFESTS = (".claude-plugin/plugin.json",)
+# The plugin manifests: each names component paths (skills, hooks, mcpServers) that must resolve,
+# and carries a version release-please must bump through `extra-files` — one missing from that list
+# is a manifest that silently stays behind on the next release.
+MANIFESTS = (
+    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+    ".github/plugin/plugin.json",
+)
 
 
 class NoVerdict(Exception):
@@ -94,12 +102,22 @@ def invariants(repo):
     if (repo / OLD_HOOKS).exists():
         refusals.append(f"REFUSE: {OLD_HOOKS} exists — Gemini CLI and Copilot CLI auto-load that path in "
                         f"formats of their own; Claude Code's map lives at hooks/claude-hooks.json")
+
+    version = read_json(repo, ".release-please-manifest.json").get(".")
+    packages = read_json(repo, "release-please-config.json").get("packages", {})
+    extra = {entry.get("path") for entry in packages.get(".", {}).get("extra-files", [])}
     for rel in MANIFESTS:
         manifest = read_json(repo, rel)
         for key in ("skills", "hooks", "mcpServers"):
             target = manifest.get(key)
             if isinstance(target, str) and not (repo / target.removeprefix("./")).exists():
                 refusals.append(f"REFUSE: {rel} names {key} {target!r}, which does not exist")
+        if manifest.get("version") != version:
+            refusals.append(f"REFUSE: {rel} is at version {manifest.get('version')!r} but the release-please "
+                            f"manifest is at {version!r} — take the manifest's value, never bump by hand")
+        if rel not in extra:
+            refusals.append(f"REFUSE: {rel} is not in release-please-config.json's extra-files — the next "
+                            f"release would leave it a version behind")
     return refusals
 
 
