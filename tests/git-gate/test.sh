@@ -173,13 +173,27 @@ reason_for() { # $1 payload  $2 CLAUDE_PLUGIN_ROOT ("" = unset)
     printf '%s' "$1" | env -u CLAUDE_PLUGIN_ROOT bash "$GATE" 2>/dev/null
   fi | jq -r '.hookSpecificOutput.permissionDecisionReason // ""'
 }
-r=$(reason_for "$(pay Bash 'git commit -m x' "$PROF")" "$EMPTY_ROOT")
-case "$r" in *"$EMPTY_ROOT"*)
-  echo "FAIL [K5]: the reason names $EMPTY_ROOT, which holds no guard: $r"; exit 1 ;; esac
-r=$(reason_for "$(pay Bash 'git commit -m x' "$PROF")" "")
-case "$r" in *"$KIT/skills/"*)
-  echo "FAIL [K6]: with no root the reason still names an absolute path: $r"; exit 1 ;; esac
-echo "ok: K5/K6 name no absolute path where the guard does not exist"
+for c in 'git commit -m x' 'git push' 'git push --force origin main' 'git merge feature' \
+         'git reset --hard' 'gh pr merge 12'; do
+  r=$(reason_for "$(pay Bash "$c" "$PROF")" "$EMPTY_ROOT")
+  case "$r" in ''|*"$EMPTY_ROOT"*)
+    echo "FAIL [K5 $c]: under a root holding no guard the reason is empty or names $EMPTY_ROOT: $r"; exit 1 ;; esac
+  case "$r" in *'`skills/'*) ;;
+    *) echo "FAIL [K5 $c]: under a root holding no guard the reason lacks the kit-relative spelling: $r"; exit 1 ;; esac
+  r=$(reason_for "$(pay Bash "$c" "$PROF")" "")
+  case "$r" in ''|*"$KIT/skills/"*)
+    echo "FAIL [K6 $c]: with no root the reason is empty or names an absolute path: $r"; exit 1 ;; esac
+done
+echo "ok: K5/K6 every guard-naming denial keeps the kit-relative spelling where the guard does not exist"
+verdict "K7  a forced push names guarded-push.sh by absolute path" \
+  deny "$KIT/skills/implement-issue/scripts/guarded-push.sh" \
+  "$(pay Bash 'git push --force origin main' "$PROF")" "$PATH" "" "$KIT"
+# A root holding whitespace is quoted, so the command the reason names still pastes as one word.
+SPACED="$WORK/root with space"
+mkdir -p "$SPACED/skills/merge-pr/scripts"; : > "$SPACED/skills/merge-pr/scripts/guarded-pr-merge.sh"
+verdict "K8  a root with a space is quoted" \
+  deny "\"$SPACED/skills/merge-pr/scripts/guarded-pr-merge.sh\"" \
+  "$(pay Bash 'gh pr merge 12' "$PROF")" "$PATH" "" "$SPACED"
 
 # ------------------------------------------------------------ 1d. a raw `gh pr merge` (#512)
 # #326 left `gh` out of scope on the premise that `gh pr merge` "is already guarded by
@@ -209,6 +223,33 @@ verdict "G6  an option between pr and merge"  deny "guarded-pr-merge.sh" "$(pay 
 verdict "G7  GIT_GATE=on forces past the probe" deny "guarded-pr-merge.sh" \
   "$(pay Bash 'gh pr merge 12' "$PLAIN")" "$PATH" on
 verdict "G8  the escape names the gh spelling" deny 'GIT_GATE=off gh' "$(pay Bash 'gh pr merge 12' "$PROF")"
+# The probe follows `cd` for gh exactly as for git (A40/D29). G3's `sub` never exists, so these two
+# are what prove the arm reads the directory the walk moved to.
+verdict "GA9 cd into a guard-less repo, then gh pr merge" pass "" "$(pay Bash "cd $PLAIN && gh pr merge 12" "$PROF")"
+verdict "G9  cd INTO a profiled repo, then gh pr merge" deny "guarded-pr-merge.sh" \
+  "$(pay Bash "cd $PROF && gh pr merge 12" "$PLAIN")"
+# A `git init` earlier on the line makes no PR mergeable: the gh arm does not inherit fresh_init.
+verdict "G10 git init <path> does not switch the arm off" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'git init /tmp/x && gh pr merge 12 --squash' "$PROF")"
+verdict "G11 gh pr --repo o/r merge"          deny "guarded-pr-merge.sh" "$(pay Bash 'gh pr --repo o/r merge 12' "$PROF")"
+verdict "G12 gh pr --repo=o/r merge"          deny "guarded-pr-merge.sh" "$(pay Bash 'gh pr --repo=o/r merge 12' "$PROF")"
+# G13 — the incident itself: session 62c8dcf7's "look for the guard, else merge raw" line. It names
+# the guard in its else-branch, which is why guarded-pr-merge.sh is off the whole-line allowlist.
+verdict "G13 the 62c8dcf7 fallback line"      deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'SKILLS_DIR=/nowhere/.claude/skills; if [ ! -d "$SKILLS_DIR" ]; then echo "Guarded script not found, using gh pr merge directly"; gh pr merge 1340 --squash --delete-branch; else "$SKILLS_DIR/guarded-pr-merge.sh" 1340 -- --squash --delete-branch; fi' "$PROF")"
+# ...while a line that calls the guard beside a read-only gh still passes — judged, not allowlisted.
+verdict "GA10 gh pr checks, then the guard"   pass "" \
+  "$(pay Bash 'gh pr checks 12 --watch && "$KIT/skills/merge-pr/scripts/guarded-pr-merge.sh" 12 -- --squash' "$PROF")"
+verdict "GA11 --disable-auto merges nothing"  pass "" "$(pay Bash 'gh pr merge --disable-auto 12' "$PROF")"
+verdict "GA12 gh issue"                       pass "" "$(pay Bash 'gh issue view 12' "$PROF")"
+# The REST merge endpoint is out of scope (#512): recorded as allowed, not gated.
+verdict "GA13 gh api … /merge (out of scope)" pass "" "$(pay Bash 'gh api -X PUT repos/o/r/pulls/12/merge' "$PROF")"
+# The gh denial states its own cause and its own escape; a git denial does not advertise gh's.
+r=$(reason_for "$(pay Bash 'gh pr merge 12' "$PROF")" "")
+case "$r" in *'#26 and #280'*) echo "FAIL [G14]: the gh denial claims the #26/#280 cause: $r"; exit 1 ;; esac
+r=$(reason_for "$(pay Bash 'git commit -m x' "$PROF")" "")
+case "$r" in *'GIT_GATE=off gh'*) echo "FAIL [G14]: a git denial advertises the gh escape: $r"; exit 1 ;; esac
+echo "ok: G14 each denial names its own cause and its own escape"
 
 # ------------------------------------------------------------------ 2. the allow rows (A)
 verdict "A1  branch -D after a merge"  pass "" "$(pay Bash 'git branch -D feat/326-x' "$PROF")"
@@ -233,6 +274,9 @@ verdict "A38 push -n"                  pass "" "$(pay Bash 'git push -n' "$PROF"
 # The guards are the whole point: a line that calls one is allowed, INCLUDING the `--force-with-lease`
 # the gate refuses on a bare push. Spelled with the quoted `"$GUARDS/…"` every skill actually emits,
 # which is why the recognition reads the raw command and not the quote-stripped one.
+# `guarded-pr-merge.sh` is off that whole-line list since #512 (G13 is why): A16 passes because its
+# line holds neither `git` nor `gh … merge`, and a line pairing the guard with a read-only `gh` is
+# judged segment by segment and passes too (GA10).
 verdict "A13 guarded-commit.sh line"   pass "" \
   "$(pay Bash '"$GUARDS/guarded-commit.sh" -C "$WORKTREE" -c user.email=a@b -c user.name="A B" main -- -am msg' "$PROF")"
 verdict "A14 guarded-push --force-with-lease" pass "" \

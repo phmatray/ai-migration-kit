@@ -2024,11 +2024,18 @@ if mode == "kit-prefix":
                 i = line.find(GUARD, i + 1)
     what = "spells %s without a <kit>/ prefix" % GUARD
 else:
-    hits = [(n, l) for n, l in lines(FALLBACK) if "Never fall back" in l]
-    bad = ["%s:%d" % (FALLBACK, n) for n, l in hits if "gh pr merge" not in l]
-    if not hits:
-        bad = [FALLBACK + ": no 'Never fall back' line at all"]
-    what = "its 'Never fall back' line does not name gh pr merge"
+    # The whole bold sentence, whitespace-normalised, so a re-wrap cannot move `gh pr merge` off
+    # the one physical line being read.
+    text = (kit / FALLBACK).read_text(encoding="utf-8")
+    i = text.find("Never fall back")
+    if i < 0:
+        bad = [FALLBACK + ": no 'Never fall back' sentence at all"]
+    else:
+        j = text.find(".**", i)
+        sentence = " ".join(text[i:j if j > 0 else len(text)].split())
+        if "gh pr merge" not in sentence:
+            bad = ["%s:%d" % (FALLBACK, text.count("\n", 0, i) + 1)]
+    what = "its 'Never fall back' sentence does not name gh pr merge"
 if bad:
     sys.exit("%s — %s" % (", ".join(bad), what))
 print("ok")
