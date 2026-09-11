@@ -8,6 +8,13 @@ Starting with the version after [1.9.1], the entries below this paragraph are ge
 adopt its format (*Features* / *Bug Fixes* sections, comparison link, sha per entry) rather than
 the hand-written entries below. Earlier entries are kept as written.
 
+## [2.4.0](https://github.com/phmatray/ai-migration-kit/compare/v2.3.1...v2.4.0) (2026-09-11)
+
+
+### Features
+
+* **skills:** implement-issue, merge-pr and create-issue load one step at a time; finish-task.sh closes a task in one turn ([#499](https://github.com/phmatray/ai-migration-kit/issues/499)) ([#500](https://github.com/phmatray/ai-migration-kit/issues/500)) ([257f7ed](https://github.com/phmatray/ai-migration-kit/commit/257f7ed79fdc27d0860b8c5bedd9cc04df29939b))
+
 ## [2.3.1](https://github.com/phmatray/ai-migration-kit/compare/v2.3.0...v2.3.1) (2026-09-09)
 
 
