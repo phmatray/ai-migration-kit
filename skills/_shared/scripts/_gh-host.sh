@@ -30,20 +30,27 @@
 #            case-insensitively), or the slug is empty, or it is gh's own `{owner}/{repo}`
 #            placeholder — which the merge-pr prose passes verbatim, `gh api` expands from the
 #            checkout itself, and KIT_REPO_SLUG therefore keeps untouched — AND
-#            `gh auth token --hostname <host>` succeeds. That probe is a local credential lookup, not `gh auth status`, which
-#            validates over the network; its stdout, the token itself, goes to /dev/null. A checkout
-#            of a DIFFERENT repository must not lend its host to this one, and an origin host gh
-#            holds no credentials for (an SSH config alias such as `github-work`) is left alone
-#            rather than guessed at.
+#            `gh auth token --hostname <host>` succeeds. That probe is a local credential lookup,
+#            not `gh auth status`, which validates over the network; its stdout, the token itself,
+#            goes to /dev/null. It runs with GH_ENTERPRISE_TOKEN and GITHUB_ENTERPRISE_TOKEN
+#            withheld: with either exported, gh answers yes for ANY host but github.com, and an SSH
+#            config alias such as `github-work` would pass for a GHE host. So a host counts only when
+#            gh holds a stored credential for it (or GH_TOKEN covers it: github.com, ghe.com); a GHES
+#            reached only through an enterprise token variable takes a HOST/OWNER/REPO slug or a
+#            GH_HOST instead. A checkout of a DIFFERENT repository must not lend its host to this
+#            one, and an origin host gh holds no credentials for is left alone, never guessed at.
 #         4. nothing: gh's own default host, exactly as before this file existed.
 #
-#       Returns 0. A slug of one segment, or of four or more, returns 2 before any gh call and
-#       writes "gh-host: malformed repository slug '<slug>' — expected [HOST/]OWNER/REPO" on
-#       stderr; the caller then exits with its own usage-error code.
+#       Returns 0. A slug of one segment, of four or more, or with an empty segment (`acme/`,
+#       `a//b`, `/a/b`) returns 2 before any gh call and writes "gh-host: malformed repository slug
+#       '<slug>' — expected [HOST/]OWNER/REPO" on stderr; the caller then exits with its own
+#       usage-error code.
 #
 # The origin parse copies hooks/autodev-stop-gate.sh's two sed expressions (#471) rather than
-# sourcing that hook: the hook fires on every Stop in every repository and fails open, and making it
-# load a skill file is a separate decision. Case-folding is `tr`, never ${var,,} (macOS bash 3.2).
+# sourcing that hook — the hook fires on every Stop in every repository and fails open, and making
+# it load a skill file is a separate decision — with one correction: the userinfo strip crosses a
+# `:`, so `https://user:token@host/…` yields the host, not the user (the stop gate keeps that miss).
+# Case-folding is `tr`, never ${var,,} (macOS bash 3.2).
 # The slug lands in KIT_REPO_SLUG, never GH_REPO: GH_REPO is a real gh environment variable, and
 # exporting it would silently retarget every gh call the caller makes.
 
@@ -56,19 +63,26 @@ gh_host_resolve() {
   local slug="${1-}" segments=1 rest="" host="" url="" origin_host="" origin_slug="" wanted=""
   KIT_REPO_SLUG=""
   if [ -n "$slug" ]; then
-    # Counted in bash, not with awk: a caller can run under a PATH pinned to a handful of tools
-    # (tests/repo-profile/test.sh rebuilds it from symlinks), and a missing awk must never read as
-    # a malformed slug.
-    rest="$slug"
-    while :; do
-      case "$rest" in
-        */*) rest="${rest#*/}"; segments=$((segments + 1)) ;;
-        *) break ;;
-      esac
-    done
+    # An empty segment is malformed: `acme/widgets/` would otherwise read as host `acme`. The rest
+    # is counted in bash, not with awk: a caller can run under a PATH pinned to a handful of tools
+    # (tests/repo-profile/test.sh rebuilds it from symlinks), and a missing tool must never change
+    # the answer.
+    case "$slug" in
+      /*|*/|*//*) segments=0 ;;
+      *) rest="$slug"
+         while :; do
+           case "$rest" in
+             */*) rest="${rest#*/}"; segments=$((segments + 1)) ;;
+             *) break ;;
+           esac
+         done ;;
+    esac
     case "$segments" in
       2) KIT_REPO_SLUG="$slug" ;;
-      3) host=$(printf '%s' "${slug%%/*}" | tr '[:upper:]' '[:lower:]')
+      3) host=$(printf '%s' "${slug%%/*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)
+         # DNS names are case-insensitive, so lowercasing is tidiness: a failed tr must not drop an
+         # explicit host.
+         [ -n "$host" ] || host="${slug%%/*}"
          KIT_REPO_SLUG="${slug#*/}" ;;
       *) echo "gh-host: malformed repository slug '$slug' — expected [HOST/]OWNER/REPO" >&2
          return 2 ;;
@@ -92,7 +106,7 @@ gh_host_resolve() {
   url=$(git remote get-url origin 2>/dev/null) || return 0
   [ -n "$url" ] || return 0
   origin_host=$(printf '%s' "$url" \
-    | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/:]*@##' -e 's#[:/].*$##' \
+    | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#[:/].*$##' \
     | tr '[:upper:]' '[:lower:]')
   case "$origin_host" in ''|*/*) return 0 ;; esac
   if [ -n "$KIT_REPO_SLUG" ] && [ "$KIT_REPO_SLUG" != "{owner}/{repo}" ]; then
@@ -102,7 +116,10 @@ gh_host_resolve() {
     wanted=$(printf '%s' "$KIT_REPO_SLUG" | tr '[:upper:]' '[:lower:]')
     [ "$origin_slug" = "$wanted" ] || return 0
   fi
-  gh auth token --hostname "$origin_host" > /dev/null 2>&1 || return 0
+  # Enterprise token variables withheld: with one exported, gh vouches for any host at all. Unset
+  # in a subshell rather than through `env`, so the probe needs no tool beyond gh itself.
+  ( unset GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+    gh auth token --hostname "$origin_host" ) > /dev/null 2>&1 || return 0
   GH_HOST="$origin_host"
   export GH_HOST
   return 0

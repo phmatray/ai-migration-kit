@@ -39,6 +39,11 @@ if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
     [ "$prev" = "--hostname" ] && host="$a"
     prev="$a"
   done
+  # Real gh answers yes for ANY host but github.com while an enterprise token variable is exported.
+  if [ "$host" != github.com ] && [ -n "${GH_ENTERPRISE_TOKEN:-}${GITHUB_ENTERPRISE_TOKEN:-}" ]; then
+    echo "gho_enterprise_env_token"
+    exit 0
+  fi
   case " ${GH_STUB_HOSTS:-} " in
     *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;;
   esac
@@ -72,6 +77,12 @@ CO_SSH=$(checkout ssh 'ssh://git@ghe.example.com:2222/acme/widgets')
 CO_CASE=$(checkout case 'git@ghe.example.com:Acme/Widgets.git')
 CO_ALIAS=$(checkout alias 'git@github-work:acme/widgets.git')
 CO_OTHER=$(checkout other 'git@ghe.example.com:other/thing.git')
+CO_CRED=$(checkout cred 'https://x-access-token:ghs_abc@ghe.example.com/acme/widgets.git')
+CO_GITHUB=$(checkout github 'https://github.com/acme/widgets.git')
+
+# The stub must model gh's enterprise-token answer, or the cases that withhold it prove nothing.
+GH_CALL_LOG=/dev/null GH_ENTERPRISE_TOKEN=x "$WORK/bin/gh" auth token --hostname github-work > /dev/null \
+  || { echo "FAIL [stub]: the gh stub does not answer yes for any host under GH_ENTERPRISE_TOKEN"; exit 1; }
 CO_NONE=$(checkout none)
 CO_PLAIN="$WORK/plain"
 mkdir -p "$CO_PLAIN"
@@ -84,7 +95,8 @@ run() {
   shift 3
   : > "$WORK/log.$name"
   RC=0
-  ( cd "$dir" && env -u GH_HOST PATH="$WORK/bin:$PATH" GH_CALL_LOG="$WORK/log.$name" \
+  ( cd "$dir" && env -u GH_HOST -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
+      PATH="$WORK/bin:$PATH" GH_CALL_LOG="$WORK/log.$name" \
       GH_HOST_LIB="$LIB" GH_STUB_HOSTS=ghe.example.com "$@" bash "$WORK/caller.sh" "$slug" ) \
     > "$WORK/out.$name" 2>&1 || RC=$?
 }
@@ -133,6 +145,16 @@ run origin-ssh-port "$CO_SSH" acme/widgets
 expect origin-ssh-port ghe.example.com repos/acme/widgets/x
 run origin-case "$CO_CASE" acme/widgets
 expect origin-case ghe.example.com repos/acme/widgets/x
+# The other side of the same comparison: repo-profile.sh and repo-setup.sh pass the nameWithOwner gh
+# returns, in the repository's canonical case, against an origin cloned in lower case.
+run slug-case "$CO_SCP" Acme/Widgets
+expect slug-case ghe.example.com repos/Acme/Widgets/x
+# A CI clone that carries its token in the URL: the host is after the `user:token@`, not before it.
+run origin-https-userinfo "$CO_CRED" acme/widgets
+expect origin-https-userinfo ghe.example.com repos/acme/widgets/x
+# The ordinary credentialed github.com checkout: the host is exported, and it is gh's default anyway.
+run github-credentialed "$CO_GITHUB" acme/widgets GH_STUB_HOSTS=github.com
+expect github-credentialed github.com repos/acme/widgets/x
 run empty-slug "$CO_SCP" ""
 expect empty-slug ghe.example.com repos//x
 # The merge-pr prose passes gh's own placeholder verbatim (`remote-branch-teardown.sh "$HEAD_BRANCH"
@@ -146,6 +168,11 @@ expect placeholder-other-repository ghe.example.com 'repos/{owner}/{repo}/x'
 echo "rule 4: nothing resolves — gh's default host, exactly as before"
 run alias-uncredentialed "$CO_ALIAS" acme/widgets
 expect alias-uncredentialed '<unset>' repos/acme/widgets/x
+# An exported enterprise token makes gh vouch for any host; the alias must still be left alone.
+run alias-enterprise-token "$CO_ALIAS" acme/widgets GH_ENTERPRISE_TOKEN=x
+expect alias-enterprise-token '<unset>' repos/acme/widgets/x
+run alias-github-enterprise-token "$CO_ALIAS" acme/widgets GITHUB_ENTERPRISE_TOKEN=x
+expect alias-github-enterprise-token '<unset>' repos/acme/widgets/x
 run other-repository "$CO_OTHER" acme/widgets
 expect other-repository '<unset>' repos/acme/widgets/x
 run no-origin "$CO_NONE" acme/widgets
@@ -154,7 +181,7 @@ run not-a-repository "$CO_PLAIN" acme/widgets
 expect not-a-repository '<unset>' repos/acme/widgets/x
 
 echo "a malformed slug is refused before any gh call"
-for slug in acme a/b/c/d; do
+for slug in acme a/b/c/d acme/widgets/ acme//widgets /acme/widgets; do
   name="malformed-$(printf '%s' "$slug" | tr '/' '-')"
   run "$name" "$CO_SCP" "$slug"
   [ "$RC" -eq 2 ] || fail "$name" "exited $RC, want 2"

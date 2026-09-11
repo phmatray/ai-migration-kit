@@ -72,7 +72,8 @@ not GitHub, stop with one sentence — *the lifecycle skills drive GitHub semant
 **On a GitHub host other than github.com** (a Tracker line of `github (<host>)`, e.g. GitHub
 Enterprise), the kit's own scripts reach the repository's host by themselves: each one resolves it
 through `skills/_shared/scripts/_gh-host.sh` (#514) — from a `HOST/OWNER/REPO` slug, a `GH_HOST`
-already set, or the checkout's `origin` host when `gh` holds credentials for it. A `gh api` command
+already set, or the checkout's `origin` host when origin is that same repository and `gh` holds a
+stored credential for its host. A `gh api` command
 written in skill prose does not: spell `--hostname <host>` on that call, and give a prose `gh … -R`
 the `HOST/OWNER/REPO` form. Each Bash call is a fresh shell, so an `export GH_HOST=…` made in an
 earlier call never reaches a later one.
