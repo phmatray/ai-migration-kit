@@ -111,6 +111,12 @@ if grep -q '^## Which kit skill, for what' "$KIT/.claude/CLAUDE.md"; then
   echo "FAIL [one-home]: .claude/CLAUDE.md still carries the '## Which kit skill, for what' section — AGENTS.md is its home"
   exit 1
 fi
+# ... and imports it instead: the hook only runs where the plugin is installed, so a session in this
+# repository without the plugin sees the table through this import alone.
+grep -qx '@../AGENTS.md' "$KIT/.claude/CLAUDE.md" || {
+  echo "FAIL [one-home]: .claude/CLAUDE.md does not import @../AGENTS.md — a session here without the plugin would see no routing table"
+  exit 1
+}
 
 # --------------------------------------------------------- 7. the hook reads AGENTS.md, not CLAUDE.md
 OLD_HOME=$(mktemp -d "$WORK/old-home.XXXXXX")
