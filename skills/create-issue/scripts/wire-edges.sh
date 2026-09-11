@@ -5,7 +5,11 @@
 # files the parent and the children first (blockers before the children they block) and then runs
 # this once with the numbers it got back.
 #
-#   wire-edges.sh --repo <owner>/<repo> --parent <N> --child <C>[:blocked-by=<A>[,<B>…]] … [--dry-run]
+#   wire-edges.sh --repo <[host/]owner/repo> --parent <N> --child <C>[:blocked-by=<A>[,<B>…]] … [--dry-run]
+#
+#   HOST/OWNER/REPO names a GitHub Enterprise host outright; with a bare OWNER/REPO the host is the
+#   checkout's own origin's, when origin is that repository. Resolved once, before the first gh
+#   call, by skills/_shared/scripts/_gh-host.sh (#514).
 #
 # Output, one line per edge, on stdout:
 #
@@ -16,7 +20,8 @@
 #   0   every edge is ok or fallback — the decomposition is wired as far as this host allows
 #   1   any edge FAILED, or an issue's database id could not be resolved (nothing was posted after
 #       that point: a POST built on a guessed id is worse than no POST)
-#   2   usage — the arguments are wrong; nothing was called
+#   2   usage — the arguments are wrong, the slug is malformed, or the kit's host helper is
+#       missing; nothing was called
 #
 # The rules that matter:
 #
@@ -31,8 +36,9 @@
 #   * Ids are DATABASE ids (`gh api repos/o/r/issues/N --jq .id`), never the `#number` and never
 #     the GraphQL node_id — the dependency endpoint rejects both, and it rejects the number with
 #     a 404 that a careless reader would file under "feature off".
-#   * `--dry-run` prints the POSTs it would send and calls `gh` NOT AT ALL — not even the id
-#     lookups — so a skill can show the plan before a single write.
+#   * `--dry-run` prints the POSTs it would send and makes no API call — not even the id lookups —
+#     so a skill can show the plan before a single write. The host helper's one gh call, `gh auth
+#     token`, is a local credential lookup, so --dry-run still touches nothing on GitHub.
 #
 # Sources: ported from mattpocock/skills (MIT) — `engineering/to-tickets` (publish blockers first
 # so edges can reference real identifiers; native blocking where the tracker has it) and
@@ -109,11 +115,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$REPO" ] || refuse "--repo <owner>/<repo> is required"
+[ -n "$REPO" ] || refuse "--repo <[host/]owner/repo> is required"
+# HOST/OWNER/REPO is admitted here; the host helper below refuses four segments or more.
 case "$REPO" in
-  */*/*|*/|/*|*[[:space:]]*) refuse "--repo '$REPO' is not <owner>/<repo>" ;;
+  */|/*|*//*|*[[:space:]]*) refuse "--repo '$REPO' is not [<host>/]<owner>/<repo>" ;;
   */*) ;;
-  *) refuse "--repo '$REPO' is not <owner>/<repo>" ;;
+  *) refuse "--repo '$REPO' is not [<host>/]<owner>/<repo>" ;;
 esac
 [ -n "$PARENT" ] || refuse "--parent <N> is required"
 is_number "$PARENT" || refuse "--parent '$PARENT' is not an issue number"
@@ -125,6 +132,32 @@ printf '%s' "$CHILD_SPECS" | while read -r child blockers; do
     [ "$b" != "$PARENT" ] || { echo "$TOOL: REFUSED — child #$child is blocked by the parent #$PARENT; the parent is a tracking issue, never a blocker" >&2; exit 2; }
   done
 done || exit 2
+
+# -------------------------------------------------------------------- the repository's own host
+#
+# `gh api` never infers a host, so on a GitHub Enterprise repository the id lookups and every POST
+# below reached github.com (#514). Which host gh talks to is decided in ONE place, the helper
+# below; its exported GH_HOST is what every call inherits. Resolved AFTER every check above, so a
+# refusal there still means nothing was called, and BEFORE the dry run, so it prints the
+# normalised OWNER/REPO endpoints the real run would use.
+#
+# $0 through any symlinks first, as guarded-commit.sh does: `pwd -P` canonicalizes the directory,
+# not the link, and macOS's readlink has no -f.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$SELF")
+GH_HOST_LIB="$SCRIPT_DIR/../../_shared/scripts/_gh-host.sh"
+# CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+command -v gh_host_resolve > /dev/null 2>&1 || refuse "cannot load $GH_HOST_LIB; reinstall the kit"
+gh_host_resolve "$REPO" || exit 2
+REPO="$KIT_REPO_SLUG"
 
 # ------------------------------------------------------------------------------------- dry run
 if [ "$DRY_RUN" -eq 1 ]; then

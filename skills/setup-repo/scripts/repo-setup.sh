@@ -23,7 +23,8 @@
 # Exit codes:
 #   0  converged (plan) / applied cleanly (apply)
 #   1  drift found (plan only)
-#   2  bad usage, or a manifest that cannot be read or parsed
+#   2  bad usage, a manifest that cannot be read or parsed, or the kit's host helper
+#      (skills/_shared/scripts/_gh-host.sh, #514) missing
 #   3  partially applied — a surface was refused (no admin scope, no gh auth). The report names it.
 #   4  not inside a git repository  (the same meaning repo-profile.sh gives 4, deliberately)
 #
@@ -273,6 +274,22 @@ command -v jq >/dev/null 2>&1 || { echo "ERR: jq is missing — it is a required
 SLUG=""
 if [ "$GH_OK" = 1 ]; then
   SLUG="$(gh repo view --json nameWithOwner 2>/dev/null | jq -r '.nameWithOwner // empty' 2>/dev/null)"
+fi
+
+# The repository's own host (#514). `gh api` never infers a host, so on a GitHub Enterprise checkout
+# every `repos/$SLUG…` read and write below reached github.com. `gh repo view` above does infer it
+# from origin, which is why it runs first and names the repository; the helper then exports origin's
+# host as GH_HOST for every call after it. Decided in ONE place, the helper, and only when gh works
+# and there is a slug to address. KIT_ROOT was resolved before the cd, so the helper is the kit's;
+# its origin read is the target repository's. No errexit here, so every failure exits explicitly.
+if [ "$GH_OK" = 1 ] && [ -n "$SLUG" ]; then
+  GH_HOST_LIB="$KIT_ROOT/skills/_shared/scripts/_gh-host.sh"
+  # CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+  if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+  command -v gh_host_resolve >/dev/null 2>&1 \
+    || { echo "repo-setup: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2; exit 2; }
+  gh_host_resolve "$SLUG" || exit 2
+  SLUG="$KIT_REPO_SLUG"
 fi
 
 # The header goes out BEFORE the first probe, because probes can refuse — and a refusal printed

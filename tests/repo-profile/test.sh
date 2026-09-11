@@ -466,4 +466,75 @@ for g in $listed; do
 done
 echo "  ok: the profile names every structural gate run-all-tests.sh lists ($n11 scripts)"
 
+# 12. The repository's own host (#514). `gh api` never infers a host, so on a GitHub Enterprise
+#     checkout the branch-protection read reached github.com and came back empty — a TODO in the
+#     profile for a fact the repository does have. The seam is a stub gh's log: the GH_HOST each
+#     call ran under. Every case above keeps the real gh; this one needs a GHE host that answers, so
+#     it rebuilds PATH like case 8 around a stub, plus the awk the host helper and the jq the stub
+#     use. `repo view --json nameWithOwner` runs before the host is resolved, by design: it is what
+#     names the repository. GH_HOST is unset for these runs only — the real-gh cases above keep
+#     whatever the caller's shell has.
+CO_GHE=$(kit_scratch)
+git -C "$CO_GHE" init -q -b main
+git -C "$CO_GHE" -c user.email=t@test -c user.name=T commit -q --allow-empty -m base
+git -C "$CO_GHE" remote add origin git@ghe.example.com:acme/widgets.git
+GHE_BIN="$(kit_scratch)/bin"
+mkbin "$GHE_BIN" $DETECT_TOOLS awk jq
+rm -f "$GHE_BIN/gh"
+# Answers from fixtures, applying --jq the way the real gh does. `gh auth token --hostname H`, the
+# host helper's credential probe, succeeds only for a host listed in $GH_STUB_HOSTS.
+cat > "$GHE_BIN/gh" <<'STUBEOF'
+#!/usr/bin/env bash
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_CALL_LOG"
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  host=""; prev=""
+  for a in "$@"; do [ "$prev" = "--hostname" ] && host="$a"; prev="$a"; done
+  case " ${GH_STUB_HOSTS:-} " in *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;; esac
+  exit 1
+fi
+jq_expr=""; prev=""
+for a in "$@"; do [ "$prev" = "--jq" ] && jq_expr="$a"; prev="$a"; done
+case "${1:-} ${2:-}" in
+  "repo view") json='{"nameWithOwner":"acme/widgets","defaultBranchRef":{"name":"main"}}' ;;
+  "api repos/acme/widgets/branches/main") json='{"name":"main","protection":{"enabled":true}}' ;;
+  "label list") json='[{"name":"bug","description":"Something is broken"}]' ;;
+  *) echo "unexpected gh invocation: $*" >&2; exit 99 ;;
+esac
+if [ -n "$jq_expr" ]; then printf '%s\n' "$json" | jq -r "$jq_expr"; else printf '%s\n' "$json"; fi
+STUBEOF
+chmod +x "$GHE_BIN/gh"
+GH_CALL_LOG="$(kit_scratch)/gh-calls.log"; export GH_CALL_LOG
+: > "$GH_CALL_LOG"
+rc=0; out=$(unset GH_HOST; PATH="$GHE_BIN" GH_STUB_HOSTS=ghe.example.com bash "$SCRIPT" detect "$CO_GHE" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "detect on a GHE checkout: expected exit 0, got $rc:
+$out"
+grep -qxF 'GH_HOST=ghe.example.com ARGS: api repos/acme/widgets/branches/main --jq .protection' "$GH_CALL_LOG" \
+  || fail "detect: the branch-protection read did not run under GH_HOST=ghe.example.com:
+$(cat "$GH_CALL_LOG")"
+unhosted=$(grep -E '^GH_HOST=<unset> ARGS: (api |label |repo view --json defaultBranchRef)' "$GH_CALL_LOG" || true)
+[ -z "$unhosted" ] || fail "detect: a call made after the repository was named ran without the host:
+$unhosted"
+echo "  ok: detect on a GHE checkout: the branch-protection read, the label list and the default-branch reads run under GH_HOST=ghe.example.com"
+
+# 12b. The host helper is part of the install: without it detect refuses (exit 2), naming the
+#      missing file, rather than reading gh's default host — the exact #514 failure. Guard: `show`
+#      never loads it — the plugin-install simulation and run-all-tests run `show` from a foreign cwd.
+NOHELPER="$(kit_scratch)/skills/profile-repo/scripts"
+mkdir -p "$NOHELPER"
+cp "$SCRIPT" "$NOHELPER/repo-profile.sh"
+: > "$GH_CALL_LOG"
+rc=0; out=$(unset GH_HOST; PATH="$GHE_BIN" GH_STUB_HOSTS=ghe.example.com bash "$NOHELPER/repo-profile.sh" detect "$CO_GHE" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "detect without its host helper: expected exit 2, got $rc:
+$out"
+grep -qF '_shared/scripts/_gh-host.sh; reinstall the kit' <<<"$out" \
+  || fail "detect without its host helper: the missing file is not named:
+$out"
+extra=$(grep -vxF 'GH_HOST=<unset> ARGS: repo view --json nameWithOwner --jq .nameWithOwner' "$GH_CALL_LOG" || true)
+[ -z "$extra" ] || fail "detect without its host helper: gh was called past the repo view that names the repository:
+$extra"
+rc=0; out=$(bash "$NOHELPER/repo-profile.sh" show "$CO_GHE") || rc=$?
+{ [ "$rc" -eq 3 ] && [ "$out" = "NO_PROFILE" ]; } \
+  || fail "show without the host helper: expected NO_PROFILE and exit 3, got $rc: $out — show must never load it"
+echo "  ok: detect without its host helper exits 2 naming it, after the one repo view; show never needs it"
+
 echo "repo-profile golden test OK"

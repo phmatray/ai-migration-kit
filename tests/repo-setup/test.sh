@@ -21,6 +21,8 @@
 # Every `gh` call goes through a stub on PATH that RECORDS its invocation (the tick-plan pattern),
 # so "did not write" is measured rather than assumed.
 set -euo pipefail
+# A GH_HOST in the developer's or CI's shell would decide the host case (#514) on its own.
+unset GH_HOST
 cd "$(dirname "$0")/../.."
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -153,9 +155,19 @@ mkdir -p "$WORK/bin"
 # serves back. Idempotence is otherwise unmeasurable — against a stub that forgot every write, a
 # second `apply` would re-create every label and the run would still look green, which is the exact
 # failure the idempotence case exists to catch.
+#
+# Each log line carries the GH_HOST the call ran under (#514). `gh auth token --hostname H`, the
+# host helper's credential probe, succeeds only for a host listed in $GH_STUB_HOSTS — answered
+# FIRST, so it can never reach the catch-all `exit 0` at the bottom and pass for any host.
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-echo "ARGS: $*" >> "$GH_CALL_LOG"
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_CALL_LOG"
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  host=""; prev=""
+  for a in "$@"; do [ "$prev" = "--hostname" ] && host="$a"; prev="$a"; done
+  case " ${GH_STUB_HOSTS:-} " in *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;; esac
+  exit 1
+fi
 
 put_label() {   # put_label <name> <color> <description> — create and edit are the same operation
   jq --arg n "$1" --arg c "$2" --arg d "$3" \
@@ -1434,5 +1446,47 @@ has_line "^G${META_TAB}source.path${META_TAB}/docs" "$repo_parsed" || fail "this
 n_topics=$(printf '%s\n' "$repo_parsed" | awk -F'\t' '$1 == "O" { n++ } END { print n+0 }')
 [ "$n_topics" -ge 8 ] || fail "this repo's manifest declares only $n_topics topic(s) — the repository is judged bare (#400)"
 echo "  ok: repo manifest — description, homepage, $n_topics topics and the docs/ Pages source are declared"
+
+# ------------------------------------------------------------ 16. the repository's own host (#514)
+#
+# `gh api` never infers a host, so on a GitHub Enterprise repository the settings, topics and Pages
+# reads — and every write after them — reached github.com. The seam is the stub's log: the GH_HOST
+# each call ran under. `auth status` and `repo view` run before the host is resolved, by design:
+# they are what says gh works and names the repository.
+repo16g=$(new_repo) || fail "could not create a scratch git repo"
+git -C "$repo16g" remote add origin git@ghe.example.com:acme/widgets.git
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":true,"description":"","homepage":null}\n' > "$GH_SETTINGS_JSON"
+printf '{"names":[]}\n' > "$GH_TOPICS_JSON"
+: > "$GH_PAGES_JSON"
+fresh_log ghe_origin
+rc=0; out=$(GH_STUB_HOSTS=ghe.example.com bash "$SCRIPT" plan "$repo16g" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "plan on a GHE checkout: expected exit 1 (drift), got $rc — $out"
+for r in "api repos/acme/widgets" "api repos/acme/widgets/topics --jq .names[]" "api repos/acme/widgets/pages"; do
+  grep -qxF -- "GH_HOST=ghe.example.com ARGS: $r" "$GH_CALL_LOG" \
+    || fail "the '$r' read did not run under GH_HOST=ghe.example.com — log: $(cat "$GH_CALL_LOG")"
+done
+if grep -qE '^GH_HOST=<unset> ARGS: (api|label) ' "$GH_CALL_LOG"; then
+  fail "a label or api call ran without the host — log: $(cat "$GH_CALL_LOG")"
+fi
+echo "  ok: host — on a GHE checkout the settings, topics and Pages reads and the label list run under GH_HOST=ghe.example.com"
+
+# The host helper is part of the install: without it the run refuses, naming the missing file,
+# rather than reading gh's default host — the exact #514 failure. The parser and the projector are
+# checked before the host is resolved, so the stand-in tree carries both.
+NOHELPER="$WORK/nohelper/skills/setup-repo/scripts"
+mkdir -p "$NOHELPER"
+cp "$SCRIPT" "$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py" \
+   "$KIT_ROOT/skills/setup-repo/scripts/project-area-options.py" "$NOHELPER/"
+fresh_log missing_helper
+rc=0; out=$(GH_STUB_HOSTS=ghe.example.com bash "$NOHELPER/repo-setup.sh" plan "$repo16g" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] || fail "without its host helper: expected exit 2, got $rc — $out"
+case "$out" in
+  *"_shared/scripts/_gh-host.sh; reinstall the kit"*) ;;
+  *) fail "without its host helper: the missing file is not named — $out" ;;
+esac
+extra=$(grep -vE 'ARGS: (auth status|repo view --json nameWithOwner)$' "$GH_CALL_LOG" || true)
+[ -z "$extra" ] || fail "without its host helper: gh was called past auth status and repo view — $extra"
+echo "  ok: host — without its host helper: exit 2, the missing file named, no gh call past auth status and repo view"
 
 echo "PASS: tests/repo-setup"
