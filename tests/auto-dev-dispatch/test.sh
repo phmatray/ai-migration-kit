@@ -20,7 +20,13 @@
 #      tests/pr-existence-guard/test.sh, modeled on it) so this suite proves the exact thing an
 #      agent would paste, not a paraphrase of it.
 #
-# Reads only files under commands/ and skills/auto-dev/ — never samples/ — so no kit_guard is needed.
+# #510 extends it to the second dispatch onto an existing PR branch: both command files carry the
+# worker's `branch-held guard:` refusal and 04-worktree.md points at it (its Task 2); SKILL.md
+# Step 3 releases the branch through release-branch.sh before every such dispatch, *Cleanup
+# nuance* says the branch goes while the tree stays, and Step 4 handles the refusal (its Task 3).
+#
+# Reads only files under commands/, skills/auto-dev/ and skills/implement-issue/references/steps/
+# — never samples/ — so no kit_guard is needed.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 KIT="$PWD"
@@ -163,5 +169,95 @@ if ! WORKER_TOPLEVEL=/repo/.claude/worktrees/agent-x SUPERVISOR_TOPLEVEL=/repo b
   fail "the worker-toplevel guard exited non-zero on a DIFFERING toplevel (should proceed):
 $(cat "$diff_out" 2>/dev/null)"
 fi
+
+# --- #510 Task 2: the worker-side branch-held guard ---------------------------------------------
+#
+# A re-dispatch onto an existing PR branch can wake up in a fresh tree while a retired worker's
+# tree still holds that branch. The worker cannot repair that from inside its own tree, so both
+# command files give it a NAMED refusal the supervisor acts on (release-branch.sh, then
+# re-dispatch) and forbid the workarounds that would put two trees on one branch. Newlines are
+# folded to spaces first, so a sentence the prose wraps across lines still matches.
+for f in "$WORKER_MD" "$MERGE_MD"; do
+  flat=$(tr '\n' ' ' < "$f")
+  grep -qF 'branch-held guard:' <<<"$flat" \
+    || fail "$f does not carry the 'branch-held guard:' refusal signature (#510)"
+  grep -qF 'release-branch.sh then re-dispatch' <<<"$flat" \
+    || fail "$f's branch-held signature does not name the supervisor's repair ('release-branch.sh then re-dispatch')"
+  grep -Eqi '(do not|never)[^.]{0,80}--ignore-other-worktrees' <<<"$flat" \
+    || fail "$f does not forbid --ignore-other-worktrees (two trees on one branch, #510)"
+done
+
+WORKTREE_STEP="$KIT/skills/implement-issue/references/steps/04-worktree.md"
+[ -f "$WORKTREE_STEP" ] || fail "missing $WORKTREE_STEP"
+flat=$(tr '\n' ' ' < "$WORKTREE_STEP")
+grep -qi 'checked out in another worktree' <<<"$flat" \
+  || fail "04-worktree.md does not name the branch-checked-out-in-another-worktree case (#510)"
+grep -qF 'commands/auto-dev-worker.md' <<<"$flat" \
+  || fail "04-worktree.md does not point the held-branch case at commands/auto-dev-worker.md"
+if grep -qF 'release-branch.sh then re-dispatch' <<<"$flat"; then
+  fail "04-worktree.md restates the branch-held signature — its one home is the two command files"
+fi
+
+# --- #510 Task 3: the supervisor releases before every dispatch onto an existing PR branch ------
+#
+# The release has one home (release-branch.sh) and one caller (the supervisor), so Step 3 must
+# carry the guard that runs it — scoped to its own subsection, never a whole-file grep, for the
+# reason 3a gives — and name every entry point that re-enters a branch an earlier tree may hold.
+RELEASE_SECTION=$(printf '%s\n' "$STEP3" | awk '
+  /^### ⛔ Dispatch-time guard — release the PR branch before re-dispatching onto it/ { flag=1 }
+  flag && /^### The worker-prompt contract/ { exit }
+  flag { print }
+')
+[ -n "$RELEASE_SECTION" ] \
+  || fail "Step 3 has no '### ⛔ Dispatch-time guard — release the PR branch before re-dispatching onto it' subsection (#510)"
+grep -qF 'release-branch.sh' <<<"$RELEASE_SECTION" \
+  || fail "the release guard does not name release-branch.sh"
+# Each entry point by its OWN bullet, not by a word: `tier` and `phase 2` also occur in the
+# verdict rules below them, so a word match survives deleting the bullet it was meant to pin.
+for entry in '- a **`PARTIAL` resume**' '- a **BLOCKED/FAILED tier escalation**' '- **phase 2** (' \
+             '- the **push-and-land**' '- a **restart after a crash**'; do
+  grep -qF -- "$entry" <<<"$RELEASE_SECTION" \
+    || fail "the release guard has no '$entry' entry-point bullet"
+done
+grep -qF 'HELD' <<<"$RELEASE_SECTION" || fail "the release guard does not say what a HELD verdict does"
+grep -qF 'Needs manual sweep' <<<"$RELEASE_SECTION" \
+  || fail "the release guard does not record a HELD verdict under '## Needs manual sweep'"
+grep -Eqi 'never.{0,40}FREE' <<<"$RELEASE_SECTION" \
+  || fail "the release guard does not forbid reading a no-verdict exit 2 as FREE"
+
+# The verdict words the guard acts on are the script's own, read from its --help rather than retyped
+# here: a verdict renamed or added in the script but not in the prose that consumes it fails.
+RB_HELP=$("$KIT/skills/auto-dev/scripts/release-branch.sh" --help)
+VERDICT_WORDS=$(printf '%s\n' "$RB_HELP" | awk '
+  /^One verdict line/ { on = 1; next }
+  /^Exit codes:/      { on = 0 }
+  on && /^  [A-Z]/    { print $1; if ($1 == "HELD") print $3 }
+')
+n_words=$(printf '%s\n' "$VERDICT_WORDS" | grep -c . || true)
+[ "$n_words" -ge 7 ] \
+  || fail "read $n_words verdict word(s) from release-branch.sh --help; expected FREE, RELEASED and HELD with its four reasons"
+for w in $VERDICT_WORDS; do
+  grep -qF -- "$w" <<<"$RELEASE_SECTION" \
+    || fail "the release guard never mentions '$w', a verdict word release-branch.sh prints"
+done
+
+# The Cleanup nuance paragraph keeps its decision — the tree stays for the sweep — and now says
+# the branch does not stay with it.
+CLEANUP=$(awk '/^\*\*Cleanup nuance for / { flag=1 } flag && /^$/ { exit } flag { print }' "$SKILL_MD" | tr '\n' ' ')
+[ -n "$CLEANUP" ] || fail "skills/auto-dev/SKILL.md has no '**Cleanup nuance for …' paragraph"
+grep -qi 'tree stays' <<<"$CLEANUP" || fail "the Cleanup nuance paragraph no longer says the tree stays for the sweep"
+grep -qF 'release-branch.sh' <<<"$CLEANUP" \
+  || fail "the Cleanup nuance paragraph does not say the branch is released (release-branch.sh) while the tree stays"
+
+# Step 4 handles the worker's named refusal as a dispatch defect: release, re-dispatch at the same
+# tier, never tier-escalate, and outside the PARTIAL cap. Step 4's bullets are one line each.
+STEP4=$(awk '/^## Step 4 —/ { flag=1; print; next } flag && /^## / { flag=0 } flag' "$SKILL_MD")
+BH_BULLET=$(printf '%s\n' "$STEP4" | grep -F -- '- **Reported BLOCKED with `DETAIL: branch-held guard' || true)
+[ -n "$BH_BULLET" ] || fail "Step 4 has no '- **Reported BLOCKED with \`DETAIL: branch-held guard' bullet (#510)"
+grep -qF 'release-branch.sh' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not run release-branch.sh"
+grep -qi 're-dispatch' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not say to re-dispatch"
+grep -Eqi 'never tier-escalate' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not forbid a tier escalation"
+grep -Eqi "(don't|do not|never) count it against the .PARTIAL" <<<"$BH_BULLET" \
+  || fail "Step 4's branch-held bullet does not keep it outside the PARTIAL cap"
 
 echo "PASS: auto-dev-dispatch"

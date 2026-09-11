@@ -572,6 +572,9 @@ jobs:
       - name: Auto-dev dispatch golden test (workers get their own worktree, not the supervisor's, #412)
         run: ./tests/auto-dev-dispatch/test.sh
 
+      - name: Release-branch golden test (a retired worker's tree lets go of the PR branch before a re-dispatch, #510)
+        run: ./tests/release-branch/test.sh
+
       - name: Wait-ci golden test (waits on every gating check via --json, not one hardcoded name, #188)
         run: ./tests/wait-ci/test.sh
 

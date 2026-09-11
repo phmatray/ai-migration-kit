@@ -436,13 +436,53 @@ comes back **unchanged** — a worker that committed anything (every worker that
 does) leaves its tree on disk after it retires. That is not a leak to chase down mid-run: note it
 under the state file's `## Needs manual sweep` section the same way any other leftover worktree/branch
 is tracked (Step 6 already surfaces that section in the final recap), and let the standing housekeeping
-sweep reclaim it rather than special-casing it here.
+sweep reclaim it rather than special-casing it here. The tree stays for the sweep, but the branch
+does not: a kept tree still has the PR branch checked out, so before any dispatch onto that branch
+the supervisor releases it with `release-branch.sh` (the guard below).
 
 **Pick each worker's model from its labels** (see Token economics): small/mechanical → cheap, typical
 single-area bug → mid, cross-cutting/hard → top. Pass it explicitly on spawn as the Agent tool's
 `model` parameter — the command files set no tier of their own. Record the chosen tier
 next to the issue in the state file so a `loop` re-fire redispatches at the same tier and
 `usage_report.py`'s by-model rollup stays interpretable.
+
+### ⛔ Dispatch-time guard — release the PR branch before re-dispatching onto it
+
+A worker that committed anything keeps its tree (*Cleanup nuance* above), and that tree still has
+the PR branch checked out. The next dispatch onto the same branch lands in a **new** tree, where
+`git switch <branch>` is refused (*"already used by worktree at …"*) and the worker's sandbox
+refuses every git command that names the old tree — measured twice in one run, both dispatches back
+`BLOCKED` with no code changed (#510). The worker cannot repair this — it is confined to its own
+tree — and the supervisor is not. So **before every dispatch onto an existing PR branch**, from your
+own checkout:
+
+```bash
+scripts/release-branch.sh "$PR_BRANCH"   # the PR's head branch; one verdict line on stdout, contract in --help
+```
+
+That is every entry point that re-enters a branch an earlier tree may still hold:
+
+- a **`PARTIAL` resume** (Step 4) — every one: a `PARTIAL` hand-off requires a pushed commit, so its
+  tree is never auto-cleaned;
+- a **BLOCKED/FAILED tier escalation** re-dispatched onto the same issue;
+- **phase 2** (`/auto-dev-merge`), which checks the PR's branch out in its own tree;
+- the **push-and-land** re-dispatch of phase 2 after `wait-ci.sh` (#478);
+- a **restart after a crash**, when the crashed session's orphaned trees still hold their branches.
+
+What the verdict means for the dispatch:
+
+- `FREE` or `RELEASED <path>` (exit `0`) → dispatch. A released tree stays on disk — detached, still
+  locked — for the housekeeping sweep.
+- `HELD <path> dirty | unpushed <n> | main-checkout | missing` (exit `1`) → **do not dispatch.**
+  Record the verdict line under the state file's `## Needs manual sweep`, never tier-escalate, and
+  retire the slot: each `HELD` guards work or a checkout the kit must not discard, and a human
+  decides.
+- exit `2` (`release-branch: REFUSED — …` on stderr) → no verdict was reached: **do not dispatch.**
+  Retry it once; if it refuses again, record its stderr line under `## Needs manual sweep` and
+  retire the slot — never read it as `FREE`.
+
+A dispatch that skipped this comes back with the worker's named refusal rather than a generic one
+— `branch-held guard:` in its `DETAIL:`, spelled out in both command files — and Step 4 handles it.
 
 ### The worker-prompt contract
 
@@ -730,6 +770,7 @@ strong enough" one; this run's own outlier was an `effort: medium` issue that su
 tier and simply took 434 turns, so promoting it to the top model would put the fleet's most
 expensive issue on its most expensive tier for no reason.
 - **Reported BLOCKED with `DETAIL: pushed <sha>, CI restarted`** → not a block: the phase-2 worker had to push (conflict, re-sync, fix) and stopped instead of waiting (#478). Run `scripts/wait-ci.sh <pr>`, then re-dispatch phase 2 with the finished check table inline. Never tier-escalate it.
+- **Reported BLOCKED with `DETAIL: branch-held guard: …`** → not a block on the issue: the worker woke in a fresh tree while an earlier tree still held its PR branch, so this dispatch skipped (or raced) Step 3's release guard (#510). Run `scripts/release-branch.sh <pr-branch>` and act on its verdict exactly as that guard says: on `FREE`/`RELEASED`, re-dispatch the **same** phase at the **same** tier — never tier-escalate it (a stronger model meets the same held branch) and don't count it against the `PARTIAL ×3` cap (nothing was attempted); on `HELD`, record the line under `## Needs manual sweep` and retire the slot.
 - **Reported BLOCKED/FAILED** → first **tier-escalate if it was on a lower model**: if the failure looks like the model wasn't strong enough (rather than a genuine hard blocker — un-mergeable conflict, missing approval, no plan), re-dispatch the *same* issue **once** on the top model. If already on top, or it fails again → record it, surface it, retire the slot (it reported, so it has returned — nothing to stop), refill the slot (don't let one blocked issue stall the fleet). This escalation is what makes cheap-by-default tiering safe.
 
 After any change, update the state file (in flight, completed, filed, queue).

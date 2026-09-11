@@ -31,6 +31,18 @@ none | STATUS: BLOCKED | DETAIL: worker-toplevel guard: shares the supervisor's 
 defect, re-dispatch with isolation fixed | FILED: none`. This is not a real block on the issue — it
 says so by name, so the supervisor never tier-escalates or gives up on #$1 over it.
 
+**If this issue's branch is checked out in another worktree, that is the supervisor's to release,
+not yours.** On a resume onto an existing PR, `git worktree list --porcelain` can show
+`branch refs/heads/<branch>` under a path other than your own `git rev-parse --show-toplevel` — a
+retired worker's tree, kept on disk for the housekeeping sweep and still holding the branch (#510).
+Git refuses to check that branch out a second time, and the other tree is outside yours: do not
+`-C` into it, and do not use `--ignore-other-worktrees`, `--force`, or a detached push to get around
+it — each one ends with two trees on one branch. **Stop before editing** and your final message is:
+`PHASE1 | ISSUE: $1 | PR: <number> | STATUS: BLOCKED | DETAIL: branch-held guard: <branch> is
+checked out in <path> — dispatch defect, release-branch.sh then re-dispatch | FILED: none`. Like the
+worker-toplevel guard, it names a dispatch defect rather than a block on the issue, so the
+supervisor releases the branch and re-dispatches you at the same tier.
+
 OFF-SCOPE PROTOCOL: if you hit a problem NOT part of #$1 — an unrelated/flaky failure, a pre-existing
 bug, a design smell, missing/broken tests, tech debt — do NOT silently ignore it, and do NOT widen the
 PR to it. The carve-out `implement-issue` states under *Don't widen the blast radius* decides which of
