@@ -53,7 +53,7 @@ chmod +x "$WORK/bin/gh"
 cat > "$WORK/caller.sh" <<'CALLER'
 #!/usr/bin/env bash
 set -euo pipefail
-. "$GH_HOST_LIB"
+. "$GH_HOST_LIB" || { echo "caller: cannot source $GH_HOST_LIB" >&2; exit 1; }
 gh_host_resolve "$1" || exit $?
 gh api "repos/$KIT_REPO_SLUG/x"
 CALLER
@@ -171,5 +171,66 @@ bash "$LIB" > "$WORK/out.executed" 2>&1 || RC=$?
 grep -F 'SOURCED, never executed' "$WORK/out.executed" > /dev/null \
   || { echo "FAIL [executed]: no 'SOURCED, never executed' message"; cat "$WORK/out.executed"; exit 1; }
 echo "  ok: executed — exit 2, says to source it"
+
+# sweep <repository-root> — print each tracked, shipped script under skills/*/scripts/, scripts/ or
+# hooks/ that addresses a repository by slug — `gh … -R/--repo "$…"`, `gh api … "repos/$…"`, or an
+# endpoint `="repos/$…"` built for a later `gh api` — without loading _gh-host.sh, and return 1 when
+# there is one. The helper itself is the one exemption: it is where the host gets resolved. The eight
+# migrated scripts were found by grep once; this is what stops a ninth from quietly reaching
+# github.com on every GitHub Enterprise repository again.
+SWEEP_PATTERN='gh .*(-R|--repo)[ =]"\$|gh api[^|]*"repos/\$|="repos/\$'
+sweep() {
+  local root="$1" f found=0
+  git -C "$root" ls-files -- 'skills/*/scripts/*' 'scripts/*' 'hooks/*' > "$WORK/sweep.list"
+  while IFS= read -r f; do
+    case "$f" in */_gh-host.sh) continue ;; esac
+    [ -f "$root/$f" ] || continue
+    grep -Eq -- "$SWEEP_PATTERN" "$root/$f" || continue
+    if grep -Fq '_gh-host.sh' "$root/$f"; then continue; fi
+    printf '%s\n' "$f"
+    found=1
+  done < "$WORK/sweep.list"
+  return "$found"
+}
+
+echo "the tree sweep: a shipped script that addresses a repository by slug loads the helper"
+# Proven against a fixture first, so a sweep that matches nothing cannot pass the real tree by
+# default. Each file is one shape: `gh api "repos/$…"`, an endpoint built for a later `gh api`
+# (tick-plan.sh's and finish-task.sh's shape, which the first pattern alone misses), `gh --repo "$…"`,
+# the same call with the helper loaded, and a test file, which ships nothing and is out of scope.
+FIX="$WORK/sweep-fixture"
+git init -q "$FIX"
+mkdir -p "$FIX/skills/x/scripts" "$FIX/skills/y/scripts" "$FIX/scripts" "$FIX/hooks" "$FIX/tests/z"
+printf '%s\n' '#!/usr/bin/env bash' 'gh api "repos/$REPO/issues/1"' > "$FIX/skills/x/scripts/bad.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'endpoint="repos/$REPO/issues/1"' 'gh api "$endpoint"' \
+  > "$FIX/scripts/endpoint.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'gh pr view 1 --repo "$REPO"' > "$FIX/hooks/hook.sh"
+printf '%s\n' '#!/usr/bin/env bash' '. "$HERE/../../_shared/scripts/_gh-host.sh"' \
+  'gh issue view 1 -R "$REPO"' > "$FIX/skills/y/scripts/good.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'gh api "repos/$REPO/x"' > "$FIX/tests/z/test.sh"
+git -C "$FIX" add -A
+RC=0
+sweep "$FIX" > "$WORK/out.sweep-fixture" 2>&1 || RC=$?
+[ "$RC" -eq 1 ] || { echo "FAIL [sweep-fixture]: exit $RC, want 1"; cat "$WORK/out.sweep-fixture"; exit 1; }
+for want in skills/x/scripts/bad.sh scripts/endpoint.sh hooks/hook.sh; do
+  grep -Fx -- "$want" "$WORK/out.sweep-fixture" > /dev/null \
+    || { echo "FAIL [sweep-fixture]: $want was not reported"; cat "$WORK/out.sweep-fixture"; exit 1; }
+done
+for spared in skills/y/scripts/good.sh tests/z/test.sh; do
+  if grep -Fx -- "$spared" "$WORK/out.sweep-fixture" > /dev/null; then
+    echo "FAIL [sweep-fixture]: $spared was reported"; cat "$WORK/out.sweep-fixture"; exit 1
+  fi
+done
+echo "  ok: sweep-fixture — the three bare-slug shapes reported, the helper-loading script and the test spared"
+
+RC=0
+sweep "$KIT_ROOT" > "$WORK/out.sweep-tree" 2>&1 || RC=$?
+[ "$RC" -eq 0 ] || {
+  echo "FAIL [sweep-tree]: these shipped scripts address a repository by slug without loading"
+  echo "  skills/_shared/scripts/_gh-host.sh — on a GitHub Enterprise repository they reach github.com:"
+  sed 's/^/  | /' "$WORK/out.sweep-tree"
+  exit 1
+}
+echo "  ok: sweep-tree — every shipped script that addresses a repository by slug loads the helper"
 
 echo "gh-host golden test OK"
