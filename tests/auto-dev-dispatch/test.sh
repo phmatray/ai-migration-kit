@@ -225,6 +225,22 @@ grep -qF 'Needs manual sweep' <<<"$RELEASE_SECTION" \
 grep -Eqi 'never.{0,40}FREE' <<<"$RELEASE_SECTION" \
   || fail "the release guard does not forbid reading a no-verdict exit 2 as FREE"
 
+# The verdict words the guard acts on are the script's own, read from its --help rather than retyped
+# here: a verdict renamed or added in the script but not in the prose that consumes it fails.
+RB_HELP=$("$KIT/skills/auto-dev/scripts/release-branch.sh" --help)
+VERDICT_WORDS=$(printf '%s\n' "$RB_HELP" | awk '
+  /^One verdict line/ { on = 1; next }
+  /^Exit codes:/      { on = 0 }
+  on && /^  [A-Z]/    { print $1; if ($1 == "HELD") print $3 }
+')
+n_words=$(printf '%s\n' "$VERDICT_WORDS" | grep -c . || true)
+[ "$n_words" -ge 7 ] \
+  || fail "read $n_words verdict word(s) from release-branch.sh --help; expected FREE, RELEASED and HELD with its four reasons"
+for w in $VERDICT_WORDS; do
+  grep -qF -- "$w" <<<"$RELEASE_SECTION" \
+    || fail "the release guard never mentions '$w', a verdict word release-branch.sh prints"
+done
+
 # The Cleanup nuance paragraph keeps its decision — the tree stays for the sweep — and now says
 # the branch does not stay with it.
 CLEANUP=$(awk '/^\*\*Cleanup nuance for / { flag=1 } flag && /^$/ { exit } flag { print }' "$SKILL_MD" | tr '\n' ' ')

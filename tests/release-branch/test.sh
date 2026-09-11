@@ -42,7 +42,7 @@ new_repo() {
   git -C "$dir" config user.email t@example.com
   git -C "$dir" config user.name "Golden Test"
   printf 'base\n' > "$dir/tracked.txt"
-  printf '.claude/worktrees/\n' > "$dir/.gitignore"
+  printf '.claude/worktrees/\n.worktrees/\n' > "$dir/.gitignore"   # both homes, as make-worktree.sh proves
   git -C "$dir" add -A
   git -C "$dir" commit -qm base
   git -C "$dir" remote add origin "$dir-origin.git"
@@ -301,6 +301,40 @@ on_branch "$h13" || fail unset-fails "the holder was detached although the recor
 [ "$(git -C "$c13" config --get "kit.worktree.$BR.path" || true)" = "$h13" ] \
   || fail unset-fails "the record naming the holder changed"
 echo "  ok: unset-fails — a record that cannot be unset is no verdict; the holder stays on $BR"
+
+# The record make-worktree.sh really writes. Every case above writes kit.worktree.<branch>.path by
+# hand; this one lets make-worktree.sh build the holder in its real home (.claude/worktrees/<branch>)
+# and write the record itself, then runs the release the way SKILL.md Step 3 does — from the
+# checkout, with no -C. A key renamed in the writer and the reader but not here turns this red.
+c14="$WORK/via-make-worktree"
+new_repo "$c14"
+mw_out=$("$KIT/skills/implement-issue/scripts/make-worktree.sh" -C "$c14" "$BR" 2>&1) \
+  || fail via-make-worktree "make-worktree.sh refused the fixture: $mw_out"
+h14=$(printf '%s\n' "$mw_out" | sed -n 's/^WORKTREE=//p')
+[ -d "$h14" ] || fail via-make-worktree "make-worktree.sh printed no usable WORKTREE= line: $mw_out"
+[ -n "$(git -C "$c14" config --get "kit.worktree.$BR.path" || true)" ] \
+  || fail via-make-worktree "precondition: make-worktree.sh wrote no kit.worktree.$BR.path record"
+printf 'work\n' >> "$h14/tracked.txt"
+git -C "$h14" commit -qam "work on $BR"
+git -C "$h14" push -q -u origin "$BR"
+git -C "$c14" worktree lock --reason "$LOCK_REASON" "$h14"
+rc=0
+( cd "$c14" && "$KIT/$HELPER" "$BR" ) > "$WORK/stdout" 2> "$WORK/stderr" || rc=$?
+out=$(cat "$WORK/stdout")
+err=$(cat "$WORK/stderr")
+{ [ "$rc" -eq 0 ] && [ "$out" = "RELEASED $h14" ]; } \
+  || fail via-make-worktree "expected 'RELEASED $h14' with exit 0, got '$out' with exit $rc; stderr: $err"
+if left=$(git -C "$c14" config --get "kit.worktree.$BR.path"); then
+  fail via-make-worktree "the record make-worktree.sh wrote still names the released holder: $left"
+fi
+a14="$WORK/via-make-worktree-adopter"
+git -C "$c14" worktree add -q -b worktree-agent-b "$a14" main
+git -C "$a14" switch -q "$BR"
+gc_rc=0
+"$GUARDED_COMMIT" -C "$a14" "$BR" -- --allow-empty -qm "adopted after release" > "$WORK/gc.out" 2>&1 || gc_rc=$?
+[ "$gc_rc" -eq 0 ] || fail via-make-worktree "guarded-commit.sh from the adopting tree exited $gc_rc:
+$(cat "$WORK/gc.out")"
+echo "  ok: via-make-worktree — a make-worktree.sh holder is released from the checkout with no -C; its own record goes; guarded-commit.sh adopts"
 
 # ---------------------------------------------------------------- 6. no verdict (AC5)
 #
