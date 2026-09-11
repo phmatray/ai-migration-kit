@@ -234,10 +234,69 @@ degradation is named rather than silent. CI cannot start an MCP server, so
 
 ## Install
 
+The kit is written for Claude Code and installs as a plugin on five more hosts from this same
+repository; a dozen others load it through a rule file. Which host gets what, and the file that
+adapts it, is one table: [`docs/_data/hosts.yml`](docs/_data/hosts.yml) — the decision behind it is
+[ADR 0014](docs/adr/0014-the-kit-is-claude-code-first-and-reaches-other-hosts-through-thin-adapters.md).
+
+### Claude Code
+
 ```bash
-claude plugin marketplace add phmatray/ai-migration-kit   # or the local path to this repo
-claude plugin install ai-migration-kit
+claude plugin marketplace add phmatray/ai-migration-kit
+claude plugin install ai-migration-kit@ai-migration-kit-marketplace
 ```
+
+Inside a session the same two commands work as `/plugin marketplace add` and `/plugin install`.
+
+### Codex
+
+```bash
+codex plugin marketplace add phmatray/ai-migration-kit
+```
+
+Then open `/plugins`, install AI Migration Kit, and review and trust its hooks in `/hooks`.
+
+### GitHub Copilot CLI
+
+```bash
+copilot plugin marketplace add phmatray/ai-migration-kit
+copilot plugin install ai-migration-kit@ai-migration-kit-marketplace
+```
+
+### Gemini CLI
+
+```bash
+gemini extensions install https://github.com/phmatray/ai-migration-kit
+```
+
+### Antigravity CLI
+
+```bash
+agy plugin install https://github.com/phmatray/ai-migration-kit
+```
+
+### pi
+
+```bash
+pi install git:github.com/phmatray/ai-migration-kit
+```
+
+The issue → pull request skills work there as they are; the migration pipeline needs RoselineMCP,
+which pi does not load from a package.
+
+### Cursor, Windsurf, Cline, Kiro, GitHub Copilot, and every `AGENTS.md` host
+
+Clone the kit once, then copy the rule file your host reads into your project — it routes each
+request to a skill in the clone:
+
+```bash
+git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit
+mkdir -p .cursor/rules && cp ~/.ai-migration-kit/.cursor/rules/ai-migration-kit.mdc .cursor/rules/
+```
+
+That second line is Cursor's; the host table has every host's. For the migration pipeline, register
+RoselineMCP and AdrMcp — `dnx RoselineMCP --yes` and `dnx AdrMcp --yes`, .NET 10 SDK — in the host's
+MCP settings.
 
 ## Quickstart
 

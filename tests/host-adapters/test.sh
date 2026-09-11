@@ -2,7 +2,7 @@
 # Golden test for scripts/host-adapters.py — the generator and drift check for the files that carry
 # one of the kit's sources to another host (#525, #526): AGENTS.md's rule copies for Cursor,
 # Windsurf, Cline, Kiro, GitHub Copilot and Antigravity, the TOML commands and extension manifest
-# Gemini CLI reads, and the invariants the plugin manifests must keep.
+# Gemini CLI reads, and the invariants the plugin manifests and the host table must keep.
 #
 # What this suite guards:
 #   A. the REAL repository                      -> check exits 0, every copy in step
@@ -24,6 +24,8 @@
 #   O. the live TOML commands parse, carry description + prompt, and spell {{args}}
 #   P. gemini-extension.json, against the shape Gemini CLI documents
 #   Q. package.json declares the skills for pi and stays private
+#   R. README.md missing a plugin host's install line -> exit 1, naming README.md and the host
+#   S. a host table row naming an adapter that does not exist -> exit 1, naming the adapter
 #
 # The seam is the check's exit code and its STDOUT: a refusal is named there, and stderr is read
 # only to prove no traceback escaped. Expected paths and values are literals here, never read back
@@ -44,9 +46,10 @@ ok()  { printf '  ok    %s\n' "$1"; }
 bad() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
 COPIES=".cursor/rules/ai-migration-kit.mdc .windsurf/rules/ai-migration-kit.md .clinerules/ai-migration-kit.md .kiro/steering/ai-migration-kit.md .github/copilot-instructions.md .agents/rules/ai-migration-kit.md"
-# What the invariants read, beside the copies: the manifests, the files their paths name, and
-# release-please's two files. `skills/` only has to exist for a manifest's `skills` path to resolve.
-SOURCES=".claude-plugin/plugin.json .codex-plugin/plugin.json .github/plugin/plugin.json gemini-extension.json hooks/claude-hooks.json .mcp.json .release-please-manifest.json release-please-config.json"
+# What the invariants read, beside the copies: the manifests, the files their paths name,
+# release-please's two files, the host table and the README it is checked against. `skills/` only
+# has to exist for a manifest's `skills` path to resolve.
+SOURCES=".claude-plugin/plugin.json .codex-plugin/plugin.json .github/plugin/plugin.json gemini-extension.json package.json hooks/claude-hooks.json .mcp.json .release-please-manifest.json release-please-config.json docs/_data/hosts.yml README.md"
 
 # scratch_tree <dir> — a copy of what the check reads, and nothing else.
 scratch_tree() {
@@ -233,8 +236,23 @@ echo "== Q. package.json declares the skills for pi, and stays private =="
   && [ "$(jq -r '.private' "$REPO/package.json" 2>/dev/null)" = "true" ] \
   && ok "pi.skills is ./skills and the package is private" || bad "package.json does not declare pi.skills ./skills, private"
 
+echo "== R. README.md missing a plugin host's install line =="
+T="$WORK/r"; scratch_tree "$T"
+grep -vF 'gemini extensions install' "$REPO/README.md" > "$T/README.md"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with Gemini's line gone from README.md, want 1: $OUT $ERR"
+names "README.md" && ok "names README.md on stdout" || bad "stdout does not name README.md: $OUT"
+names "gemini-cli" && ok "names the host, gemini-cli" || bad "stdout does not name the host: $OUT"
+
+echo "== S. a host table row naming an adapter that does not exist =="
+T="$WORK/s"; scratch_tree "$T"
+sed 's#adapter: package.json#adapter: nope.json#' "$REPO/docs/_data/hosts.yml" > "$T/docs/_data/hosts.yml"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a missing adapter, want 1: $OUT $ERR"
+names "nope.json" && ok "names the missing adapter on stdout" || bad "stdout does not name nope.json: $OUT"
+
 if [ "$fails" -eq 0 ]; then
-  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi"
+  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi, host table"
 else
   echo "FAIL: host-adapters — $fails assertion(s) failed"; exit 1
 fi

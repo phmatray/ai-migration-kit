@@ -1,11 +1,14 @@
 ---
 id: 6
 title: The kit targets Claude Code only
-status: accepted
+status: superseded
 date: 2026-08-31
 tags:
 - harness
 - distribution
+links:
+- type: superseded-by
+  target: 14
 code_refs:
 - path: hooks/claude-hooks.json
 - path: .mcp.json

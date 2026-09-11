@@ -18,9 +18,10 @@ Two kinds of thing are checked:
              and `gemini-extension.json` (from `.claude-plugin/plugin.json` and `.mcp.json`).
   invariants what cannot be generated but must hold (`invariants(repo)`, one REFUSE line each): the
              Claude hooks map stays off `hooks/hooks.json`, the path Gemini CLI and Copilot CLI
-             auto-load in formats of their own; every path a manifest names resolves; and every
-             versioned manifest carries the release-please version and is one of its
-             `extra-files`, so a release can never leave one host a version behind.
+             auto-load in formats of their own; every plugin manifest carries the release-please
+             version and is one of its `extra-files`; every path a manifest names resolves; every
+             adapter the host table (`docs/_data/hosts.yml`) names exists; and every install line
+             of a `tier: plugin` host appears in README.md, so the front page never lags the table.
 
 Line endings: text is compared after CRLF -> LF, so a Windows checkout is not drift; `build` always
 writes LF, the repository's own convention (`.gitattributes`).
@@ -57,20 +58,17 @@ RULE_COPIES = (
     (".agents/rules/ai-migration-kit.md", ""),
 )
 
-# Where Claude Code's own hook map must NOT live: Gemini CLI and Copilot CLI auto-load this exact
-# path from an installed extension or plugin, each in an event vocabulary of its own (#526).
-OLD_HOOKS = "hooks/hooks.json"
-
-# The plugin manifests whose component paths (skills, hooks, mcpServers) must resolve.
-MANIFESTS = (
+# Every plugin manifest that carries a version. release-please bumps each through `extra-files`;
+# one missing from that list is a manifest that silently stays behind on the next release.
+VERSIONED = (
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     ".github/plugin/plugin.json",
+    "gemini-extension.json",
 )
 
-# Every manifest that carries a version. release-please bumps each through `extra-files`; one
-# missing from that list is a manifest that silently stays behind on the next release.
-VERSIONED = MANIFESTS + ("gemini-extension.json",)
+HOSTS = "docs/_data/hosts.yml"
+OLD_HOOKS = "hooks/hooks.json"
 
 
 class NoVerdict(Exception):
@@ -116,7 +114,7 @@ def gemini_extension(repo):
     """gemini-extension.json: the plugin's identity, AGENTS.md as context, `.mcp.json`'s servers."""
     plugin = read_json(repo, ".claude-plugin/plugin.json")
     servers = read_json(repo, ".mcp.json").get("mcpServers", {})
-    # Gemini's server entries carry no `type` (it infers stdio from `command`), and an empty `env`
+    # Gemini's server entries have no `type` (it infers stdio from `command`), and an empty `env`
     # says nothing — both are dropped so the block holds only what Gemini reads.
     mcp = {name: {k: v for k, v in cfg.items() if k != "type" and not (k == "env" and not v)}
            for name, cfg in servers.items()}
@@ -141,31 +139,55 @@ def generated(repo):
     return files
 
 
+def load_hosts(repo):
+    try:
+        import yaml  # PyYAML: a required prerequisite (requirements.json)
+    except ImportError as exc:
+        raise NoVerdict("PyYAML is not installed — see requirements.json") from exc
+    try:
+        hosts = yaml.safe_load(read_source(repo, HOSTS))
+    except yaml.YAMLError as exc:
+        raise NoVerdict(f"{HOSTS} is not valid YAML: {exc}") from exc
+    if not isinstance(hosts, list):
+        raise NoVerdict(f"{HOSTS} is not a list of hosts")
+    return hosts
+
+
 def invariants(repo):
     """Everything that must hold but is not generated — one REFUSE line per breach."""
     refusals = []
     if (repo / OLD_HOOKS).exists():
         refusals.append(f"REFUSE: {OLD_HOOKS} exists — Gemini CLI and Copilot CLI auto-load that path in "
-                        f"formats of their own; Claude Code's map lives at hooks/claude-hooks.json")
+                        f"formats of their own; the Claude map lives at hooks/claude-hooks.json")
 
-    for rel in MANIFESTS:
+    version = read_json(repo, ".release-please-manifest.json").get(".")
+    extra = {entry.get("path") for entry in
+             read_json(repo, "release-please-config.json")["packages"]["."].get("extra-files", [])}
+    for rel in VERSIONED:
+        manifest = read_json(repo, rel)
+        if manifest.get("version") != version:
+            refusals.append(f"REFUSE: {rel} is at version {manifest.get('version')!r}, the release-please "
+                            f"manifest at {version!r} — never bump by hand; take the manifest's value")
+        if rel not in extra:
+            refusals.append(f"REFUSE: {rel} is not in release-please-config.json's extra-files — "
+                            f"the next release would leave it behind")
+    for rel in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".github/plugin/plugin.json"):
         manifest = read_json(repo, rel)
         for key in ("skills", "hooks", "mcpServers"):
             target = manifest.get(key)
             if isinstance(target, str) and not (repo / target.removeprefix("./")).exists():
                 refusals.append(f"REFUSE: {rel} names {key} {target!r}, which does not exist")
 
-    version = read_json(repo, ".release-please-manifest.json").get(".")
-    packages = read_json(repo, "release-please-config.json").get("packages", {})
-    extra = {entry.get("path") for entry in packages.get(".", {}).get("extra-files", [])}
-    for rel in VERSIONED:
-        manifest = read_json(repo, rel)
-        if manifest.get("version") != version:
-            refusals.append(f"REFUSE: {rel} is at version {manifest.get('version')!r} but the release-please "
-                            f"manifest is at {version!r} — take the manifest's value, never bump by hand")
-        if rel not in extra:
-            refusals.append(f"REFUSE: {rel} is not in release-please-config.json's extra-files — the next "
-                            f"release would leave it a version behind")
+    readme = read_source(repo, "README.md")
+    for host in load_hosts(repo):
+        hid = host.get("id", "?")
+        adapter = host.get("adapter", "")
+        if not adapter or not (repo / adapter).exists():
+            refusals.append(f"REFUSE: {HOSTS} host {hid} names adapter {adapter!r}, which does not exist")
+        if host.get("tier") == "plugin":
+            for line in host.get("install", []):
+                if line not in readme:
+                    refusals.append(f"REFUSE: README.md does not carry {hid}'s install line: {line}")
     return refusals
 
 
