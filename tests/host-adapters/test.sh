@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Golden test for scripts/host-adapters.py — the generator and drift check for the files that carry
 # one of the kit's sources to another host (#525, #526): AGENTS.md's rule copies for Cursor,
-# Windsurf, Cline, Kiro, GitHub Copilot and Antigravity, and the invariants the plugin manifests
-# must keep.
+# Windsurf, Cline, Kiro, GitHub Copilot and Antigravity, the TOML commands and extension manifest
+# Gemini CLI reads, and the invariants the plugin manifests must keep.
 #
 # What this suite guards:
 #   A. the REAL repository                      -> check exits 0, every copy in step
@@ -19,11 +19,16 @@
 #   J. a manifest naming a hooks map that does not exist -> exit 1, naming the path
 #   K. a manifest at another version than the release-please manifest -> exit 1, naming it
 #   L. a versioned manifest missing from release-please's extra-files -> exit 1, naming it
+#   M. a TOML command edited by hand            -> exit 1, naming it AND the .md it is built from
+#   N. a server added to .mcp.json alone        -> exit 1, naming gemini-extension.json
+#   O. the live TOML commands parse, carry description + prompt, and spell {{args}}
+#   P. gemini-extension.json, against the shape Gemini CLI documents
+#   Q. package.json declares the skills for pi and stays private
 #
 # The seam is the check's exit code and its STDOUT: a refusal is named there, and stderr is read
-# only to prove no traceback escaped. Expected paths and front matter are literals here, never read
-# back out of the script — a test that recomputed them the way the script does could never
-# disagree with it (tautological). Section lines carry a label, never a fraction.
+# only to prove no traceback escaped. Expected paths and values are literals here, never read back
+# out of the script — a test that recomputed them the way the script does could never disagree with
+# it (tautological). Section lines carry a label, never a fraction.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -41,13 +46,14 @@ bad() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 COPIES=".cursor/rules/ai-migration-kit.mdc .windsurf/rules/ai-migration-kit.md .clinerules/ai-migration-kit.md .kiro/steering/ai-migration-kit.md .github/copilot-instructions.md .agents/rules/ai-migration-kit.md"
 # What the invariants read, beside the copies: the manifests, the files their paths name, and
 # release-please's two files. `skills/` only has to exist for a manifest's `skills` path to resolve.
-SOURCES=".claude-plugin/plugin.json .codex-plugin/plugin.json .github/plugin/plugin.json hooks/claude-hooks.json .mcp.json .release-please-manifest.json release-please-config.json"
+SOURCES=".claude-plugin/plugin.json .codex-plugin/plugin.json .github/plugin/plugin.json gemini-extension.json hooks/claude-hooks.json .mcp.json .release-please-manifest.json release-please-config.json"
 
 # scratch_tree <dir> — a copy of what the check reads, and nothing else.
 scratch_tree() {
   local d="$1" f
   mkdir -p "$d/skills"
   cp "$REPO/AGENTS.md" "$d/AGENTS.md"
+  cp -R "$REPO/commands" "$d/commands"
   for f in $COPIES $SOURCES; do
     mkdir -p "$d/$(dirname "$f")"
     cp "$REPO/$f" "$d/$f" 2>/dev/null || true
@@ -176,8 +182,59 @@ run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a manifest outside extra-files, want 1: $OUT $ERR"
 names ".github/plugin/plugin.json" && ok "names .github/plugin/plugin.json on stdout" || bad "stdout does not name the unbumped manifest: $OUT"
 
+echo "== M. a TOML command edited by hand is refused, naming its source =="
+T="$WORK/m"; scratch_tree "$T"
+printf '\n# edited by hand\n' >> "$T/commands/migrate.toml"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with an edited TOML command, want 1: $OUT $ERR"
+names "commands/migrate.toml" && ok "names commands/migrate.toml on stdout" || bad "stdout does not name the edited command: $OUT"
+names "commands/migrate.md" && ok "names its source, commands/migrate.md" || bad "the refusal does not name the TOML's source: $OUT"
+
+echo "== N. a server added to .mcp.json alone leaves gemini-extension.json behind =="
+T="$WORK/n"; scratch_tree "$T"
+jedit "$T/.mcp.json" 'd["mcpServers"]["extra"] = {"type": "stdio", "command": "dnx", "args": ["Extra", "--yes"]}'
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a server only in .mcp.json, want 1: $OUT $ERR"
+names "gemini-extension.json" && ok "names gemini-extension.json on stdout" || bad "stdout does not name gemini-extension.json: $OUT"
+
+echo "== O. the live TOML commands are what Gemini CLI reads =="
+if python3 - "$REPO" > "$WORK/o.out" 2>&1 <<'PY'
+import pathlib, sys, tomllib
+repo = pathlib.Path(sys.argv[1])
+mds = sorted((repo / "commands").glob("*.md"))
+assert mds, "no commands/*.md"
+for md in mds:
+    toml = md.with_suffix(".toml")
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert set(data) == {"description", "prompt"}, f"{toml.name}: keys {sorted(data)}"
+    assert "$ARGUMENTS" not in data["prompt"], f"{toml.name}: $ARGUMENTS survived"
+m = tomllib.loads((repo / "commands" / "migrate.toml").read_text(encoding="utf-8"))
+want = "Run the full seven-phase legacy upgrade pipeline (assess → verified production) powered by RoselineMCP"
+assert m["description"] == want, m["description"]
+assert "{{args}}" in m["prompt"], "migrate.toml: no {{args}} in the prompt"
+PY
+then ok "every commands/*.md has a TOML twin with description and prompt, and {{args}} for \$ARGUMENTS"
+else bad "the TOML commands: $(cat "$WORK/o.out")"; fi
+
+echo "== P. gemini-extension.json, as Gemini CLI documents it =="
+if python3 - "$REPO" > "$WORK/p.out" 2>&1 <<'PY'
+import json, pathlib, sys
+ext = json.loads((pathlib.Path(sys.argv[1]) / "gemini-extension.json").read_text(encoding="utf-8"))
+assert ext["name"] == "ai-migration-kit", ext["name"]
+assert ext["contextFileName"] == "AGENTS.md", ext["contextFileName"]
+assert ext["mcpServers"]["roseline"] == {"command": "dnx", "args": ["RoselineMCP", "--yes"]}, ext["mcpServers"]
+assert ext["mcpServers"]["adr"] == {"command": "dnx", "args": ["AdrMcp", "--yes"]}, ext["mcpServers"]
+PY
+then ok "name, AGENTS.md as context, and the two dnx servers without a type key"
+else bad "gemini-extension.json: $(cat "$WORK/p.out")"; fi
+
+echo "== Q. package.json declares the skills for pi, and stays private =="
+[ "$(jq -r '.pi.skills[0]' "$REPO/package.json" 2>/dev/null)" = "./skills" ] \
+  && [ "$(jq -r '.private' "$REPO/package.json" 2>/dev/null)" = "true" ] \
+  && ok "pi.skills is ./skills and the package is private" || bad "package.json does not declare pi.skills ./skills, private"
+
 if [ "$fails" -eq 0 ]; then
-  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions"
+  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi"
 else
   echo "FAIL: host-adapters — $fails assertion(s) failed"; exit 1
 fi
