@@ -74,8 +74,10 @@
 # IT ALWAYS ANSWERS. Exit is 0 for every verdict, including every non-verdict. `merge-pr` calls
 # this AFTER the merge has landed and cannot be undone, so a non-zero exit here would give an
 # autonomous fleet a brand-new way to strand a slot on a merge that already succeeded. The only
-# refusal is a usage error (exit 64), where there is no sha to resolve and printing `unverified`
-# would let a caller that forgot its argument report a clean non-verdict forever.
+# refusals, both exit 64 and both before any `gh` call, are a usage error — no sha to resolve, and
+# printing `unverified` would let a caller that forgot its argument report a clean non-verdict
+# forever — and a kit whose host helper will not load (#514), where every read would reach gh's
+# default host and a GitHub Enterprise base would never be read at all.
 #
 # IT NEVER REVERTS, and this script cannot: it performs no writes at all. On red the caller files
 # a bug naming the sha and the run URL (`merge-pr` Step 5b). An autonomous revert of what may well
@@ -83,13 +85,14 @@
 #
 # Exit codes:
 #   0   a verdict was produced — `green`, `red`, or one of the `unverified` non-verdicts
-#   64  usage error: no sha, an unparseable option, a non-numeric bound
+#   64  usage error: no sha, an unparseable option, a non-numeric bound, a malformed -R slug — or
+#       skills/_shared/scripts/_gh-host.sh cannot be loaded
 set -euo pipefail
 
 TOOL="base-run-verdict"
 
 usage() {
-  echo "usage: $TOOL.sh [-R <owner/repo>] <base-sha> [--timeout <s>] [--poll-seconds <s>] [--settle <s>] [--report-line]" >&2
+  echo "usage: $TOOL.sh [-R <[host/]owner/repo>] <base-sha> [--timeout <s>] [--poll-seconds <s>] [--settle <s>] [--report-line]" >&2
 }
 refuse() { echo "$TOOL: $1" >&2; usage; exit 64; }
 
@@ -145,11 +148,22 @@ command -v jq > /dev/null 2>&1 || refuse "jq is missing — it is a \`required\`
 command -v gh > /dev/null 2>&1 || refuse "gh is missing — there is no other way to read check-runs"
 [ -x "$DECIDE" ] || refuse "cannot execute $DECIDE — the ci.verdict decision has no other home"
 
+# The repository's own host (#514): `gh api` never infers one, so on a GitHub Enterprise base both
+# reads below reached github.com. Decided in ONE place, the helper, once and before the poll loop;
+# its exported GH_HOST reaches every read. With no -R it takes the checkout's origin host; a HOST/
+# prefix on -R names the host outright and is stripped to OWNER/REPO.
+# CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+GH_HOST_LIB="$KIT_ROOT/skills/_shared/scripts/_gh-host.sh"
+if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+command -v gh_host_resolve > /dev/null 2>&1 \
+  || { echo "$TOOL: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2; exit 64; }
+gh_host_resolve "$REPO" || exit 64
+
 # `{owner}/{repo}` is gh's own placeholder, resolved from the repository gh is pointed at. An
 # explicit -R overrides it, which is what lets a caller standing in a worktree of one repo read
 # another's base branch.
 OWNER_REPO="{owner}/{repo}"
-[ -n "$REPO" ] && OWNER_REPO="$REPO"
+[ -n "$REPO" ] && OWNER_REPO="$KIT_REPO_SLUG"
 
 # ------------------------------------------------------------------------------- 3. the answer
 #

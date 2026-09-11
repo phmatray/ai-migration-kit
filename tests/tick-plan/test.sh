@@ -9,6 +9,8 @@
 # NO call to gh at all.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# A GH_HOST in the developer's or CI's shell would decide the host cases (#514) on its own.
+unset GH_HOST
 
 TICK="./skills/implement-issue/scripts/tick-plan.sh"
 [ -x "$TICK" ] || { echo "FAIL: $TICK missing or not executable"; exit 1; }
@@ -31,10 +33,21 @@ WORK=$(kit_scratch)
 # from stdin — and records which of the two it was in $GH_INPUT_PATH. That is what lets the suite
 # pin the payload's transport (#113): `--input -` is the stdin pipe that sat for 25–35 minutes on
 # a 30KB body after GitHub had already stored it.
+#
+# Each log line also carries the GH_HOST the call ran under (#514), and `gh auth token --hostname H`
+# — the host helper's credential probe — succeeds only for a host listed in $GH_STUB_HOSTS. That
+# branch comes FIRST: the read branch below would otherwise answer it, and sleep under
+# $GH_READ_SLEEP.
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-echo "ARGS: $*" >> "$GH_CALL_LOG"
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_CALL_LOG"
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  host=""; prev=""
+  for a in "$@"; do [ "$prev" = "--hostname" ] && host="$a"; prev="$a"; done
+  case " ${GH_STUB_HOSTS:-} " in *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;; esac
+  exit 1
+fi
 if [[ "$*" == *PATCH* ]]; then
   input="<none>"; prev=""
   for a in "$@"; do
@@ -610,5 +623,67 @@ fresh_log crlf-checkbox-diff-sed-stdout
         stdout on the checkbox-only-diff guard (#215)"
        cat "$WORK/out.crlf-checkbox-diff-sed-stdout"; exit 1; }
 echo "  ok: crlf-checkbox-diff-sed-stdout — a text-mode sed stdout does not break the checkbox-only-diff guard (#215)"
+
+# ---------------------------------------------------------------- the repository's own host (#514)
+#
+# `gh api` never infers a host, so on a GitHub Enterprise repository a bare OWNER/REPO reached
+# github.com: 13 refused ticks in 7 sessions. The seam is the stub's log — the GH_HOST each call ran
+# under, and the endpoint it was asked for.
+
+# has_call <name> <ERE> — the case's gh log holds a line matching <ERE>, or the case fails.
+has_call() {
+  grep -qE -- "$2" "$GH_CALL_LOG" \
+    || { echo "FAIL [$1]: gh was never called as /$2/"; cat "$GH_CALL_LOG"; exit 1; }
+}
+
+# 19. A checkout whose origin is on a GHE host: the PATCH and the read-back both reach that host.
+CO_GHE="$WORK/co-ghe"
+git init -q "$CO_GHE"
+git -C "$CO_GHE" remote add origin git@ghe.example.com:acme/widgets.git
+fresh_log ghe-origin
+( cd "$CO_GHE" && GH_STUB_HOSTS=ghe.example.com "$KIT_ROOT/$TICK" --repo acme/widgets --issue 42 \
+    --before "$BEFORE" --after "$WORK/ticked.md" > "$WORK/out.ghe-origin" 2>&1 ) \
+  || { echo "FAIL [ghe-origin]: a legitimate tick was refused"; cat "$WORK/out.ghe-origin"; exit 1; }
+has_call ghe-origin '^GH_HOST=ghe\.example\.com ARGS: api repos/acme/widgets/issues/42 -X PATCH '
+has_call ghe-origin '^GH_HOST=ghe\.example\.com ARGS: api repos/acme/widgets/issues/42 --jq \.body$'
+echo "  ok: ghe-origin — the PATCH and the read-back both ran under GH_HOST=ghe.example.com"
+
+# 20. A HOST/ prefix on --repo names the host outright; it never leaks into the endpoint.
+fresh_log ghe-prefix
+"$TICK" --repo ghe.example.com/acme/widgets --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+  > "$WORK/out.ghe-prefix" 2>&1 \
+  || { echo "FAIL [ghe-prefix]: a legitimate tick was refused"; cat "$WORK/out.ghe-prefix"; exit 1; }
+has_call ghe-prefix '^GH_HOST=ghe\.example\.com ARGS: api repos/acme/widgets/issues/42 -X PATCH '
+has_call ghe-prefix '^GH_HOST=ghe\.example\.com ARGS: api repos/acme/widgets/issues/42 --jq \.body$'
+if grep -q 'repos/ghe\.example\.com' "$GH_CALL_LOG"; then
+  echo "FAIL [ghe-prefix]: the host leaked into the endpoint"; cat "$GH_CALL_LOG"; exit 1
+fi
+echo "  ok: ghe-prefix — endpoint repos/acme/widgets/issues/42, under GH_HOST=ghe.example.com"
+
+# 21. A malformed slug is a usage error: exit 1, the slug named, and gh never called.
+fresh_log malformed-slug
+RC=0
+"$TICK" --repo acme --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+  > "$WORK/out.malformed-slug" 2>&1 || RC=$?
+[ "$RC" -eq 1 ] || { echo "FAIL [malformed-slug]: expected exit 1, got $RC"; cat "$WORK/out.malformed-slug"; exit 1; }
+[ ! -s "$GH_CALL_LOG" ] || { echo "FAIL [malformed-slug]: gh was called:"; cat "$GH_CALL_LOG"; exit 1; }
+grep -qF "malformed repository slug 'acme'" "$WORK/out.malformed-slug" \
+  || { echo "FAIL [malformed-slug]: stderr does not name the slug"; cat "$WORK/out.malformed-slug"; exit 1; }
+echo "  ok: malformed-slug — exit 1, slug named, no gh call"
+
+# 22. The host helper is part of the install: without it the tick refuses, naming the missing file,
+#     rather than falling back to gh's default host — the exact #514 failure.
+NOHELPER="$WORK/nohelper/skills/implement-issue/scripts"
+mkdir -p "$NOHELPER"
+cp "$TICK" "$NOHELPER/tick-plan.sh"
+fresh_log missing-helper
+RC=0
+bash "$NOHELPER/tick-plan.sh" --repo o/r --issue 42 --before "$BEFORE" --after "$WORK/ticked.md" \
+  > "$WORK/out.missing-helper" 2>&1 || RC=$?
+[ "$RC" -eq 1 ] || { echo "FAIL [missing-helper]: expected exit 1, got $RC"; cat "$WORK/out.missing-helper"; exit 1; }
+[ ! -s "$GH_CALL_LOG" ] || { echo "FAIL [missing-helper]: gh was called:"; cat "$GH_CALL_LOG"; exit 1; }
+grep -qF '_shared/scripts/_gh-host.sh; reinstall the kit' "$WORK/out.missing-helper" \
+  || { echo "FAIL [missing-helper]: stderr does not name the missing helper"; cat "$WORK/out.missing-helper"; exit 1; }
+echo "  ok: missing-helper — exit 1, the missing helper named, no gh call"
 
 echo "tick-plan golden test OK"

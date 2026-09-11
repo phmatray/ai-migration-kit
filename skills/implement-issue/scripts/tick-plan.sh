@@ -44,9 +44,12 @@
 # then waits out the very call the deadline reported bounding (#135).
 #
 # Usage:
-#   tick-plan.sh --repo <owner/repo> --issue <n> --before <file> --after <file>
+#   tick-plan.sh --repo <[host/]owner/repo> --issue <n> --before <file> --after <file>
 #                [--comment-id <id>] [--dry-run]
 #
+#   --repo     OWNER/REPO, or HOST/OWNER/REPO to name a GitHub Enterprise host outright. Otherwise
+#              skills/_shared/scripts/_gh-host.sh resolves the host (#514); its one gh call,
+#              `gh auth token`, is a local credential lookup, so --dry-run still touches nothing
 #   --before   the body exactly as fetched, before any flip (the restore copy)
 #   --after    the same body with this task's boxes flipped
 #   --comment-id  plan lives in a comment (numeric REST id) instead of the issue description
@@ -176,6 +179,32 @@ printf '%s' "$payload" | jq -e '(.body | length) > 0' >/dev/null \
 # that. `--rawfile` needs jq >= 1.6 (requirements.json).
 printf '%s' "$payload" | jq --rawfile after "$AFTER" -e '.body == $after' >/dev/null \
   || die "the payload does not round-trip to --after. Nothing sent"
+
+# ---------------------------------------------------------------- the repository's own host
+
+# `gh api` never infers a host, so on a GitHub Enterprise repository a bare OWNER/REPO reached
+# github.com and the tick was refused (#514). Which host gh talks to is decided in ONE place, the
+# helper below; its exported GH_HOST is what both calls further down inherit. Resolved AFTER every
+# check above, so a refusal there still means gh was never called, and BEFORE the endpoint, so the
+# endpoint and the dry run both name the normalised OWNER/REPO.
+#
+# $0 through any symlinks first, as guarded-commit.sh does: `pwd -P` canonicalizes the directory,
+# not the link, and macOS's readlink has no -f.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$SELF")
+GH_HOST_LIB="$SCRIPT_DIR/../../_shared/scripts/_gh-host.sh"
+# CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+command -v gh_host_resolve >/dev/null 2>&1 || die "cannot load $GH_HOST_LIB; reinstall the kit"
+gh_host_resolve "$REPO" || exit 1
+REPO="$KIT_REPO_SLUG"
 
 if [ -n "$COMMENT_ID" ]; then
   endpoint="repos/$REPO/issues/comments/$COMMENT_ID"

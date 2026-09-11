@@ -7,6 +7,8 @@
 # Real git (a bare remote + a clone), a `gh` stub on PATH that stores what it is sent and serves
 # it back, so tick-plan.sh's read-back and the PR mirror are exercised rather than assumed.
 set -euo pipefail
+# A GH_HOST in the developer's or CI's shell would decide the host cases (#514) on its own.
+unset GH_HOST
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$KIT_ROOT/tests/_lib.sh" || {
@@ -17,11 +19,19 @@ FINISH="$KIT_ROOT/skills/implement-issue/scripts/finish-task.sh"
 fail() { echo "FAIL [$1]: $2"; exit 1; }
 
 # --- the gh stub: an issue store, a PR store, a call log ------------------------------------------
+# Each log line carries the GH_HOST the call ran under (#514). `gh auth token --hostname H`, the
+# host helper's credential probe, succeeds only for a host listed in $GH_STUB_HOSTS.
 export GH_ISSUE="$WORK/issue.md" GH_PR="$WORK/pr.md" GH_LOG="$WORK/gh.log"
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-echo "$*" >> "$GH_LOG"
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_LOG"
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  host=""; prev=""
+  for a in "$@"; do [ "$prev" = "--hostname" ] && host="$a"; prev="$a"; done
+  case " ${GH_STUB_HOSTS:-} " in *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;; esac
+  exit 1
+fi
 case "$*" in
   *"-X PATCH"*)
     f=""; prev=""; for a in "$@"; do [ "$prev" = "--input" ] && f="$a"; prev="$a"; done
@@ -114,5 +124,64 @@ grep -q 'PATCH\|pr edit' "$GH_LOG" && fail dry-write "dry-run wrote to GitHub"
 porcelain=$(git -C "$WT" status --porcelain)
 grep -q 'b.txt' <<<"$porcelain" || fail dry-commit "dry-run committed the tree"
 echo "  ok: three stages named, nothing written"
+
+# --- the repository's own host (#514) -------------------------------------------------------------
+# `gh api` never infers a host, and `gh -R OWNER/REPO` takes gh's default one, so on a GitHub
+# Enterprise repository every call below reached github.com. The seam is the stub's log: the
+# GH_HOST each call ran under, and what it was asked for.
+has_call() {  # has_call <name> <ERE> — the gh log holds a line matching <ERE>
+  grep -qE -- "$2" "$GH_LOG" || fail "$1" "gh was never called as /$2/ — log: $(cat "$GH_LOG")"
+}
+
+echo "== 6. a checkout on a GHE host: the read, the tick-plan it spawns, and the PR mirror all reach it =="
+CO_GHE="$WORK/co-ghe"
+git init -q "$CO_GHE"
+git -C "$CO_GHE" remote add origin git@ghe.example.com:acme/widgets.git
+: > "$GH_LOG"
+out=$(cd "$CO_GHE" && GH_STUB_HOSTS=ghe.example.com "$FINISH" --repo acme/widgets --issue 42 --task 2 --pr 7 \
+        --worktree "$WT" --branch fix/42 -c user.email=t@t -c user.name=t 2>&1) \
+  || fail ghe-origin "expected exit 0, got $? — $out"
+has_call ghe-origin '^GH_HOST=ghe\.example\.com ARGS: api repos/acme/widgets/issues/42 --jq \.body$'
+has_call ghe-origin '^GH_HOST=ghe\.example\.com ARGS: api repos/acme/widgets/issues/42 -X PATCH '
+has_call ghe-origin '^GH_HOST=ghe\.example\.com ARGS: pr view 7 --repo acme/widgets '
+has_call ghe-origin '^GH_HOST=ghe\.example\.com ARGS: pr edit 7 --repo acme/widgets '
+grep -qE '^GH_HOST=<unset> ARGS: (api|pr) ' "$GH_LOG" && fail ghe-origin-all "a call ran without the host: $(cat "$GH_LOG")"
+echo "  ok: read, PATCH, read-back, pr view and pr edit all ran under GH_HOST=ghe.example.com"
+
+echo "== 7. --repo HOST/OWNER/REPO: OWNER/REPO reaches every call, and tick-plan inherits the host =="
+# Run from a checkout with no origin, so the spawned tick-plan, handed a bare OWNER/REPO, has no
+# host of its own to find: only the one finish-task exported can reach its PATCH.
+printf '\n### Task 3: the third slice\n\n- [ ] **Step 1:** Commit: `feat(x): third slice`\n' >> "$GH_ISSUE"
+printf '%s\n' '- [ ] Task 3: the third slice' >> "$GH_PR"
+CO_NONE="$WORK/co-none"
+git init -q "$CO_NONE"
+: > "$GH_LOG"
+out=$(cd "$CO_NONE" && "$FINISH" --repo ghe.example.com/acme/widgets --issue 42 --task 3 --pr 7 \
+        --worktree "$WT" --branch fix/42 2>&1) \
+  || fail ghe-prefix "expected exit 0, got $? — $out"
+has_call ghe-prefix '^GH_HOST=ghe\.example\.com ARGS: api repos/acme/widgets/issues/42 -X PATCH '
+has_call ghe-prefix '^GH_HOST=ghe\.example\.com ARGS: pr edit 7 --repo acme/widgets '
+grep -qE '^GH_HOST=<unset> ARGS: (api|pr) ' "$GH_LOG" && fail ghe-prefix-all "a call ran without the host: $(cat "$GH_LOG")"
+grep -q 'ghe\.example\.com/acme' "$GH_LOG" && fail ghe-prefix-slug "the host leaked into a repository argument: $(cat "$GH_LOG")"
+echo "  ok: every call got acme/widgets under GH_HOST=ghe.example.com, the spawned tick-plan's PATCH included"
+
+echo "== 8. a malformed --repo: exit 64, the slug named, gh never called =="
+: > "$GH_LOG"
+rc=0; out=$("$FINISH" --repo acme --issue 42 --task 2 --worktree "$WT" --branch fix/42 --dry-run 2>&1) || rc=$?
+[ "$rc" -eq 64 ] || fail malformed "expected exit 64, got $rc — $out"
+grep -qF "malformed repository slug 'acme'" <<<"$out" || fail malformed-say "stderr must name the slug: $out"
+[ ! -s "$GH_LOG" ] || fail malformed-call "gh was called: $(cat "$GH_LOG")"
+echo "  ok: exit 64, slug named, no gh call"
+
+echo "== 9. without its host helper: exit 64, the missing file named, gh never called =="
+NOHELPER="$WORK/nohelper/skills/implement-issue/scripts"
+mkdir -p "$NOHELPER"
+cp "$FINISH" "$NOHELPER/finish-task.sh"
+: > "$GH_LOG"
+rc=0; out=$(bash "$NOHELPER/finish-task.sh" --repo o/r --issue 42 --task 2 --worktree "$WT" --branch fix/42 --dry-run 2>&1) || rc=$?
+[ "$rc" -eq 64 ] || fail missing-helper "expected exit 64, got $rc — $out"
+grep -qF '_shared/scripts/_gh-host.sh; reinstall the kit' <<<"$out" || fail missing-helper-say "stderr must name the helper: $out"
+[ ! -s "$GH_LOG" ] || fail missing-helper-call "gh was called: $(cat "$GH_LOG")"
+echo "  ok: exit 64, the missing helper named, no gh call"
 
 echo "finish-task golden test: all cases behaved as specified"
