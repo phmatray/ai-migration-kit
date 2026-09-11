@@ -11,6 +11,14 @@
 # user's branch in the main checkout. A rule living in prose cannot go red. This hook is where it
 # goes red — the one place in Claude Code that sees the command before it runs.
 #
+# It judges one `gh` command too: `gh pr merge` (#512). #326 put `gh` out of scope because "`gh pr
+# merge` is already guarded by `guarded-pr-merge.sh` and reads back state" — true only for an agent
+# that can FIND the guard. Session 62c8dcf7 measured one that could not: it ran the raw command,
+# whose one exit code covers both the merge and gh's local cleanup, and this hook's `*git*`
+# pre-filter let it through unread. So a raw `gh pr merge` in a profiled repository is denied like a
+# bare `git merge`, and every denial names its guard by absolute path from ${CLAUDE_PLUGIN_ROOT}
+# (`guard_hint`), so the refusal also says where the replacement is.
+#
 # It fails OPEN, always — the decision recorded in docs/adr/0002-the-roseline-gate-fails-open-always.md
 # for `hooks/roseline-gate.sh`, which this hook is modelled on line for line and which applies here
 # verbatim: the plugin installs globally, so a Bash gate that failed CLOSED would deadlock every
@@ -74,8 +82,10 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload" 2>/dev/null) || exit 0
 # 5s timeout allows and a timed-out hook is an unpredictable one. Fail open, explicitly.
 [ "${#cmd}" -le 65536 ] || exit 0
 
-# The cheap reject, before any parsing: nothing here can matter to a command with no `git` in it.
-case "$cmd" in *git*) ;; *) exit 0 ;; esac
+# The cheap reject, before any parsing: nothing here can matter to a command with neither `git` nor
+# `gh` in it. `*gh*` joined for #512 and lets more through to the parser (`high`, `github`,
+# `though`) — local string work on at most 64 KB, well inside the hook's 5 s timeout.
+case "$cmd" in *git*|*gh*) ;; *) exit 0 ;; esac
 
 # A heredoc body is FILE CONTENT, not commands, and this parser cannot tell the two apart: newlines
 # are folded to `;` below, so `cat > x.sh <<'SH'` … `git commit -m x` … `SH` would be judged as a
@@ -184,7 +194,7 @@ deny() { # $1 the offending segment  $2 the replacement sentence
   local reason
   reason="Blocked by the git write-gate: \`$1\` is one of the writes that produced #26 and #280 in a shared checkout.
 $2
-To run this one command anyway, prefix it: \`GIT_GATE=off git …\`. To disable the gate for a whole session, launch Claude with GIT_GATE=off in its environment — an \`export\` inside a Bash call never reaches this hook."
+To run this one command anyway, prefix it: \`GIT_GATE=off git …\` (or \`GIT_GATE=off gh …\`). To disable the gate for a whole session, launch Claude with GIT_GATE=off in its environment — an \`export\` inside a Bash call never reaches this hook."
   jq -n --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null
   exit 0
@@ -291,6 +301,9 @@ judge() { # $1 one segment of the stripped command
     [ "$grouped" -eq 1 ] || follow_cd "$@"
     return 0
   fi
+
+  # `gh` is judged for exactly one subcommand, by `judge_gh` below (#512).
+  case "$1" in gh|*/gh) judge_gh "$seg" "$@"; return 0 ;; esac
 
   case "$1" in git|*/git) shift ;; *) return 0 ;; esac
 
@@ -434,6 +447,33 @@ judge() { # $1 one segment of the stripped command
       ;;
   esac
   return 0
+}
+
+# ------------------------------------------------------------------- judge one `gh` segment
+# The one `gh` write the kit has a guard for (#512): `gh … pr … merge`. Everything else `gh` does —
+# `pr view`, `pr checks`, `issue …`, `api …`, the REST merge endpoint included (no incident has used
+# it) — returns without a verdict, and so does any word this walk cannot place.
+judge_gh() { # $1 the segment  $2… its tokens, the `gh` command word first
+  local seg="$1" want
+  shift 2
+  # gh's options may sit before `pr` and again before `merge`: `-R`/`--repo`/`--hostname` take a
+  # value, every other `-x` and `--x=y` stands alone.
+  for want in pr merge; do
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -R|--repo|--hostname) [ $# -ge 2 ] || return 0; shift 2 ;;
+        --*=*|-*) shift ;;
+        *) break ;;
+      esac
+    done
+    [ "${1:-}" = "$want" ] || return 0
+    shift
+  done
+  # The same probe as the git arms: no `-C` exists for gh, so the directory is the one the walk
+  # is standing in, moved by any `cd` it could follow.
+  [ "$FORCE" = 1 ] || { [ "$fresh_init" -eq 0 ] && is_profiled "$eff_dir"; } || return 0
+  deny "$seg" \
+    "A raw \`gh pr merge\` decides nothing: its one exit code covers both the merge on GitHub and gh's local cleanup, so a merge that landed reads as a failure (#178, #184). Use \`$(guard_hint skills/merge-pr/scripts/guarded-pr-merge.sh) <PR> -- --squash --delete-branch\`, which reads the PR's state back and exits once per outcome."
 }
 
 # ------------------------------------------------------------------------------ the segment walk

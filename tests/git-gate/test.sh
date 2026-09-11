@@ -181,6 +181,35 @@ case "$r" in *"$KIT/skills/"*)
   echo "FAIL [K6]: with no root the reason still names an absolute path: $r"; exit 1 ;; esac
 echo "ok: K5/K6 name no absolute path where the guard does not exist"
 
+# ------------------------------------------------------------ 1d. a raw `gh pr merge` (#512)
+# #326 left `gh` out of scope on the premise that `gh pr merge` "is already guarded by
+# guarded-pr-merge.sh" — true only for an agent that can FIND the guard. Session 62c8dcf7 measured
+# one that could not: it ran the raw command, and the gate's `*git*` pre-filter let it through
+# without reading a word. The allow rows come FIRST, so a gate without the arm shows them green and
+# stops on G1. (GA/G, not H: H1–H7 are the heredoc rows below.)
+verdict "GA1 gh pr merge in an unprofiled repo" pass "" "$(pay Bash 'gh pr merge 12' "$PLAIN")"
+verdict "GA2 GIT_GATE=off gh pr merge"        pass "" "$(pay Bash 'GIT_GATE=off gh pr merge 12' "$PROF")"
+verdict "GA3 the guard itself"                pass "" \
+  "$(pay Bash '"$KIT/skills/merge-pr/scripts/guarded-pr-merge.sh" 12 -- --squash' "$PROF")"
+verdict "GA4 gh pr view"                      pass "" "$(pay Bash 'gh pr view 12' "$PROF")"
+verdict "GA5 gh pr checks"                    pass "" "$(pay Bash 'gh pr checks 12' "$PROF")"
+verdict "GA6 gh pr list"                      pass "" "$(pay Bash 'gh pr list --state open' "$PROF")"
+verdict "GA7 inside a double-quoted string"   pass "" "$(pay Bash 'echo "gh pr merge 12"' "$PROF")"
+verdict "GA8 git log, then gh pr view"        pass "" "$(pay Bash 'git log --oneline -1 && gh pr view 12' "$PROF")"
+
+verdict "G1  gh pr merge --squash --delete-branch" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'gh pr merge 12 --squash --delete-branch' "$PROF")"
+verdict "G2  gh pr merge -R o/r"              deny "guarded-pr-merge.sh" "$(pay Bash 'gh pr merge -R o/r 12 --squash' "$PROF")"
+verdict "G3  the merge is segment 2"          deny "guarded-pr-merge.sh" "$(pay Bash 'cd sub && gh pr merge 12' "$PROF")"
+verdict "G4  gh by absolute path"             deny "guarded-pr-merge.sh" "$(pay Bash '/opt/homebrew/bin/gh pr merge 12' "$PROF")"
+verdict "G5  names guarded-pr-merge.sh by absolute path" \
+  deny "$KIT/skills/merge-pr/scripts/guarded-pr-merge.sh" \
+  "$(pay Bash 'gh pr merge 12 --squash --delete-branch' "$PROF")" "$PATH" "" "$KIT"
+verdict "G6  an option between pr and merge"  deny "guarded-pr-merge.sh" "$(pay Bash 'gh pr -R o/r merge 12' "$PROF")"
+verdict "G7  GIT_GATE=on forces past the probe" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'gh pr merge 12' "$PLAIN")" "$PATH" on
+verdict "G8  the escape names the gh spelling" deny 'GIT_GATE=off gh' "$(pay Bash 'gh pr merge 12' "$PROF")"
+
 # ------------------------------------------------------------------ 2. the allow rows (A)
 verdict "A1  branch -D after a merge"  pass "" "$(pay Bash 'git branch -D feat/326-x' "$PROF")"
 verdict "A2  checkout a branch"        pass "" "$(pay Bash 'git checkout main' "$PROF")"
