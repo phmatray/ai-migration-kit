@@ -20,6 +20,14 @@
 # `exit 0` with no output, and the harness reads silence as "nothing to add", not as a block. Set
 # ROUTING_CONTEXT=off to disable it outright; unlike the two gates there is no `=on` counterpart —
 # there is no launcher probe here for a user to override.
+#
+# After the table it prints two lines of its own (#512): `Kit root: <CLAUDE_PLUGIN_ROOT>` and the
+# guards' absolute paths. The table says WHICH skill; nothing said WHERE the kit lives, so sessions
+# spelled the guards cwd-relative and five guesses at the kit's path failed in four sessions. This is
+# an EXTRA layer, not the mechanism: whether SessionStart context reaches a sub-agent dispatched with
+# `Agent(...)` is unverified, so the write-gate's deny text — which names every guard by absolute
+# path (`guard_hint` in hooks/git-write-gate.sh) and has been quoted back by a worker — is what the
+# fix rests on. These lines are derived from the same root, never a second copy of the table.
 
 case "${ROUTING_CONTEXT:-}" in off|0|false|no|disabled) exit 0 ;; esac
 
@@ -40,6 +48,13 @@ section=$(awk '
 ' "$claude_md")
 
 [ -n "$section" ] || exit 0
+
+# Where the kit lives, and its guards by absolute path (#512 — see the header).
+root="${CLAUDE_PLUGIN_ROOT%/}"
+section="$section
+
+Kit root: $root
+Guards (invoke by absolute path from any repository, and pass these paths into any sub-agent you dispatch): $root/skills/implement-issue/scripts/guarded-commit.sh, guarded-push.sh, guarded-merge.sh · $root/skills/merge-pr/scripts/guarded-pr-merge.sh"
 
 jq -n --arg ctx "$section" \
   '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' 2>/dev/null
