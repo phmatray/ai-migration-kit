@@ -177,13 +177,13 @@ script; [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh)'s header records th
 ### The kit's skill-routing table travels via a SessionStart hook
 
 [`hooks/routing-context.sh`](hooks/routing-context.sh) is the third shipped hook, on `SessionStart`
-rather than `PreToolUse`: it extracts `.claude/CLAUDE.md`'s *Which kit skill, for what* section and
-injects it as `additionalContext`, so the routing table reaches a session even when the working
-directory is not this repository (`.claude/CLAUDE.md` is a project instruction file Claude Code only
-reads here, #416). There is no second copy of the table — a heading rename or removal in
-`.claude/CLAUDE.md` empties the extraction rather than reading stale.
+rather than `PreToolUse`: it extracts [`AGENTS.md`](AGENTS.md)'s *Which kit skill, for what*
+section and injects it as `additionalContext`, so the routing table reaches a session even when the
+working directory is not this repository (#416). `AGENTS.md` is the table's one home (#525) — the
+file every other host reads as well — and there is no second copy: a heading rename or removal there
+empties the extraction rather than reading stale.
 
-- **Fails open, always** — no `jq`, no `CLAUDE_PLUGIN_ROOT`, an unreadable `.claude/CLAUDE.md`, or an
+- **Fails open, always** — no `jq`, no `CLAUDE_PLUGIN_ROOT`, an unreadable `AGENTS.md`, or an
   empty extraction, and the hook prints nothing and exits 0; it never blocks anything (it has no deny
   path to begin with).
 - **`ROUTING_CONTEXT=off`** (also `0|false|no|disabled`) disables it outright — set where Claude is
