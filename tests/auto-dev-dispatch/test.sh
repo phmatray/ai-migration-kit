@@ -164,4 +164,32 @@ if ! WORKER_TOPLEVEL=/repo/.claude/worktrees/agent-x SUPERVISOR_TOPLEVEL=/repo b
 $(cat "$diff_out" 2>/dev/null)"
 fi
 
+# --- #510 Task 2: the worker-side branch-held guard ---------------------------------------------
+#
+# A re-dispatch onto an existing PR branch can wake up in a fresh tree while a retired worker's
+# tree still holds that branch. The worker cannot repair that from inside its own tree, so both
+# command files give it a NAMED refusal the supervisor acts on (release-branch.sh, then
+# re-dispatch) and forbid the workarounds that would put two trees on one branch. Newlines are
+# folded to spaces first, so a sentence the prose wraps across lines still matches.
+for f in "$WORKER_MD" "$MERGE_MD"; do
+  flat=$(tr '\n' ' ' < "$f")
+  grep -qF 'branch-held guard:' <<<"$flat" \
+    || fail "$f does not carry the 'branch-held guard:' refusal signature (#510)"
+  grep -qF 'release-branch.sh then re-dispatch' <<<"$flat" \
+    || fail "$f's branch-held signature does not name the supervisor's repair ('release-branch.sh then re-dispatch')"
+  grep -Eqi '(do not|never)[^.]{0,80}--ignore-other-worktrees' <<<"$flat" \
+    || fail "$f does not forbid --ignore-other-worktrees (two trees on one branch, #510)"
+done
+
+WORKTREE_STEP="$KIT/skills/implement-issue/references/steps/04-worktree.md"
+[ -f "$WORKTREE_STEP" ] || fail "missing $WORKTREE_STEP"
+flat=$(tr '\n' ' ' < "$WORKTREE_STEP")
+grep -qi 'checked out in another worktree' <<<"$flat" \
+  || fail "04-worktree.md does not name the branch-checked-out-in-another-worktree case (#510)"
+grep -qF 'commands/auto-dev-worker.md' <<<"$flat" \
+  || fail "04-worktree.md does not point the held-branch case at commands/auto-dev-worker.md"
+if grep -qF 'release-branch.sh then re-dispatch' <<<"$flat"; then
+  fail "04-worktree.md restates the branch-held signature — its one home is the two command files"
+fi
+
 echo "PASS: auto-dev-dispatch"
