@@ -5,15 +5,11 @@ per-repo profile at [`.claude/skills/repo-profile.md`](skills/repo-profile.md) i
 source of commit identity, build/test commands, CI gates, labels and conflict hot-spots — read it
 first.
 
-## Which kit skill, for what
+## Routing
 
-The kit's own skills come **first** here, before any third-party plugin's equivalent (`superpowers`):
-the kit is what is being dogfooded, and `skills/_shared/` is the one home of its doctrine (#324).
-Full guide: [`docs/methodology.md`](../docs/methodology.md). Short form — broken/flaky → `debug-issue`; a new idea →
-`create-issue` (`--seed #N` plans a raw issue); a planned issue → `implement-issue #N`; a ready PR →
-`merge-pr #N`; many issues hands-off → `auto-dev`; the queue → `triage-backlog`; profile/labels →
-`profile-repo` then `setup-repo`; a legacy .NET app → `/migrate-assess` then `/migrate`; a missing
-skill → write it with `skill-creator`, then register it (*Adding a skill* below).
+The kit is what is being dogfooded here, so its own skills come first. Which one, for what: the
+routing table in [`AGENTS.md`](../AGENTS.md) — its one home since #525, where every host reads it —
+which `hooks/routing-context.sh` injects at session start.
 
 ## Where each concern lives
 
