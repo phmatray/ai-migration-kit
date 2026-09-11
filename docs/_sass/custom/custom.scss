@@ -306,6 +306,8 @@ figure.highlight :not(pre) > code {
   max-width: 44rem;
 }
 
+// Twelve slots: eleven plugin hosts plus Other hosts. The Pages guard in tests/skills/test.sh
+// refuses a twelfth plugin host, whose arrival would leave the last tab with no panel.
 @for $i from 1 through 12 {
   .kit-picker > input:nth-of-type(#{$i}):checked ~ .kit-picker-panel:nth-of-type(#{$i}) {
     display: block;

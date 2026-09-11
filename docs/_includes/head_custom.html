@@ -18,3 +18,10 @@
     }
   })();
 </script>
+<!-- Without JavaScript nothing above runs and the toggle cannot work, so a dark system gets the dark
+     stylesheet directly — loaded after the default one, it overrides it rule for rule — and the
+     toggle is hidden. -->
+<noscript>
+<link rel="stylesheet" media="(prefers-color-scheme: dark)" href="{{ '/assets/css/just-the-docs-kit-dark.css' | relative_url }}">
+<style>.kit-scheme-toggle { display: none; }</style>
+</noscript>

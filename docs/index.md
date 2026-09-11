@@ -5,6 +5,7 @@ nav_order: 1
 
 {%- assign plugin_hosts = site.data.hosts | where: "tier", "plugin" -%}
 {%- assign rule_hosts = site.data.hosts | where: "tier", "rules" -%}
+{%- assign rule_example = rule_hosts | first -%}
 
 # AI Migration Kit
 
@@ -20,7 +21,7 @@ nav_order: 1
 </div>
 </section>
 
-[Install on your agent](#install){: .btn .btn-primary } [Read the method](methodology.md){: .btn }
+[Install on your agent](#install){: .btn .btn-primary } [Read the method](methodology.md){: .btn } [GitHub](https://github.com/phmatray/ai-migration-kit){: .btn }
 
 Written for Claude Code; installs as a plugin on {{ plugin_hosts.size }} hosts, and loads through a
 rule file on {{ rule_hosts.size }} more families of editors and agents.
@@ -66,9 +67,9 @@ taught the kit: [the case study](case-studies/winrt-portfolio/portfolio.md).
 </div>
 {%- endfor %}
 <div class="kit-picker-panel">
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit
-mkdir -p .cursor/rules &amp;&amp; cp ~/.ai-migration-kit/.cursor/rules/ai-migration-kit.mdc .cursor/rules/</code></pre></div></div>
-<p>That second line is Cursor's. Windsurf, Cline, Kiro, GitHub Copilot and every <code>AGENTS.md</code> host have their own on the <a href="{{ 'install.html' | relative_url }}">Install</a> page.</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>{{ rule_example.install | join: "
+" | xml_escape }}</code></pre></div></div>
+<p>That second line is {{ rule_example.name }}'s; the other {{ rule_hosts.size | minus: 1 }} rule-file hosts have theirs on the <a href="{{ 'install.html' | relative_url }}">Install</a> page.</p>
 </div>
 </div>
 
