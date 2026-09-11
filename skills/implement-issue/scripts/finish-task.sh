@@ -15,9 +15,11 @@
 # (nothing to commit → "already committed"; no unticked box in the task → "already ticked").
 #
 # Usage:
-#   finish-task.sh --repo <owner/repo> --issue <n> --task <k> --worktree <dir> --branch <name>
+#   finish-task.sh --repo <[host/]owner/repo> --issue <n> --task <k> --worktree <dir> --branch <name>
 #                  [--pr <n>] [--comment-id <id>] [-c key=value]… [-m <message>] [--dry-run]
 #
+#   --repo        OWNER/REPO, or HOST/OWNER/REPO for a GitHub Enterprise host. The host is resolved
+#                 once, by skills/_shared/scripts/_gh-host.sh (#514), and tick-plan.sh inherits it
 #   --task        the `### Task <k>` block whose `- [ ]` lines are flipped — only that block
 #   --pr          the PR whose body carries the `### Plan` mirror; omitted → the mirror is skipped
 #   --comment-id  the plan lives in that comment, not the issue body (older issues)
@@ -56,6 +58,18 @@ done
 [ -n "$REPO" ] && [ -n "$ISSUE" ] && [ -n "$TASK" ] && [ -n "$WORKTREE" ] && [ -n "$BRANCH" ] \
   || refuse "--repo, --issue, --task, --worktree and --branch are all required"
 case "$TASK" in *[!0-9]*|"") refuse "--task takes the task number, got '$TASK'" ;; esac
+
+# The repository's own host (#514): `gh api` never infers one and `gh -R OWNER/REPO` takes gh's
+# default, so on a GitHub Enterprise repository every call below reached github.com. Decided in ONE
+# place, before the first gh call. The exported GH_HOST reaches every call below and tick-plan.sh,
+# which is handed the normalised OWNER/REPO and keeps the host it inherits.
+# CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+GH_HOST_LIB="$HERE/../../_shared/scripts/_gh-host.sh"
+if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+command -v gh_host_resolve >/dev/null 2>&1 \
+  || { echo "$TOOL: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2; exit 64; }
+gh_host_resolve "$REPO" || exit 64
+REPO="$KIT_REPO_SLUG"
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 

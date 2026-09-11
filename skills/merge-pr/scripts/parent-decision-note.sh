@@ -5,7 +5,11 @@
 # aren't part of a decomposed epic at all.
 #
 # Usage:
-#   parent-decision-note.sh <child-issue-number> <pr-number> <owner/repo>
+#   parent-decision-note.sh <child-issue-number> <pr-number> <[host/]owner/repo>
+#
+#   HOST/OWNER/REPO names a GitHub Enterprise host outright; with a bare OWNER/REPO the host is the
+#   checkout's own origin's, when origin is that repository. Resolved once, before the first gh
+#   call, by skills/_shared/scripts/_gh-host.sh (#514).
 #
 # What it does, in order:
 #   1. Reads the child issue's native `parent` field (`gh issue view <child> --json parent`).
@@ -25,7 +29,8 @@
 #   1   a real failure: a `gh` call failed, returned unparseable JSON, or the parent's body could
 #       not be safely read or the write could not be confirmed. Always a `parent-decision-note:`
 #       prefixed line on stderr.
-#   2   usage — bad arguments; nothing was called.
+#   2   usage — bad arguments, a malformed slug, or the kit's host helper missing; nothing was
+#       called.
 #
 # bash 3.2 compatible (no associative arrays, no `${var,,}`, no `mapfile`). Tested by
 # tests/merge-pr-parent/test.sh through a stubbed `gh` on PATH.
@@ -59,7 +64,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 
-[ $# -eq 3 ] || refuse "expected 3 arguments, got $#: <child-issue-number> <pr-number> <owner/repo>"
+[ $# -eq 3 ] || refuse "expected 3 arguments, got $#: <child-issue-number> <pr-number> <[host/]owner/repo>"
 
 CHILD="$1"
 PR="$2"
@@ -67,14 +72,40 @@ REPO="$3"
 
 is_number "$CHILD" || refuse "'$CHILD' is not an issue number"
 is_number "$PR" || refuse "'$PR' is not a PR number"
+# HOST/OWNER/REPO is admitted here; the host helper below refuses four segments or more.
 case "$REPO" in
-  */*/*|*/|/*|*[[:space:]]*) refuse "'$REPO' is not <owner>/<repo>" ;;
+  */|/*|*//*|*[[:space:]]*) refuse "'$REPO' is not [<host>/]<owner>/<repo>" ;;
   */*) ;;
-  *) refuse "'$REPO' is not <owner>/<repo>" ;;
+  *) refuse "'$REPO' is not [<host>/]<owner>/<repo>" ;;
 esac
 
 command -v gh > /dev/null 2>&1 || refuse "gh is missing"
 command -v jq > /dev/null 2>&1 || refuse "jq is missing"
+
+# ---------------------------------------------------------------------- 0. the repository's host
+#
+# `gh -R OWNER/REPO` takes gh's DEFAULT host, even inside a GitHub Enterprise checkout, so on a GHE
+# repository every call below reached github.com (#514). Which host gh talks to is decided in ONE
+# place, the helper below; its exported GH_HOST is what all five calls inherit. Resolved AFTER every
+# check above, so a refusal there still means nothing was called, and BEFORE the first gh call.
+#
+# $0 through any symlinks first, as guarded-commit.sh does: `pwd -P` canonicalizes the directory,
+# not the link, and macOS's readlink has no -f.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || SCRIPT_DIR=$(dirname -- "$SELF")
+GH_HOST_LIB="$SCRIPT_DIR/../../_shared/scripts/_gh-host.sh"
+# CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+command -v gh_host_resolve > /dev/null 2>&1 || refuse "cannot load $GH_HOST_LIB; reinstall the kit"
+gh_host_resolve "$REPO" || exit 2
+REPO="$KIT_REPO_SLUG"
 
 # ---------------------------------------------------------------------- 1. does a parent exist?
 

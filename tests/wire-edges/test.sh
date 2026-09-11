@@ -13,13 +13,15 @@
 #   exit 0               every edge ok or fallback (404 = the feature is off on this host)
 #   exit 1               any other non-2xx, or an issue whose database id cannot be resolved
 #   exit 2               usage — the caller's arguments, not GitHub, are wrong
-#   --dry-run            prints the POSTs it would send and calls gh NOT AT ALL
+#   --dry-run            prints the POSTs it would send and makes no API call
 #
 # The 404 rule is the load-bearing one: sub-issues and dependencies are GA on github.com but may
 # 404 on GHES, and a run that treats that as failure leaves every decomposition half-wired with a
 # red exit nobody can act on. The text `**Blocked by:**` line is always written by the skill, so
 # fallback loses nothing on the body; it only loses the UI-visible frontier.
 set -euo pipefail
+# A GH_HOST in the developer's or CI's shell would decide the host cases (#514) on its own.
+unset GH_HOST
 cd "$(dirname "$0")/../.."
 
 SCRIPT="skills/create-issue/scripts/wire-edges.sh"
@@ -49,9 +51,18 @@ mkdir -p "$WORK/bin"
 #   GH_ISSUE_404_FOR  one issue NUMBER whose id lookup alone answers 404 (the others succeed)
 #   GH_PLAIN_ERROR    when set, a non-2xx prints the bare `gh: HTTP <code>` form real gh uses
 #                     when the error body is not JSON (a proxy's HTML page), with no message
+#
+# Each log line carries the GH_HOST the call ran under (#514). `gh auth token --hostname H`, the
+# host helper's credential probe, succeeds only for a host listed in $GH_STUB_HOSTS.
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-echo "ARGS: $*" >> "$GH_CALL_LOG"
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_CALL_LOG"
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  host=""; prev=""
+  for a in "$@"; do [ "$prev" = "--hostname" ] && host="$a"; prev="$a"; done
+  case " ${GH_STUB_HOSTS:-} " in *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;; esac
+  exit 1
+fi
 method=GET; endpoint=""; prev=""
 for a in "$@"; do
   case "$prev" in
@@ -295,6 +306,99 @@ expect_rc 0 && expect_no_calls \
   && expect_line 'POST repos/o/r/issues/12/dependencies/blocked_by' \
   && expect_no_line '^(SUB|DEP) .* (ok|fallback|FAILED)' \
   && ok "--dry-run prints the POSTs it would send and never invokes gh"
+
+# ------------------------------------------------------------ 9. the repository's own host (#514)
+#
+# `gh api` never infers a host, so on a GitHub Enterprise repository the id lookups and every POST
+# reached github.com. The seam is the stub's log: the GH_HOST each call ran under, and its endpoint.
+expect_stderr_contains() {
+  if ! grep -qF -- "$1" "$ERR"; then
+    echo "FAIL: [$CASE] stderr lacks: $1"; echo "--- stderr"; cat "$ERR"
+    fails=$((fails + 1)); return 1
+  fi
+}
+expect_all_hosted() {   # no API call ran without GH_HOST=ghe.example.com
+  if grep -qE '^GH_HOST=<unset> ARGS: api ' "$GH_CALL_LOG"; then
+    echo "FAIL: [$CASE] an API call ran without the host:"; cat "$GH_CALL_LOG"
+    fails=$((fails + 1)); return 1
+  fi
+}
+
+# A checkout whose origin is on a GHE host, run by the script's absolute path from inside it. Two
+# children, one blocked by the other, so BOTH POST endpoints — sub_issues and blocked_by — are made.
+CO_GHE="$WORK/co-ghe"
+git init -q "$CO_GHE"
+git -C "$CO_GHE" remote add origin git@ghe.example.com:acme/widgets.git
+SCRIPT_KEEP="$SCRIPT"; SCRIPT="$KIT_ROOT/$SCRIPT_KEEP"
+cd "$CO_GHE"
+GH_STUB_HOSTS=ghe.example.com run_case "ghe-origin" --repo acme/widgets --parent 1 --child 2 --child 3:blocked-by=2
+cd "$KIT_ROOT"
+SCRIPT="$SCRIPT_KEEP"
+expect_rc 0 \
+  && expect_line '^SUB 1←2 ok' && expect_line '^SUB 1←3 ok' && expect_line '^DEP 3⇐2 ok' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: api .*repos/acme/widgets/issues/1 --jq \.id$' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: api .*--method POST --silent repos/acme/widgets/issues/1/sub_issues -F sub_issue_id=1002$' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: api .*--method POST --silent repos/acme/widgets/issues/3/dependencies/blocked_by -F issue_id=1002$' \
+  && expect_all_hosted \
+  && ok "a GHE checkout: the id lookups and both POST endpoints ran under GH_HOST=ghe.example.com"
+
+# A HOST/ prefix names the host outright — even from this checkout, whose origin is github.com —
+# and the endpoints get OWNER/REPO, never the prefixed slug.
+run_case "ghe-prefix" --repo ghe.example.com/acme/widgets --parent 1 --child 2
+expect_rc 0 && expect_line '^SUB 1←2 ok' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: api .*repos/acme/widgets/issues/2 --jq \.id$' \
+  && expect_call '^GH_HOST=ghe\.example\.com ARGS: api .*--method POST --silent repos/acme/widgets/issues/1/sub_issues -F sub_issue_id=1002$' \
+  && expect_all_hosted \
+  && ok "--repo HOST/OWNER/REPO: every call got repos/acme/widgets/… under GH_HOST=ghe.example.com"
+if grep -qF 'repos/ghe.example.com' "$GH_CALL_LOG"; then
+  echo "FAIL: [$CASE] the host leaked into an endpoint:"; cat "$GH_CALL_LOG"; fails=$((fails + 1))
+fi
+
+# The dry run prints the endpoints the real run would use — the prefix stripped — and a prefix
+# resolves without asking gh anything.
+run_case "dry-run-ghe-prefix" --dry-run --repo ghe.example.com/acme/widgets --parent 1 --child 2 --child 3:blocked-by=2
+expect_rc 0 && expect_no_calls \
+  && expect_line 'POST repos/acme/widgets/issues/1/sub_issues' \
+  && expect_line 'POST repos/acme/widgets/issues/3/dependencies/blocked_by' \
+  && expect_no_line 'repos/ghe\.example\.com' \
+  && ok "--dry-run with HOST/OWNER/REPO prints repos/acme/widgets/… and calls nothing"
+
+# Guard: from a GHE checkout the dry run still makes no API call. The one gh it may run is the host
+# helper's `gh auth token`, a local credential lookup.
+SCRIPT="$KIT_ROOT/$SCRIPT_KEEP"
+cd "$CO_GHE"
+GH_STUB_HOSTS=ghe.example.com run_case "dry-run-ghe-origin" --dry-run --repo acme/widgets --parent 1 --child 2
+cd "$KIT_ROOT"
+SCRIPT="$SCRIPT_KEEP"
+expect_rc 0 && expect_line 'POST repos/acme/widgets/issues/1/sub_issues' \
+  && ok "--dry-run from a GHE checkout prints the plan"
+if grep -qvE '^GH_HOST=<unset> ARGS: auth token --hostname ghe\.example\.com$' "$GH_CALL_LOG"; then
+  echo "FAIL: [$CASE] the dry run made a call other than the local credential lookup:"; cat "$GH_CALL_LOG"
+  fails=$((fails + 1))
+else
+  ok "--dry-run from a GHE checkout makes no API call"
+fi
+
+# Four segments is no slug at all: the host helper refuses it, and gh is never called.
+run_case "malformed-slug" --repo a/b/c/d --parent 1 --child 2
+expect_rc 2 && expect_no_calls && expect_stderr_contains "malformed repository slug 'a/b/c/d'" \
+  && ok "a four-segment --repo is exit 2, named on stderr, calls nothing"
+
+# Admitting HOST/OWNER/REPO must not admit an empty segment with it.
+run_case "empty-segment" --repo acme//widgets --parent 1 --child 2
+expect_rc 2 && expect_no_calls && ok "a --repo with an empty segment is still exit 2, calls nothing"
+
+# The host helper is part of the install: without it the wiring refuses, naming the missing file,
+# rather than falling back to gh's default host — the exact #514 failure.
+NOHELPER="$WORK/nohelper/skills/create-issue/scripts"
+mkdir -p "$NOHELPER"
+cp "$KIT_ROOT/$SCRIPT_KEEP" "$NOHELPER/wire-edges.sh"
+chmod +x "$NOHELPER/wire-edges.sh"
+SCRIPT="$NOHELPER/wire-edges.sh"
+run_case "missing-helper" --repo o/r --parent 1 --child 2
+SCRIPT="$SCRIPT_KEEP"
+expect_rc 2 && expect_no_calls && expect_stderr_contains "_shared/scripts/_gh-host.sh; reinstall the kit" \
+  && ok "without its host helper: exit 2, the missing file named, calls nothing"
 
 # ------------------------------------------------------------------------------------------ verdict
 if [ "$fails" -ne 0 ]; then

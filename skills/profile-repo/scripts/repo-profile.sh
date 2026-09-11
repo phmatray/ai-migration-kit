@@ -13,7 +13,10 @@
 #                  git/gh/marker/CI/label/template probe in one pass and emit a
 #                  compact, labelled facts block for the model to turn into the
 #                  filled template. Best-effort: any probe that can't answer
-#                  prints "TODO" for that field rather than aborting.
+#                  prints "TODO" for that field rather than aborting. The one
+#                  refusal (exit 2) is a kit missing its host helper,
+#                  skills/_shared/scripts/_gh-host.sh: without it every read of a
+#                  GitHub Enterprise repository would reach github.com (#514).
 #
 # All output is plain text designed to be read straight into context.
 
@@ -61,7 +64,24 @@ case "$CMD" in
       exit 4
     fi
 
+    # The repository's own host (#514). `gh api` never infers a host, so on a GitHub Enterprise
+    # checkout the branch-protection read below reached github.com. The helper is LOADED here,
+    # before the first gh call, so a kit missing it refuses having called nothing. It RESOLVES once
+    # `gh repo view` — which does infer the host from origin — has named the repository, and then
+    # exports origin's host as GH_HOST for every call after it. Decided in ONE place, the helper;
+    # `show` never loads it. KIT_ROOT was resolved before the cd, so the helper is the kit's; its
+    # origin read is this repository's.
+    GH_HOST_LIB="$KIT_ROOT/skills/_shared/scripts/_gh-host.sh"
+    # CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+    if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+    command -v gh_host_resolve >/dev/null 2>&1 \
+      || { echo "repo-profile: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2; exit 2; }
+
     SLUG="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
+    if [ -n "$SLUG" ]; then
+      gh_host_resolve "$SLUG" || exit 2
+      SLUG="$KIT_REPO_SLUG"
+    fi
 
     echo "# Detected facts for $(pwd)"
     echo "# (TODO lines = the model must determine these by hand and leave a <!-- TODO --> marker)"
