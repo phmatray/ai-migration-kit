@@ -49,12 +49,23 @@ section=$(awk '
 
 [ -n "$section" ] || exit 0
 
-# Where the kit lives, and its guards by absolute path (#512 — see the header).
+# Where the kit lives, and each guard by its full absolute path — only the ones that exist there,
+# the rule guard_hint keeps in the write-gate (#512 — see the header).
 root="${CLAUDE_PLUGIN_ROOT%/}"
+guards=""
+for g in skills/implement-issue/scripts/guarded-commit.sh skills/implement-issue/scripts/guarded-push.sh \
+         skills/implement-issue/scripts/guarded-merge.sh skills/merge-pr/scripts/guarded-pr-merge.sh; do
+  if [ -f "$root/$g" ]; then
+    if [ -n "$guards" ]; then guards="$guards · $root/$g"; else guards="$root/$g"; fi
+  fi
+done
 section="$section
 
-Kit root: $root
-Guards (invoke by absolute path from any repository, and pass these paths into any sub-agent you dispatch): $root/skills/implement-issue/scripts/guarded-commit.sh, guarded-push.sh, guarded-merge.sh · $root/skills/merge-pr/scripts/guarded-pr-merge.sh"
+Kit root: $root"
+if [ -n "$guards" ]; then
+  section="$section
+Guards (invoke by absolute path from any repository, and pass these paths into any sub-agent you dispatch): $guards"
+fi
 
 jq -n --arg ctx "$section" \
   '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' 2>/dev/null

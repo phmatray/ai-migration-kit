@@ -82,10 +82,10 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload" 2>/dev/null) || exit 0
 # 5s timeout allows and a timed-out hook is an unpredictable one. Fail open, explicitly.
 [ "${#cmd}" -le 65536 ] || exit 0
 
-# The cheap reject, before any parsing: nothing here can matter to a command with neither `git` nor
-# `gh` in it. `*gh*` joined for #512 and lets more through to the parser (`high`, `github`,
-# `though`) — local string work on at most 64 KB, well inside the hook's 5 s timeout.
-case "$cmd" in *git*|*gh*) ;; *) exit 0 ;; esac
+# The cheap reject, before any parsing: nothing here can matter to a command with no `git` in it and
+# no `gh` followed somewhere by `merge` — the one `gh` shape judged below (#512). `*gh*merge*`, not a
+# bare `*gh*`, so `github`, `high` and `though` stay on this fast path.
+case "$cmd" in *git*|*gh*merge*) ;; *) exit 0 ;; esac
 
 # A heredoc body is FILE CONTENT, not commands, and this parser cannot tell the two apart: newlines
 # are folded to `;` below, so `cat > x.sh <<'SH'` … `git commit -m x` … `SH` would be judged as a
@@ -185,16 +185,23 @@ BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92) }
 # `echo "guarded-commit.sh"` sitting on the same line as a real bare `git commit` would whitelist
 # it; that is an over-recognition, which fails OPEN, and this hook's whole declared direction (see
 # ADR 0002) is that over-allowing is the mistake it is willing to make.
+#
+# `guarded-pr-merge.sh` is deliberately NOT on the list (#512). Its own call never trips the `gh`
+# arm — that segment's command word is the guard, not `gh` — so listing it bought nothing, and it
+# let through the very incident the arm exists for: session 62c8dcf7's "look for the guard, else
+# merge raw" line (`if [ ! -d "$SKILLS_DIR" ]; then … gh pr merge 1340 …; else
+# "$SKILLS_DIR/guarded-pr-merge.sh" …; fi`) names the guard, so a whole-line allow never judged it.
 case "$cmd" in
-  *guarded-commit.sh*|*guarded-push.sh*|*guarded-pr-merge.sh*|*guarded-merge.sh*) exit 0 ;;
+  *guarded-commit.sh*|*guarded-push.sh*|*guarded-merge.sh*) exit 0 ;;
 esac
 
 # ------------------------------------------------------------------------------- the deny output
 deny() { # $1 the offending segment  $2 the replacement sentence
-  local reason
-  reason="Blocked by the git write-gate: \`$1\` is one of the writes that produced #26 and #280 in a shared checkout.
+         # $3 why it is gated (default: the git writes of #26/#280)  $4 its command word (default: git)
+  local reason why="${3:-is one of the writes that produced #26 and #280 in a shared checkout}"
+  reason="Blocked by the git write-gate: \`$1\` $why.
 $2
-To run this one command anyway, prefix it: \`GIT_GATE=off git …\` (or \`GIT_GATE=off gh …\`). To disable the gate for a whole session, launch Claude with GIT_GATE=off in its environment — an \`export\` inside a Bash call never reaches this hook."
+To run this one command anyway, prefix it: \`GIT_GATE=off ${4:-git} …\`. To disable the gate for a whole session, launch Claude with GIT_GATE=off in its environment — an \`export\` inside a Bash call never reaches this hook."
   jq -n --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null
   exit 0
@@ -208,9 +215,11 @@ To run this one command anyway, prefix it: \`GIT_GATE=off git …\` (or \`GIT_GA
 # from — whenever the guard exists there. A stale root (a cache an upgrade emptied) or none at all
 # keeps the kit-relative spelling: never an absolute path that does not exist.
 guard_hint() { # $1 a kit-relative path
-  local root="${CLAUDE_PLUGIN_ROOT:-}"
+  local root="${CLAUDE_PLUGIN_ROOT:-}" p
   if [ -n "$root" ] && [ -f "${root%/}/$1" ]; then
-    printf '%s' "${root%/}/$1"
+    p="${root%/}/$1"
+    # Double-quoted when it holds whitespace, so the command it sits in still pastes as one word.
+    case "$p" in *[[:space:]]*) printf '"%s"' "$p" ;; *) printf '%s' "$p" ;; esac
   else
     printf '%s' "$1"
   fi
@@ -469,11 +478,16 @@ judge_gh() { # $1 the segment  $2… its tokens, the `gh` command word first
     [ "${1:-}" = "$want" ] || return 0
     shift
   done
-  # The same probe as the git arms: no `-C` exists for gh, so the directory is the one the walk
-  # is standing in, moved by any `cd` it could follow.
-  [ "$FORCE" = 1 ] || { [ "$fresh_init" -eq 0 ] && is_profiled "$eff_dir"; } || return 0
+  # `--disable-auto` cancels an auto-merge and merges nothing — this arm's `git merge --abort`.
+  # Routed to the guard, it would read back as a merge queued for a landing that never comes.
+  case " $* " in *" --disable-auto "*) return 0 ;; esac
+  # The git arms' probe, minus `fresh_init`: gh has no `-C`, so the repository is the one the walk
+  # is standing in (a followed `cd` moves it), and a `git init` earlier on the line — even
+  # `git init /tmp/x`, which moves nothing — makes no PR mergeable and no raw merge safe.
+  [ "$FORCE" = 1 ] || is_profiled "$eff_dir" || return 0
   deny "$seg" \
-    "A raw \`gh pr merge\` decides nothing: its one exit code covers both the merge on GitHub and gh's local cleanup, so a merge that landed reads as a failure (#178, #184). Use \`$(guard_hint skills/merge-pr/scripts/guarded-pr-merge.sh) <PR> -- --squash --delete-branch\`, which reads the PR's state back and exits once per outcome."
+    "A raw \`gh pr merge\` decides nothing: its one exit code covers both the merge on GitHub and gh's local cleanup, so a merge that landed reads as a failure (#178, #184). Use \`$(guard_hint skills/merge-pr/scripts/guarded-pr-merge.sh) [-R <owner/repo>] <PR> -- --squash --delete-branch\`, which reads the PR's state back and exits once per outcome." \
+    "is the one \`gh\` write the kit routes through a guard (#512)" gh
 }
 
 # ------------------------------------------------------------------------------ the segment walk

@@ -9,9 +9,10 @@ land; for squash-merge (the `(#NNN)` commits on `main`):
   # --subject is optional; omit it (drop the whole -- line down to --delete-branch) to accept gh's default
 ```
 
-`<kit>` is the kit root (the placeholder `references/merge-mechanics.md` defines), printed at session
-start as `Kit root:` and named in every write-gate denial; a guard you cannot find is a reason to
-resolve `<kit>`, never to run `gh pr merge` yourself.
+`<kit>` is the kit root (the placeholder `references/merge-mechanics.md` defines). When the plugin's
+hooks run, it is printed at session start as `Kit root:` and spelled out in every write-gate denial
+that names a guard; either way, a guard you cannot find is a reason to resolve `<kit>`, never to run
+`gh pr merge` yourself.
 
 **Prefer omitting `--subject`.** `implement-issue` titled the PR `… (#issue)`, and gh's default squash
 subject is that title with `(#PR)` appended — giving the canonical `… (#issue) (#PR)` shape
