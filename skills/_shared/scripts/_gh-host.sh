@@ -53,10 +53,19 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 fi
 
 gh_host_resolve() {
-  local slug="${1-}" segments="" host="" url="" origin_host="" origin_slug="" wanted=""
+  local slug="${1-}" segments=1 rest="" host="" url="" origin_host="" origin_slug="" wanted=""
   KIT_REPO_SLUG=""
   if [ -n "$slug" ]; then
-    segments=$(printf '%s\n' "$slug" | awk -F/ '{print NF}')
+    # Counted in bash, not with awk: a caller can run under a PATH pinned to a handful of tools
+    # (tests/repo-profile/test.sh rebuilds it from symlinks), and a missing awk must never read as
+    # a malformed slug.
+    rest="$slug"
+    while :; do
+      case "$rest" in
+        */*) rest="${rest#*/}"; segments=$((segments + 1)) ;;
+        *) break ;;
+      esac
+    done
     case "$segments" in
       2) KIT_REPO_SLUG="$slug" ;;
       3) host=$(printf '%s' "${slug%%/*}" | tr '[:upper:]' '[:lower:]')
