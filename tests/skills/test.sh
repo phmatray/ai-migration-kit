@@ -1465,6 +1465,10 @@ for page in ("install.md", "platforms.md"):
         print("FAIL: docs/" + page + " is missing"); sys.exit(1)
     if "site.data.hosts" not in p.read_text(encoding="utf-8"):
         print("FAIL: docs/" + page + " does not read site.data.hosts — the host list has one home, docs/_data/hosts.yml"); sys.exit(1)
+# The landing page (#527) installs on every host: it links the Install page, and its picker is
+# rendered from the host table, never a hand-typed list of hosts.
+if "](install.md)" not in itext or "kit-picker" not in itext or "site.data.hosts" not in itext:
+    print("FAIL: docs/index.md must link install.md and carry a kit-picker rendered from site.data.hosts"); sys.exit(1)
 # The capability columns are the strings yes, partial and no. YAML reads a bare yes/no as a
 # boolean, and the Platforms table then printed true/false (measured on #527's first build).
 for host in yaml.safe_load((docs / "_data" / "hosts.yml").read_text(encoding="utf-8")):
