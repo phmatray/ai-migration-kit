@@ -42,6 +42,7 @@
     "scripts/parse-sweep.sh": "a structural guard (every suite parses under bash 3.2), not a control-flow choice with a verdict vocabulary",
     "scripts/recap-wiring-check.py": "a structural agreement guard (every skill links the shared recap; the hand-off table, the skills and ARCHITECTURE.md's dashed edges name the same pairs); it has no verdict vocabulary of its own to register",
     "scripts/pinned-literals-check.py": "a structural guard in its own declare-or-record style (the precedent R10 mirrors); not a control-flow choice",
+    "scripts/host-adapters.py": "a generator and structural drift check for the files that carry one source to other hosts (#525) — exit 0/1/2 is in step / refuse / no verdict, read by its golden suite and CI; it never chooses a path through a skill, so there is nothing for decide.sh to dispatch",
     "scripts/sigpipe-idiom-check.py": "a structural guard (no positive-match grep -q is fed by a streaming producer under pipefail, #391); it flags a shape, not a control-flow choice with a verdict vocabulary",
     "scripts/preflight.sh": "a prerequisite probe, not a control-flow choice",
     "scripts/release-title-diff.sh": "lists changed paths for release-title-gate.sh; a data-extraction helper feeding a decision, not one itself",

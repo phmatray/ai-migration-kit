@@ -542,6 +542,9 @@ jobs:
       - name: Routing-context golden test (SessionStart hook, extracts AGENTS.md's routing table, #416, #525)
         run: ./tests/routing-context/test.sh
 
+      - name: Host-adapters golden test (AGENTS.md's rule copies for six hosts, generated and checked for drift, #525)
+        run: ./tests/host-adapters/test.sh
+
       - name: Auto-dev stop-gate golden test (Stop hook refuses on undrained fleet state, every deny AND every allow, #417)
         run: ./tests/autodev-stop-gate/test.sh
 
