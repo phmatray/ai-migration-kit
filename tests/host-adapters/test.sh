@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Golden test for scripts/host-adapters.py — the generator and drift check for the files that carry
-# one of the kit's sources to another host (#525): AGENTS.md's rule copies for Cursor, Windsurf,
-# Cline, Kiro, GitHub Copilot and Antigravity.
+# one of the kit's sources to another host (#525, #526): AGENTS.md's rule copies for Cursor,
+# Windsurf, Cline, Kiro, GitHub Copilot and Antigravity, and the invariants the plugin manifests
+# must keep.
 #
 # What this suite guards:
 #   A. the REAL repository                      -> check exits 0, every copy in step
@@ -14,6 +15,8 @@
 #  F4. a CRLF AGENTS.md                         -> exit 0 (the source is normalised too)
 #   G. no subcommand                            -> exit 2 (usage)
 #   H. each host's front matter, on the real copies, as the host documents it
+#   I. a hooks/hooks.json in the tree           -> exit 1, naming it (Gemini and Copilot auto-load it)
+#   J. a manifest naming a hooks map that does not exist -> exit 1, naming the path
 #
 # The seam is the check's exit code and its STDOUT: a refusal is named there, and stderr is read
 # only to prove no traceback escaped. Expected paths and front matter are literals here, never read
@@ -38,12 +41,14 @@ COPIES=".cursor/rules/ai-migration-kit.mdc .windsurf/rules/ai-migration-kit.md .
 # scratch_tree <dir> — a copy of what the check reads, and nothing else.
 scratch_tree() {
   local d="$1" f
-  mkdir -p "$d"
+  mkdir -p "$d/.claude-plugin" "$d/hooks"
   cp "$REPO/AGENTS.md" "$d/AGENTS.md"
   for f in $COPIES; do
     mkdir -p "$d/$(dirname "$f")"
     cp "$REPO/$f" "$d/$f" 2>/dev/null || true
   done
+  cp "$REPO/.claude-plugin/plugin.json" "$d/.claude-plugin/plugin.json"
+  cp "$REPO/hooks/claude-hooks.json" "$d/hooks/claude-hooks.json" 2>/dev/null || true
 }
 
 # run_check <repo> [subcommand] — sets OUT (stdout), ERR (stderr) and RC.
@@ -57,6 +62,8 @@ names() { case "$OUT" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
 no_traceback() { case "$ERR" in *Traceback*) bad "$1 produced a traceback: $ERR" ;; *) ok "$1: no traceback" ;; esac; }
 utf16() { python3 -c 'import sys; open(sys.argv[2], "w", encoding="utf-16").write(open(sys.argv[1], encoding="utf-8").read())' "$1" "$2"; }
 crlf() { awk '{ printf "%s\r\n", $0 }' "$1" > "$2"; }
+# jedit <file> <python statement on d> — edit one JSON file in place, for a mutation case.
+jedit() { python3 -c 'import json, sys; p = sys.argv[1]; d = json.load(open(p, encoding="utf-8")); exec(sys.argv[2]); json.dump(d, open(p, "w", encoding="utf-8"), indent=2, ensure_ascii=False)' "$1" "$2"; }
 
 [ -f "$CHECK" ] || { echo "FAIL: $CHECK does not exist"; exit 1; }
 
@@ -138,8 +145,22 @@ for f in .clinerules/ai-migration-kit.md .github/copilot-instructions.md .agents
     && ok "$f: no front matter, opens on the heading" || bad "$f does not open on '# AI Migration Kit'"
 done
 
+echo "== I. the Claude hooks map stays off hooks/hooks.json =="
+T="$WORK/i"; scratch_tree "$T"
+printf '{"hooks": {}}\n' > "$T/hooks/hooks.json"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a hooks/hooks.json, want 1: $OUT $ERR"
+names "hooks/hooks.json" && ok "names hooks/hooks.json on stdout" || bad "stdout does not name hooks/hooks.json: $OUT"
+
+echo "== J. a manifest naming a hooks map that does not exist =="
+T="$WORK/j"; scratch_tree "$T"
+jedit "$T/.claude-plugin/plugin.json" 'd["hooks"] = "./hooks/nope.json"'
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a missing hooks map, want 1: $OUT $ERR"
+names "./hooks/nope.json" && ok "names the missing path on stdout" || bad "stdout does not name ./hooks/nope.json: $OUT"
+
 if [ "$fails" -eq 0 ]; then
-  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter"
+  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map"
 else
   echo "FAIL: host-adapters — $fails assertion(s) failed"; exit 1
 fi

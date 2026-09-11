@@ -7,7 +7,7 @@ tags:
 - harness
 - distribution
 code_refs:
-- path: hooks/hooks.json
+- path: hooks/claude-hooks.json
 - path: .mcp.json
 - path: commands/auto-dev-worker.md
 parent: Architectural Decision Records

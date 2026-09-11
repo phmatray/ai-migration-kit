@@ -7,6 +7,7 @@
     "name": "Philippe Matray"
   },
   "license": "MIT",
+  "hooks": "./hooks/claude-hooks.json",
   "keywords": [
     "migration",
     "legacy",

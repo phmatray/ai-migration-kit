@@ -217,7 +217,7 @@ verdict "empty cwd allows" 0 "$(jq -nc '{session_id:"x",hook_event_name:"Stop",s
   || { echo "FAIL: parse-sweep rejects the gate or this suite"; exit 1; }
 echo "ok: the gate and this suite pass ./scripts/parse-sweep.sh"
 
-HJ="$KIT/hooks/hooks.json"
+HJ="$KIT/hooks/claude-hooks.json"
 jq -e . "$HJ" >/dev/null 2>&1 || { echo "FAIL: hooks.json is not valid JSON"; exit 1; }
 n=$(jq '[.hooks.Stop[]?] | length' "$HJ")
 [ "$n" = "1" ] || { echo "FAIL: hooks.json has $n Stop hook entries, want exactly 1"; exit 1; }

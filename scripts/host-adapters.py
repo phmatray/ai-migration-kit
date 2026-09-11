@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
 """host-adapters.py — build, and check, the files that carry one of the kit's sources to another host.
 
-Why this exists (#525). The kit's routing text has one home, `AGENTS.md`. Hosts that read a rules
-folder of their own — Cursor, Windsurf, Cline, Kiro, GitHub Copilot, Antigravity — each want a copy
-at a path they choose, some behind front matter they require. Copies kept by hand drift, and the
-drift is silent: every host still loads a rule, just yesterday's. ponytail, which ships the same
-shape to twenty hosts, keeps its copies honest with a compare script
-(dietrichgebert/ponytail, `scripts/check-rule-copies.js`). This is the kit's, with one difference:
-`build` WRITES every copy from its source, and `check` computes the same bytes in memory and refuses
-any file on disk that differs. A copy is never edited — only rebuilt — so it has exactly one author.
+Why this exists (#525, #526). The kit is written for Claude Code and reaches every other host through
+adapters. Copies kept by hand drift, and the drift is silent: every host still loads something, just
+yesterday's. ponytail, which ships the same shape to twenty hosts, keeps its copies honest with a
+compare script (dietrichgebert/ponytail, `scripts/check-rule-copies.js`). This is the kit's, with one
+difference: `build` WRITES every derived file from its source, and `check` computes the same bytes in
+memory and refuses any file on disk that differs — so a derived file is never edited, only rebuilt,
+and has exactly one author.
 
-`generated(repo)` is the single list of what this script owns: `{relative path: text}`. A new
-adapter that is derived from a source joins that function; nothing else needs to learn about it.
+Two kinds of thing are checked:
 
-Line endings: a copy is compared after CRLF -> LF, so a Windows checkout is not drift; `build`
-always writes LF, the repository's own convention (`.gitattributes`).
+  generated  `generated(repo)` returns {relative path: text} — today the rule copies of `AGENTS.md`
+             for the hosts that read a rules folder of their own (Cursor, Windsurf, Cline, Kiro,
+             GitHub Copilot, Antigravity).
+  invariants what cannot be generated but must hold (`invariants(repo)`, one REFUSE line each): the
+             Claude hooks map stays off `hooks/hooks.json`, the path Gemini CLI and Copilot CLI
+             auto-load in formats of their own, and every path a manifest names resolves.
+
+Line endings: text is compared after CRLF -> LF, so a Windows checkout is not drift; `build` always
+writes LF, the repository's own convention (`.gitattributes`).
 
 Usage:
   host-adapters.py [--repo <path>] build
   host-adapters.py [--repo <path>] check
 
 Exit codes:
-  0  build wrote every generated file · check found every one in step with its source
-  1  REFUSE (check) — one line per generated file that is missing or differs, and the fix
-  2  usage or plumbing — a source could not be read, so no verdict is possible. NOT a pass.
+  0  build wrote every generated file · check found every file in step and every invariant holding
+  1  REFUSE (check) — one line per drifted file or broken invariant, naming it and the fix
+  2  usage or plumbing — a source could not be read or parsed, so no verdict is possible. NOT a pass.
 """
 import argparse
+import json
 import pathlib
 import sys
 
@@ -48,9 +54,16 @@ RULE_COPIES = (
     (".agents/rules/ai-migration-kit.md", ""),
 )
 
+# Where Claude Code's own hook map must NOT live: Gemini CLI and Copilot CLI auto-load this exact
+# path from an installed extension or plugin, each in an event vocabulary of its own (#526).
+OLD_HOOKS = "hooks/hooks.json"
+
+# The plugin manifests whose component paths (skills, hooks, mcpServers) must resolve.
+MANIFESTS = (".claude-plugin/plugin.json",)
+
 
 class NoVerdict(Exception):
-    """A source is unreadable: exit 2, never a pass."""
+    """A source is unreadable or unparseable: exit 2, never a pass."""
 
 
 def read_source(repo, rel):
@@ -62,10 +75,32 @@ def read_source(repo, rel):
         raise NoVerdict(f"cannot read {rel}: {exc.strerror or exc}") from exc
 
 
+def read_json(repo, rel):
+    try:
+        return json.loads(read_source(repo, rel))
+    except json.JSONDecodeError as exc:
+        raise NoVerdict(f"{rel} is not valid JSON: {exc}") from exc
+
+
 def generated(repo):
     """Every file this script owns, computed from its source: {relative path: text}."""
     agents = read_source(repo, SOURCE)
     return {path: front + agents for path, front in RULE_COPIES}
+
+
+def invariants(repo):
+    """Everything that must hold but is not generated — one REFUSE line per breach."""
+    refusals = []
+    if (repo / OLD_HOOKS).exists():
+        refusals.append(f"REFUSE: {OLD_HOOKS} exists — Gemini CLI and Copilot CLI auto-load that path in "
+                        f"formats of their own; Claude Code's map lives at hooks/claude-hooks.json")
+    for rel in MANIFESTS:
+        manifest = read_json(repo, rel)
+        for key in ("skills", "hooks", "mcpServers"):
+            target = manifest.get(key)
+            if isinstance(target, str) and not (repo / target.removeprefix("./")).exists():
+                refusals.append(f"REFUSE: {rel} names {key} {target!r}, which does not exist")
+    return refusals
 
 
 def build(repo):
@@ -94,11 +129,12 @@ def check(repo):
             raise NoVerdict(f"cannot read {rel}: {exc.strerror or exc}") from exc
         if have != want:
             refusals.append(f"REFUSE: {rel} drifted from {SOURCE} — {FIX}")
+    refusals.extend(invariants(repo))
     for line in refusals:
         print(line)
     if refusals:
         return 1
-    print(f"host-adapters: {len(RULE_COPIES)} rule copies in step with {SOURCE}")
+    print(f"host-adapters: {len(RULE_COPIES)} rule copies in step with {SOURCE}; every invariant holds")
     return 0
 
 
