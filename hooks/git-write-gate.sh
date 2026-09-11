@@ -190,6 +190,22 @@ To run this one command anyway, prefix it: \`GIT_GATE=off git …\`. To disable 
   exit 0
 }
 
+# How a denial spells the guard it routes to (#512). Kit-relative `skills/…` resolves only when the
+# cwd IS the kit's own checkout; in a consumer repository it names nothing, and agents guessed the
+# kit's path five times in four sessions — the last miss ending in a raw `gh pr merge`. The deny
+# text is the one channel shown to reach a dispatched sub-agent (#414's worker quoted it), so it
+# carries the absolute path under ${CLAUDE_PLUGIN_ROOT} — the root hooks.json runs this very file
+# from — whenever the guard exists there. A stale root (a cache an upgrade emptied) or none at all
+# keeps the kit-relative spelling: never an absolute path that does not exist.
+guard_hint() { # $1 a kit-relative path
+  local root="${CLAUDE_PLUGIN_ROOT:-}"
+  if [ -n "$root" ] && [ -f "${root%/}/$1" ]; then
+    printf '%s' "${root%/}/$1"
+  else
+    printf '%s' "$1"
+  fi
+}
+
 # --------------------------------------------------------------------------------- the probe
 # A denial names a `guarded-*.sh` replacement, so the gate must not deny where that replacement
 # cannot exist. A repository carrying a `.claude/skills/repo-profile.md` has opted into
@@ -379,7 +395,7 @@ judge() { # $1 one segment of the stripped command
     reset)
       case "$opts" in
         *" --hard "*) deny "$seg" \
-          "That throws away the working tree, including another agent's uncommitted work in a shared checkout. Use \`git reset --keep\`, or give each branch its own worktree with \`skills/implement-issue/scripts/make-worktree.sh\`." ;;
+          "That throws away the working tree, including another agent's uncommitted work in a shared checkout. Use \`git reset --keep\`, or give each branch its own worktree with \`$(guard_hint skills/implement-issue/scripts/make-worktree.sh)\`." ;;
       esac
       ;;
     clean)
@@ -400,21 +416,21 @@ judge() { # $1 one segment of the stripped command
       # the guard (which asserted the branch first) — and such a line already returned above.
       case "$opts" in
         *" -f "*|*" --force "*) deny "$seg" \
-          "A forced push overwrites whatever the remote holds, which in a shared checkout is another agent's branch. Use \`skills/implement-issue/scripts/guarded-push.sh -C <worktree> <branch> -- --force-with-lease\`." ;;
+          "A forced push overwrites whatever the remote holds, which in a shared checkout is another agent's branch. Use \`$(guard_hint skills/implement-issue/scripts/guarded-push.sh) -C <worktree> <branch> -- --force-with-lease\`." ;;
       esac
       deny "$seg" \
-        "A bare push does not check which branch it is pushing — that is how #26 landed a commit in another agent's PR with exit 0. Use \`skills/implement-issue/scripts/guarded-push.sh -C <worktree> <branch>\`, which reads the remote back afterwards."
+        "A bare push does not check which branch it is pushing — that is how #26 landed a commit in another agent's PR with exit 0. Use \`$(guard_hint skills/implement-issue/scripts/guarded-push.sh) -C <worktree> <branch>\`, which reads the remote back afterwards."
       ;;
     commit)
       deny "$seg" \
-        "A bare commit does not check which branch HEAD is on — that is how #26 and #280 landed work on someone else's branch with exit 0. Use \`skills/implement-issue/scripts/guarded-commit.sh -C <worktree> <branch> -- <git commit args>\`."
+        "A bare commit does not check which branch HEAD is on — that is how #26 and #280 landed work on someone else's branch with exit 0. Use \`$(guard_hint skills/implement-issue/scripts/guarded-commit.sh) -C <worktree> <branch> -- <git commit args>\`."
       ;;
     merge)
       # `--abort`/`--continue`/`--quit` finish or unwind a merge that is already in progress; they
       # are not the write the guard exists for.
       case "$opts" in *" --abort "*|*" --continue "*|*" --quit "*) return 0 ;; esac
       deny "$seg" \
-        "A merge is the largest single write in the lifecycle and the one with the widest window (#41). Use \`skills/implement-issue/scripts/guarded-merge.sh -C <worktree> <branch> -- <ref>\`."
+        "A merge is the largest single write in the lifecycle and the one with the widest window (#41). Use \`$(guard_hint skills/implement-issue/scripts/guarded-merge.sh) -C <worktree> <branch> -- <ref>\`."
       ;;
   esac
   return 0

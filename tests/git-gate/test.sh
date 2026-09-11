@@ -65,14 +65,21 @@ pay() { # $1 tool  $2 command  $3 cwd
 # Drives the gate with a synthetic payload. Asserts the exit status, the decision, and — when
 # denying — that the reason names the replacement.
 # $1 name  $2 expected ("deny"|"pass")  $3 substring the reason must contain  $4 payload
-# $5 optional PATH  $6 optional GIT_GATE value
+# $5 optional PATH  $6 optional GIT_GATE value  $7 optional CLAUDE_PLUGIN_ROOT value
+#
+# $7 empty means UNSET, never inherited (#512): the deny text now spells each guard from
+# CLAUDE_PLUGIN_ROOT when the file exists there, so a row that inherited whatever root the shell
+# running this suite exports would pass or fail on the host rather than on the gate.
 verdict() {
-  local name="$1" want="$2" want_msg="$3" payload="$4" gate_path="${5:-$PATH}" sw="${6:-}"
+  local name="$1" want="$2" want_msg="$3" payload="$4" gate_path="${5:-$PATH}" sw="${6:-}" root="${7:-}"
   local out decision rc=0
-  if [ -n "$sw" ]; then
-    out=$(printf '%s' "$payload" | env PATH="$gate_path" GIT_GATE="$sw" bash "$GATE" 2>/dev/null) || rc=$?
+  local -a envv
+  envv=(PATH="$gate_path")
+  if [ -n "$sw" ]; then envv+=(GIT_GATE="$sw"); fi
+  if [ -n "$root" ]; then
+    out=$(printf '%s' "$payload" | env "${envv[@]}" CLAUDE_PLUGIN_ROOT="$root" bash "$GATE" 2>/dev/null) || rc=$?
   else
-    out=$(printf '%s' "$payload" | env PATH="$gate_path" bash "$GATE" 2>/dev/null) || rc=$?
+    out=$(printf '%s' "$payload" | env -u CLAUDE_PLUGIN_ROOT "${envv[@]}" bash "$GATE" 2>/dev/null) || rc=$?
   fi
   # Exit status is half the PreToolUse contract — a non-zero exit blocks the tool regardless of
   # stdout, so a regression that turned a fail-open path into `exit 2` would be scored "pass" here
@@ -129,6 +136,50 @@ verdict "D18 switch -fc (bundled)"     deny "checkout -- <path>" "$(pay Bash 'gi
 verdict "D19 restore ./"               deny "git restore <path>" "$(pay Bash 'git restore ./' "$PROF")"
 verdict "D20 clean -fd -- -note"       deny "git clean -n"       "$(pay Bash 'git clean -fd -- -note' "$PROF")"
 verdict "D21 checkout -- :/"           deny "checkout -- <path>" "$(pay Bash 'git checkout -- :/' "$PROF")"
+
+# ------------------------------------ 1c. the replacement is named by absolute path (#512)
+# A denial is the one channel shown to reach a dispatched sub-agent — #414's worker quoted it word
+# for word — and a kit-relative `skills/…` spelling resolves only when the cwd IS the kit's own
+# checkout. In a consumer repository it names nothing: agents guessed the kit's path five times in
+# four sessions, and the last miss ended in a raw `gh pr merge`. With CLAUDE_PLUGIN_ROOT set, each
+# reason carries the absolute path. Every expected value below is built from $KIT by hand, never
+# recomputed through the gate's own helper — that would agree with any bug in it.
+EMPTY_ROOT=$(mktemp -d "$WORK/empty-root.XXXXXX")
+verdict "K1  commit names guarded-commit.sh by absolute path" \
+  deny "$KIT/skills/implement-issue/scripts/guarded-commit.sh" \
+  "$(pay Bash 'git commit -m x' "$PROF")" "$PATH" "" "$KIT"
+verdict "K2  push names guarded-push.sh by absolute path" \
+  deny "$KIT/skills/implement-issue/scripts/guarded-push.sh" \
+  "$(pay Bash 'git push' "$PROF")" "$PATH" "" "$KIT"
+verdict "K3  merge names guarded-merge.sh by absolute path" \
+  deny "$KIT/skills/implement-issue/scripts/guarded-merge.sh" \
+  "$(pay Bash 'git merge feature' "$PROF")" "$PATH" "" "$KIT"
+verdict "K4  reset --hard names make-worktree.sh by absolute path" \
+  deny "$KIT/skills/implement-issue/scripts/make-worktree.sh" \
+  "$(pay Bash 'git reset --hard' "$PROF")" "$PATH" "" "$KIT"
+# A root that does not hold the guard — a plugin cache an upgrade emptied — and no root at all both
+# fall back to the kit-relative spelling. Never an absolute path that does not exist.
+verdict "K5  a root lacking the guard keeps the kit-relative spelling" \
+  deny 'Use `skills/implement-issue/scripts/guarded-commit.sh' \
+  "$(pay Bash 'git commit -m x' "$PROF")" "$PATH" "" "$EMPTY_ROOT"
+verdict "K6  no root keeps the kit-relative spelling" \
+  deny 'Use `skills/implement-issue/scripts/guarded-commit.sh' \
+  "$(pay Bash 'git commit -m x' "$PROF")"
+# ...and the absence half, which verdict() cannot express: neither reason names an absolute path.
+reason_for() { # $1 payload  $2 CLAUDE_PLUGIN_ROOT ("" = unset)
+  if [ -n "$2" ]; then
+    printf '%s' "$1" | env CLAUDE_PLUGIN_ROOT="$2" bash "$GATE" 2>/dev/null
+  else
+    printf '%s' "$1" | env -u CLAUDE_PLUGIN_ROOT bash "$GATE" 2>/dev/null
+  fi | jq -r '.hookSpecificOutput.permissionDecisionReason // ""'
+}
+r=$(reason_for "$(pay Bash 'git commit -m x' "$PROF")" "$EMPTY_ROOT")
+case "$r" in *"$EMPTY_ROOT"*)
+  echo "FAIL [K5]: the reason names $EMPTY_ROOT, which holds no guard: $r"; exit 1 ;; esac
+r=$(reason_for "$(pay Bash 'git commit -m x' "$PROF")" "")
+case "$r" in *"$KIT/skills/"*)
+  echo "FAIL [K6]: with no root the reason still names an absolute path: $r"; exit 1 ;; esac
+echo "ok: K5/K6 name no absolute path where the guard does not exist"
 
 # ------------------------------------------------------------------ 2. the allow rows (A)
 verdict "A1  branch -D after a merge"  pass "" "$(pay Bash 'git branch -D feat/326-x' "$PROF")"
