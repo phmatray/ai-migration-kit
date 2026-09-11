@@ -230,7 +230,7 @@ verdict "G9  cd INTO a profiled repo, then gh pr merge" deny "guarded-pr-merge.s
   "$(pay Bash "cd $PROF && gh pr merge 12" "$PLAIN")"
 # A `git init` earlier on the line makes no PR mergeable: the gh arm does not inherit fresh_init.
 verdict "G10 git init <path> does not switch the arm off" deny "guarded-pr-merge.sh" \
-  "$(pay Bash 'git init /tmp/x && gh pr merge 12 --squash' "$PROF")"
+  "$(pay Bash 'git init scratch-x && gh pr merge 12 --squash' "$PROF")"
 verdict "G11 gh pr --repo o/r merge"          deny "guarded-pr-merge.sh" "$(pay Bash 'gh pr --repo o/r merge 12' "$PROF")"
 verdict "G12 gh pr --repo=o/r merge"          deny "guarded-pr-merge.sh" "$(pay Bash 'gh pr --repo=o/r merge 12' "$PROF")"
 # G13 — the incident itself: session 62c8dcf7's "look for the guard, else merge raw" line. It names
