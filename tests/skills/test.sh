@@ -1455,6 +1455,22 @@ for inc in sorted((docs / "_includes").glob("*.html")):
         for line in body.splitlines():
             if re.search(r"(^|[\s;{}])//", line) and not re.search(r"https?://", line):
                 print("FAIL: docs/_includes/" + inc.name + " has a // comment inside an inline <script> — the compressed page folds it onto one line and the rest of the script becomes comment; use /* */: " + line.strip()); sys.exit(1)
+# Install and Platforms (#527): every fenced command carries the theme's copy button, and both
+# pages render the host table rather than restating it — docs/_data/hosts.yml is its one home.
+if cfg.get("enable_copy_code_button") is not True:
+    print("FAIL: docs/_config.yml does not set enable_copy_code_button: true — the install commands would carry no copy button"); sys.exit(1)
+for page in ("install.md", "platforms.md"):
+    p = docs / page
+    if not p.exists():
+        print("FAIL: docs/" + page + " is missing"); sys.exit(1)
+    if "site.data.hosts" not in p.read_text(encoding="utf-8"):
+        print("FAIL: docs/" + page + " does not read site.data.hosts — the host list has one home, docs/_data/hosts.yml"); sys.exit(1)
+# The capability columns are the strings yes, partial and no. YAML reads a bare yes/no as a
+# boolean, and the Platforms table then printed true/false (measured on #527's first build).
+for host in yaml.safe_load((docs / "_data" / "hosts.yml").read_text(encoding="utf-8")):
+    for key, value in (host.get("gets") or {}).items():
+        if value not in ("yes", "partial", "no"):
+            print("FAIL: docs/_data/hosts.yml " + str(host.get("id")) + " gets." + key + " is " + repr(value) + " — quote it: \"yes\", \"partial\" or \"no\""); sys.exit(1)
 print("ok   docs/_config.yml parses (no glob in exclude, the colour scheme exists), docs/index.md links the guide, every non-excluded page is titled, the dark scheme is switchable")
 PY
 python3 "$_pscratch/pages-check.py" "$KIT_ROOT" || exit 1
