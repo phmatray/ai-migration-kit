@@ -222,6 +222,35 @@ figure.highlight :not(pre) > code {
   background-color: $link-color;
 }
 
+// -------------------------------------------------------------------------- the scheme toggle
+// A plain bordered text button in the header (_includes/header_custom.html), between the search
+// and the aux links (#527). Pressed shows as the gate's colour on its border, never as a second
+// accent; the scheme itself is kit.scss or kit-dark.scss, swapped by jtd.setTheme.
+.kit-scheme-toggle {
+  align-self: center;
+  flex: none;
+  margin: 0 0.5rem;
+  padding: 0.3rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: $body-text-color;
+  cursor: pointer;
+  background: transparent;
+  border: $border $border-color;
+  border-radius: $border-radius;
+}
+
+.kit-scheme-toggle:hover {
+  color: $body-heading-color;
+}
+
+.kit-scheme-toggle[aria-pressed="true"] {
+  color: $body-heading-color;
+  border-color: $link-color;
+}
+
 // -------------------------------------------------------------------------------- the floor
 a:focus-visible,
 button:focus-visible,

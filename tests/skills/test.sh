@@ -1430,7 +1430,32 @@ for p in sorted(docs.rglob("*.md")):
         untitled.append(rel)
 if untitled:
     print("FAIL: docs/ pages without a title: in their front matter: " + ", ".join(untitled)); sys.exit(1)
-print("ok   docs/_config.yml parses (no glob in exclude, the colour scheme exists), docs/index.md links the guide, every non-excluded page is titled")
+# Switchable schemes (#527): docs/assets/css/just-the-docs-<name>.scss is the stylesheet
+# jtd.setTheme("<name>") swaps in, so it must build the scheme it is named for, and that scheme's
+# file must exist — or the toggle loads a stylesheet the Pages build never produced.
+for css in sorted((docs / "assets" / "css").glob("just-the-docs-*.scss")):
+    name = css.stem[len("just-the-docs-"):]
+    if 'color_scheme="' + name + '"' not in css.read_text(encoding="utf-8"):
+        print("FAIL: docs/assets/css/" + css.name + " does not build color_scheme=\"" + name + "\""); sys.exit(1)
+    if name not in ("light", "dark") and not (docs / "_sass" / "color_schemes" / (name + ".scss")).exists():
+        print("FAIL: docs/assets/css/" + css.name + " switches to a scheme with no docs/_sass/color_schemes/" + name + ".scss"); sys.exit(1)
+# ...and the kit's own dark scheme is wired end to end: restored before first paint, built, toggled.
+head = (docs / "_includes" / "head_custom.html").read_text(encoding="utf-8")
+header = docs / "_includes" / "header_custom.html"
+if "jtd.setTheme('kit-dark')" not in head or not (docs / "assets" / "css" / "just-the-docs-kit-dark.scss").exists():
+    print("FAIL: the dark scheme is not wired — head_custom.html must restore jtd.setTheme('kit-dark'), and docs/assets/css/just-the-docs-kit-dark.scss must exist"); sys.exit(1)
+if not header.exists() or 'class="kit-scheme-toggle"' not in header.read_text(encoding="utf-8"):
+    print("FAIL: docs/_includes/header_custom.html carries no kit-scheme-toggle button"); sys.exit(1)
+# The theme serves every page through a compress layout that folds the HTML onto one line, so a `//`
+# line comment inside an inline <script> swallows the rest of that script: it runs as nothing and
+# throws nothing (measured on #527 — the scheme restore and the toggle both went silently dead).
+# Block comments only, in every script an include writes.
+for inc in sorted((docs / "_includes").glob("*.html")):
+    for body in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", inc.read_text(encoding="utf-8"), re.S):
+        for line in body.splitlines():
+            if re.search(r"(^|[\s;{}])//", line) and not re.search(r"https?://", line):
+                print("FAIL: docs/_includes/" + inc.name + " has a // comment inside an inline <script> — the compressed page folds it onto one line and the rest of the script becomes comment; use /* */: " + line.strip()); sys.exit(1)
+print("ok   docs/_config.yml parses (no glob in exclude, the colour scheme exists), docs/index.md links the guide, every non-excluded page is titled, the dark scheme is switchable")
 PY
 python3 "$_pscratch/pages-check.py" "$KIT_ROOT" || exit 1
 mkdir -p "$_pscratch/tree/docs/_sass/color_schemes"
@@ -1443,6 +1468,18 @@ fi
 grep -q 'untitled.md' "$_pscratch/pages-red.out" \
   || { echo "FAIL: the titled-pages check refused the scratch tree without naming untitled.md"; cat "$_pscratch/pages-red.out"; exit 1; }
 echo "ok   a docs/ page without a title is refused, by name"
+# The red half for switchable schemes (#527): a stylesheet naming a scheme with no file of its own is
+# refused, by name — the toggle would otherwise swap in a stylesheet Pages never built.
+mkdir -p "$_pscratch/ghost/docs/_sass/color_schemes" "$_pscratch/ghost/docs/assets/css"
+cp "$KIT_ROOT/docs/_config.yml" "$KIT_ROOT/docs/index.md" "$_pscratch/ghost/docs/"
+cp "$KIT_ROOT"/docs/_sass/color_schemes/*.scss "$_pscratch/ghost/docs/_sass/color_schemes/"
+printf -- '---\n---\n{%% include css/just-the-docs.scss.liquid color_scheme="ghost" %%}\n' > "$_pscratch/ghost/docs/assets/css/just-the-docs-ghost.scss"
+if python3 "$_pscratch/pages-check.py" "$_pscratch/ghost" > "$_pscratch/ghost.out" 2>&1; then
+  echo "FAIL: the switchable-scheme check accepted a stylesheet whose scheme does not exist"; exit 1
+fi
+grep -q 'just-the-docs-ghost.scss' "$_pscratch/ghost.out" \
+  || { echo "FAIL: the switchable-scheme check refused without naming the stylesheet"; cat "$_pscratch/ghost.out"; exit 1; }
+echo "ok   a switchable stylesheet naming a scheme with no file is refused, by name"
 # The red half for the glob rule: the config that shipped in #407 — `"*.html"` in exclude — must
 # be refused now, naming the glob. One check file, third run.
 mkdir -p "$_pscratch/globtree/docs/_sass/color_schemes"
