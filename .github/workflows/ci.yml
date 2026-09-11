@@ -478,6 +478,9 @@ jobs:
       - name: Finish-task golden test (one call closes a task through the three guards, in order)
         run: ./tests/finish-task/test.sh
 
+      - name: gh-host golden test (every kit script reaches the repository's own gh host)
+        run: ./tests/gh-host/test.sh
+
       - name: Merge-gate golden test (the latest run per job decides, over fixtures)
         run: ./tests/merge-gate/test.sh
 
