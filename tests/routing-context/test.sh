@@ -82,9 +82,39 @@ done
 
 # Upper bound: catches an extraction that runs away past the next '## ' heading (e.g. a broken
 # state machine that never exits) and swallows the rest of the file. The real section is under a
-# kilobyte; the whole of AGENTS.md is several.
-len=${#ctx}
+# kilobyte; the whole of AGENTS.md is several. Measured on the SECTION alone: the two #512 lines
+# appended after it spell the kit's path three times, and that length is the host's, not the
+# extraction's.
+section_part=${ctx%%Kit root:*}
+len=${#section_part}
 [ "$len" -le 2000 ] || { echo "FAIL [real]: additionalContext is $len bytes — extraction likely ran past the section"; exit 1; }
+
+# ------------------------------------------------ 1b. the kit root travels with the table (#512)
+# The table says WHICH skill; nothing said WHERE the kit lives, so sessions spelled the guards
+# cwd-relative and five guesses at the kit's path failed in four sessions. The expected strings are
+# built from $KIT by hand, never read back out of the hook.
+case "$ctx" in *"## Which kit skill, for what"*) ;;
+  *) echo "FAIL [kit-root]: the routing table's heading is no longer in additionalContext: $ctx"; exit 1 ;; esac
+case "$ctx" in *"Kit root: $KIT"*) ;;
+  *) echo "FAIL [kit-root]: additionalContext has no 'Kit root: $KIT' line: $ctx"; exit 1 ;; esac
+# Every guard in FULL — a bare `guarded-push.sh` is the cwd-relative spelling #512 exists to remove.
+for g in skills/implement-issue/scripts/guarded-commit.sh skills/implement-issue/scripts/guarded-push.sh \
+         skills/implement-issue/scripts/guarded-merge.sh skills/merge-pr/scripts/guarded-pr-merge.sh; do
+  case "$ctx" in *"$KIT/$g"*) ;;
+    *) echo "FAIL [kit-root]: additionalContext does not name $KIT/$g in full: $ctx"; exit 1 ;; esac
+done
+
+# A root that carries the table but none of the guards — a cache an upgrade half-emptied — prints its
+# `Kit root:` and no guard path that does not exist there (the rule guard_hint keeps in the gate).
+# The table rides in AGENTS.md, its home since #525.
+NOSCRIPTS=$(mktemp -d "$WORK/noscripts.XXXXXX")
+cp "$KIT/AGENTS.md" "$NOSCRIPTS/AGENTS.md"
+out=$(run "$NOSCRIPTS" "" "$REAL_PATH") || { echo "FAIL [no-scripts]: hook exited non-zero"; exit 1; }
+ctx2=$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext // empty')
+case "$ctx2" in *"Kit root: $NOSCRIPTS"*) ;;
+  *) echo "FAIL [no-scripts]: no 'Kit root: $NOSCRIPTS' line: $ctx2"; exit 1 ;; esac
+case "$ctx2" in *"$NOSCRIPTS/skills/"*|*"Guards ("*)
+  echo "FAIL [no-scripts]: names a guard that does not exist under $NOSCRIPTS: $ctx2"; exit 1 ;; esac
 
 # ---------------------------------------------------------------------------- 2. ROUTING_CONTEXT=off
 out=$(run "$KIT" off "$REAL_PATH") || { echo "FAIL [off]: hook exited non-zero"; exit 1; }
@@ -131,4 +161,4 @@ case "$out" in
   *) echo "FAIL [source]: a root with the section in AGENTS.md produced no context: $out"; exit 1 ;;
 esac
 
-echo "PASS: routing-context hook — real extraction from AGENTS.md, off-switch, unset root, no AGENTS.md, no jq, one home, source file"
+echo "PASS: routing-context hook — real extraction from AGENTS.md, kit root and guards, off-switch, unset root, no AGENTS.md, no jq, one home, source file"

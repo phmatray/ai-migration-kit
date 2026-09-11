@@ -4,10 +4,15 @@ Only once CI is green **and** `mergeStateStatus == CLEAN`. The profile's *Integr
 land; for squash-merge (the `(#NNN)` commits on `main`):
 
 ```bash
-skills/merge-pr/scripts/guarded-pr-merge.sh "$PR" \
+<kit>/skills/merge-pr/scripts/guarded-pr-merge.sh "$PR" \
   -- --squash --delete-branch --subject "<PR title — already ends in (#issue)> (#$PR)"
   # --subject is optional; omit it (drop the whole -- line down to --delete-branch) to accept gh's default
 ```
+
+`<kit>` is the kit root (the placeholder `references/merge-mechanics.md` defines). When the plugin's
+hooks run, it is printed at session start as `Kit root:` and spelled out in every write-gate denial
+that names a guard; either way, a guard you cannot find is a reason to resolve `<kit>`, never to run
+`gh pr merge` yourself.
 
 **Prefer omitting `--subject`.** `implement-issue` titled the PR `… (#issue)`, and gh's default squash
 subject is that title with `(#PR)` appended — giving the canonical `… (#issue) (#PR)` shape

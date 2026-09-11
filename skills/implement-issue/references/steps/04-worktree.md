@@ -104,6 +104,16 @@ branch-name match. Fetch and check it out by hand instead (existing local branch
 from it; remote-only: `git worktree add -b "$BRANCH" "origin/$BRANCH"`), into a home the same call
 above has already proven ignored.
 
+**If the branch is checked out in another worktree you may not use** — `git worktree list
+--porcelain` shows `branch refs/heads/$BRANCH` under a path that is not your own toplevel, and you
+are confined to your own tree (an `auto-dev` worker under `isolation: "worktree"`) — none of the
+cases above applies: `git switch` refuses a branch another tree holds, and reaching into that tree
+is the one thing your confinement forbids. Do not work around it with `--ignore-other-worktrees` or
+`--force`; stop before editing and report the `branch-held guard:` signature that
+[`commands/auto-dev-worker.md`](../../../../commands/auto-dev-worker.md) spells out — the supervisor
+releases the branch with `release-branch.sh` and re-dispatches (#510). An unconfined run can still
+`-C` into that tree, as the reuse case in `references/github-mechanics.md` §5 says.
+
 Carry `$BRANCH` forward — Steps 5–9 pass it to the guards **explicitly**, because a guard
 that read the branch from `HEAD` would be reading the very value it exists to check, and would agree
 with itself no matter which branch was checked out. Pass `-C "$WORKTREE"` just as explicitly: the

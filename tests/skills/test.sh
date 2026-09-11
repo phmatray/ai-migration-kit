@@ -1997,6 +1997,68 @@ run_file_refs_case "F4 dead path inside a fence      " pass "" '```
 ```'
 run_file_refs_case "F5 target-repo and placeholder   " pass "" 'edit `.github/workflows/ci.yml`, `{kit}/scripts/x.sh`, `/abs/x.sh`'
 
+echo "== guarded-pr-merge.sh is spelled from <kit>/, and a missing guard never licenses a raw gh pr merge (#512) =="
+# A cwd-relative `skills/merge-pr/scripts/guarded-pr-merge.sh` resolves only in the kit's own
+# checkout; in a consumer repository it names nothing, and a sub-agent that could not find the guard
+# fell back to a raw `gh pr merge` (#512). So the three guard-invocation sites spell it from `<kit>/`,
+# and guard-invocation.md's "Never fall back" sentence names `gh pr merge` beside the three git
+# writes. Written to a file first, never a heredoc inside `$( … )` (#131).
+_pscratch=$(kit_scratch)
+cat > "$_pscratch/pr-merge-spelling.py" <<'PY'
+import pathlib, sys
+kit, mode = pathlib.Path(sys.argv[1]), sys.argv[2]
+GUARD = "skills/merge-pr/scripts/guarded-pr-merge.sh"
+SITES = ("skills/merge-pr/SKILL.md", "skills/merge-pr/references/steps/05-merge.md",
+         "skills/auto-dev/SKILL.md")
+FALLBACK = "skills/_shared/guard-invocation.md"
+def lines(rel):
+    return enumerate((kit / rel).read_text(encoding="utf-8").splitlines(), 1)
+bad = []
+if mode == "kit-prefix":
+    for rel in SITES:
+        for n, line in lines(rel):
+            i = line.find(GUARD)
+            while i >= 0:
+                if not line[:i].endswith("<kit>/"):
+                    bad.append("%s:%d" % (rel, n))
+                i = line.find(GUARD, i + 1)
+    what = "spells %s without a <kit>/ prefix" % GUARD
+else:
+    # The whole bold sentence, whitespace-normalised, so a re-wrap cannot move `gh pr merge` off
+    # the one physical line being read.
+    text = (kit / FALLBACK).read_text(encoding="utf-8")
+    i = text.find("Never fall back")
+    if i < 0:
+        bad = [FALLBACK + ": no 'Never fall back' sentence at all"]
+    else:
+        j = text.find(".**", i)
+        sentence = " ".join(text[i:j if j > 0 else len(text)].split())
+        if "gh pr merge" not in sentence:
+            bad = ["%s:%d" % (FALLBACK, text.count("\n", 0, i) + 1)]
+    what = "its 'Never fall back' sentence does not name gh pr merge"
+if bad:
+    sys.exit("%s — %s" % (", ".join(bad), what))
+print("ok")
+PY
+pm_case() { # <label> <root> <mode: kit-prefix|fallback> <expect: pass|fail> [marker a refusal must name]
+  local out rc; set +e; out=$(python3 "$_pscratch/pr-merge-spelling.py" "$2" "$3" 2>&1); rc=$?; set -e
+  if [ "$4" = pass ] && [ "$rc" -eq 0 ]; then echo "ok   [$1]"
+  elif [ "$4" = fail ] && [ "$rc" -ne 0 ] && grep -qF -e "${5:-}" <<<"$out"; then echo "ok   [$1] refused: $out"
+  else echo "FAIL: [$1] rc=$rc $out"; fails=$((fails + 1)); fi
+}
+pm_case "PM1 the three sites spell <kit>/skills/merge-pr/scripts/guarded-pr-merge.sh" "$KIT_ROOT" kit-prefix pass
+pm_case "PM2 guard-invocation.md's Never fall back names gh pr merge" "$KIT_ROOT" fallback pass
+# The red half: the same four files with the prefix and the gh clause stripped must be refused, BY
+# LINE — a check no case can drive red stays green after it stops matching.
+for rel in skills/merge-pr/SKILL.md skills/merge-pr/references/steps/05-merge.md \
+           skills/auto-dev/SKILL.md skills/_shared/guard-invocation.md; do
+  mkdir -p "$_pscratch/drift/$(dirname "$rel")"
+  sed -e 's#<kit>/skills/merge-pr/scripts/guarded-pr-merge#skills/merge-pr/scripts/guarded-pr-merge#g' \
+      -e 's# or a raw `gh pr merge`##' "$KIT_ROOT/$rel" > "$_pscratch/drift/$rel"
+done
+pm_case "PM3 a bare spelling is refused, naming file:line" "$_pscratch/drift" kit-prefix fail "05-merge.md:"
+pm_case "PM4 a Never fall back without gh pr merge is refused" "$_pscratch/drift" fallback fail "guard-invocation.md:"
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1

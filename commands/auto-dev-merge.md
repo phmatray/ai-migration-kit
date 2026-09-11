@@ -16,6 +16,17 @@ tool's `isolation: "worktree"` option, which already put you in a git worktree o
 this prompt ever ran. Check out PR #$1's branch inside THAT tree; do not call `make-worktree.sh` for
 a second one — nesting is refused. Never touch a path outside the worktree you were given.
 
+**If that checkout is refused because the branch is checked out in another worktree, stop — that is
+the supervisor's to release, not yours.** `git worktree list --porcelain` then shows
+`branch refs/heads/<branch>` under a path other than your own `git rev-parse --show-toplevel`: a
+retired worker's tree, kept on disk for the housekeeping sweep and still holding the branch (#510).
+Do not `-C` into it, and do not use `--ignore-other-worktrees`, `--force`, or a detached push to get
+around it. Stop before touching anything and your final message is: `ISSUE: <the issue #$1 closes> |
+PR: $1 | STATUS: BLOCKED | DETAIL: branch-held guard: <branch> is checked out in <path> — dispatch
+defect, release-branch.sh then re-dispatch | FILED: none | WORKTREE: untouched | BASE: unverified:
+never reached`. It names a dispatch defect, not a block on the PR, so the supervisor never
+tier-escalates over it.
+
 **Any review sub-agent you dispatch is read-only and isolated — `subagent_type: Explore`,
 `isolation: "worktree"` — and returns findings as text for YOU to apply.** A fork inherits
 your full tool access and your live worktree; one fleet run had six write-capable review forks
