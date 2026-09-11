@@ -212,6 +212,11 @@ run_helper -C "$c8" "$BR"
 [ "$rc" -eq 2 ] || fail walk-up "expected exit 2 (no verdict), got $rc; stdout: $out; stderr: $err"
 [ -z "$out" ] || fail walk-up "a no-verdict run printed a verdict: '$out'"
 grep -qF 'release-branch: REFUSED —' <<<"$err" || fail walk-up "stderr does not carry the REFUSED line: $err"
+# The toplevel check has to be what stopped it. The branch check behind it would also refuse here
+# (the enclosing checkout is on main), so without this line the case stays green with the one check
+# it exists for deleted.
+grep -qF 'walked up to an enclosing checkout' <<<"$err" \
+  || fail walk-up "the refusal is not the walk-up diagnosis, so the toplevel check did not stop it: $err"
 [ "$(git -C "$c8" symbolic-ref -q HEAD || true)" = "refs/heads/main" ] \
   || fail walk-up "the enclosing main checkout was moved off main"
 echo "  ok: walk-up — exit 2, no verdict; the enclosing main checkout is still on main"
@@ -254,6 +259,48 @@ run_helper -C "$c10" "$BR"
 [ "$(git -C "$c10" config --get "kit.worktree.$BR.path" || true)" = "$other10" ] \
   || fail foreign "a record naming another tree was changed"
 echo "  ok: foreign — a record naming another tree is left unchanged"
+
+# A failing post-checkout hook: `git switch` returns the hook's status AFTER it has detached HEAD,
+# so its exit code is not the verdict — the read-back is. Released, record gone, and the warning
+# proves the non-zero path was the one taken.
+c12="$WORK/hook"
+new_repo "$c12"
+h12="$WORK/hook-holder"
+add_holder "$c12" "$h12"
+git -C "$c12" config "kit.worktree.$BR.path" "$h12"
+sha12=$(git -C "$h12" rev-parse HEAD)
+mkdir -p "$c12/.git/hooks"
+printf '#!/bin/sh\nexit 1\n' > "$c12/.git/hooks/post-checkout"
+chmod +x "$c12/.git/hooks/post-checkout"
+run_helper -C "$c12" "$BR"
+{ [ "$rc" -eq 0 ] && [ "$out" = "RELEASED $h12" ]; } \
+  || fail hook "expected 'RELEASED $h12' with exit 0 despite the failing hook, got '$out' with exit $rc; stderr: $err"
+grep -qF 'git switch exited' <<<"$err" || fail hook "no warning that git switch exited non-zero — the hook path was not exercised: $err"
+rec12=$(record_of "$c12" "$h12")
+{ grep -qx 'detached' <<<"$rec12" && grep -qx "HEAD $sha12" <<<"$rec12"; } \
+  || fail hook "the holder is not detached at $sha12:
+$rec12"
+if left=$(git -C "$c12" config --get "kit.worktree.$BR.path"); then
+  fail hook "kit.worktree.$BR.path still names the released holder: $left"
+fi
+echo "  ok: hook — a failing post-checkout hook does not undo the release; the read-back decides"
+
+# The record cannot be unset (a stale config.lock): RELEASED would then send the adopting worker
+# straight into assert_worktree_live's refusal, so it is no verdict instead — and nothing changed.
+c13="$WORK/unset-fails"
+new_repo "$c13"
+h13="$WORK/unset-fails-holder"
+add_holder "$c13" "$h13"
+git -C "$c13" config "kit.worktree.$BR.path" "$h13"
+: > "$c13/.git/config.lock"
+run_helper -C "$c13" "$BR"
+rm -f "$c13/.git/config.lock"
+[ "$rc" -eq 2 ] || fail unset-fails "expected exit 2, got $rc; stdout: $out; stderr: $err"
+[ -z "$out" ] || fail unset-fails "a no-verdict run printed a verdict: '$out'"
+on_branch "$h13" || fail unset-fails "the holder was detached although the record could not be unset"
+[ "$(git -C "$c13" config --get "kit.worktree.$BR.path" || true)" = "$h13" ] \
+  || fail unset-fails "the record naming the holder changed"
+echo "  ok: unset-fails — a record that cannot be unset is no verdict; the holder stays on $BR"
 
 # ---------------------------------------------------------------- 6. no verdict (AC5)
 #

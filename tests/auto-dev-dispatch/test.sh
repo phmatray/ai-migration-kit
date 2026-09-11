@@ -20,7 +20,13 @@
 #      tests/pr-existence-guard/test.sh, modeled on it) so this suite proves the exact thing an
 #      agent would paste, not a paraphrase of it.
 #
-# Reads only files under commands/ and skills/auto-dev/ — never samples/ — so no kit_guard is needed.
+# #510 extends it to the second dispatch onto an existing PR branch: both command files carry the
+# worker's `branch-held guard:` refusal and 04-worktree.md points at it (its Task 2); SKILL.md
+# Step 3 releases the branch through release-branch.sh before every such dispatch, *Cleanup
+# nuance* says the branch goes while the tree stays, and Step 4 handles the refusal (its Task 3).
+#
+# Reads only files under commands/, skills/auto-dev/ and skills/implement-issue/references/steps/
+# — never samples/ — so no kit_guard is needed.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 KIT="$PWD"
@@ -206,9 +212,12 @@ RELEASE_SECTION=$(printf '%s\n' "$STEP3" | awk '
   || fail "Step 3 has no '### ⛔ Dispatch-time guard — release the PR branch before re-dispatching onto it' subsection (#510)"
 grep -qF 'release-branch.sh' <<<"$RELEASE_SECTION" \
   || fail "the release guard does not name release-branch.sh"
-for entry in 'PARTIAL' 'tier' 'phase 2' 'push-and-land' 'crash'; do
-  grep -qi -- "$entry" <<<"$RELEASE_SECTION" \
-    || fail "the release guard does not name the '$entry' entry point"
+# Each entry point by its OWN bullet, not by a word: `tier` and `phase 2` also occur in the
+# verdict rules below them, so a word match survives deleting the bullet it was meant to pin.
+for entry in '- a **`PARTIAL` resume**' '- a **BLOCKED/FAILED tier escalation**' '- **phase 2** (' \
+             '- the **push-and-land**' '- a **restart after a crash**'; do
+  grep -qF -- "$entry" <<<"$RELEASE_SECTION" \
+    || fail "the release guard has no '$entry' entry-point bullet"
 done
 grep -qF 'HELD' <<<"$RELEASE_SECTION" || fail "the release guard does not say what a HELD verdict does"
 grep -qF 'Needs manual sweep' <<<"$RELEASE_SECTION" \
@@ -232,6 +241,7 @@ BH_BULLET=$(printf '%s\n' "$STEP4" | grep -F -- '- **Reported BLOCKED with `DETA
 grep -qF 'release-branch.sh' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not run release-branch.sh"
 grep -qi 're-dispatch' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not say to re-dispatch"
 grep -Eqi 'never tier-escalate' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not forbid a tier escalation"
-grep -qF 'PARTIAL' <<<"$BH_BULLET" || fail "Step 4's branch-held bullet does not keep it outside the PARTIAL cap"
+grep -Eqi "(don't|do not|never) count it against the .PARTIAL" <<<"$BH_BULLET" \
+  || fail "Step 4's branch-held bullet does not keep it outside the PARTIAL cap"
 
 echo "PASS: auto-dev-dispatch"

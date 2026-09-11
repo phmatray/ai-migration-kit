@@ -40,13 +40,18 @@
 #   1  HELD — nothing was changed. Work, or a checkout the kit must not discard, is in the way,
 #      and a human decides.
 #   2  REFUSED, on stderr as `release-branch: REFUSED — …`, nothing on stdout — no verdict: a usage
-#      error, <repo-path> is not a git repository, or the holder cannot be read as the worktree git
-#      lists. Nothing was changed. Never read this as FREE.
+#      error, <repo-path> is not a git repository, the holder cannot be read as the worktree git
+#      lists or moved during the run, the #469 record cannot be unset, or the detach failed.
+#      Nothing was changed — with one exception the message names: a holder that reads back
+#      neither on <branch> nor detached at its commit after the detach, to be checked by hand.
+#      Never read this as FREE.
 #
-# On RELEASED, the #469 record `kit.worktree.<branch>.path` that make-worktree.sh writes is unset
-# when it names the holder — otherwise assert_worktree_live (_assert-branch.sh) would refuse the
-# adopting tree's first guarded write as a tree "destroyed mid-run". A record naming any other path
-# is left alone.
+# On RELEASED, the #469 record `kit.worktree.<branch>.path` that make-worktree.sh writes is gone if
+# it named the holder: it is unset BEFORE the detach and put back if the detach fails, so RELEASED
+# always means both. Left behind, assert_worktree_live (_assert-branch.sh) would refuse the adopting
+# tree's first guarded write as a tree "destroyed mid-run". A record naming any other path is left
+# alone. The read-back, not git's exit status, decides RELEASED: `git switch` reports a failing
+# post-checkout hook's status after it has already moved HEAD.
 #
 # "Pushed" is judged against the LOCAL remote-tracking ref refs/remotes/origin/<branch>. Nothing is
 # fetched, because a raw fetch can be sandbox-blocked. A stale ref can only produce a false
@@ -140,8 +145,9 @@ fi
 # main checkout. So: its toplevel must be the holder itself, and its HEAD must still be the branch
 # the listing said it was. Checked before the reads, and again right before the one write.
 HOLDER_PHYS=$(CDPATH= cd -- "$HOLDER" 2>/dev/null && pwd -P) || refuse "cannot enter the holder $HOLDER — no verdict, nothing changed"
+SHA=""
 assert_holder() {
-  local top head
+  local top head now
   top=$(git -C "$HOLDER" rev-parse --show-toplevel 2>/dev/null) \
     || refuse "the holder $HOLDER cannot be read as a worktree — no verdict, nothing changed"
   top=$(CDPATH= cd -- "$top" 2>/dev/null && pwd -P) || top="$top (unreadable)"
@@ -150,8 +156,16 @@ assert_holder() {
   head=$(git -C "$HOLDER" symbolic-ref -q HEAD 2>/dev/null) || head=""
   [ "$head" = "refs/heads/$BRANCH" ] \
     || refuse "the holder $HOLDER is no longer on $BRANCH (HEAD: ${head:-detached}); it changed under this run — no verdict, nothing changed"
+  # Every verdict below is about ONE commit, read once: a HEAD that moved between the checks and
+  # the detach would otherwise be released on the strength of a proof about a different commit.
+  if [ -n "$SHA" ]; then
+    now=$(git -C "$HOLDER" rev-parse --verify --quiet HEAD 2>/dev/null || true)
+    [ "$now" = "$SHA" ] \
+      || refuse "the holder $HOLDER moved from $SHA to ${now:-?} during this run — no verdict, nothing changed"
+  fi
 }
 assert_holder
+SHA=$(git -C "$HOLDER" rev-parse --verify HEAD) || refuse "cannot read the holder's HEAD — no verdict, nothing changed"
 
 # ---------------------------------------------------------------- would anything be stranded?
 DIRTY=$(git -C "$HOLDER" status --porcelain --untracked-files=no) \
@@ -164,13 +178,13 @@ fi
 REMOTE_REF="refs/remotes/origin/$BRANCH"
 if git -C "$HOLDER" rev-parse --verify --quiet "$REMOTE_REF" >/dev/null; then
   set +e
-  git -C "$HOLDER" merge-base --is-ancestor HEAD "$REMOTE_REF"
+  git -C "$HOLDER" merge-base --is-ancestor "$SHA" "$REMOTE_REF"
   anc=$?
   set -e
   case "$anc" in
     0) : ;;
     1)
-      n=$(git -C "$HOLDER" rev-list --count "$REMOTE_REF..HEAD") \
+      n=$(git -C "$HOLDER" rev-list --count "$REMOTE_REF..$SHA") \
         || refuse "cannot count the holder's commits beyond $REMOTE_REF — no verdict, nothing changed"
       echo "HELD $HOLDER unpushed $n"
       exit 1
@@ -178,33 +192,52 @@ if git -C "$HOLDER" rev-parse --verify --quiet "$REMOTE_REF" >/dev/null; then
     *) refuse "git merge-base failed in the holder $HOLDER (exit $anc) — no verdict, nothing changed" ;;
   esac
 else
-  n=$(git -C "$HOLDER" rev-list --count HEAD) \
+  n=$(git -C "$HOLDER" rev-list --count "$SHA") \
     || refuse "cannot count the holder's commits — no verdict, nothing changed"
   echo "HELD $HOLDER unpushed $n"
   exit 1
 fi
 
 # ---------------------------------------------------------------- release
-SHA=$(git -C "$HOLDER" rev-parse HEAD) || refuse "cannot read the holder's HEAD — no verdict, nothing changed"
+#
+# The record goes FIRST, so RELEASED always means "detached AND no record naming the holder": a
+# record left behind would stop the adopting worker at its first guarded write. If the detach then
+# fails, the record is put back and nothing has changed.
 assert_holder
-git -C "$HOLDER" switch --quiet --detach "$SHA" >&2 \
-  || refuse "git switch --detach failed in the holder $HOLDER (git's message above) — nothing else was done"
-
-# A zero exit is not a receipt: read the holder back.
-now=$(git -C "$HOLDER" rev-parse HEAD 2>/dev/null || true)
-still=$(git -C "$HOLDER" symbolic-ref -q HEAD 2>/dev/null || true)
-{ [ "$now" = "$SHA" ] && [ -z "$still" ]; } \
-  || refuse "after the detach the holder $HOLDER reads HEAD=${now:-?} on ${still:-no branch}, not detached at $SHA — check it by hand"
-
 RECORD=$(git -C "$REPO" config --get "kit.worktree.${BRANCH}.path" 2>/dev/null || true)
+UNSET=""
 if [ -n "$RECORD" ]; then
   RECORD_PHYS=$(CDPATH= cd -- "$RECORD" 2>/dev/null && pwd -P) || RECORD_PHYS="$RECORD"
   if [ "$RECORD" = "$HOLDER" ] || [ "$RECORD_PHYS" = "$HOLDER_PHYS" ]; then
     git -C "$REPO" config --unset "kit.worktree.${BRANCH}.path" \
-      || printf '%s: warning: released %s but could not unset kit.worktree.%s.path; assert_worktree_live will refuse the adopting tree until it is unset.\n' \
-           "$TOOL" "$HOLDER" "$BRANCH" >&2
+      || refuse "cannot unset kit.worktree.${BRANCH}.path, which names the holder $HOLDER — no verdict, nothing changed"
+    UNSET=1
   fi
 fi
+restore_record() {
+  [ -n "$UNSET" ] || return 0
+  git -C "$REPO" config "kit.worktree.${BRANCH}.path" "$RECORD" \
+    || printf '%s: warning: could not restore kit.worktree.%s.path=%s\n' "$TOOL" "$BRANCH" "$RECORD" >&2
+}
 
-echo "RELEASED $HOLDER"
-exit 0
+set +e
+git -C "$HOLDER" switch --quiet --detach "$SHA" >&2
+sw=$?
+set -e
+
+# A zero exit is not a receipt, and a non-zero one is not a refusal: `git switch` returns a failing
+# post-checkout hook's status after HEAD has already moved. The holder, read back, decides.
+now=$(git -C "$HOLDER" rev-parse --verify --quiet HEAD 2>/dev/null || true)
+still=$(git -C "$HOLDER" symbolic-ref -q HEAD 2>/dev/null || true)
+if [ "$now" = "$SHA" ] && [ -z "$still" ]; then
+  [ "$sw" -eq 0 ] \
+    || printf '%s: warning: git switch exited %s (a post-checkout hook?), but the holder reads back detached at %s — released.\n' \
+         "$TOOL" "$sw" "$SHA" >&2
+  echo "RELEASED $HOLDER"
+  exit 0
+fi
+restore_record
+if [ "$now" = "$SHA" ] && [ "$still" = "refs/heads/$BRANCH" ]; then
+  refuse "git switch --detach failed in the holder $HOLDER (exit $sw, git's message above); it is still on $BRANCH — no verdict, nothing changed"
+fi
+refuse "after the detach the holder $HOLDER reads HEAD=${now:-?} on ${still:-no branch}, neither on $BRANCH nor detached at $SHA — check it by hand"

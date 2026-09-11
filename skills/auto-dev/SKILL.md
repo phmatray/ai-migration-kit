@@ -477,8 +477,9 @@ What the verdict means for the dispatch:
   Record the verdict line under the state file's `## Needs manual sweep`, never tier-escalate, and
   retire the slot: each `HELD` guards work or a checkout the kit must not discard, and a human
   decides.
-- exit `2` (`release-branch: REFUSED — …` on stderr) → no verdict was reached: retry it, and
-  never read it as `FREE`.
+- exit `2` (`release-branch: REFUSED — …` on stderr) → no verdict was reached: **do not dispatch.**
+  Retry it once; if it refuses again, record its stderr line under `## Needs manual sweep` and
+  retire the slot — never read it as `FREE`.
 
 A dispatch that skipped this comes back with the worker's named refusal rather than a generic one
 — `branch-held guard:` in its `DETAIL:`, spelled out in both command files — and Step 4 handles it.
