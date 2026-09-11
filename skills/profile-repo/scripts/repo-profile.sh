@@ -64,20 +64,21 @@ case "$CMD" in
       exit 4
     fi
 
-    SLUG="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
-
     # The repository's own host (#514). `gh api` never infers a host, so on a GitHub Enterprise
-    # checkout the branch-protection read below reached github.com. `gh repo view` above does
-    # infer it from origin, which is why it runs first and names the repository; the helper then
-    # exports origin's host as GH_HOST for every call after it. Decided in ONE place, the helper,
-    # and only when there is a slug to address — `show` never loads it. KIT_ROOT was resolved
-    # before the cd, so the helper is the kit's; its origin read is this repository's.
+    # checkout the branch-protection read below reached github.com. The helper is LOADED here,
+    # before the first gh call, so a kit missing it refuses having called nothing. It RESOLVES once
+    # `gh repo view` — which does infer the host from origin — has named the repository, and then
+    # exports origin's host as GH_HOST for every call after it. Decided in ONE place, the helper;
+    # `show` never loads it. KIT_ROOT was resolved before the cd, so the helper is the kit's; its
+    # origin read is this repository's.
+    GH_HOST_LIB="$KIT_ROOT/skills/_shared/scripts/_gh-host.sh"
+    # CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
+    if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+    command -v gh_host_resolve >/dev/null 2>&1 \
+      || { echo "repo-profile: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2; exit 2; }
+
+    SLUG="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
     if [ -n "$SLUG" ]; then
-      GH_HOST_LIB="$KIT_ROOT/skills/_shared/scripts/_gh-host.sh"
-      # CALLABLE, not merely readable: an empty or truncated helper sources cleanly and defines nothing.
-      if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
-      command -v gh_host_resolve >/dev/null 2>&1 \
-        || { echo "repo-profile: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2; exit 2; }
       gh_host_resolve "$SLUG" || exit 2
       SLUG="$KIT_REPO_SLUG"
     fi

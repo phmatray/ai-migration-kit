@@ -1485,8 +1485,7 @@ case "$out" in
   *"_shared/scripts/_gh-host.sh; reinstall the kit"*) ;;
   *) fail "without its host helper: the missing file is not named — $out" ;;
 esac
-extra=$(grep -vE 'ARGS: (auth status|repo view --json nameWithOwner)$' "$GH_CALL_LOG" || true)
-[ -z "$extra" ] || fail "without its host helper: gh was called past auth status and repo view — $extra"
+[ ! -s "$GH_CALL_LOG" ] || fail "without its host helper: gh was called before the refusal — $(cat "$GH_CALL_LOG")"
 echo "  ok: host — without its host helper: exit 2, the missing file named, no gh call past auth status and repo view"
 
 echo "PASS: tests/repo-setup"

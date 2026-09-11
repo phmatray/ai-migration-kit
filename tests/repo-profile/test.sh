@@ -470,16 +470,16 @@ echo "  ok: the profile names every structural gate run-all-tests.sh lists ($n11
 #     checkout the branch-protection read reached github.com and came back empty — a TODO in the
 #     profile for a fact the repository does have. The seam is a stub gh's log: the GH_HOST each
 #     call ran under. Every case above keeps the real gh; this one needs a GHE host that answers, so
-#     it rebuilds PATH like case 8 around a stub, plus the awk the host helper and the jq the stub
-#     use. `repo view --json nameWithOwner` runs before the host is resolved, by design: it is what
-#     names the repository. GH_HOST is unset for these runs only — the real-gh cases above keep
+#     it rebuilds PATH like case 8 around a stub, plus the jq the stub uses — and nothing extra for
+#     the host helper, so a helper that grew a new tool dependency fails here. `repo view --json
+#     nameWithOwner` runs before the host is resolved, by design: it is what names the repository. GH_HOST is unset for these runs only — the real-gh cases above keep
 #     whatever the caller's shell has.
 CO_GHE=$(kit_scratch)
 git -C "$CO_GHE" init -q -b main
 git -C "$CO_GHE" -c user.email=t@test -c user.name=T commit -q --allow-empty -m base
 git -C "$CO_GHE" remote add origin git@ghe.example.com:acme/widgets.git
 GHE_BIN="$(kit_scratch)/bin"
-mkbin "$GHE_BIN" $DETECT_TOOLS awk jq
+mkbin "$GHE_BIN" $DETECT_TOOLS jq
 rm -f "$GHE_BIN/gh"
 # Answers from fixtures, applying --jq the way the real gh does. `gh auth token --hostname H`, the
 # host helper's credential probe, succeeds only for a host listed in $GH_STUB_HOSTS.
@@ -516,8 +516,9 @@ unhosted=$(grep -E '^GH_HOST=<unset> ARGS: (api |label |repo view --json default
 $unhosted"
 echo "  ok: detect on a GHE checkout: the branch-protection read, the label list and the default-branch reads run under GH_HOST=ghe.example.com"
 
-# 12b. The host helper is part of the install: without it detect refuses (exit 2), naming the
-#      missing file, rather than reading gh's default host — the exact #514 failure. Guard: `show`
+# 12b. The host helper is part of the install: without it detect refuses (exit 2) before any gh
+#      call, naming the missing file, rather than reading gh's default host — the exact #514
+#      failure. Guard: `show`
 #      never loads it — the plugin-install simulation and run-all-tests run `show` from a foreign cwd.
 NOHELPER="$(kit_scratch)/skills/profile-repo/scripts"
 mkdir -p "$NOHELPER"
@@ -529,12 +530,11 @@ $out"
 grep -qF '_shared/scripts/_gh-host.sh; reinstall the kit' <<<"$out" \
   || fail "detect without its host helper: the missing file is not named:
 $out"
-extra=$(grep -vxF 'GH_HOST=<unset> ARGS: repo view --json nameWithOwner --jq .nameWithOwner' "$GH_CALL_LOG" || true)
-[ -z "$extra" ] || fail "detect without its host helper: gh was called past the repo view that names the repository:
-$extra"
+[ ! -s "$GH_CALL_LOG" ] || fail "detect without its host helper: gh was called before the refusal:
+$(cat "$GH_CALL_LOG")"
 rc=0; out=$(bash "$NOHELPER/repo-profile.sh" show "$CO_GHE") || rc=$?
 { [ "$rc" -eq 3 ] && [ "$out" = "NO_PROFILE" ]; } \
   || fail "show without the host helper: expected NO_PROFILE and exit 3, got $rc: $out — show must never load it"
-echo "  ok: detect without its host helper exits 2 naming it, after the one repo view; show never needs it"
+echo "  ok: detect without its host helper exits 2 naming it, before any gh call; show never needs it"
 
 echo "repo-profile golden test OK"
