@@ -52,11 +52,15 @@ cat > "$GH_ISSUE" <<'PLAN'
 
 ### Task 1: the first slice
 
+**Files:** create `a.txt`.
+
 - [ ] **Step 1:** Write the failing test.
 - [ ] **Step 2:** Make it pass.
 - [ ] **Step 3:** Commit: `feat(x): first slice`
 
 ### Task 2: the second slice
+
+**Files:** create `b.txt`.
 
 - [ ] **Step 1:** Write the failing test.
 - [ ] **Step 2:** Commit: `feat(x): second slice`
@@ -183,5 +187,24 @@ rc=0; out=$(bash "$NOHELPER/finish-task.sh" --repo o/r --issue 42 --task 2 --wor
 grep -qF '_shared/scripts/_gh-host.sh; reinstall the kit' <<<"$out" || fail missing-helper-say "stderr must name the helper: $out"
 [ ! -s "$GH_LOG" ] || fail missing-helper-call "gh was called: $(cat "$GH_LOG")"
 echo "  ok: exit 64, the missing helper named, no gh call"
+
+echo "== 10. a task's own **Files:** line: create is staged, an unrelated untracked file is left out and named (#536) =="
+printf '\n### Task 4: stage only its own files\n\n**Files:** create `new.sh`; modify `README.md`.\n\n- [ ] **Step 1:** Commit: `feat(x): fourth slice`\n' >> "$GH_ISSUE"
+printf 'readme\n' > "$WT/README.md"
+git -C "$WT" add README.md
+git -C "$WT" -c user.email=t@t -c user.name=t commit -q -m "chore: add README"
+printf '#!/bin/sh\necho hi\n' > "$WT/new.sh"
+printf 'readme v2\n' >> "$WT/README.md"
+printf 'scratch\n' > "$WT/stray.md"
+: > "$GH_LOG"
+out=$("$FINISH" --repo o/r --issue 42 --task 4 --worktree "$WT" --branch fix/42 -c user.email=t@t -c user.name=t 2>&1) \
+  || fail files "expected exit 0, got $? — $out"
+committed=$(git -C "$WT" show --name-only --format= HEAD)
+grep -qx 'new.sh' <<<"$committed" || fail files-create "new.sh (declared create) missing from the commit: $committed"
+grep -qx 'README.md' <<<"$committed" || fail files-modify "README.md (tracked edit) missing from the commit: $committed"
+grep -qx 'stray.md' <<<"$committed" && fail files-stray "stray.md (undeclared) must not be in the commit: $committed"
+printf '%s' "$out" | grep -qF 'finish-task: commit: left untracked: stray.md' || fail files-say "stderr must name stray.md: $out"
+[ -e "$WT/stray.md" ] || fail files-left "stray.md should remain on disk, merely uncommitted"
+echo "  ok: new.sh and README.md committed, stray.md left untracked and named on stderr"
 
 echo "finish-task golden test: all cases behaved as specified"

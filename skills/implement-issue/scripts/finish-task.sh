@@ -86,6 +86,37 @@ flip_task() {  # flip_task <in> <out> ; prints the number of boxes flipped
 }
 task_present() { grep -qE "^### Task ${TASK}([: ]|$)" "$1"; }
 
+# --- the task's own `**Files:**` line: which paths it CREATES (#536) -----------------------------
+# One physical line only — the plan-shape template writes it that way and this issue's own
+# reproduction case does too. A field wrapped across lines, or carrying a `(new)`/parenthetical
+# aside, is plan-freshness.sh's fuller job (it already parses both); re-deriving that here for a
+# feature finish-task.sh does not need would just be a second, drifting copy of it.
+# ponytail: single-line **Files:** field only, upgrade to plan-freshness.sh's multi-line/aside
+# parser if a plan ever needs one here.
+extract_creates() {  # extract_creates <plan.md> ; prints one create-path per line for $TASK
+  awk -v k="$TASK" '
+    /^### Task [0-9]+/ { n = $3; sub(/:.*/, "", n); inblock = (n == k) }
+    /^## / { inblock = 0 }
+    inblock && /^\*\*Files:\*\*/ {
+      line = $0
+      sub(/^\*\*Files:\*\*[ \t]*/, "", line)
+      nf = split(line, clauses, ";")
+      for (i = 1; i <= nf; i++) {
+        clause = clauses[i]
+        gsub(/^[ \t]+|[ \t]+$/, "", clause)
+        if (clause ~ /^create[ \t]/) {
+          rest = clause
+          sub(/^create[ \t]+/, "", rest)
+          while (match(rest, /`[^`]*`/)) {
+            print substr(rest, RSTART + 1, RLENGTH - 2)
+            rest = substr(rest, RSTART + RLENGTH)
+          }
+        }
+      }
+    }
+  ' "$1"
+}
+
 # --- stage 0: the plan, and the message ---------------------------------------------------------
 if [ -n "$COMMENT_ID" ]; then endpoint="repos/$REPO/issues/comments/$COMMENT_ID"; else endpoint="repos/$REPO/issues/$ISSUE"; fi
 gh api "$endpoint" --jq .body > "$WORK/plan.orig.md" \
@@ -117,7 +148,25 @@ if git -C "$WORKTREE" diff --quiet && git -C "$WORKTREE" diff --cached --quiet \
    && [ -z "$(git -C "$WORKTREE" ls-files --others --exclude-standard)" ]; then
   echo "$TOOL: commit: nothing to commit — already committed"
 else
-  git -C "$WORKTREE" add -A
+  # Stage the task's own work only (#536): tracked edits, plus the paths its own **Files:** line
+  # marks `create` — never a blanket `add -A`, which sweeps in whatever any OTHER task already
+  # left untracked (a later task's test written ahead of time, a scratch note).
+  git -C "$WORKTREE" add -u
+  creates=$(extract_creates "$WORK/plan.orig.md")
+  while IFS= read -r p; do
+    if [ -n "$p" ] && [ -e "$WORKTREE/$p" ]; then
+      git -C "$WORKTREE" add -- "$p"
+    fi
+  done <<<"$creates"
+
+  # Anything still untracked was not asked for — name it, don't silently sweep it in.
+  strays=$(git -C "$WORKTREE" ls-files --others --exclude-standard)
+  while IFS= read -r p; do
+    if [ -n "$p" ]; then
+      echo "$TOOL: commit: left untracked: $p" >&2
+    fi
+  done <<<"$strays"
+
   "$HERE/guarded-commit.sh" -C "$WORKTREE" "${CONFIG[@]+"${CONFIG[@]}"}" "$BRANCH" -- -m "$MSG" \
     || { rc=$?; echo "$TOOL: commit: guarded-commit.sh exited $rc" >&2; exit "$rc"; }
 fi
