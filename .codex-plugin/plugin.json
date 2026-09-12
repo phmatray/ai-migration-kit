@@ -1,0 +1,31 @@
+{
+  "name": "ai-migration-kit",
+  "version": "2.4.0",
+  "description": "Complete, verified, easy and fast upgrades of legacy .NET applications, powered by RoselineMCP (Roslyn) — a gate-verified pipeline from assessment to verified production — plus generic GitHub issue/PR lifecycle skills (create-issue, implement-issue, merge-pr) parameterized by a per-repo profile.",
+  "author": {
+    "name": "Philippe Matray",
+    "url": "https://github.com/phmatray"
+  },
+  "homepage": "https://phmatray.github.io/ai-migration-kit/",
+  "repository": "https://github.com/phmatray/ai-migration-kit",
+  "license": "MIT",
+  "keywords": ["migration", "legacy", "dotnet", "csharp", "roslyn", "github", "issues", "pull-requests"],
+  "skills": "./skills/",
+  "hooks": "./hooks/claude-hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "AI Migration Kit",
+    "shortDescription": "Gate-verified .NET migrations and a hands-off issue-to-PR loop",
+    "longDescription": "Takes a legacy .NET application to verified production through seven gated phases, with RoselineMCP doing every C# analysis and edit, and takes a GitHub issue to a merged pull request hands-off.",
+    "developerName": "Philippe Matray",
+    "category": "Coding",
+    "capabilities": ["Skills", "MCP servers", "Lifecycle hooks"],
+    "websiteURL": "https://phmatray.github.io/ai-migration-kit/",
+    "defaultPrompt": [
+      "Assess this legacy .NET solution for a migration.",
+      "Implement the plan on issue #42.",
+      "Land PR #42 once its CI is green."
+    ],
+    "brandColor": "#0f7b74"
+  }
+}

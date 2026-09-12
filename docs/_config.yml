@@ -8,6 +8,8 @@ baseurl: /ai-migration-kit
 
 search_enabled: true
 heading_anchors: true
+# Every fenced block gets the theme's own copy button — the install commands above all (#527).
+enable_copy_code_button: true
 # The site's own scheme — docs/_sass/color_schemes/kit.scss; its type and measure are in
 # docs/_sass/custom/setup.scss, the rest in docs/_sass/custom/custom.scss.
 color_scheme: kit

@@ -81,7 +81,7 @@ case "$repo" in */*) exit 0 ;; esac
 # is what sits after an optional `scheme://` and an optional `user@`, up to the first `:` or `/`
 # — the same three remote shapes as above. Lowercased, because DNS names are case-insensitive and
 # a path segment is not. No host derivable → fail open, like an underivable owner/repo.
-host=$(printf '%s' "$remote_url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/:]*@##' -e 's#[:/].*$##' | tr '[:upper:]' '[:lower:]')
+host=$(printf '%s' "$remote_url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#[:/].*$##' | tr '[:upper:]' '[:lower:]')
 [ -n "$host" ] || exit 0
 case "$host" in */*) exit 0 ;; esac
 

@@ -150,18 +150,21 @@ Full reference — the `dnx` version floor, the `Edit` escape hatch for what ros
 `Bash` rather than `Read`, and it is built on the same three properties:
 
 - **What it denies** — whole-tree discards (`git checkout .`, `git restore .`), `git reset --hard`,
-  `git clean -f…`, a forced `git push`, and a **bare** `git commit`/`push`/`merge`. Each denial names
-  the replacement: the matching `guarded-*.sh` under `skills/implement-issue/scripts/`, which asserts
-  the branch before and after (#26, #280). A line that already calls one of those guards is allowed
-  whole, `--force-with-lease` included.
+  `git clean -f…`, a forced `git push`, a **bare** `git commit`/`push`/`merge`, and a **bare** `gh pr merge`.
+  Git denials name the matching `guarded-*.sh` under `skills/implement-issue/scripts/` (which asserts
+  the branch before and after; #26, #280), and `gh pr merge` denials name
+  `skills/merge-pr/scripts/guarded-pr-merge.sh`. A line that already calls one of the three **git**
+  guards is allowed whole, `--force-with-lease` and other options included; naming
+  `guarded-pr-merge.sh` exempts nothing, deliberately (#512) — the "look for the guard, else merge
+  raw" line names it too, and the raw `gh pr merge` beside it is still judged.
 - **Inert unless the guards exist** — it only ever denies in a repository that carries a
   `.claude/skills/repo-profile.md`, i.e. one that has opted into the lifecycle skills. Everywhere
   else the plugin is installed, it says nothing.
 - **Fails open, always** — no `jq`, no `awk`, no `git`, an unparseable payload, quoting it cannot
   trust, and the command proceeds. `GIT_GATE=off` (also `0|false|no|disabled`) disables it outright
-  — as a prefix on the one command (`GIT_GATE=off git …`), or set where Claude is launched for the
-  whole session; an `export` typed into a Bash call never reaches the hook (#372). `GIT_GATE=on`
-  forces it past the profile probe, and `off` still wins.
+  — as a prefix on the one command (`GIT_GATE=off git …` or `GIT_GATE=off gh …`), or set where
+  Claude is launched for the whole session; an `export` typed into a Bash call never reaches the
+  hook (#372). `GIT_GATE=on` forces it past the profile probe, and `off` still wins.
 - **The probe follows `cd`** — `cd /tmp/shop && git init && git commit` is that repository's commit,
   not the cwd's, so a literal, resolvable `cd` moves the profile lookup the way `-C <path>` does;
   a `git init` marks what follows as a brand-new, guard-less repository (#372). And the arms read
@@ -177,13 +180,13 @@ script; [`hooks/git-write-gate.sh`](hooks/git-write-gate.sh)'s header records th
 ### The kit's skill-routing table travels via a SessionStart hook
 
 [`hooks/routing-context.sh`](hooks/routing-context.sh) is the third shipped hook, on `SessionStart`
-rather than `PreToolUse`: it extracts `.claude/CLAUDE.md`'s *Which kit skill, for what* section and
-injects it as `additionalContext`, so the routing table reaches a session even when the working
-directory is not this repository (`.claude/CLAUDE.md` is a project instruction file Claude Code only
-reads here, #416). There is no second copy of the table — a heading rename or removal in
-`.claude/CLAUDE.md` empties the extraction rather than reading stale.
+rather than `PreToolUse`: it extracts [`AGENTS.md`](AGENTS.md)'s *Which kit skill, for what*
+section and injects it as `additionalContext`, so the routing table reaches a session even when the
+working directory is not this repository (#416). `AGENTS.md` is the table's one home (#525) — the
+file every other host reads as well — and there is no second copy: a heading rename or removal there
+empties the extraction rather than reading stale.
 
-- **Fails open, always** — no `jq`, no `CLAUDE_PLUGIN_ROOT`, an unreadable `.claude/CLAUDE.md`, or an
+- **Fails open, always** — no `jq`, no `CLAUDE_PLUGIN_ROOT`, an unreadable `AGENTS.md`, or an
   empty extraction, and the hook prints nothing and exits 0; it never blocks anything (it has no deny
   path to begin with).
 - **`ROUTING_CONTEXT=off`** (also `0|false|no|disabled`) disables it outright — set where Claude is
@@ -234,10 +237,69 @@ degradation is named rather than silent. CI cannot start an MCP server, so
 
 ## Install
 
+The kit is written for Claude Code and installs as a plugin on five more hosts from this same
+repository; a dozen others load it through a rule file. Which host gets what, and the file that
+adapts it, is one table: [`docs/_data/hosts.yml`](docs/_data/hosts.yml) — the decision behind it is
+[ADR 0014](docs/adr/0014-the-kit-is-claude-code-first-and-reaches-other-hosts-through-thin-adapters.md).
+
+### Claude Code
+
 ```bash
-claude plugin marketplace add phmatray/ai-migration-kit   # or the local path to this repo
-claude plugin install ai-migration-kit
+claude plugin marketplace add phmatray/ai-migration-kit
+claude plugin install ai-migration-kit@ai-migration-kit-marketplace
 ```
+
+Inside a session the same two commands work as `/plugin marketplace add` and `/plugin install`.
+
+### Codex
+
+```bash
+codex plugin marketplace add phmatray/ai-migration-kit
+```
+
+Then open `/plugins`, install AI Migration Kit, and review and trust its hooks in `/hooks`.
+
+### GitHub Copilot CLI
+
+```bash
+copilot plugin marketplace add phmatray/ai-migration-kit
+copilot plugin install ai-migration-kit@ai-migration-kit-marketplace
+```
+
+### Gemini CLI
+
+```bash
+gemini extensions install https://github.com/phmatray/ai-migration-kit
+```
+
+### Antigravity CLI
+
+```bash
+agy plugin install https://github.com/phmatray/ai-migration-kit
+```
+
+### pi
+
+```bash
+pi install git:github.com/phmatray/ai-migration-kit
+```
+
+The issue → pull request skills work there as they are; the migration pipeline needs RoselineMCP,
+which pi does not load from a package.
+
+### Cursor, Windsurf, Cline, Kiro, GitHub Copilot, and every `AGENTS.md` host
+
+Clone the kit once, then copy the rule file your host reads into your project — it routes each
+request to a skill in the clone:
+
+```bash
+git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit
+mkdir -p .cursor/rules && cp ~/.ai-migration-kit/.cursor/rules/ai-migration-kit.mdc .cursor/rules/
+```
+
+That second line is Cursor's; the host table has every host's. For the migration pipeline, register
+RoselineMCP and AdrMcp — `dnx RoselineMCP --yes` and `dnx AdrMcp --yes`, .NET 10 SDK — in the host's
+MCP settings.
 
 ## Quickstart
 

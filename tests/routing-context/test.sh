@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Golden test for the routing-context hook — the SessionStart hook that makes the kit's
-# skill-routing table (.claude/CLAUDE.md's "## Which kit skill, for what") travel to a session
-# where the plugin is installed but the working directory is NOT this repository (#416).
+# skill-routing table (AGENTS.md's "## Which kit skill, for what") travel to a session where the
+# plugin is installed but the working directory is NOT this repository (#416).
 #
-# Driven against the REAL, live .claude/CLAUDE.md rather than a fixture copy of the section text —
-# on purpose. A copy would desynchronise from #395's table the moment either drifts, exactly the
+# Driven against the REAL, live AGENTS.md rather than a fixture copy of the section text — on
+# purpose. A copy would desynchronise from the table the moment either drifts, exactly the
 # second-copy failure #416 exists to prevent, and it could never catch the heading being renamed or
 # removed: acceptance criterion 4 requires that THIS suite goes red when that happens, which only
 # holds if the "non-empty, names the core skills" assertion below reads the actual file.
+#
+# The table's home moved from .claude/CLAUDE.md to AGENTS.md (#525) so hosts other than Claude Code
+# can read it too. Cases 6 and 7 pin that move: CLAUDE.md keeps no second copy, and the hook reads
+# AGENTS.md — a root holding the section only in .claude/CLAUDE.md gets nothing.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -59,13 +63,16 @@ event=$(echo "$out" | jq -r '.hookSpecificOutput.hookEventName // empty')
 [ "$event" = "SessionStart" ] || { echo "FAIL [real]: hookEventName is '$event', want SessionStart"; exit 1; }
 ctx=$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext // empty')
 [ -n "$ctx" ] || { echo "FAIL [real]: additionalContext is empty"; exit 1; }
+case "$ctx" in
+  "## Which kit skill, for what"*) ;;
+  *) echo "FAIL [real]: additionalContext does not begin with the section heading: $ctx"; exit 1 ;;
+esac
 
 # Lower bound: the core routing verbs #416's own problem statement names, and every one of them a
-# reader outside this repo has to see. Not "every skills/* directory" — the section as it stands
-# today names these by skill/command name, not four others (deliver-issue, migrate-legacy,
-# review-followups, review-sessions) that postdate #395's table; rewriting the table's CONTENT to
-# add them is explicitly out of scope for this issue (Non-goals), so the assertion matches what the
-# single-homed section actually says rather than inventing coverage it does not have.
+# reader outside this repo has to see. Not "every skills/* directory" — the section names these by
+# skill/command name, not four others (deliver-issue, migrate-legacy, review-followups,
+# review-sessions) that postdate #395's table; rewriting the table's CONTENT to add them is out of
+# scope for #416 and for #525, which moves the section without changing what it routes.
 for name in debug-issue create-issue implement-issue merge-pr triage-backlog auto-dev profile-repo setup-repo; do
   case "$ctx" in
     *"$name"*) ;;
@@ -74,9 +81,10 @@ for name in debug-issue create-issue implement-issue merge-pr triage-backlog aut
 done
 
 # Upper bound: catches an extraction that runs away past the next '## ' heading (e.g. a broken
-# state machine that never exits) and swallows the rest of the file. The real section is ~730
-# bytes; the whole file is ~3.4KB. Measured on the SECTION alone: the two #512 lines appended after
-# it spell the kit's path three times, and that length is the host's, not the extraction's.
+# state machine that never exits) and swallows the rest of the file. The real section is under a
+# kilobyte; the whole of AGENTS.md is several. Measured on the SECTION alone: the two #512 lines
+# appended after it spell the kit's path three times, and that length is the host's, not the
+# extraction's.
 section_part=${ctx%%Kit root:*}
 len=${#section_part}
 [ "$len" -le 2000 ] || { echo "FAIL [real]: additionalContext is $len bytes — extraction likely ran past the section"; exit 1; }
@@ -98,8 +106,9 @@ done
 
 # A root that carries the table but none of the guards — a cache an upgrade half-emptied — prints its
 # `Kit root:` and no guard path that does not exist there (the rule guard_hint keeps in the gate).
+# The table rides in AGENTS.md, its home since #525.
 NOSCRIPTS=$(mktemp -d "$WORK/noscripts.XXXXXX")
-mkdir -p "$NOSCRIPTS/.claude"; cp "$KIT/.claude/CLAUDE.md" "$NOSCRIPTS/.claude/CLAUDE.md"
+cp "$KIT/AGENTS.md" "$NOSCRIPTS/AGENTS.md"
 out=$(run "$NOSCRIPTS" "" "$REAL_PATH") || { echo "FAIL [no-scripts]: hook exited non-zero"; exit 1; }
 ctx2=$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext // empty')
 case "$ctx2" in *"Kit root: $NOSCRIPTS"*) ;;
@@ -115,10 +124,10 @@ out=$(run "$KIT" off "$REAL_PATH") || { echo "FAIL [off]: hook exited non-zero";
 out=$(run "" "" "$REAL_PATH") || { echo "FAIL [unset]: hook exited non-zero"; exit 1; }
 [ -z "$out" ] || { echo "FAIL [unset]: expected no output with CLAUDE_PLUGIN_ROOT unset, got: $out"; exit 1; }
 
-# --------------------------------------------------- 4. CLAUDE_PLUGIN_ROOT with no .claude/CLAUDE.md
+# ---------------------------------------------------------- 4. CLAUDE_PLUGIN_ROOT with no AGENTS.md
 EMPTY_DIR=$(mktemp -d "$WORK/empty.XXXXXX")
-out=$(run "$EMPTY_DIR" "" "$REAL_PATH") || { echo "FAIL [no-claude-md]: hook exited non-zero"; exit 1; }
-[ -z "$out" ] || { echo "FAIL [no-claude-md]: expected no output, got: $out"; exit 1; }
+out=$(run "$EMPTY_DIR" "" "$REAL_PATH") || { echo "FAIL [no-agents-md]: hook exited non-zero"; exit 1; }
+[ -z "$out" ] || { echo "FAIL [no-agents-md]: expected no output, got: $out"; exit 1; }
 
 # ------------------------------------------------------------------------------- 5. jq absent
 # ADR 0002's fail-open contract: no jq, no envelope, still exit 0 — the same non-print path the two
@@ -127,4 +136,29 @@ NOJQ=$(shim_path "$WORK/nojq")
 out=$(run "$KIT" "" "$NOJQ") || { echo "FAIL [no-jq]: hook exited non-zero"; exit 1; }
 [ -z "$out" ] || { echo "FAIL [no-jq]: expected no output without jq on PATH, got: $out"; exit 1; }
 
-echo "PASS: routing-context hook — real extraction, off-switch, unset root, no CLAUDE.md, no jq"
+# ---------------------------------------------------- 6. .claude/CLAUDE.md keeps no second copy
+if grep -q '^## Which kit skill, for what' "$KIT/.claude/CLAUDE.md"; then
+  echo "FAIL [one-home]: .claude/CLAUDE.md still carries the '## Which kit skill, for what' section — AGENTS.md is its home"
+  exit 1
+fi
+# ... and imports it instead: the hook only runs where the plugin is installed, so a session in this
+# repository without the plugin sees the table through this import alone.
+grep -qx '@../AGENTS.md' "$KIT/.claude/CLAUDE.md" || {
+  echo "FAIL [one-home]: .claude/CLAUDE.md does not import @../AGENTS.md — a session here without the plugin would see no routing table"
+  exit 1
+}
+
+# --------------------------------------------------------- 7. the hook reads AGENTS.md, not CLAUDE.md
+OLD_HOME=$(mktemp -d "$WORK/old-home.XXXXXX")
+mkdir -p "$OLD_HOME/.claude"
+printf '## Which kit skill, for what\n\nbroken -> debug-issue\n' > "$OLD_HOME/.claude/CLAUDE.md"
+out=$(run "$OLD_HOME" "" "$REAL_PATH") || { echo "FAIL [source]: hook exited non-zero"; exit 1; }
+[ -z "$out" ] || { echo "FAIL [source]: the hook still reads .claude/CLAUDE.md: $out"; exit 1; }
+printf '## Which kit skill, for what\n\nbroken -> debug-issue\n' > "$OLD_HOME/AGENTS.md"
+out=$(run "$OLD_HOME" "" "$REAL_PATH") || { echo "FAIL [source]: hook exited non-zero"; exit 1; }
+case "$out" in
+  *debug-issue*) ;;
+  *) echo "FAIL [source]: a root with the section in AGENTS.md produced no context: $out"; exit 1 ;;
+esac
+
+echo "PASS: routing-context hook — real extraction from AGENTS.md, kit root and guards, off-switch, unset root, no AGENTS.md, no jq, one home, source file"

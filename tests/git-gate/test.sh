@@ -516,7 +516,7 @@ echo "ok: the gate and this suite pass ./scripts/parse-sweep.sh"
 
 # S2 — the registration. A hook that is never invoked looks exactly like a hook that found nothing
 # to block, which is the failure scripts/ci-wiring-check.py exists for one level up.
-HJ="$KIT/hooks/hooks.json"
+HJ="$KIT/hooks/claude-hooks.json"
 jq -e . "$HJ" >/dev/null 2>&1 || { echo "FAIL: hooks.json is not valid JSON"; exit 1; }
 n=$(jq '[.hooks.PreToolUse[] | select(.matcher=="Bash")] | length' "$HJ")
 [ "$n" = "1" ] || { echo "FAIL: hooks.json has $n Bash matchers, want exactly 1"; exit 1; }
