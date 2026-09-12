@@ -8,6 +8,30 @@ Starting with the version after [1.9.1], the entries below this paragraph are ge
 adopt its format (*Features* / *Bug Fixes* sections, comparison link, sha per entry) rather than
 the hand-written entries below. Earlier entries are kept as written.
 
+## [2.5.0](https://github.com/phmatray/ai-migration-kit/compare/v2.4.0...v2.5.0) (2026-09-12)
+
+
+### Features
+
+* **hosts:** AGENTS.md becomes the one home of the routing table, with rule copies for six hosts ([#525](https://github.com/phmatray/ai-migration-kit/issues/525)) ([#528](https://github.com/phmatray/ai-migration-kit/issues/528)) ([621a477](https://github.com/phmatray/ai-migration-kit/commit/621a4772250f00679bf94574641f9df06432e3ab))
+* **hosts:** the kit installs as a plugin on Codex, Copilot CLI, Gemini CLI, Antigravity and pi ([#526](https://github.com/phmatray/ai-migration-kit/issues/526)) ([#537](https://github.com/phmatray/ai-migration-kit/issues/537)) ([41fa428](https://github.com/phmatray/ai-migration-kit/commit/41fa428a9e2f02cc1c04bb3caeb32f14cd8dad0f))
+* **merge-pr:** wait for CI in one wait-ci.sh call, then re-derive once ([#521](https://github.com/phmatray/ai-migration-kit/issues/521)) ([#543](https://github.com/phmatray/ai-migration-kit/issues/543)) ([95d36a3](https://github.com/phmatray/ai-migration-kit/commit/95d36a315a258e1e099575f1cdc20309bb7dc736))
+
+
+### Bug Fixes
+
+* **auto-dev:** bound the supervisor's context through the harness, not a prescribed /compact ([#522](https://github.com/phmatray/ai-migration-kit/issues/522)) ([#550](https://github.com/phmatray/ai-migration-kit/issues/550)) ([ba31dd6](https://github.com/phmatray/ai-migration-kit/commit/ba31dd623d660143eb3b2548c057c42bc3fee655))
+* **auto-dev:** release a retired worker's PR branch before any re-dispatch onto it ([#510](https://github.com/phmatray/ai-migration-kit/issues/510)) ([#517](https://github.com/phmatray/ai-migration-kit/issues/517)) ([922e38a](https://github.com/phmatray/ai-migration-kit/commit/922e38a959fe0246a60737eec7681cf508cfaf23))
+* **auto-dev:** stop-gate parses a credentialed origin URL's token as the user ([#532](https://github.com/phmatray/ai-migration-kit/issues/532)) ([#541](https://github.com/phmatray/ai-migration-kit/issues/541)) ([8c535c9](https://github.com/phmatray/ai-migration-kit/commit/8c535c925fcaaccf904dc4e3597b2edcc19a87e4))
+* **hooks:** close write-gate bypass shapes in judge() ([#533](https://github.com/phmatray/ai-migration-kit/issues/533)) ([#540](https://github.com/phmatray/ai-migration-kit/issues/540)) ([bb7f33b](https://github.com/phmatray/ai-migration-kit/commit/bb7f33bb62207c780f9a98bcaaa5dd466ff73329))
+* **hooks:** the write-gate denies a raw gh pr merge and names each guard by absolute path ([#512](https://github.com/phmatray/ai-migration-kit/issues/512)) ([#518](https://github.com/phmatray/ai-migration-kit/issues/518)) ([a30064b](https://github.com/phmatray/ai-migration-kit/commit/a30064b5c896c6216bf12a70f97002daa0b86f77))
+* **implement-issue:** finish-task.sh stages only the task's own files, never the whole worktree ([#536](https://github.com/phmatray/ai-migration-kit/issues/536)) ([#553](https://github.com/phmatray/ai-migration-kit/issues/553)) ([49c5583](https://github.com/phmatray/ai-migration-kit/commit/49c55835651bad20616e96d9906f8a12eecade0c))
+* **implement-issue:** name the code-review level on every Step 7 call ([#520](https://github.com/phmatray/ai-migration-kit/issues/520)) ([#549](https://github.com/phmatray/ai-migration-kit/issues/549)) ([333e815](https://github.com/phmatray/ai-migration-kit/commit/333e815b8d37053d7c9d574715a5fbfd36f69d52))
+* **implement-issue:** plan-freshness.sh strips asides innermost-first ([#519](https://github.com/phmatray/ai-migration-kit/issues/519)) ([#542](https://github.com/phmatray/ai-migration-kit/issues/542)) ([9265f3c](https://github.com/phmatray/ai-migration-kit/commit/9265f3cef77be803e26b2b431e27506f6a5a5993))
+* **review-sessions:** harvest.py's harness and guard rules match the text the harness and guards actually print ([#513](https://github.com/phmatray/ai-migration-kit/issues/513)) ([#544](https://github.com/phmatray/ai-migration-kit/issues/544)) ([207f98c](https://github.com/phmatray/ai-migration-kit/commit/207f98c3667c263e58c6c2853c0bedff13523adb))
+* **skills:** every kit script reaches the repository's own gh host ([#514](https://github.com/phmatray/ai-migration-kit/issues/514)) ([#516](https://github.com/phmatray/ai-migration-kit/issues/516)) ([7bd8cc1](https://github.com/phmatray/ai-migration-kit/commit/7bd8cc169a3553243320a796a5cc886091d50ffd))
+* **skills:** update stale comment about userinfo-colon parsing in _gh-host.sh ([#554](https://github.com/phmatray/ai-migration-kit/issues/554)) ([f9a2d24](https://github.com/phmatray/ai-migration-kit/commit/f9a2d24bb6876a2846a716de271e4b1f5a365b90))
+
 ## [2.4.0](https://github.com/phmatray/ai-migration-kit/compare/v2.3.1...v2.4.0) (2026-09-11)
 
 

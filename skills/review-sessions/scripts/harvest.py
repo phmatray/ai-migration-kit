@@ -31,11 +31,22 @@ kind ∈ tool-error      a tool_result flagged is_error whose tool_use named a k
        forbidden-wait  an assistant turn in the never-wait shape a worker must never end on
        worker-report   a worker's final report line with STATUS PARTIAL | BLOCKED | FAILED
        suite-fail      a tool_result carrying a kit golden suite's FAIL: line
-       guard-refusal   a guarded-*.sh / tick-plan.sh / make-worktree.sh refusal or ALERT
+       guard-refusal   a guard's own "<name>: REFUSED | ALERT | REJECTED" line (guarded-*, tick-plan, make-worktree)
        harness-nudge   "[Request interrupted" or "[Your previous response had no visible output"
+
+A `guard-refusal` and a kit `tool-error` both require the kit to have been INVOKED, never merely
+mentioned: a `guard-refusal` needs a failing Bash call that ran the guard (see `invoked_guard`), and
+`names_kit_path` counts `--kit-name` only as a standalone identifier, never as part of a longer one
+— a dash-encoded transcript directory or a same-prefixed sibling directory included. A
+`Read`/`Grep`/`Glob` result, or prose that quotes a guard or a kit path, produces neither.
 
 Exit 0 (records, or the explicit `no signals` line); 2 on a usage error or an unreadable directory
 — never a traceback for a bad argument.
+
+KNOWN LIMITS: `invoked_guard` requires the SAME Bash result to be flagged `is_error` and to name a
+guard's basename in its command — a compound command (`cat notes.md && guarded-push.sh …`) whose
+unrelated first part fails while a genuine guard call further along it also fails is not
+distinguished from the guard's own failure; a `description` field never counts, only `command`.
 """
 import argparse
 import datetime as dt
@@ -56,9 +67,10 @@ COMMAND_SKILL = {
     "migrate-audit": "migrate-legacy", "migrate-followups": "review-followups",
     "auto-dev-worker": "auto-dev", "auto-dev-merge": "auto-dev",
 }
-KIT_SCRIPTS = (
-    "guarded-commit.sh", "guarded-push.sh", "guarded-merge.sh", "guarded-pr-merge.sh", "tick-plan.sh",
-    "make-worktree.sh", "plan-freshness.sh", "wait-ci.sh", "survey.sh", "reconcile.sh", "repo-profile.sh",
+# The six guard basenames (GUARD_BASENAMES, defined below GUARD_NAMES) plus every other kit script
+# not a guard — one list, not two independently hand-kept spellings of the guard names.
+NON_GUARD_KIT_SCRIPTS = (
+    "plan-freshness.sh", "wait-ci.sh", "survey.sh", "reconcile.sh", "repo-profile.sh",
     "repo-setup.sh", "preflight.sh", "followups.py", "decide.sh", "wire-edges.sh", "merge-verdict.sh",
     "base-run-verdict.sh", "remote-branch-teardown.sh", "parent-decision-note.sh", "audit-inventory.sh",
     "report-dashboard.py", "usage_report.py", "rejected-adrs.sh", "harvest.py",
@@ -69,13 +81,62 @@ HOOK_DENY_PREFIXES = (
     "Blocked by the git write-gate",
     "Blocked by the roseline gate",
 )
-HARNESS_REFUSAL_PREFIX = "This session is isolated in the worktree"
+# A main session's wording, then a sub-agent's — both the harness, never the kit.
+HARNESS_REFUSAL_PREFIXES = (
+    "This session is isolated in the worktree",
+    "This agent is isolated in the worktree",
+)
+# The harness wraps some of its own synthetic errors — this refusal and its "Blocked by the …
+# gate" denials included — in a `<tool_use_error>` tag (confirmed on real transcripts: 4 of 608
+# "isolated in the worktree" tool_result bodies carry it). Strip it before either prefix check
+# below, or a wrapped refusal falls through and is misfiled as a kit tool-error — the exact bug
+# both checks exist to prevent.
+TOOL_USE_ERROR_WRAP = "<tool_use_error>"
+
+
+TOOL_USE_ERROR_CLOSE = "</tool_use_error>"
+
+
+def unwrap(body):
+    if not body.startswith(TOOL_USE_ERROR_WRAP):
+        return body
+    body = body[len(TOOL_USE_ERROR_WRAP):]
+    if body.endswith(TOOL_USE_ERROR_CLOSE):
+        body = body[: -len(TOOL_USE_ERROR_CLOSE)]
+    return body
+
+
 NUDGES = ("[Request interrupted", "[Your previous response had no visible output")
 WORKER_REPORT_RE = re.compile(r"\bSTATUS:\s*(PARTIAL|BLOCKED|FAILED)\b")
 SUITE_FAIL_RE = re.compile(r"^FAIL[: \[].*", re.M)
+# Every guard names itself by a bare `TOOL=<name>` (never `<name>.sh`) and prints
+# "<name>: REFUSED|ALERT|REJECTED — …" at the start of a line on stderr (a Bash result's
+# "Exit code N\n" prefix still leaves it starting a line, so (?m)^ still matches). `plan-freshness`
+# is left off this list: it prints a verdict ("STALE"/"FRESH"), never a refusal word, so it could
+# never match here — it is not a guard in the sense CONTEXT.md defines one (it wraps no
+# destructive git write).
+GUARD_NAMES = ("guarded-commit", "guarded-push", "guarded-merge", "guarded-pr-merge", "tick-plan", "make-worktree")
 GUARD_RE = re.compile(
-    r"(guarded-(?:commit|push|merge|pr-merge)\.sh|tick-plan\.sh|make-worktree\.sh|plan-freshness\.sh)"
-    r".{0,200}?(REFUSED|ALERT|exit(?:ed)? [2-9]|is NOT this HEAD|no verdict)", re.S)
+    r"(?m)^(" + "|".join(re.escape(n) for n in GUARD_NAMES) + r"): (REFUSED|ALERT|REJECTED)\b")
+# The six basenames as they appear ON A COMMAND LINE (with ".sh"), for invoked_guard below — a
+# different spelling than GUARD_RE's, which matches what the guard PRINTS (bare name, no ".sh").
+# Precompiled once: this is checked against every Bash tool_result in every transcript line.
+GUARD_BASENAMES = tuple(n + ".sh" for n in GUARD_NAMES)
+GUARD_BASENAME_RE = re.compile(
+    "|".join(r"(?<![\w.-])" + re.escape(b) + r"(?![\w.-])" for b in GUARD_BASENAMES))
+KIT_SCRIPTS = GUARD_BASENAMES + NON_GUARD_KIT_SCRIPTS
+
+
+def invoked_guard(tool, is_error, touched):
+    """True when `touched` (a Bash tool_use's `command` string) plausibly RAN a guard, never when a
+    Read/Grep/Glob result merely quotes one. Every real guard refusal exits non-zero (checked against
+    every guard script's own refusal path), so gating on the SAME result's `is_error` is the
+    invocation signal, not a first-word "was this just a read command" heuristic: that heuristic both
+    missed a compound command (`cat notes.md && guarded-push.sh …`, first word `cat`) and needed a
+    growing allowlist of read-only command names to stay accurate."""
+    if tool != "Bash" or not is_error or not touched:
+        return False
+    return bool(GUARD_BASENAME_RE.search(touched))
 
 
 def never_wait_phrases(kit_root):
@@ -143,8 +204,15 @@ def excerpt_of(text, needle=None, width=160):
 def names_kit_path(s, in_kit_repo, kit_name):
     if not s:
         return False
-    if kit_name and kit_name in s:
-        return True
+    if kit_name:
+        # kit_name counts only as a PATH SEGMENT — not immediately preceded or followed by another
+        # identifier character. Bounded by adjacency, not by "/" or line-start: "~/.ai-migration-kit"
+        # (the kit's documented non-plugin clone path, AGENTS.md) and a mid-body mention on a line
+        # of its own both count; a dash-encoded cwd directory ("-Users-x-ai-migration-kit") does
+        # not, because the char right before the name there is "-", not a boundary; neither does a
+        # same-prefixed sibling ("ai-migration-kit.bak", "ai-migration-kit-archive").
+        if re.search(r"(?<![\w-])" + re.escape(kit_name) + r"(?![\w.-])", s):
+            return True
     for d in KIT_DIRS_ANYWHERE:
         if d in s:
             return True
@@ -213,7 +281,13 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
                         if sk:
                             active = sk
                         inp = b.get("input") if isinstance(b.get("input"), dict) else {}
-                        touched = " ".join(str(v) for v in inp.values() if isinstance(v, str))
+                        # A Bash call's `touched` is its `command` alone, never a `description`
+                        # alongside it — invoked_guard's contract is "named in the command that ran",
+                        # and a guard basename mentioned only in a description would otherwise flip it.
+                        if b.get("name") == "Bash" and isinstance(inp.get("command"), str):
+                            touched = inp["command"]
+                        else:
+                            touched = " ".join(str(v) for v in inp.values() if isinstance(v, str))
                         tool_inputs[b.get("id")] = (b.get("name"), touched)
                     elif b.get("type") == "text" and isinstance(b.get("text"), str):
                         txt = b["text"]
@@ -247,20 +321,22 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
                         continue
                     body = text_of(b.get("content"))
                     tool, touched = tool_inputs.get(b.get("tool_use_id"), (None, ""))
-                    if body.startswith(HARNESS_REFUSAL_PREFIX):
+                    is_error = bool(b.get("is_error"))
+                    unwrapped = unwrap(body)
+                    if unwrapped.startswith(HARNESS_REFUSAL_PREFIXES):
                         continue   # the harness's own worktree isolation, not the kit
-                    if any(body.startswith(p) or ("\n" + p) in body for p in HOOK_DENY_PREFIXES):
-                        emit("hook-deny", excerpt_of(body), tool, "gate")
+                    if any(unwrapped.startswith(p) or ("\n" + p) in unwrapped for p in HOOK_DENY_PREFIXES):
+                        emit("hook-deny", excerpt_of(unwrapped), tool, "gate")
                         continue
-                    g = GUARD_RE.search(body)
+                    g = GUARD_RE.search(body) if invoked_guard(tool, is_error, touched) else None
                     if g:
-                        emit("guard-refusal", excerpt_of(body, g.group(1)), tool, g.group(1))
+                        emit("guard-refusal", excerpt_of(body, g.group(0)), tool, g.group(1))
                         continue
                     sf = SUITE_FAIL_RE.search(body)
                     if sf and names_kit_path(body, in_kit_repo, kit_name):
                         emit("suite-fail", excerpt_of(sf.group(0)), tool, "FAIL")
                         continue
-                    if b.get("is_error") and names_kit_path(touched, in_kit_repo, kit_name):
+                    if is_error and names_kit_path(touched, in_kit_repo, kit_name):
                         emit("tool-error", excerpt_of(body), tool, excerpt_of(touched, width=100))
     # Collapse a polled command into one record with a count.
     collapsed = {}

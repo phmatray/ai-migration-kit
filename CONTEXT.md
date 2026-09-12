@@ -138,6 +138,21 @@ own frontmatter call it a "seven-phase" pipeline — each ending at a gate befor
 Phase 0 (preflight) runs before all seven and is numbered but not counted among them.
 _Avoid_: stage, step
 
+**Host**:
+A coding-agent program that loads the kit — Claude Code, Codex, Copilot CLI, Gemini CLI, Cursor.
+The kit is written for Claude Code first; every other host reaches the same `skills/` through an
+adapter (#525).
+_Avoid_: platform, IDE
+
+Note: ADR 0006 and older prose say **harness** for the same thing — kept in those records, not a
+word to reach for in new text.
+
+**Adapter**:
+A file that points a host at one of the kit's sources without restating it: a plugin manifest, or
+a rule copy generated from `AGENTS.md` by `scripts/host-adapters.py`, which also refuses one that
+drifts from its source.
+_Avoid_: port, shim
+
 ## Flagged ambiguities
 
 - **decision** carries three meanings and all three stay — this file records that they coexist, it

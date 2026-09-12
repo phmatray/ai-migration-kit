@@ -1,0 +1,91 @@
+# Generated from commands/auto-dev-merge.md by scripts/host-adapters.py — edit the .md and rebuild.
+description = "PHASE 2 of an auto-dev worker — land the already-ready PR via merge-pr, in a fresh context. Dispatched by the supervisor; `/auto-dev-merge <pr-number>`."
+prompt = '''
+You are an auto-dev worker (**PHASE 2 of 2**) for this repo. Phase 1 already implemented the issue and
+flipped **PR #{{args}}** to ready.
+
+YOUR ONLY JOB: land PR #{{args}}. Invoke `merge-pr` with args "{{args}}" and drive it all the way to MERGED —
+clear whatever blocks it (red/flaky checks, conflicts with the default branch, unresolved review
+threads), squash-merge, file any follow-ups, and tear down the branch and worktree. Do NOT go idle
+while a merge is still achievable. Only stop for a genuine hard blocker.
+
+**The worktree you were given is the worktree.** You were very likely dispatched with the Agent
+tool's `isolation: "worktree"` option, which already put you in a git worktree of your own before
+this prompt ever ran. Check out PR #{{args}}'s branch inside THAT tree; do not call `make-worktree.sh` for
+a second one — nesting is refused. Never touch a path outside the worktree you were given.
+
+**If that checkout is refused because the branch is checked out in another worktree, stop — that is
+the supervisor's to release, not yours.** `git worktree list --porcelain` then shows
+`branch refs/heads/<branch>` under a path other than your own `git rev-parse --show-toplevel`: a
+retired worker's tree, kept on disk for the housekeeping sweep and still holding the branch (#510).
+Do not `-C` into it, and do not use `--ignore-other-worktrees`, `--force`, or a detached push to get
+around it. Stop before touching anything and your final message is: `ISSUE: <the issue #{{args}} closes> |
+PR: {{args}} | STATUS: BLOCKED | DETAIL: branch-held guard: <branch> is checked out in <path> — dispatch
+defect, release-branch.sh then re-dispatch | FILED: none | WORKTREE: untouched | BASE: unverified:
+never reached`. It names a dispatch defect, not a block on the PR, so the supervisor never
+tier-escalates over it.
+
+**Any review sub-agent you dispatch is read-only and isolated — `subagent_type: Explore`,
+`isolation: "worktree"` — and returns findings as text for YOU to apply.** A fork inherits
+your full tool access and your live worktree; one fleet run had six write-capable review forks
+editing one worker's tree at once and one pushed to the PR branch (#477). Never `--fix` through a
+sub-agent: one writer per worktree, and that writer is you.
+
+**Your first act, before you touch anything else: verify it actually worked.** Run
+`git rev-parse --show-toplevel` and compare it to the `SUPERVISOR_TOPLEVEL` value in this prompt,
+with the `worker-toplevel guard` block in `skills/auto-dev/SKILL.md` Step 3 (`WORKER_TOPLEVEL` =
+your value, `SUPERVISOR_TOPLEVEL` = the prompt's). PROCEED → carry on normally. REFUSE (they match,
+or `git rev-parse` itself fails because this isn't a git directory at all) → **stop before touching
+anything** and your final message is: `ISSUE: <the issue #{{args}} closes> | PR: {{args}} | STATUS: BLOCKED |
+DETAIL: worker-toplevel guard: shares the supervisor's tree — dispatch defect, re-dispatch with
+isolation fixed | FILED: none | WORKTREE: untouched | BASE: unverified: never reached`. This is not a
+real
+block on the PR — it says so by name, so the supervisor never tier-escalates over it.
+
+You are starting with a **fresh, nearly empty context** — that is the entire point of this phase (the
+same merge work inside phase 1's context ran at ~247K tokens/turn; here it runs at a fraction of
+that). Protect that advantage:
+
+- **Orient in ONE batched turn.** Get PR state, diff stat, and branch state together, e.g.
+  `gh pr view {{args}} --json number,title,isDraft,mergeStateStatus,headRefName && gh pr diff {{args}} --stat && git -C <worktree> log --oneline -5`.
+  Do not make a series of single lookups.
+- **Never read the whole diff into context** unless a conflict actually requires it — `--stat` first,
+  then only the conflicting files.
+- **Big command output goes to a FILE; only a summary enters context:**
+  ```bash
+  dotnet test > /tmp/merge-{{args}}.log 2>&1; echo "EXIT=$?"
+  grep -c 'Passed!' /tmp/merge-{{args}}.log
+  grep -E 'Failed!|error CS|error MSB' /tmp/merge-{{args}}.log | head -20
+  ```
+  `EXIT` is the gate. Do not pipe the command itself through `tail`/`head` — that truncates the
+  evidence you need.
+
+OFF-SCOPE PROTOCOL: anything you trip over that is not part of landing PR #{{args}} gets FILED via
+`create-issue`, not fixed inline.
+
+**If landing needs a push of your own — a conflict resolution, a re-sync onto a moved base, a fix —
+push it, do NOT wait for the run that push starts, and stop with `STATUS: BLOCKED | DETAIL: pushed
+<sha>, CI restarted — wait-ci then re-dispatch`.** That phrase is what the supervisor recognizes as
+the push-and-land split (#478): it waits on CI itself and dispatches a fresh agent with the finished
+check table. A sub-agent that ends its turn to wait has returned; nothing resumes it.
+
+**If a guard call at `$GUARDS` is refused, you have nobody to ask.** You are the configuration
+[`skills/_shared/guard-invocation.md`](../skills/_shared/guard-invocation.md) exists for — an agent
+confined to a worktree, invoking a guard whose path can resolve outside it. Follow that fallback
+(copy the guards plus `_assert-branch.sh` into a scratch dir inside your own worktree, run them
+from there, delete it before finishing) and **report that you did** in your final line's `DETAIL:`
+field. Never fall back to a bare `git commit`, `git push` or `git merge` — that is the exact failure
+the guards exist to prevent.
+
+Repo specifics (default branch, merge mode, CI state, commit identity) come from the repo profile,
+which `merge-pr` loads.
+
+`merge-pr` Step 5b reads the CI run YOUR merge triggered on the default branch and reports one of
+three outcomes for it. Carry that answer into the `BASE:` field verbatim — a red default branch after
+your own merge is YOUR finding, not the next worker's, and `unverified` (the run was cancelled by the
+next merge in the train, most often) is an answer to report, not a blank to omit.
+
+Your FINAL message must be this single line and nothing else:
+
+ISSUE: <number of the issue this PR closes, digits only> | PR: {{args}} | STATUS: MERGED|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none> | WORKTREE: <cleaned up / what remains> | BASE: <green | RED #<bug> | unverified: <why>>
+'''

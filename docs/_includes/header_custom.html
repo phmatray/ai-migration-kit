@@ -1,0 +1,19 @@
+<button type="button" class="kit-scheme-toggle" aria-pressed="false">Dark scheme</button>
+<!-- The scheme toggle (#527). head_custom.html already applied the stored choice before first paint;
+     this only flips it, remembers it, and keeps aria-pressed honest. Block comments only inside the
+     script: the theme folds the page onto one line, where a // would swallow the rest of it. -->
+<script>
+  (function () {
+    var button = document.currentScript.previousElementSibling;
+    function dark() { return document.documentElement.getAttribute('data-kit-scheme') === 'dark'; }
+    function paint() { button.setAttribute('aria-pressed', dark() ? 'true' : 'false'); }
+    paint();
+    button.addEventListener('click', function () {
+      var next = dark() ? 'light' : 'dark';
+      jtd.setTheme(next === 'dark' ? 'kit-dark' : 'default');
+      document.documentElement.setAttribute('data-kit-scheme', next);
+      try { localStorage.setItem('kit-scheme', next); } catch (e) { /* private mode: not remembered */ }
+      paint();
+    });
+  })();
+</script>

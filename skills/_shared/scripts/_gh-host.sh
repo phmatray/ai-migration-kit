@@ -46,10 +46,10 @@
 #       '<slug>' — expected [HOST/]OWNER/REPO" on stderr; the caller then exits with its own
 #       usage-error code.
 #
-# The origin parse copies hooks/autodev-stop-gate.sh's two sed expressions (#471) rather than
-# sourcing that hook — the hook fires on every Stop in every repository and fails open, and making
-# it load a skill file is a separate decision — with one correction: the userinfo strip crosses a
-# `:`, so `https://user:token@host/…` yields the host, not the user (the stop gate keeps that miss).
+# The origin parse copies hooks/autodev-stop-gate.sh's sed expressions (#471) — the hook fires on
+# every Stop in every repository and fails open, and making it load a skill file is a separate
+# decision. Both implementations correctly handle userinfo with colons in credentialed origins:
+# `https://user:token@host/…` yields the host, not the user (#514, #532).
 # Case-folding is `tr`, never ${var,,} (macOS bash 3.2).
 # The slug lands in KIT_REPO_SLUG, never GH_REPO: GH_REPO is a real gh environment variable, and
 # exporting it would silently retarget every gh call the caller makes.

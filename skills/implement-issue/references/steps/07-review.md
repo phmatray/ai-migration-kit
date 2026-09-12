@@ -6,9 +6,13 @@ could write to (#477). Then review the **whole feature branch** (`main...HEAD`, 
 commit) along **three axes, run in parallel and never merged**:
 
 - **Standards** — is this good code by this repo's lights? Correctness bugs, missed reuse, cross-task
-  inconsistencies, the profile's *Coding standards*. Run the **`code-review` skill**, matching effort
-  to Step 3: `/code-review` (default) for inline/small, `/code-review high` (or `ultra` for a very
-  large change) for subagent/broad. **Never `--fix`**: read the findings and apply them yourself.
+  inconsistencies, the profile's *Coding standards*. Run the **`code-review` skill** over
+  `main...HEAD` with an explicit level sized by the plan's breadth (Step 3) —
+  `/code-review medium main...HEAD` for a small, localized plan, `/code-review high main...HEAD` for
+  a broad/deep one. Pass the level every time: with no level, `code-review` reuses the last level
+  typed in any session, and one bare call inherited `xhigh` and spent 106.8M tokens on 25 review
+  sub-agents (2026-09-07). `ultra` is never prescribed — it is a cloud review the user launches and
+  pays for, which no agent can start. **Never `--fix`**: read the findings and apply them yourself.
 - **Spec** — is this what the issue *promised*? Dispatch **one sub-agent** with the brief in
   [`references/spec-review.md`](../spec-review.md): the diff file, the commit list and the
   issue's 📋 Spec as a second file **read after the diff**, reporting (a) requirements missing or

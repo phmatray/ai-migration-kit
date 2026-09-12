@@ -144,12 +144,21 @@ cite this section rather than carrying a number of their own, and `tests/auto-de
 fails the build if either is restated there — a figure repeated in two documents is a figure that
 drifts, which is why this repo already gates its pinned version literals the same way.
 
-- **COMPACTION CADENCE = 8 merges.** The supervisor compacts (with a focus directive) as soon as
-  `merges - lastCompacted >= 8`, counted off the state file's existing merge counter instead of
-  eyeballed off `/context`. Derived from the run above: from a ~30K session start, ~8 merges is
-  roughly where per-turn context has multiplied several-fold and every remaining turn starts costing
-  ~10× an early one. The **re-survey** cadence is the proof the mechanism works — it is counted off
-  the same field, and it *did* fire, twice, inside the very run whose compaction rule never fired.
+- **CONTEXT BOUND = autoCompactWindow 20.** No model has a tool that runs `/compact` — Claude Code
+  documents that a built-in command executes only when a user types it, so the cadence this bullet
+  used to state told the supervisor to do something no session can actually do (#522). What bounds
+  the supervisor's context is the harness's own auto-compact threshold instead: `autoCompactWindow`
+  is a percentage (0–100, default 80), accepted in any settings scope but **not** in a plugin's own
+  `settings.json`, and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` sets it before the `claude` process starts —
+  both apply to Agent-tool sub-agents too (<https://code.claude.com/docs/en/settings-reference.md>,
+  <https://code.claude.com/docs/en/env-vars.md>, <https://code.claude.com/docs/en/plugins.md>,
+  <https://code.claude.com/docs/en/sub-agents.md>). `20` is the starting value for a 1M-context
+  model — derived from the run above: from a ~30K session start, ~200k tokens (20% of a 1M window)
+  is roughly where per-turn context has multiplied several-fold and every remaining turn starts
+  costing ~10× an early one; keep the default `80` on a 200k-context model, where `20` would compact
+  below the session's own ~50k floor. A plugin cannot ship the key, so `auto-dev` Step 1 reads the
+  effective value and, without stopping, reports in the recap when it is still the default on a
+  1M-context model.
 - **WORKER TURN BUDGET = 150 turns.** Past ~150 self-estimated turns a phase-1 worker takes on no new
   task scope: it finishes the task in hand to green, commits, pushes, leaves the PR open, and reports
   `STATUS: PARTIAL` naming the plan checkboxes it did not reach. Derived from the 127-turn mean —

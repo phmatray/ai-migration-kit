@@ -1394,7 +1394,7 @@ echo "== docs/ is a Pages site: config parses, index links the guide, every page
 # on GitHub's renderer and on Pages alike (jekyll-relative-links rewrites them at build time).
 _pscratch=$(kit_scratch)
 cat > "$_pscratch/pages-check.py" <<'PY'
-import pathlib, re, sys, yaml
+import html, pathlib, re, sys, yaml
 root = pathlib.Path(sys.argv[1]); docs = root / "docs"
 cfg_path = docs / "_config.yml"
 if not cfg_path.exists():
@@ -1430,7 +1430,86 @@ for p in sorted(docs.rglob("*.md")):
         untitled.append(rel)
 if untitled:
     print("FAIL: docs/ pages without a title: in their front matter: " + ", ".join(untitled)); sys.exit(1)
-print("ok   docs/_config.yml parses (no glob in exclude, the colour scheme exists), docs/index.md links the guide, every non-excluded page is titled")
+# Switchable schemes (#527): docs/assets/css/just-the-docs-<name>.scss is the stylesheet
+# jtd.setTheme("<name>") swaps in, so it must build the scheme it is named for, and that scheme's
+# file must exist — or the toggle loads a stylesheet the Pages build never produced.
+for css in sorted((docs / "assets" / "css").glob("just-the-docs-*.scss")):
+    name = css.stem[len("just-the-docs-"):]
+    if 'color_scheme="' + name + '"' not in css.read_text(encoding="utf-8"):
+        print("FAIL: docs/assets/css/" + css.name + " does not build color_scheme=\"" + name + "\""); sys.exit(1)
+    if name not in ("light", "dark") and not (docs / "_sass" / "color_schemes" / (name + ".scss")).exists():
+        print("FAIL: docs/assets/css/" + css.name + " switches to a scheme with no docs/_sass/color_schemes/" + name + ".scss"); sys.exit(1)
+# ...and the kit's own dark scheme is wired end to end: restored before first paint, built, toggled.
+head = (docs / "_includes" / "head_custom.html").read_text(encoding="utf-8")
+header = docs / "_includes" / "header_custom.html"
+if "jtd.setTheme('kit-dark')" not in head or not (docs / "assets" / "css" / "just-the-docs-kit-dark.scss").exists():
+    print("FAIL: the dark scheme is not wired — head_custom.html must restore jtd.setTheme('kit-dark'), and docs/assets/css/just-the-docs-kit-dark.scss must exist"); sys.exit(1)
+if not header.exists() or 'class="kit-scheme-toggle"' not in header.read_text(encoding="utf-8"):
+    print("FAIL: docs/_includes/header_custom.html carries no kit-scheme-toggle button"); sys.exit(1)
+# The restore and the toggle name stylesheets and share state by string, in two files: every scheme
+# jtd.setTheme or a <link> loads must be one the build produces, and both must read and write the
+# same storage key and attribute. A typo in either breaks the toggle and fails nothing else.
+incs = {p.name: p.read_text(encoding="utf-8") for p in sorted((docs / "_includes").glob("*.html"))}
+built = {"default", "light", "dark"} | {c.stem[len("just-the-docs-"):] for c in (docs / "assets" / "css").glob("just-the-docs-*.scss")}
+for name, text in incs.items():
+    loaded = [s for arg in re.findall(r"jtd\.setTheme\(([^)]*)\)", text) for s in re.findall(r"'([^']*)'", arg)]
+    for s in loaded + re.findall(r"just-the-docs-([\w-]+)\.css", text):
+        if s not in built:
+            print("FAIL: docs/_includes/" + name + " loads the scheme '" + s + "', which no docs/assets/css/just-the-docs-" + s + ".scss builds"); sys.exit(1)
+for what, pattern in (("storage key", r"localStorage\.\w+Item\('([^']+)'"), ("attribute", r"Attribute\('(data-[\w-]+)'")):
+    found = sorted({v for t in incs.values() for v in re.findall(pattern, t)})
+    if len(found) > 1:
+        print("FAIL: docs/_includes/ uses more than one scheme " + what + " (" + ", ".join(found) + ") — the restore and the toggle must agree"); sys.exit(1)
+# The theme serves every page through a compress layout that folds the HTML onto one line, so a `//`
+# line comment inside an inline <script> swallows the rest of that script: it runs as nothing and
+# throws nothing (measured on #527 — the scheme restore and the toggle both went silently dead).
+# Block comments only, in every script an include writes.
+for inc in sorted((docs / "_includes").glob("*.html")):
+    for body in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", inc.read_text(encoding="utf-8"), re.S):
+        for line in body.splitlines():
+            if re.search(r"(^|[\s;{}])//", line):
+                print("FAIL: docs/_includes/" + inc.name + " has a // comment inside an inline <script> — the compressed page folds it onto one line and the rest of the script becomes comment; use /* */: " + line.strip()); sys.exit(1)
+# Install and Platforms (#527): every fenced command carries the theme's copy button, and both
+# pages render the host table rather than restating it — docs/_data/hosts.yml is its one home.
+if cfg.get("enable_copy_code_button") is not True:
+    print("FAIL: docs/_config.yml does not set enable_copy_code_button: true — the install commands would carry no copy button"); sys.exit(1)
+for page in ("install.md", "platforms.md"):
+    p = docs / page
+    if not p.exists():
+        print("FAIL: docs/" + page + " is missing"); sys.exit(1)
+    if "site.data.hosts" not in p.read_text(encoding="utf-8"):
+        print("FAIL: docs/" + page + " does not read site.data.hosts — the host list has one home, docs/_data/hosts.yml"); sys.exit(1)
+# The landing page (#527) installs on every host: it links the Install page, and its picker is
+# rendered from the host table, never a hand-typed list of hosts.
+if "](install.md)" not in itext or "kit-picker" not in itext or "site.data.hosts" not in itext:
+    print("FAIL: docs/index.md must link install.md and carry a kit-picker rendered from site.data.hosts"); sys.exit(1)
+# ...and every command on those pages comes from the table too: a command typed into a page goes
+# stale the day its host's row changes, and nothing else notices. Install shows the rule-file
+# hosts' shared clone line once, then each one's last line, so each such row has exactly that shape.
+hosts = yaml.safe_load((docs / "_data" / "hosts.yml").read_text(encoding="utf-8"))
+for page in ("index.md", "install.md", "platforms.md"):
+    ptext = (docs / page).read_text(encoding="utf-8")
+    for host in hosts:
+        for line in host.get("install") or []:
+            if line in ptext or html.escape(line, quote=False) in ptext:
+                print("FAIL: docs/" + page + " types " + host["id"] + "'s install command instead of rendering it from docs/_data/hosts.yml: " + line); sys.exit(1)
+rules = [h for h in hosts if h.get("tier") == "rules"]
+for host in rules:
+    if len(host.get("install") or []) != 2 or host["install"][0] != rules[0]["install"][0]:
+        print("FAIL: docs/_data/hosts.yml " + host["id"] + " — a rule-file host installs with the shared clone line, then one more; docs/install.md shows the clone once"); sys.exit(1)
+if len([h for h in hosts if h.get("tier") == "plugin"]) > 11:
+    print("FAIL: docs/_data/hosts.yml has more than 11 plugin hosts — the picker's CSS in docs/_sass/custom/custom.scss shows 12 panels, one of them Other hosts; raise its @for bound"); sys.exit(1)
+# The capability columns are the strings yes, partial and no, one per capability. YAML reads a bare
+# yes/no as a boolean, and the Platforms table then printed true/false (measured on #527's first
+# build); a missing key renders a blank cell.
+caps = {"skills", "commands", "mcp", "hooks", "subagents"}
+for host in hosts:
+    if set(host.get("gets") or {}) != caps:
+        print("FAIL: docs/_data/hosts.yml " + str(host.get("id")) + " gets " + ", ".join(sorted(host.get("gets") or {})) + " — every host names exactly " + ", ".join(sorted(caps))); sys.exit(1)
+    for key, value in host["gets"].items():
+        if value not in ("yes", "partial", "no"):
+            print("FAIL: docs/_data/hosts.yml " + str(host.get("id")) + " gets." + key + " is " + repr(value) + " — quote it: \"yes\", \"partial\" or \"no\""); sys.exit(1)
+print("ok   docs/_config.yml parses (no glob in exclude, the colour scheme exists), docs/index.md links the guide, every non-excluded page is titled, the dark scheme is switchable")
 PY
 python3 "$_pscratch/pages-check.py" "$KIT_ROOT" || exit 1
 mkdir -p "$_pscratch/tree/docs/_sass/color_schemes"
@@ -1443,6 +1522,18 @@ fi
 grep -q 'untitled.md' "$_pscratch/pages-red.out" \
   || { echo "FAIL: the titled-pages check refused the scratch tree without naming untitled.md"; cat "$_pscratch/pages-red.out"; exit 1; }
 echo "ok   a docs/ page without a title is refused, by name"
+# The red half for switchable schemes (#527): a stylesheet naming a scheme with no file of its own is
+# refused, by name — the toggle would otherwise swap in a stylesheet Pages never built.
+mkdir -p "$_pscratch/ghost/docs/_sass/color_schemes" "$_pscratch/ghost/docs/assets/css"
+cp "$KIT_ROOT/docs/_config.yml" "$KIT_ROOT/docs/index.md" "$_pscratch/ghost/docs/"
+cp "$KIT_ROOT"/docs/_sass/color_schemes/*.scss "$_pscratch/ghost/docs/_sass/color_schemes/"
+printf -- '---\n---\n{%% include css/just-the-docs.scss.liquid color_scheme="ghost" %%}\n' > "$_pscratch/ghost/docs/assets/css/just-the-docs-ghost.scss"
+if python3 "$_pscratch/pages-check.py" "$_pscratch/ghost" > "$_pscratch/ghost.out" 2>&1; then
+  echo "FAIL: the switchable-scheme check accepted a stylesheet whose scheme does not exist"; exit 1
+fi
+grep -q 'just-the-docs-ghost.scss' "$_pscratch/ghost.out" \
+  || { echo "FAIL: the switchable-scheme check refused without naming the stylesheet"; cat "$_pscratch/ghost.out"; exit 1; }
+echo "ok   a switchable stylesheet naming a scheme with no file is refused, by name"
 # The red half for the glob rule: the config that shipped in #407 — `"*.html"` in exclude — must
 # be refused now, naming the glob. One check file, third run.
 mkdir -p "$_pscratch/globtree/docs/_sass/color_schemes"
@@ -1455,6 +1546,28 @@ fi
 grep -q '\*\.html' "$_pscratch/pages-glob.out" \
   || { echo "FAIL: the Pages check refused the glob tree without naming the glob"; cat "$_pscratch/pages-glob.out"; exit 1; }
 echo "ok   a glob in docs/_config.yml's exclude is refused, by name"
+# The red halves for #527's review: a full copy of docs/ per case, one file broken the way its
+# check exists to catch, refused by name.
+_red_docs() {  # <case> — a fresh copy of docs/ under $_pscratch/<case>
+  rm -rf "${_pscratch:?}/$1"; mkdir -p "$_pscratch/$1"; cp -R "$KIT_ROOT/docs" "$_pscratch/$1/docs"
+}
+_red_refused() {  # <case> <text the refusal must name> <what was broken>
+  if python3 "$_pscratch/pages-check.py" "$_pscratch/$1" > "$_pscratch/$1.out" 2>&1; then
+    echo "FAIL: the Pages check accepted $3"; exit 1
+  fi
+  grep -qF -- "$2" "$_pscratch/$1.out" \
+    || { echo "FAIL: the Pages check refused $3 without naming $2"; cat "$_pscratch/$1.out"; exit 1; }
+  echo "ok   $3 is refused, by name"
+}
+_red_docs theme
+sed "s/'default')/'ghost')/" "$KIT_ROOT/docs/_includes/header_custom.html" > "$_pscratch/theme/docs/_includes/header_custom.html"
+_red_refused theme "'ghost'" "a scheme toggle that swaps in a stylesheet the build never produces"
+_red_docs typed
+printf '%s\n' 'git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit' >> "$_pscratch/typed/docs/install.md"
+_red_refused typed "docs/install.md types" "an install command typed into a page"
+_red_docs gets
+sed 's/, hooks: "yes"//' "$KIT_ROOT/docs/_data/hosts.yml" > "$_pscratch/gets/docs/_data/hosts.yml"
+_red_refused gets "claude-code gets" "a host row missing a capability"
 
 # ---------------------------------------------------------------------------------------------
 # docs/journal/ is a Journal section (#443): one article per published release, rendered as a
@@ -1722,6 +1835,42 @@ done
 echo "ok   both consumers name suggest_adr_from_change, ## Follow-ups and the docs/adr fallback"
 
 # ---------------------------------------------------------------------------------------------
+# implement-issue Step 7 used to run code-review with no level, so it inherited whatever level was
+# last typed in ANY session (#520) — one run inherited xhigh and spent 106.8M tokens on 25 review
+# sub-agents. Every `/code-review` span in the assembled prose must now name an explicit level, and
+# `ultra` must never be prescribed (it's a cloud review only a human can launch).
+kit_check_code_review_levels() {
+  # Reads $1 for backticked `/code-review ...` spans; FAILs (echoes and returns 1) the first time a
+  # span's level word is missing or not one of low|medium|high|xhigh|max — which also catches
+  # `ultra`, since it's not in that set.
+  local file="${1:?kit_check_code_review_levels needs a file}" span level
+  while IFS= read -r span; do
+    level="$(printf '%s\n' "$span" | sed -E 's/^`\/code-review[[:space:]]*//; s/`$//' | awk '{print $1}')"
+    case "$level" in
+      low|medium|high|xhigh|max) ;;
+      *) echo "FAIL: $file has a /code-review span with no valid level: $span"; return 1 ;;
+    esac
+  done < <(grep -oE '`/code-review[^`]*`' "$file")
+  return 0
+}
+
+echo "== implement-issue names an explicit code-review level on every call (#520) =="
+IMPLEMENT_ISSUE_PROSE="$(kit_skill_prose "$KIT_ROOT" implement-issue)"   # router + references/steps/*.md (#499)
+[ -s "$IMPLEMENT_ISSUE_PROSE" ] || { echo "FAIL: implement-issue prose is empty"; exit 1; }
+kit_check_code_review_levels "$IMPLEMENT_ISSUE_PROSE" || exit 1
+echo "ok   every /code-review span in implement-issue's prose names low|medium|high|xhigh|max, never bare or ultra"
+
+# The check must actually catch a bare call — proven on a scratch fixture, not just on the live
+# prose, so the expected answer doesn't come from the file under test.
+BARE_CODE_REVIEW="$(kit_scratch)/bare.md"
+printf 'Run `/code-review` over the diff.\n' > "$BARE_CODE_REVIEW"
+if kit_check_code_review_levels "$BARE_CODE_REVIEW" >/dev/null; then
+  echo "FAIL: kit_check_code_review_levels did not catch a bare /code-review span in $BARE_CODE_REVIEW"
+  exit 1
+fi
+echo "ok   the check fails on a bare \`/code-review\` span (scratch fixture)"
+
+# ---------------------------------------------------------------------------------------------
 # AdrMcp is documented as shipped, next to the RoselineMCP paragraph it mirrors, and the ADR index
 # is reachable from both entry documents (#316). A dependency the kit ships without saying so is
 # the failure this pins — the README already carries that promise for roseline.
@@ -1796,6 +1945,20 @@ done
 grep -q -F -- 'MERGED (<commit>) — base' "$KIT_ROOT/skills/auto-dev/SKILL.md" \
   || { echo "FAIL: the auto-dev state board's Completed row does not carry the base verdict"; exit 1; }
 echo "ok   auto-dev carries the base verdict on the report line and the state board"
+
+# merge-pr Step 3 waits for CI by calling wait-ci.sh in one tool call, not polling turn-by-turn
+# (#521). The step itself says how to wait — that wording is the contract the automation reads,
+# so the skill must name wait-ci.sh there or a change that removes it becomes invisible to
+# a test that only knows to look for the phrase it is supposed to name.
+echo "== merge-pr Step 3 waits with wait-ci.sh (#521) =="
+skill="$(kit_skill_prose "$KIT_ROOT" merge-pr)"   # router + references/steps/*.md (#499)
+[ -s "$skill" ] || { echo "FAIL: merge-pr prose is empty"; exit 1; }
+# Extract the Step 3 section: from "## Step 3" up to the next "## Step"
+step3=$(sed -n '/^## Step 3/,/^## Step [0-9]/p' "$skill" | sed '$d')   # $d removes the last "## Step" line
+[ -n "$step3" ] || { echo "FAIL: merge-pr Step 3 not found in assembled prose"; exit 1; }
+grep -q -F -- 'wait-ci.sh' <<< "$step3" \
+  || { echo "FAIL: merge-pr Step 3 does not mention wait-ci.sh"; exit 1; }
+echo "ok   merge-pr Step 3 waits with wait-ci.sh"
 
 
 echo "skills golden test: all cases behaved as specified"

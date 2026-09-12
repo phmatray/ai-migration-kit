@@ -222,6 +222,98 @@ figure.highlight :not(pre) > code {
   background-color: $link-color;
 }
 
+// -------------------------------------------------------------------------- the scheme toggle
+// A plain bordered text button in the header (_includes/header_custom.html), between the search
+// and the aux links (#527). Pressed shows as the gate's colour on its border, never as a second
+// accent; the scheme itself is kit.scss or kit-dark.scss, swapped by jtd.setTheme.
+.kit-scheme-toggle {
+  align-self: center;
+  flex: none;
+  margin: 0 0.5rem;
+  padding: 0.3rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: $body-text-color;
+  cursor: pointer;
+  background: transparent;
+  border: $border $border-color;
+  border-radius: $border-radius;
+}
+
+.kit-scheme-toggle:hover {
+  color: $body-heading-color;
+}
+
+.kit-scheme-toggle[aria-pressed="true"] {
+  color: $body-heading-color;
+  border-color: $link-color;
+}
+
+// ------------------------------------------------------------------------ the call to action
+// The two buttons under the hero (#527): the theme's own .btn, spaced, and never underlined the
+// way a link in running text is.
+.main-content .btn {
+  margin: 0 0.5rem 0.5rem 0;
+  text-decoration: none;
+}
+
+// ------------------------------------------------------------------------------ the picker
+// The host picker on the home page (#527). Radio inputs styled as tabs: no script, the arrow keys
+// move between hosts, and the checked tab carries the gate bar — the one motif, marking the host
+// you picked. Panels are shown by position, so index.md writes the inputs and the panels from the
+// same list, in the same order.
+.kit-picker {
+  margin: 1rem 0 1.5rem;
+}
+
+.kit-picker > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.kit-picker > label {
+  display: inline-block;
+  margin: 0 0.35rem 0.5rem 0;
+  padding: 0.35rem 0.75rem 0.35rem 0.85rem;
+  font-weight: 500;
+  color: $body-text-color;
+  cursor: pointer;
+  border: $border $border-color;
+  border-radius: $border-radius;
+}
+
+.kit-picker > label:hover {
+  color: $body-heading-color;
+}
+
+.kit-picker > input:checked + label {
+  font-weight: 700;
+  color: $body-heading-color;
+  box-shadow: inset 3px 0 0 $link-color;
+}
+
+.kit-picker > input:focus-visible + label {
+  outline: 2px solid $link-color;
+  outline-offset: 2px;
+}
+
+.kit-picker-panel {
+  display: none;
+  max-width: 44rem;
+}
+
+// Twelve slots: eleven plugin hosts plus Other hosts. The Pages guard in tests/skills/test.sh
+// refuses a twelfth plugin host, whose arrival would leave the last tab with no panel.
+@for $i from 1 through 12 {
+  .kit-picker > input:nth-of-type(#{$i}):checked ~ .kit-picker-panel:nth-of-type(#{$i}) {
+    display: block;
+  }
+}
+
 // -------------------------------------------------------------------------------- the floor
 a:focus-visible,
 button:focus-visible,

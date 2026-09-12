@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Golden test for auto-dev's two counted cost budgets (#270, folding #272).
+# Golden test for auto-dev's two counted cost budgets (#270, folding #272, #522).
 #
 # A measured 19-merge fleet run cost $639 list-equivalent, and it was skewed at BOTH ends:
 #   * the orchestrator was ONE session and 33% of the bill, and it never compacted once, because
@@ -8,20 +8,25 @@
 #   * the top 3 of 37 worker sessions were 32% of all worker cost, and the worst was an
 #     `effort: medium` issue on the mid tier — neither its label nor its tier predicted it.
 #
-# The fix for both is the same shape: an integer, counted off something that already fires. So both
-# integers are DECLARED IN ONE FILE — skills/auto-dev/references/token-economics.md — and every
-# other document cites that section instead of carrying a number of its own. This suite exists
-# because a figure restated in two documents is a figure that drifts: the old "~20 merges" cadence
-# sat in Token economics lever 5 AND again in Step 4, and both copies were wrong together.
+# #270 answered the first with a counted cadence that told the supervisor to run `/compact` itself —
+# but no model has a tool that runs a built-in slash command (#522), so that rule could never fire on
+# purpose either. The fix bounds the supervisor through the mechanism the harness actually runs
+# unattended: its own auto-compact threshold (`autoCompactWindow`). Both budgets are still DECLARED IN
+# ONE FILE — skills/auto-dev/references/token-economics.md — and every other document cites that
+# section instead of carrying a number of its own. This suite exists because a figure restated in two
+# documents is a figure that drifts: the old "~20 merges" cadence sat in Token economics lever 5 AND
+# again in Step 4, and both copies were wrong together.
 #
 # What is pinned here:
 #   1. the reference declares each integer exactly once, in a fixed, greppable form;
-#   2. neither SKILL.md nor commands/auto-dev-worker.md RESTATES either integer;
+#   2. neither SKILL.md nor commands/auto-dev-worker.md RESTATES either integer, and SKILL.md carries
+#      no backticked compact command — no model can run one;
 #   3. both documents cite the section that owns them, and that section exists;
 #   4. the `PARTIAL` contract is spelled the same on both sides of the hand-off — the worker's
 #      report enum and the supervisor's Step 4 handling — including the two rules that make it
 #      safe: a green tree, and a FRESH dispatch rather than a SendMessage;
-#   5. the state file carries the `last compacted @` counter the cadence is computed from.
+#   5. the state file no longer carries a `last compacted @` counter — nothing computes from one any
+#      more — and Step 1 reads the effective context bound instead.
 #
 # Reads only files under commands/ and skills/auto-dev/ — never samples/ — so no kit_guard is needed.
 set -euo pipefail
@@ -44,17 +49,17 @@ done
 # ---------------------------------------------------------------- 1. one home, one declaration
 # The declarations are deliberately shouty and fixed-shape. A prose sentence would be unpinnable:
 # the point of this suite is that a reader (or an agent) can find the ONE place a number lives.
-cadence_decl=$(grep -cE '^- \*\*COMPACTION CADENCE = [0-9]+ merges\.\*\*' "$REF" || true)
-[ "$cadence_decl" = "1" ] \
-  || fail "token-economics.md must declare the compaction cadence exactly once as '- **COMPACTION CADENCE = <n> merges.**' (found $cadence_decl)"
+bound_decl=$(grep -cE '^- \*\*CONTEXT BOUND = autoCompactWindow [0-9]+\.\*\*' "$REF" || true)
+[ "$bound_decl" = "1" ] \
+  || fail "token-economics.md must declare the context bound exactly once as '- **CONTEXT BOUND = autoCompactWindow <n>.**' (found $bound_decl)"
 
 budget_decl=$(grep -cE '^- \*\*WORKER TURN BUDGET = [0-9]+ turns\.\*\*' "$REF" || true)
 [ "$budget_decl" = "1" ] \
   || fail "token-economics.md must declare the worker turn budget exactly once as '- **WORKER TURN BUDGET = <n> turns.**' (found $budget_decl)"
 
-CADENCE=$(grep -E '^- \*\*COMPACTION CADENCE = [0-9]+ merges\.\*\*' "$REF" | sed -E 's/.*= ([0-9]+) merges.*/\1/')
+BOUND=$(grep -E '^- \*\*CONTEXT BOUND = autoCompactWindow [0-9]+\.\*\*' "$REF" | sed -E 's/.*autoCompactWindow ([0-9]+).*/\1/')
 BUDGET=$(grep -E '^- \*\*WORKER TURN BUDGET = [0-9]+ turns\.\*\*' "$REF" | sed -E 's/.*= ([0-9]+) turns.*/\1/')
-[ -n "$CADENCE" ] || fail "could not read the compaction cadence out of $REF"
+[ -n "$BOUND" ]  || fail "could not read the context bound out of $REF"
 [ -n "$BUDGET" ]  || fail "could not read the worker turn budget out of $REF"
 
 # Both are starting values from one run, not A/B-verified optima — the section's own standard for
@@ -65,19 +70,19 @@ grep -qi "not A/B-verified optima\|not A/B-verified" "$REF" \
 # ------------------------------------------------------- 2. nobody else restates either integer
 # Scoped twice over, because both documents legitimately quote MEASUREMENTS in the same units and a
 # blunt rule would forbid the evidence along with the restatement. A line is a violation only when
-# it is about the mechanism (`compact*` / `turn budget`) AND carries the very integer the reference
-# declares — or the stale `20`/`150` the fix removed. So "never compacted once across all 19 merges"
-# and "224 turns/session" stay sayable; "compact every 8 merges" and "a turn budget of 150 turns"
-# do not.
+# it is about the mechanism (`autoCompactWindow` / `turn budget`) AND carries the very integer the
+# reference declares — or the stale `80` default the value sits beside. So "never compacted once
+# across all 19 merges" and "224 turns/session" stay sayable; "autoCompactWindow 20" and "a turn
+# budget of 150 turns" do not.
 #
 # Both documents are HARD-WRAPPED, so the same rule is applied twice: once per line (which reports a
 # useful line number) and once over the whole file flattened to a single line (which is the one that
-# catches "compact every 8\nmerges"). A line-oriented check alone was measured passing a restatement
+# catches "autoCompactWindow\n20"). A line-oriented check alone was measured passing a restatement
 # split across a line break — the identical hazard the PARTIAL block below already flattens for.
 for f in "$SKILL_MD" "$WORKER_MD"; do
-  hits=$(grep -nEi 'compact[a-z]*' "$f" | grep -E "(^|[^0-9])($CADENCE|20) *merges" || true)
+  hits=$(grep -nEi 'autoCompactWindow' "$f" | grep -E "(^|[^0-9])($BOUND|80)([^0-9]|$)" || true)
   if [ -n "$hits" ]; then
-    echo "FAIL: $f restates the compaction cadence — the integer's one home is $REF:"
+    echo "FAIL: $f restates the context bound — the integer's one home is $REF:"
     printf '%s\n' "$hits" | sed 's/^/        /'
     exit 1
   fi
@@ -87,14 +92,14 @@ for f in "$SKILL_MD" "$WORKER_MD"; do
   # Herestring, not a pipe into `grep -q` (#391). The issue's Out-of-scope note argued this pair
   # was safe because the pattern normally does NOT match (measured 0/500 on already-compliant
   # content) — but that measurement says nothing about the one run that matters: the run where
-  # the file DOES restate the cadence, `grep -q` exits on the early match, and `tr` (still
+  # the file DOES restate the bound, `grep -q` exits on the early match, and `tr` (still
   # writing the rest of a ~70KB file, past the typical pipe-buffer size) gets SIGPIPE'd, turning
   # a genuine violation into a false pass under pipefail. That is the exact failure class this
   # assertion exists to catch, reintroduced in the one place a race actually costs something —
   # converting it is strictly safer and costs nothing (code-review finding).
   flat=$(tr '\n' ' ' < "$f")
-  if grep -qEi "compact[a-z]*[^.]{0,120}[^0-9]($CADENCE|20) *merges" <<<"$flat"; then
-    fail "$f restates the compaction cadence across a line break — the integer's one home is $REF"
+  if grep -qEi "autoCompactWindow[^.]{0,120}[^0-9]($BOUND|80)([^0-9]|$)" <<<"$flat"; then
+    fail "$f restates the context bound across a line break — the integer's one home is $REF"
   fi
   hits=$(grep -nEi 'turn budget' "$f" | grep -E "(^|[^0-9])($BUDGET|150) *turns" || true)
   if [ -n "$hits" ]; then
@@ -102,21 +107,18 @@ for f in "$SKILL_MD" "$WORKER_MD"; do
     printf '%s\n' "$hits" | sed 's/^/        /'
     exit 1
   fi
-  # Same herestring conversion as the compaction-cadence check above, same reason (#391).
+  # Same herestring conversion as the context-bound check above, same reason (#391).
   flat=$(tr '\n' ' ' < "$f")
   if grep -qEi "turn budget[^.]{0,120}[^0-9]($BUDGET|150) *turns" <<<"$flat"; then
     fail "$f restates the worker turn budget across a line break — the integer's one home is $REF"
   fi
 done
 
-# The single likeliest drift site, pinned on its own: Step 4 hands the reader the compaction formula
-# with a PLACEHOLDER in it, and filling that placeholder in is a restatement that names no unit at
-# all — so neither rule above would see it.
-if grep -qE 'lastCompacted *>=? *[0-9]' "$SKILL_MD"; then
-  fail "SKILL.md's compaction formula has the cadence pasted into it instead of a placeholder: $(grep -nE 'lastCompacted *>=? *[0-9]' "$SKILL_MD" | head -2)"
+# The single likeliest drift site, pinned on its own: no model has a tool that runs a built-in slash
+# command, so a backticked compact command anywhere in SKILL.md is the exact defect #522 reports.
+if grep -qE '`/compact\b' "$SKILL_MD"; then
+  fail "SKILL.md still tells the supervisor to run a backticked /compact — no model can run it: $(grep -nE '\`/compact\b' "$SKILL_MD" | head -3)"
 fi
-grep -qE 'merges - lastCompacted >= .?<cadence>' "$SKILL_MD" \
-  || fail "SKILL.md no longer states the compaction-due check as 'merges - lastCompacted >= <cadence>'"
 
 # ------------------------------------------------------------------- 3. the citations resolve
 grep -q '^### The two budgets' "$REF" \
@@ -168,11 +170,24 @@ printf '%s' "$partial_block" | grep -qiE 'cap consecutive resumes|consecutive re
 grep -qi 'PARTIAL. budget resume\|PARTIAL budget resume' "$SKILL_MD" \
   || fail "skills/auto-dev/SKILL.md's dispatch-time guard does not carve out a PARTIAL budget resume"
 
-# ------------------------------------------------------- 5. the counter the cadence is read from
+# ---------------------------------------------- 5. the retired counter is actually gone (inverted)
+# #522: nothing computes a compaction-due check off a merge counter any more — the harness bounds
+# context on its own threshold — so both the state-file field and the formula that read it must be
+# gone, not merely present in some fixed shape.
 grep -q 'last compacted @' "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md's state-file template has no 'last compacted @' counter for the cadence to count against"
+  && fail "skills/auto-dev/SKILL.md's state-file template still carries 'last compacted @' — nothing computes from it any more, drop the field"
 grep -qi 'lastCompacted' "$SKILL_MD" \
-  || fail "skills/auto-dev/SKILL.md Step 4 does not compute the compaction-due check off the merge counter"
+  && fail "skills/auto-dev/SKILL.md still computes a compaction-due check off 'lastCompacted' — the harness bounds context now, not a counted formula"
+
+# --------------------------------------------- 5b. Step 1 reads the effective bound (Task 2, #522)
+step1_block=$(sed -n '/^## Step 1 — Preconditions & profile/,/^## Step 2/p' "$SKILL_MD")
+[ -n "$step1_block" ] || fail "could not locate '## Step 1 — Preconditions & profile' in $SKILL_MD"
+for tok in 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE' 'autoCompactWindow' '.claude/settings.local.json' '.claude/settings.json' '~/.claude/settings.json'; do
+  printf '%s' "$step1_block" | grep -qF "$tok" \
+    || fail "SKILL.md's Step 1 does not name '$tok' when reading the effective context bound"
+done
+printf '%s' "$step1_block" | grep -qi 'without stopping' \
+  || fail "SKILL.md's Step 1 does not say a missing context bound goes in the recap without stopping"
 
 # ------------------------------------------------ 6. Step 6 reports the share it kept missing
 # Scoped to the Cost accounting block and flattened, for the same reason as the PARTIAL block. A
@@ -189,4 +204,4 @@ printf '%s' "$cost_block" | grep -qiE 'worktree' \
 printf '%s' "$cost_block" | grep -qiE 'different[*_ ]+(project|transcript)[*_ ]+(transcript[*_ ]+)?director' \
   || fail "skills/auto-dev/SKILL.md Step 6 does not say a worktree-run supervisor writes to a DIFFERENT project transcript directory — the whole reason usage_report.py must be pointed at both"
 
-echo "PASS: auto-dev-cost-budgets (cadence=$CADENCE merges, budget=$BUDGET turns, both declared once)"
+echo "PASS: auto-dev-cost-budgets (context bound=autoCompactWindow $BOUND, budget=$BUDGET turns, both declared once)"

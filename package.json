@@ -1,0 +1,10 @@
+{
+  "name": "ai-migration-kit",
+  "private": true,
+  "description": "Agent skills for gate-verified legacy .NET migrations and a hands-off GitHub issue to pull request lifecycle. This file exists for pi (pi install git:github.com/phmatray/ai-migration-kit); nothing here is published to npm.",
+  "license": "MIT",
+  "keywords": ["pi-package", "agent-skills"],
+  "pi": {
+    "skills": ["./skills"]
+  }
+}
