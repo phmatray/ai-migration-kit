@@ -153,18 +153,18 @@ Full reference — the `dnx` version floor, the `Edit` escape hatch for what ros
   `git clean -f…`, a forced `git push`, a **bare** `git commit`/`push`/`merge`, and a **bare** `gh pr merge`.
   Git denials name the matching `guarded-*.sh` under `skills/implement-issue/scripts/` (which asserts
   the branch before and after; #26, #280), and `gh pr merge` denials name
-  `skills/merge-pr/scripts/guarded-pr-merge.sh`. A line that already calls one of those guards is
-  allowed whole, `--force-with-lease` and other options included. The escape hatch for both arms
-  is `GIT_GATE=off` (`0|false|no|disabled`), as a prefix on the one command (`GIT_GATE=off git …`
-  or `GIT_GATE=off gh …`), or set where Claude is launched for the whole session.
+  `skills/merge-pr/scripts/guarded-pr-merge.sh`. A line that already calls one of the three **git**
+  guards is allowed whole, `--force-with-lease` and other options included; naming
+  `guarded-pr-merge.sh` exempts nothing, deliberately (#512) — the "look for the guard, else merge
+  raw" line names it too, and the raw `gh pr merge` beside it is still judged.
 - **Inert unless the guards exist** — it only ever denies in a repository that carries a
   `.claude/skills/repo-profile.md`, i.e. one that has opted into the lifecycle skills. Everywhere
   else the plugin is installed, it says nothing.
 - **Fails open, always** — no `jq`, no `awk`, no `git`, an unparseable payload, quoting it cannot
   trust, and the command proceeds. `GIT_GATE=off` (also `0|false|no|disabled`) disables it outright
-  — as a prefix on the one command (`GIT_GATE=off git …`), or set where Claude is launched for the
-  whole session; an `export` typed into a Bash call never reaches the hook (#372). `GIT_GATE=on`
-  forces it past the profile probe, and `off` still wins.
+  — as a prefix on the one command (`GIT_GATE=off git …` or `GIT_GATE=off gh …`), or set where
+  Claude is launched for the whole session; an `export` typed into a Bash call never reaches the
+  hook (#372). `GIT_GATE=on` forces it past the profile probe, and `off` still wins.
 - **The probe follows `cd`** — `cd /tmp/shop && git init && git commit` is that repository's commit,
   not the cwd's, so a literal, resolvable `cd` moves the profile lookup the way `-C <path>` does;
   a `git init` marks what follows as a brand-new, guard-less repository (#372). And the arms read
