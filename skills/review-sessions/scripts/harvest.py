@@ -31,7 +31,7 @@ kind ∈ tool-error      a tool_result flagged is_error whose tool_use named a k
        forbidden-wait  an assistant turn in the never-wait shape a worker must never end on
        worker-report   a worker's final report line with STATUS PARTIAL | BLOCKED | FAILED
        suite-fail      a tool_result carrying a kit golden suite's FAIL: line
-       guard-refusal   a guarded-*.sh / tick-plan.sh / make-worktree.sh refusal or ALERT
+       guard-refusal   a guard's own "<name>: REFUSED | ALERT | REJECTED" line (guarded-*, tick-plan, make-worktree)
        harness-nudge   "[Request interrupted" or "[Your previous response had no visible output"
 
 Exit 0 (records, or the explicit `no signals` line); 2 on a usage error or an unreadable directory
@@ -77,9 +77,14 @@ HARNESS_REFUSAL_PREFIXES = (
 NUDGES = ("[Request interrupted", "[Your previous response had no visible output")
 WORKER_REPORT_RE = re.compile(r"\bSTATUS:\s*(PARTIAL|BLOCKED|FAILED)\b")
 SUITE_FAIL_RE = re.compile(r"^FAIL[: \[].*", re.M)
+# Every guard names itself by a bare `TOOL=<name>` (never `<name>.sh`) and prints
+# "<name>: REFUSED|ALERT|REJECTED — …" at the start of a line on stderr (a Bash result's
+# "Exit code N\n" prefix still leaves it starting a line, so (?m)^ still matches). `plan-freshness`
+# is left off this list: it prints a verdict ("STALE"/"FRESH"), never a refusal word, so it could
+# never match here — it is not a guard in the sense CONTEXT.md defines one (it wraps no
+# destructive git write).
 GUARD_RE = re.compile(
-    r"(guarded-(?:commit|push|merge|pr-merge)\.sh|tick-plan\.sh|make-worktree\.sh|plan-freshness\.sh)"
-    r".{0,200}?(REFUSED|ALERT|exit(?:ed)? [2-9]|is NOT this HEAD|no verdict)", re.S)
+    r"(?m)^(guarded-(?:commit|push|merge|pr-merge)|tick-plan|make-worktree): (REFUSED|ALERT|REJECTED)\b")
 
 
 def never_wait_phrases(kit_root):

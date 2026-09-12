@@ -75,9 +75,33 @@ write_line "$T" assistant "$D" "$(text 'PHASE1 | ISSUE: 47 | PR: none | STATUS: 
 write_line "$T" assistant "$D" "$(tool_use t6 Bash '{"command":"./tests/survey/test.sh"}')"
 write_line "$T" user "$D" "$(tool_result t6 'ok: frontier
 FAIL: SKILL.md Step 4 does not carry the immediate re-survey trigger (tests/survey/test.sh case 12d)' true)"
-# 6. guard-refusal.
-write_line "$T" assistant "$D" "$(tool_use t7 Bash '{"command":"\"$GUARDS/guarded-push.sh\" -C \"$WORKTREE\" feat/47-x"}')"
-write_line "$T" user "$D" "$(tool_result t7 'guarded-push.sh: origin/feat/47-x is NOT this HEAD — exit 4' true)"
+# 6. guard-refusal — sourced from the REAL guard, never retyped, so the fixture cannot agree with
+# a drifted GUARD_RE the way a hand-typed one could (#513).
+GR=$(kit_scratch)/guard-repo
+git init -q "$GR"
+git -C "$GR" symbolic-ref HEAD refs/heads/main
+set +e
+GOUT=$("$KIT/skills/implement-issue/scripts/guarded-commit.sh" -C "$GR" feat/other -- -m x 2>&1)
+GRC=$?
+set -e
+[ "$GRC" -eq 2 ] || { echo "FAIL: guarded-commit.sh on the scratch repo did not exit 2 (got $GRC)"; echo "$GOUT"; exit 1; }
+case "$GOUT" in
+  "guarded-commit: REFUSED — "*) : ;;
+  *) echo "FAIL: guarded-commit.sh's refusal text no longer starts 'guarded-commit: REFUSED — ': $GOUT"; exit 1 ;;
+esac
+write_line "$T" assistant "$D" "$(tool_use t7 Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C \"$WORKTREE\" feat/other -- -m x"}')"
+write_line "$T" user "$D" "$(tool_result t7 "$(printf 'Exit code 2\n%s' "$GOUT")" true)"
+# 6b-6d. guard-refusal, the other three names/words the real guards print (typed — the emitter's
+# own output is exercised once above; these hold the other names/words to their documented shape).
+write_line "$T" assistant "$D" "$(tool_use t9 Bash '{"command":"\"$GUARDS/tick-plan.sh\" --issue 47"}')"
+write_line "$T" user "$D" "$(tool_result t9 "$(printf 'Exit code 1\ntick-plan: REFUSED — the PATCH to repos/o/r/issues/47 failed')" true)"
+write_line "$T" assistant "$D" "$(tool_use t10 Bash '{"command":"\"$GUARDS/guarded-pr-merge.sh\" 47"}')"
+write_line "$T" user "$D" "$(tool_result t10 "$(printf 'Exit code 2\nguarded-pr-merge: REJECTED — still OPEN and gh pr merge exited 1:')" true)"
+write_line "$T" assistant "$D" "$(tool_use t11 Bash '{"command":"\"$GUARDS/guarded-push.sh\" -C \"$WORKTREE\" feat/47-x"}')"
+write_line "$T" user "$D" "$(tool_result t11 "$(printf 'Exit code 4\nguarded-push: ALERT — git push exited 0, but HEAD moved while it ran.')" true)"
+# decoy: a Read that merely QUOTES a guard line (a backticked table cell) — not the guard running.
+write_line "$T" assistant "$D" "$(tool_use t12 Read '{"file_path":"notes.md"}')"
+write_line "$T" user "$D" "$(tool_result t12 "| \`guarded-commit: REFUSED — HEAD is on 'main'\` |" false)"
 # 7. harness-nudge (a plain user string).
 python3 - "$T" "$D" <<'PY'
 import json, sys
@@ -113,6 +137,11 @@ if old:
 tool_err = [r for r in recs if r["kind"] == "tool-error"]
 if len(tool_err) != 1 or "tick-plan.sh" not in tool_err[0]["detail"]:
     print("FAIL: exactly one tool-error, on tick-plan.sh, was expected:", tool_err); sys.exit(1)
+guard_details = sorted({r["detail"] for r in recs if r["kind"] == "guard-refusal"})
+want_guards = ["guarded-commit", "guarded-pr-merge", "guarded-push", "tick-plan"]
+if guard_details != want_guards:
+    print("FAIL: guard-refusal details differ from the four real guard names")
+    print("  got :", guard_details); print("  want:", want_guards); sys.exit(1)
 print("ok   the JSON records are exactly the planted set, keyed as documented, and --since holds")
 PY
 
@@ -120,7 +149,7 @@ PY
 MD=$(kit_scratch)/tally.md
 python3 "$SCRIPT" "$PROJ" --markdown --since 2026-08-15 > "$MD" 2>/dev/null || { echo "FAIL: --markdown exited non-zero"; exit 1; }
 grep -q '^## implement-issue$' "$MD" || { echo "FAIL: the tally has no per-skill heading"; cat "$MD"; exit 1; }
-grep -q '^signals: 7 across 1 sessions' "$MD" || { echo "FAIL: the tally does not end with 'signals: 7 across 1 sessions'"; tail -3 "$MD"; exit 1; }
+grep -q '^signals: 10 across 1 sessions' "$MD" || { echo "FAIL: the tally does not end with 'signals: 10 across 1 sessions'"; tail -3 "$MD"; exit 1; }
 grep -q 'skipped 1 unparseable' "$MD" || { echo "FAIL: the non-JSON line was not counted as skipped"; tail -3 "$MD"; exit 1; }
 echo "ok   the markdown tally groups by skill and kind, counts the skipped line, ends with the signals line"
 
