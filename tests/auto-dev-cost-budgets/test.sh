@@ -179,6 +179,16 @@ grep -q 'last compacted @' "$SKILL_MD" \
 grep -qi 'lastCompacted' "$SKILL_MD" \
   && fail "skills/auto-dev/SKILL.md still computes a compaction-due check off 'lastCompacted' — the harness bounds context now, not a counted formula"
 
+# --------------------------------------------- 5b. Step 1 reads the effective bound (Task 2, #522)
+step1_block=$(sed -n '/^## Step 1 — Preconditions & profile/,/^## Step 2/p' "$SKILL_MD")
+[ -n "$step1_block" ] || fail "could not locate '## Step 1 — Preconditions & profile' in $SKILL_MD"
+for tok in 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE' 'autoCompactWindow' '.claude/settings.local.json' '.claude/settings.json' '~/.claude/settings.json'; do
+  printf '%s' "$step1_block" | grep -qF "$tok" \
+    || fail "SKILL.md's Step 1 does not name '$tok' when reading the effective context bound"
+done
+printf '%s' "$step1_block" | grep -qi 'without stopping' \
+  || fail "SKILL.md's Step 1 does not say a missing context bound goes in the recap without stopping"
+
 # ------------------------------------------------ 6. Step 6 reports the share it kept missing
 # Scoped to the Cost accounting block and flattened, for the same reason as the PARTIAL block. A
 # file-wide `grep -qi worktree` here was measured GREEN with the entire caveat paragraph deleted —
