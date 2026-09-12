@@ -229,6 +229,14 @@ verdict "credentialed origin (user:token@) resolves the real host, not the useri
   "$(pay "$CRED" false)" "$SDIR" "" "acme/widgets"
 rm -f "$CRED_PATH"
 
+# ------------------------------------------------- 9h. plain userinfo, no token (Spec AC2 / edge
+# case) — `https://user@host/owner/repo` has no `:` before its `@`, so both the old and the fixed
+# clause already stripped it the same way; pinned explicitly since the Spec names this exact shape
+# as a required regression check, not just the SSH forms above that happen to share it.
+PLAINUSER=$(repo_with_remote "https://user@github.com/acme/widgets.git")
+verdict "plain userinfo (user@, no token) resolves the host unaffected" 2 \
+  "$(pay "$PLAINUSER" false)" "$SDIR" "" "acme/widgets"
+
 # --------------------------------------------------------------- 10. a repo with no cwd at all
 verdict "empty cwd allows" 0 "$(jq -nc '{session_id:"x",hook_event_name:"Stop",stop_hook_active:false}')" "$SDIR"
 
