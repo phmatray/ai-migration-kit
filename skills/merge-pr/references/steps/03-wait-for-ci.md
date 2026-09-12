@@ -26,8 +26,7 @@ ci=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp \
 Keep `$ci`: Step 4's state block folds its `failed` and `pending` sets into the merge-state decision,
 which is what stops the two steps from asking the same PR two unrelated questions.
 
-While `pending` is non-empty, wait (re-poll, or come back later via `ScheduleWakeup` rather than
-busy-looping) — then judge:
+While `pending` is non-empty, wait in **one call** to the kit's script — `skills/auto-dev/scripts/wait-ci.sh "$PR"` — never a turn per poll. In a session that can idle, run it in the background and resume when it exits; in a dispatched sub-agent, which must not end its turn to wait, run `POLL_SECONDS=30 MAX_POLLS=18 skills/auto-dev/scripts/wait-ci.sh "$PR"` in the foreground and re-run it while it exits 1 (timeout) — two timeouts with an unchanged table end the wait as the named blocker below. Its table is a wake signal, not the verdict: when it returns, re-run the recipe above **once** and judge —
 
 - **`n_latest` is 0** (no check-runs at all) → the PR has no CI; treat CI as satisfied and let Step 4's
   merge-state be the gate. Ask the JSON for the count — an empty set is the string `[]`, and a
