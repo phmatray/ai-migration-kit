@@ -29,7 +29,7 @@ has_children: true
 | 0003 | [One plugin version; no per-skill version](0003-one-plugin-version-no-per-skill-version.md) | accepted | 2026-08-31 |
 | 0004 | [Squash-only merges: the PR title is the release commit](0004-squash-only-merges-the-pr-title-is-the-release-commit.md) | accepted | 2026-08-31 |
 | 0005 | [The lifecycle skills run hands-off; triage-backlog does not](0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md) | accepted | 2026-08-31 |
-| 0006 | [The kit targets Claude Code only](0006-the-kit-targets-claude-code-only.md) | accepted | 2026-08-31 |
+| 0006 | [The kit targets Claude Code only](0006-the-kit-targets-claude-code-only.md) | superseded | 2026-08-31 |
 | 0007 | [Workers are in-process sub-agents, never claude -p](0007-workers-are-in-process-sub-agents-never-claude-p.md) | accepted | 2026-08-31 |
 | 0008 | [Idea-tree search](0008-idea-tree-search.md) | rejected | 2026-07-23 |
 | 0009 | [Interaction modes](0009-interaction-modes.md) | rejected | 2026-07-23 |
@@ -37,3 +37,4 @@ has_children: true
 | 0011 | [Hook gates are recorded rather than registered decisions](0011-hook-gates-are-recorded-rather-than-registered-decisions.md) | accepted | 2026-08-31 |
 | 0012 | [Two skill naming rules: verb-object, and family-role](0012-two-skill-naming-rules-verb-object-and-family-role.md) | accepted | 2026-08-31 |
 | 0013 | [profile-repo and setup-repo stay a reader and a writer](0013-profile-repo-and-setup-repo-stay-a-reader-and-a-writer.md) | proposed | 2026-09-02 |
+| 0014 | [The kit is Claude Code-first and reaches other hosts through thin adapters](0014-the-kit-is-claude-code-first-and-reaches-other-hosts-through-thin-adapters.md) | accepted | 2026-09-11 |

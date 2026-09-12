@@ -1,0 +1,21 @@
+{
+  "name": "ai-migration-kit-marketplace",
+  "interface": {
+    "displayName": "AI Migration Kit"
+  },
+  "plugins": [
+    {
+      "name": "ai-migration-kit",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/phmatray/ai-migration-kit.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Coding"
+    }
+  ]
+}
