@@ -1835,6 +1835,42 @@ done
 echo "ok   both consumers name suggest_adr_from_change, ## Follow-ups and the docs/adr fallback"
 
 # ---------------------------------------------------------------------------------------------
+# implement-issue Step 7 used to run code-review with no level, so it inherited whatever level was
+# last typed in ANY session (#520) — one run inherited xhigh and spent 106.8M tokens on 25 review
+# sub-agents. Every `/code-review` span in the assembled prose must now name an explicit level, and
+# `ultra` must never be prescribed (it's a cloud review only a human can launch).
+kit_check_code_review_levels() {
+  # Reads $1 for backticked `/code-review ...` spans; FAILs (echoes and returns 1) the first time a
+  # span's level word is missing or not one of low|medium|high|xhigh|max — which also catches
+  # `ultra`, since it's not in that set.
+  local file="${1:?kit_check_code_review_levels needs a file}" span level
+  while IFS= read -r span; do
+    level="$(printf '%s\n' "$span" | sed -E 's/^`\/code-review[[:space:]]*//; s/`$//' | awk '{print $1}')"
+    case "$level" in
+      low|medium|high|xhigh|max) ;;
+      *) echo "FAIL: $file has a /code-review span with no valid level: $span"; return 1 ;;
+    esac
+  done < <(grep -oE '`/code-review[^`]*`' "$file")
+  return 0
+}
+
+echo "== implement-issue names an explicit code-review level on every call (#520) =="
+IMPLEMENT_ISSUE_PROSE="$(kit_skill_prose "$KIT_ROOT" implement-issue)"   # router + references/steps/*.md (#499)
+[ -s "$IMPLEMENT_ISSUE_PROSE" ] || { echo "FAIL: implement-issue prose is empty"; exit 1; }
+kit_check_code_review_levels "$IMPLEMENT_ISSUE_PROSE" || exit 1
+echo "ok   every /code-review span in implement-issue's prose names low|medium|high|xhigh|max, never bare or ultra"
+
+# The check must actually catch a bare call — proven on a scratch fixture, not just on the live
+# prose, so the expected answer doesn't come from the file under test.
+BARE_CODE_REVIEW="$(kit_scratch)/bare.md"
+printf 'Run `/code-review` over the diff.\n' > "$BARE_CODE_REVIEW"
+if kit_check_code_review_levels "$BARE_CODE_REVIEW" >/dev/null; then
+  echo "FAIL: kit_check_code_review_levels did not catch a bare /code-review span in $BARE_CODE_REVIEW"
+  exit 1
+fi
+echo "ok   the check fails on a bare \`/code-review\` span (scratch fixture)"
+
+# ---------------------------------------------------------------------------------------------
 # AdrMcp is documented as shipped, next to the RoselineMCP paragraph it mirrors, and the ADR index
 # is reachable from both entry documents (#316). A dependency the kit ships without saying so is
 # the failure this pins — the README already carries that promise for roseline.
@@ -1909,6 +1945,20 @@ done
 grep -q -F -- 'MERGED (<commit>) — base' "$KIT_ROOT/skills/auto-dev/SKILL.md" \
   || { echo "FAIL: the auto-dev state board's Completed row does not carry the base verdict"; exit 1; }
 echo "ok   auto-dev carries the base verdict on the report line and the state board"
+
+# merge-pr Step 3 waits for CI by calling wait-ci.sh in one tool call, not polling turn-by-turn
+# (#521). The step itself says how to wait — that wording is the contract the automation reads,
+# so the skill must name wait-ci.sh there or a change that removes it becomes invisible to
+# a test that only knows to look for the phrase it is supposed to name.
+echo "== merge-pr Step 3 waits with wait-ci.sh (#521) =="
+skill="$(kit_skill_prose "$KIT_ROOT" merge-pr)"   # router + references/steps/*.md (#499)
+[ -s "$skill" ] || { echo "FAIL: merge-pr prose is empty"; exit 1; }
+# Extract the Step 3 section: from "## Step 3" up to the next "## Step"
+step3=$(sed -n '/^## Step 3/,/^## Step [0-9]/p' "$skill" | sed '$d')   # $d removes the last "## Step" line
+[ -n "$step3" ] || { echo "FAIL: merge-pr Step 3 not found in assembled prose"; exit 1; }
+grep -q -F -- 'wait-ci.sh' <<< "$step3" \
+  || { echo "FAIL: merge-pr Step 3 does not mention wait-ci.sh"; exit 1; }
+echo "ok   merge-pr Step 3 waits with wait-ci.sh"
 
 
 echo "skills golden test: all cases behaved as specified"
