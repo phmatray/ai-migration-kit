@@ -207,4 +207,37 @@ printf '%s' "$out" | grep -qF 'finish-task: commit: left untracked: stray.md' ||
 [ -e "$WT/stray.md" ] || fail files-left "stray.md should remain on disk, merely uncommitted"
 echo "  ok: new.sh and README.md committed, stray.md left untracked and named on stderr"
 
+echo "== 11. idempotent re-run: an unrelated stray on disk does not turn 'already committed' into a hard failure (#536) =="
+before=$(git -C "$WT" rev-parse HEAD)
+out=$("$FINISH" --repo o/r --issue 42 --task 4 --worktree "$WT" --branch fix/42 -c user.email=t@t -c user.name=t 2>&1) \
+  || fail files-idem "expected exit 0, got $? — $out"
+[ "$(git -C "$WT" rev-parse HEAD)" = "$before" ] || fail files-idem-commit "a re-run with a stray present created a commit"
+printf '%s' "$out" | grep -qF 'already committed' || fail files-idem-say "should say already committed: $out"
+echo "  ok: re-run with stray.md still on disk stays a no-op, no hard failure"
+
+echo "== 12. a (new) marker on a non-create verb is read the same as create (#536) =="
+printf '\n### Task 5: recognize the (new) marker\n\n**Files:** test `new_test.sh` (new).\n\n- [ ] **Step 1:** Commit: `feat(x): fifth slice`\n' >> "$GH_ISSUE"
+printf '#!/bin/sh\necho test\n' > "$WT/new_test.sh"
+: > "$GH_LOG"
+out=$("$FINISH" --repo o/r --issue 42 --task 5 --worktree "$WT" --branch fix/42 -c user.email=t@t -c user.name=t 2>&1) \
+  || fail newmark "expected exit 0, got $? — $out"
+committed=$(git -C "$WT" show --name-only --format= HEAD)
+grep -qx 'new_test.sh' <<<"$committed" || fail newmark-create "new_test.sh (marked (new)) missing from the commit: $committed"
+printf '%s' "$out" | grep -qF 'left untracked: new_test.sh' && fail newmark-say "new_test.sh should not be reported as a stray: $out"
+echo "  ok: a (new)-marked path on a non-create verb is staged like a declared create"
+
+echo "== 13. an undeclared untracked file with no tracked edits: named on stderr, tick still lands, no hard failure (#536) =="
+printf '\n### Task 6: no Files line at all\n\n- [ ] **Step 1:** Commit: `feat(x): sixth slice`\n' >> "$GH_ISSUE"
+printf 'undeclared\n' > "$WT/undeclared.txt"
+before=$(git -C "$WT" rev-parse HEAD)
+: > "$GH_LOG"
+out=$("$FINISH" --repo o/r --issue 42 --task 6 --worktree "$WT" --branch fix/42 -c user.email=t@t -c user.name=t 2>&1) \
+  || fail undeclared "expected exit 0, got $? — $out"
+[ "$(git -C "$WT" rev-parse HEAD)" = "$before" ] || fail undeclared-commit "an undeclared file must not be committed as a task's own work"
+printf '%s' "$out" | grep -qF 'left untracked: undeclared.txt' || fail undeclared-say "stderr must name undeclared.txt: $out"
+printf '%s' "$out" | grep -qF 'already committed' || fail undeclared-idem "no tracked/declared work: should say already committed: $out"
+grep -q '^- \[x\] \*\*Step 1:\*\* Commit: `feat(x): sixth slice`' "$GH_ISSUE" || fail undeclared-tick "Task 6 should still be ticked even with nothing to commit"
+[ -e "$WT/undeclared.txt" ] || fail undeclared-left "undeclared.txt should remain on disk"
+echo "  ok: undeclared file left untracked and named, task still ticked, no hard failure"
+
 echo "finish-task golden test: all cases behaved as specified"

@@ -88,12 +88,17 @@ task_present() { grep -qE "^### Task ${TASK}([: ]|$)" "$1"; }
 
 # --- the task's own `**Files:**` line: which paths it CREATES (#536) -----------------------------
 # One physical line only — the plan-shape template writes it that way and this issue's own
-# reproduction case does too. A field wrapped across lines, or carrying a `(new)`/parenthetical
-# aside, is plan-freshness.sh's fuller job (it already parses both); re-deriving that here for a
-# feature finish-task.sh does not need would just be a second, drifting copy of it.
-# ponytail: single-line **Files:** field only, upgrade to plan-freshness.sh's multi-line/aside
-# parser if a plan ever needs one here.
-extract_creates() {  # extract_creates <plan.md> ; prints one create-path per line for $TASK
+# reproduction case does too. A field wrapped across multiple PHYSICAL lines is plan-freshness.sh's
+# fuller job (it already parses that); re-deriving it here for a feature finish-task.sh does not
+# need would just be a second, drifting copy of it.
+# ponytail: single physical line only, upgrade to plan-freshness.sh's multi-line accumulator if a
+# plan ever needs one here.
+#
+# A `create` clause is one create-equivalent reading; the other is a `(new)`/`(new file)` aside on
+# ANY verb, read the same way plan-freshness.sh already reads it (#433) — `create-issue`'s own
+# template writes a task's own new test file as `test `path` (new)`, never `create `path``, so a
+# parser that only knows the word `create` misses the common case (code-review, #536).
+extract_creates() {  # extract_creates <plan.md> ; prints one create-or-new path per line for $TASK
   awk -v k="$TASK" '
     /^### Task [0-9]+/ { n = $3; sub(/:.*/, "", n); inblock = (n == k) }
     /^## / { inblock = 0 }
@@ -104,9 +109,10 @@ extract_creates() {  # extract_creates <plan.md> ; prints one create-path per li
       for (i = 1; i <= nf; i++) {
         clause = clauses[i]
         gsub(/^[ \t]+|[ \t]+$/, "", clause)
-        if (clause ~ /^create[ \t]/) {
+        is_create = (clause ~ /^create[ \t]/)
+        is_new = (tolower(clause) ~ /\(new( file)?\)/)
+        if (is_create || is_new) {
           rest = clause
-          sub(/^create[ \t]+/, "", rest)
           while (match(rest, /`[^`]*`/)) {
             print substr(rest, RSTART + 1, RLENGTH - 2)
             rest = substr(rest, RSTART + RLENGTH)
@@ -143,30 +149,34 @@ if [ -n "$DRY" ]; then
   exit 0
 fi
 
-# --- stage 1: commit (skipped when the tree is clean — already committed on a previous run) ------
-if git -C "$WORKTREE" diff --quiet && git -C "$WORKTREE" diff --cached --quiet \
-   && [ -z "$(git -C "$WORKTREE" ls-files --others --exclude-standard)" ]; then
+# --- stage 1: commit (skipped once nothing of THIS task's own work is left to stage) -------------
+# Stage the task's own work only (#536): tracked edits, plus the paths its own **Files:** line
+# marks `create` (or tags `(new)`/`(new file)`) — never a blanket `add -A`, which sweeps in
+# whatever any OTHER task already left untracked (a later task's test written ahead of time, a
+# scratch note). Run unconditionally — an already-committed task stages nothing new either way —
+# so a stray file elsewhere in the worktree (exactly what this fix stops sweeping in) can never
+# make a clean re-run look like it has something to commit.
+git -C "$WORKTREE" add -u
+creates=$(extract_creates "$WORK/plan.orig.md")
+while IFS= read -r p; do
+  if [ -n "$p" ] && [ -e "$WORKTREE/$p" ]; then
+    git -C "$WORKTREE" add -- "$p"
+  fi
+done <<<"$creates"
+
+# Anything still untracked was not asked for — name it, don't silently sweep it in.
+strays=$(git -C "$WORKTREE" ls-files --others --exclude-standard)
+while IFS= read -r p; do
+  if [ -n "$p" ]; then
+    echo "$TOOL: commit: left untracked: $p" >&2
+  fi
+done <<<"$strays"
+
+# "Already committed" means THIS task's own work is all in — never "no untracked files anywhere"
+# (that reading made a re-run hard-fail whenever an unrelated stray was still on disk, #536).
+if git -C "$WORKTREE" diff --cached --quiet; then
   echo "$TOOL: commit: nothing to commit — already committed"
 else
-  # Stage the task's own work only (#536): tracked edits, plus the paths its own **Files:** line
-  # marks `create` — never a blanket `add -A`, which sweeps in whatever any OTHER task already
-  # left untracked (a later task's test written ahead of time, a scratch note).
-  git -C "$WORKTREE" add -u
-  creates=$(extract_creates "$WORK/plan.orig.md")
-  while IFS= read -r p; do
-    if [ -n "$p" ] && [ -e "$WORKTREE/$p" ]; then
-      git -C "$WORKTREE" add -- "$p"
-    fi
-  done <<<"$creates"
-
-  # Anything still untracked was not asked for — name it, don't silently sweep it in.
-  strays=$(git -C "$WORKTREE" ls-files --others --exclude-standard)
-  while IFS= read -r p; do
-    if [ -n "$p" ]; then
-      echo "$TOOL: commit: left untracked: $p" >&2
-    fi
-  done <<<"$strays"
-
   "$HERE/guarded-commit.sh" -C "$WORKTREE" "${CONFIG[@]+"${CONFIG[@]}"}" "$BRANCH" -- -m "$MSG" \
     || { rc=$?; echo "$TOOL: commit: guarded-commit.sh exited $rc" >&2; exit "$rc"; }
 fi
