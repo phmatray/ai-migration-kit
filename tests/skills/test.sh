@@ -1910,6 +1910,20 @@ grep -q -F -- 'MERGED (<commit>) — base' "$KIT_ROOT/skills/auto-dev/SKILL.md" 
   || { echo "FAIL: the auto-dev state board's Completed row does not carry the base verdict"; exit 1; }
 echo "ok   auto-dev carries the base verdict on the report line and the state board"
 
+# merge-pr Step 3 waits for CI by calling wait-ci.sh in one tool call, not polling turn-by-turn
+# (#521). The step itself says how to wait — that wording is the contract the automation reads,
+# so the skill must name wait-ci.sh there or a change that removes it becomes invisible to
+# a test that only knows to look for the phrase it is supposed to name.
+echo "== merge-pr Step 3 waits with wait-ci.sh (#521) =="
+skill="$(kit_skill_prose "$KIT_ROOT" merge-pr)"   # router + references/steps/*.md (#499)
+[ -s "$skill" ] || { echo "FAIL: merge-pr prose is empty"; exit 1; }
+# Extract the Step 3 section: from "## Step 3" up to the next "## Step"
+step3=$(sed -n '/^## Step 3/,/^## Step [0-9]/p' "$skill" | sed '$d')   # $d removes the last "## Step" line
+[ -n "$step3" ] || { echo "FAIL: merge-pr Step 3 not found in assembled prose"; exit 1; }
+grep -q -F -- 'wait-ci.sh' <<< "$step3" \
+  || { echo "FAIL: merge-pr Step 3 does not mention wait-ci.sh"; exit 1; }
+echo "ok   merge-pr Step 3 waits with wait-ci.sh"
+
 
 echo "skills golden test: all cases behaved as specified"
 
