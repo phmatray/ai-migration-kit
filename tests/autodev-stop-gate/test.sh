@@ -240,7 +240,7 @@ verdict "plain userinfo (user@, no token) resolves the host unaffected" 2 \
 # --------------------------------------------------------------- 10. a repo with no cwd at all
 verdict "empty cwd allows" 0 "$(jq -nc '{session_id:"x",hook_event_name:"Stop",stop_hook_active:false}')" "$SDIR"
 
-# --------------------------------------------- 9h. the userinfo-strip clause must match _gh-host.sh
+# --------------------------------------------- 9i. the userinfo-strip clause must match _gh-host.sh
 # #516's sibling parser already carries this exact fix and says so in its own comment ("the stop gate
 # keeps that miss") — pin the two clauses identical so a future edit to either drifts apart loudly,
 # not silently, the way this bug did in the first place.
