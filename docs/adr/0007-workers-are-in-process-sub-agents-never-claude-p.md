@@ -45,3 +45,11 @@ file describes `claude -p` any more — `tests/auto-dev-never-wait/test.sh` pins
 which is what moved this record from `proposed` to `accepted` (2026-09-02). The cost: the trigger
 bench `evals/run_all.py`, which spawns real `claude -p` processes to measure descriptions, can never
 run inside a fleet and stays an owner-run step.
+
+A further consequence surfaces when a worker's phase has ended and it has returned its final report:
+a **retired** worker cannot be messaged any more, so its in-process nature is complete — an agent
+that has already returned is neither addressable nor resumable. When a worker holds a checked-out
+PR-branch worktree and cannot be asked to release it, the supervisor must call
+`skills/auto-dev/scripts/release-branch.sh` directly against the retired worker's tree instead, as
+#510 established. This is not a new decision, only a discovered corollary of the in-process design,
+and it determines when and how PR branches are cleaned up at the end of a two-phase worker run.
