@@ -135,15 +135,12 @@ The orchestrator (you) stays on the top model, but keep its *per-turn context* s
 **5. Shrink what's re-read every turn.**
 - **Trim the fixed preamble** — it is paid on *every* turn of *every* worker. `CLAUDE.md` at 44KB (~11K tok) cost **52M tokens in one run from a single file**; move deploy/secrets/kubectl reference material into linked docs and leave a pointer.
 - **No per-issue TaskList** — it grows unboundedly and re-injects every turn. The **state file is your only working memory.**
-- **Compact deliberately, on a counted cadence — not on a feeling.** The cadence integer has one home,
-  [references/token-economics.md](references/token-economics.md) § *The two budgets*; Step 4 fires it off
-  the state file's merge counter, the same counted field the re-survey cadence already uses. Do not restate
-  the number here — `tests/auto-dev-cost-budgets/test.sh` fails the build if you do. *Why counted:* cost is
-  Σ(context × turns), so a run's tail is superlinear, and the rule this replaces — a `/context` percentage
-  **or** a cadence loose enough that it never fired inside a 19-merge run — bounded nothing and cost $213 in
-  a single session. Always compact **with a focus directive**, e.g. `/compact keep the slot→issue/PR map,
-  merge counter, queue order, filed follow-ups`. First action after any compact / `/clear` / `loop` re-fire:
-  **re-read the state file.**
+- **Bound the context through the harness — no model can run the compact command itself.** No tool
+  runs it; a built-in slash command executes only when a user types it. The context bound has one home,
+  [references/token-economics.md](references/token-economics.md) § *The two budgets* (the harness's
+  own `autoCompactWindow` threshold) — do not restate the number here, `tests/auto-dev-cost-budgets/test.sh`
+  fails the build if you do. First action after any compaction / `/clear` / `loop` re-fire: **re-read
+  the state file.**
 - **Keep worker FINAL REPORTs terse** — they're re-read on every later reconcile turn.
 - **Delegate heavy reads to throwaway `Explore` sub-agents** — the file-dump dies with the sub-agent instead of riding your context.
 - **Launch the SUPERVISOR session lean** — sub-agents inherit the supervisor's MCP set, so every
@@ -314,7 +311,7 @@ collide on one file. The filesystem is the separator instead, so two repositorie
 contend for one path. Keep it small and current:
 
 ```markdown
-# auto-dev state — <repo>, N=<concurrency> · merges: <total> · queue last refreshed @ <merge# of last refresh> · last compacted @ <merge# of last compact>
+# auto-dev state — <repo>, N=<concurrency> · merges: <total> · queue last refreshed @ <merge# of last refresh>
 ## In flight
 - Slot A → #<n> (<area>) — <phase: implementing / PARTIAL ×<k> → resumed / PR #<pr> ready→merging / merged>
 - Slot B → ...
@@ -352,7 +349,7 @@ re-dispatch would refuse every single time, by construction.
 
 The state file's *In flight* section is not proof by itself, because recording a dispatch is a
 **separate, later step from making it**: "Dispatch each ... record each" above are two actions, in
-that order. Anything that interrupts the supervisor between them — a `/compact` landing mid-turn, the
+that order. Anything that interrupts the supervisor between them — a compaction landing mid-turn, the
 session being killed and restarted, a fresh `loop` re-fire that isn't a resume of the same process —
 can lose the record while the worker it describes is already running. Nothing else catches that:
 `scripts/survey.sh` classifies the QUEUE from issue metadata alone (title/labels/body) and never
@@ -787,21 +784,14 @@ merges (or sooner if refills cluster into one area or the queue looks empty), fo
 first, area-tagged, eligibility-checked), and note what changed. Keep a **merge counter** in the state
 file (record the count at the last refresh) so a `loop` re-fire knows when the next refresh is due.
 
-**Compact on that same counter — on every wake, ask both questions.** The state file's header carries
-`last compacted @ <merge#>` beside `queue last refreshed @ <merge#>`, and your per-wake bookkeeping
-computes *is a compaction due* exactly the way it already computes *is a re-survey due*:
-`merges - lastCompacted >= <cadence>`, where the cadence integer has one home in
-[references/token-economics.md](references/token-economics.md) § *The two budgets* and is
-deliberately not restated here. When it is due, `/compact` **with the focus directive** (Token
-economics lever 5), then re-read the state file — already the standing rule after any compact /
-`/clear` / `loop` re-fire — and write the current merge count into `last compacted @`.
-*Why counted rather than eyeballed:* you are the single most expensive session in the fleet — a
-measured 33% of one run's cost, in one session that never compacted once — and the rule this
-replaces was a `/context` percentage nobody checks plus a cadence too loose to fire inside a
-19-merge run. The re-survey counter is the proof the mechanism works: it fired, twice, in the very
-run whose compaction rule never did. A compact landing mid-dispatch is not a new hazard — Step 3's
-dispatch-time guard exists precisely because a compact can land between dispatching a worker and
-recording it, so a more frequent compact only makes that guard earn its keep more often.
+**The harness compacts you — you don't compact yourself.** No model has a tool that runs it; a
+built-in slash command fires only when a user types it, so the supervisor's context is bounded instead by the
+`autoCompactWindow` threshold read at Step 1
+([references/token-economics.md](references/token-economics.md) § *The two budgets* — `CONTEXT
+BOUND`, not restated here). The one standing rule: the first action after any compaction / `/clear` /
+`loop` re-fire is to **re-read the state file** — that is what turns a reset into a clean base
+instead of amnesia. A compaction landing mid-dispatch is not a new hazard — Step 3's dispatch-time
+guard exists precisely because one can land between dispatching a worker and recording it.
 
 **Re-survey at once — not at the next ~5 — when a merged issue's row carried `blocking=`.** That
 issue was holding its blockees, and they entered the frontier the moment it landed. Waiting out the
@@ -950,4 +940,4 @@ that frees. Hold the line at N unless told otherwise.
 - **A run without a `lessons` block is a run that was not finished.** Step 6's cost accounting is a ledger; the `lessons:` block is what turns the run's own evidence — the decision-events log, every worker's `DETAIL:` line — into candidates the *next* run benefits from. Skipping it because the queue drained cleanly is exactly the run most likely to have a `tool-economy` or `steering` lesson sitting unexamined in the log.
 - **A held `deps=` row is not a stalled issue.** `parent(N)`, `blocked_by=#n` and `assigned` are the frontier rule doing its job, not a survey that failed to classify something. Don't dispatch one to "unstick" it: a parent's body is a tracking list no worker can execute, a blocked child would build against an interface that has not landed, and an assigned issue belongs to a human. The first two clear themselves — the row comes back as `QUEUE`, or as `SKIP` if it never had a plan — but a parent stays held for as long as it is a parent.
 - **Plans drive eligibility, effort labels drive ordering** — no plan → not eligible (seed one with `create-issue` if the user insists); manual-QA → skip with a noted reason.
-- **The state file's *In flight* list is not proof an issue is unclaimed** — a `/compact`, a session restart, or a non-resuming `loop` re-fire can land between "dispatch" and "record," losing the record while the worker keeps running (#248). Run Step 3's dispatch-time guard before *every* dispatch (first batch or refill), not just when the state file looks stale.
+- **The state file's *In flight* list is not proof an issue is unclaimed** — a compaction, a session restart, or a non-resuming `loop` re-fire can land between "dispatch" and "record," losing the record while the worker keeps running (#248). Run Step 3's dispatch-time guard before *every* dispatch (first batch or refill), not just when the state file looks stale.
