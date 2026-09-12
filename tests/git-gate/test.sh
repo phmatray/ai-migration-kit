@@ -251,6 +251,76 @@ r=$(reason_for "$(pay Bash 'git commit -m x' "$PROF")" "")
 case "$r" in *'GIT_GATE=off gh'*) echo "FAIL [G14]: a git denial advertises the gh escape: $r"; exit 1 ;; esac
 echo "ok: G14 each denial names its own cause and its own escape"
 
+# ------------------------------------------------- 1e. -R/GH_REPO/URL retarget denies (#533)
+# judge_gh's probe answers only for $eff_dir (the payload's cwd, or wherever a followed `cd`
+# moved it) — it has no way to tell whether `-R`/`GH_REPO`/a URL points at a repo that IS profiled.
+# Resolving that target is out of scope (the issue's own stated assumption); denying outright,
+# regardless of cwd, is the safe default instead — so each of these denies from an UNPROFILED cwd,
+# where the unadorned `gh pr merge 12` of GA1 passes.
+verdict "RT1 -R from an unprofiled cwd"        deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'gh pr merge -R owner/profiled-repo 12 --squash' "$PLAIN")"
+verdict "RT2 GH_REPO= from an unprofiled cwd"  deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'GH_REPO=owner/profiled-repo gh pr merge 12' "$PLAIN")"
+verdict "RT3 a pull URL from an unprofiled cwd" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'gh pr merge https://github.com/owner/profiled-repo/pull/12' "$PLAIN")"
+# ...and the same three from a PROFILED cwd, so the fix is proven additive rather than a
+# probe-bypass regression: G2 already covers plain -R from $PROF, these round out the trio.
+verdict "RT4 GH_REPO= from a profiled cwd"     deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'GH_REPO=owner/other-repo gh pr merge 12' "$PROF")"
+verdict "RT5 a pull URL from a profiled cwd"   deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'gh pr merge https://github.com/owner/other-repo/pull/12' "$PROF")"
+
+# --------------------------------------------------------------------- 1f. launderings (#533)
+# Three ways to defeat the earlier walk's literal word match without touching the write itself:
+# an unrecognised wrapper launcher, a backslash defeating alias/function lookup, and a fully
+# quoted command word. All from an UNPROFILED cwd first (GA1's bare `gh pr merge 12` passes there),
+# so these prove the shape is recognised at all — not merely that the probe already denies.
+verdict "L1  an unrecognised launcher (timeout), unprofiled cwd" pass "" \
+  "$(pay Bash 'timeout 60 gh pr merge 12 --squash' "$PLAIN")"
+verdict "L2  backslash-escaped gh, unprofiled cwd" pass "" "$(pay Bash '\gh pr merge 12' "$PLAIN")"
+verdict "L3  quoted \"gh\", unprofiled cwd"    pass "" "$(pay Bash '"gh" pr merge 12' "$PLAIN")"
+verdict "L4  gh hidden in \$(...), unprofiled cwd" pass "" "$(pay Bash 'echo $(gh pr merge 12)' "$PLAIN")"
+# ...and from a PROFILED cwd, where each shape must now deny exactly as the unwrapped form would.
+verdict "L5  timeout 60 gh pr merge --squash"  deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'timeout 60 gh pr merge 12 --squash' "$PROF")"
+verdict "L6  \\gh pr merge 12"                 deny "guarded-pr-merge.sh" "$(pay Bash '\gh pr merge 12' "$PROF")"
+verdict "L7  \"gh\" pr merge 12"               deny "guarded-pr-merge.sh" "$(pay Bash '"gh" pr merge 12' "$PROF")"
+verdict "L8  'gh' pr merge 12 (single-quoted)" deny "guarded-pr-merge.sh" "$(pay Bash "'gh' pr merge 12" "$PROF")"
+verdict "L9  echo \$(gh pr merge 12)"          deny "guarded-pr-merge.sh" "$(pay Bash 'echo $(gh pr merge 12)' "$PROF")"
+# The same three launderings on the GIT side (a bare commit, not gh): \git, "git", and a quoted
+# guard path — each must still resolve to the right verdict once unwrapped.
+verdict "L10 \\git commit -m x"                deny "guarded-commit.sh" "$(pay Bash '\git commit -m x' "$PROF")"
+verdict "L11 \"git\" commit -m x"              deny "guarded-commit.sh" "$(pay Bash '"git" commit -m x' "$PROF")"
+verdict "L12 timeout 5 git commit -m x"        deny "guarded-commit.sh" "$(pay Bash 'timeout 5 git commit -m x' "$PROF")"
+verdict "L13 nice git commit -m x"             deny "guarded-commit.sh" "$(pay Bash 'nice git commit -m x' "$PROF")"
+verdict "L14 a launderable word inside a real message is inert" pass "" \
+  "$(pay Bash 'git log -m "note: gh pr merge mentioned" ' "$PROF")"
+# A launderable-looking word that is genuinely just message text (not at command-word position)
+# must never itself flip a verdict: this quoted content is exactly "gh", but it sits as a `-m`
+# value, not as $1, so the segment is judged on its real command word ("git log", unrecognised).
+verdict "L15 a quoted \"gh\" as a value, not a command word" pass "" \
+  "$(pay Bash 'git log -m "gh"' "$PROF")"
+
+# --------------------------------------------------------- 1g. the allowlist is per-segment (#533)
+# The old allowlist matched `guarded-commit.sh` as a substring ANYWHERE on the line, so a line that
+# merely MENTIONED the guard earlier (an `if` condition, a different branch) whitelisted a raw
+# write elsewhere on the same line. #533's own incident shape: the guard is named in the `if` and
+# the `then` branch, but the `else` branch's raw commit must still deny.
+verdict "AL1 the else-branch raw commit still denies" deny "guarded-commit.sh" \
+  "$(pay Bash 'if [ -x "$G/guarded-commit.sh" ]; then "$G/guarded-commit.sh" -C x y -- -m x; else git commit -m x; fi' "$PROF")"
+# ...while the guard invocation itself, in the very same line, still passes — this is a per-segment
+# fix, not a stricter one: nothing that used to pass here should now deny.
+r=$(reason_for "$(pay Bash 'if [ -x "$G/guarded-commit.sh" ]; then "$G/guarded-commit.sh" -C x y -- -m x; else git commit -m x; fi' "$PROF")" "")
+case "$r" in *'guarded-commit.sh'*) echo "ok: AL2 the same line's guard-calling branch is not what triggers the denial (the else-branch is)" ;;
+  *) echo "FAIL [AL2]: expected reason to name guarded-commit.sh: $r"; exit 1 ;; esac
+verdict "AL3 a guard mention inside a commit message is not a whole-line allow" deny "guarded-commit.sh" \
+  "$(pay Bash 'git commit -m "see guarded-commit.sh for details"' "$PROF")"
+# ...even when the quoted message's content ends in the exact guard filename (so it WOULD get the
+# @GUARDED_COMMIT@ placeholder from the quote-collapsing pass): it lands as the value of `-m`, not
+# as $1, so it has no more effect on the verdict than plain message text would.
+verdict "AL4 a message ending in the exact guard name is still just a value" deny "guarded-commit.sh" \
+  "$(pay Bash 'git commit -m "see guarded-commit.sh"' "$PROF")"
+
 # ------------------------------------------------------------------ 2. the allow rows (A)
 verdict "A1  branch -D after a merge"  pass "" "$(pay Bash 'git branch -D feat/326-x' "$PROF")"
 verdict "A2  checkout a branch"        pass "" "$(pay Bash 'git checkout main' "$PROF")"
