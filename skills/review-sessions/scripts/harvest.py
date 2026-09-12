@@ -94,8 +94,16 @@ HARNESS_REFUSAL_PREFIXES = (
 TOOL_USE_ERROR_WRAP = "<tool_use_error>"
 
 
+TOOL_USE_ERROR_CLOSE = "</tool_use_error>"
+
+
 def unwrap(body):
-    return body[len(TOOL_USE_ERROR_WRAP):] if body.startswith(TOOL_USE_ERROR_WRAP) else body
+    if not body.startswith(TOOL_USE_ERROR_WRAP):
+        return body
+    body = body[len(TOOL_USE_ERROR_WRAP):]
+    if body.endswith(TOOL_USE_ERROR_CLOSE):
+        body = body[: -len(TOOL_USE_ERROR_CLOSE)]
+    return body
 
 
 NUDGES = ("[Request interrupted", "[Your previous response had no visible output")

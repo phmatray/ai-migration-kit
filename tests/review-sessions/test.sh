@@ -67,6 +67,14 @@ write_line "$T" user "$D" "$(tool_result t5 'This session is isolated in the wor
 # decoy: the same harness refusal, a sub-agent's wording ("This agent is …").
 write_line "$T" assistant "$D" "$(tool_use t5b Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C /x feat/47-x -- -m x"}')"
 write_line "$T" user "$D" "$(tool_result t5b 'This agent is isolated in the worktree /x, but this command names git in a form too complex to verify. Refusing to run it.' true)"
+# decoy: the harness wraps some of its own refusals in a <tool_use_error> tag (confirmed on real
+# transcripts) — unwrap() must strip it before the prefix check, or this falls through as a
+# spurious tool-error on the guard script the command names.
+write_line "$T" assistant "$D" "$(tool_use t5c Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C /x feat/47-x -- -m x"}')"
+write_line "$T" user "$D" "$(tool_result t5c '<tool_use_error>This agent is isolated in the worktree /x, but this command names git in a form too complex to verify. Refusing to run it.</tool_use_error>' true)"
+# and the same wrap on a hook-deny — must still be RECOGNIZED as one (not dropped, not tool-error).
+write_line "$T" assistant "$D" "$(tool_use t3b Bash '{"command":"git commit -m x"}')"
+write_line "$T" user "$D" "$(tool_result t3b '<tool_use_error>Blocked by the git write-gate: `git commit -m x` is one of the writes that produced #26 and #280 in a shared checkout.</tool_use_error>' true)"
 # 3. forbidden-wait.
 write_line "$T" assistant "$D" "$(text "The suite is running. I'll pause here and wait for the code-review report before continuing.")"
 # 4. worker-report.
@@ -115,8 +123,12 @@ write_line "$T" user "$D" "$(tool_result t12 "| \`guarded-commit: REFUSED — HE
 # is_error gate is what does the work, not a guess about the command's shape.
 write_line "$T" assistant "$D" "$(tool_use t13 Read '{"file_path":"guarded-commit.sh"}')"
 write_line "$T" user "$D" "$(tool_result t13 "$GOUT" false)"
-write_line "$T" assistant "$D" "$(tool_use t14 Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C \"$WORKTREE\" feat/other -- -m x"}')"
+write_line "$T" assistant "$D" "$(tool_use t14 Bash '{"command":"cat notes.md"}')"
 write_line "$T" user "$D" "$(tool_result t14 "$GOUT" false)"
+# and separately: a Bash that DOES name the guard, but did not fail (is_error:false) — the is_error
+# gate is what excludes it, not a guess about the command's shape.
+write_line "$T" assistant "$D" "$(tool_use t14b Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C \"$WORKTREE\" feat/other -- -m x"}')"
+write_line "$T" user "$D" "$(tool_result t14b "$GOUT" false)"
 # AC7 (#496): a Bash that only READS a guard's own source (grep) and did not fail (is_error:false)
 # is not "invoking" it, even though the command names a kit script and the source text mentions an
 # exit code.
@@ -185,7 +197,7 @@ PY
 MD=$(kit_scratch)/tally.md
 python3 "$SCRIPT" "$PROJ" --markdown --since 2026-08-15 > "$MD" 2>/dev/null || { echo "FAIL: --markdown exited non-zero"; exit 1; }
 grep -q '^## implement-issue$' "$MD" || { echo "FAIL: the tally has no per-skill heading"; cat "$MD"; exit 1; }
-grep -q '^signals: 13 across 1 sessions' "$MD" || { echo "FAIL: the tally does not end with 'signals: 13 across 1 sessions'"; tail -3 "$MD"; exit 1; }
+grep -q '^signals: 14 across 1 sessions' "$MD" || { echo "FAIL: the tally does not end with 'signals: 14 across 1 sessions'"; tail -3 "$MD"; exit 1; }
 grep -q 'skipped 1 unparseable' "$MD" || { echo "FAIL: the non-JSON line was not counted as skipped"; tail -3 "$MD"; exit 1; }
 echo "ok   the markdown tally groups by skill and kind, counts the skipped line, ends with the signals line"
 
