@@ -153,10 +153,10 @@ Full reference — the `dnx` version floor, the `Edit` escape hatch for what ros
   `git clean -f…`, a forced `git push`, a **bare** `git commit`/`push`/`merge`, and a **bare** `gh pr merge`.
   Git denials name the matching `guarded-*.sh` under `skills/implement-issue/scripts/` (which asserts
   the branch before and after; #26, #280), and `gh pr merge` denials name
-  `skills/merge-pr/scripts/guarded-pr-merge.sh`. A line that already calls one of the three **git**
-  guards is allowed whole, `--force-with-lease` and other options included; naming
-  `guarded-pr-merge.sh` exempts nothing, deliberately (#512) — the "look for the guard, else merge
-  raw" line names it too, and the raw `gh pr merge` beside it is still judged.
+  `skills/merge-pr/scripts/guarded-pr-merge.sh`. Calling one of the three **git** guards is allowed —
+  `--force-with-lease` and other options to the guard itself included — but, like `guarded-pr-merge.sh`,
+  it exempts only its own segment, never the rest of the line (#533): the "look for the guard, else
+  merge/commit/push raw" shape names the guard too, and the raw write beside it is still judged.
 - **Inert unless the guards exist** — it only ever denies in a repository that carries a
   `.claude/skills/repo-profile.md`, i.e. one that has opted into the lifecycle skills. Everywhere
   else the plugin is installed, it says nothing.
