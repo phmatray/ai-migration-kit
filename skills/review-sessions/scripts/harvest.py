@@ -34,8 +34,20 @@ kind ∈ tool-error      a tool_result flagged is_error whose tool_use named a k
        guard-refusal   a guard's own "<name>: REFUSED | ALERT | REJECTED" line (guarded-*, tick-plan, make-worktree)
        harness-nudge   "[Request interrupted" or "[Your previous response had no visible output"
 
+A `guard-refusal` and a kit `tool-error` both require the kit to have been INVOKED, never merely
+mentioned: a `guard-refusal` needs a Bash call that ran the guard (see `invoked_guard`), and
+`names_kit_path` counts `--kit-name` only as a "/"-bounded path segment, never as a substring of a
+dash-encoded transcript directory. A `Read`/`Grep`/`Glob` result, or prose that quotes a guard or a
+kit path, produces neither.
+
 Exit 0 (records, or the explicit `no signals` line); 2 on a usage error or an unreadable directory
 — never a traceback for a bad argument.
+
+KNOWN LIMITS: `invoked_guard`'s "did this Bash command actually run a guard" check is a heuristic,
+not a shell parser — a command's first word not being a read command (cat, grep, sed, head, tail,
+less, wc, diff, awk) plus a guard basename present in the command text. `bash <path>/guarded-push.sh
+…` (first word `bash`) is correctly kept; a shell alias, a function wrapper, or a read command not on
+this list is not modeled.
 """
 import argparse
 import datetime as dt
@@ -83,8 +95,31 @@ SUITE_FAIL_RE = re.compile(r"^FAIL[: \[].*", re.M)
 # is left off this list: it prints a verdict ("STALE"/"FRESH"), never a refusal word, so it could
 # never match here — it is not a guard in the sense CONTEXT.md defines one (it wraps no
 # destructive git write).
+GUARD_NAMES = ("guarded-commit", "guarded-push", "guarded-merge", "guarded-pr-merge", "tick-plan", "make-worktree")
 GUARD_RE = re.compile(
-    r"(?m)^(guarded-(?:commit|push|merge|pr-merge)|tick-plan|make-worktree): (REFUSED|ALERT|REJECTED)\b")
+    r"(?m)^(" + "|".join(re.escape(n) for n in GUARD_NAMES) + r"): (REFUSED|ALERT|REJECTED)\b")
+# The six basenames as they appear ON A COMMAND LINE (with ".sh"), for invoked_guard below — a
+# different spelling than GUARD_RE's, which matches what the guard PRINTS (bare name, no ".sh").
+GUARD_BASENAMES = tuple(n + ".sh" for n in GUARD_NAMES)
+# A crude first-word heuristic for "this Bash call only READ text, it didn't run anything" — not a
+# shell parser. A wrapper or alias around one of these is not modeled (KNOWN LIMITS, module docstring).
+READ_COMMANDS = frozenset({"cat", "grep", "sed", "head", "tail", "less", "wc", "diff", "awk"})
+
+
+def invoked_guard(tool, touched):
+    """True when `touched` (a Bash tool_use's command text) actually RAN a guard, never when a
+
+    Read/Grep/Glob result merely quotes one, and never when a Bash command only READS the guard's
+    own source (grep, cat, …) rather than executing it. `touched` for a non-Bash tool is the join
+    of its other string inputs, not a command — so this is gated on `tool == "Bash"` first."""
+    if tool != "Bash" or not touched:
+        return False
+    first = touched.split(None, 1)[0].strip("\"'")
+    if first in READ_COMMANDS:
+        return False
+    return any(
+        re.search(r"(?<![\w.-])" + re.escape(b) + r"(?![\w.-])", touched) for b in GUARD_BASENAMES
+    )
 
 
 def never_wait_phrases(kit_root):
@@ -152,8 +187,14 @@ def excerpt_of(text, needle=None, width=160):
 def names_kit_path(s, in_kit_repo, kit_name):
     if not s:
         return False
-    if kit_name and kit_name in s:
-        return True
+    if kit_name:
+        # kit_name counts only as a PATH SEGMENT — preceded by "/" (or the start of the string) and
+        # not immediately continued by another identifier character. A dash-encoded cwd directory
+        # ("-Users-x-ai-migration-kit", the harness's own `claude-501` / `.claude/projects/` scratch
+        # paths) joins with "-", not "/", so this boundary already excludes it without a second,
+        # separate check on those directory names.
+        if re.search(r"(?:^|/)" + re.escape(kit_name) + r"(?![\w-])", s):
+            return True
     for d in KIT_DIRS_ANYWHERE:
         if d in s:
             return True
@@ -261,7 +302,7 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
                     if any(body.startswith(p) or ("\n" + p) in body for p in HOOK_DENY_PREFIXES):
                         emit("hook-deny", excerpt_of(body), tool, "gate")
                         continue
-                    g = GUARD_RE.search(body)
+                    g = GUARD_RE.search(body) if invoked_guard(tool, touched) else None
                     if g:
                         emit("guard-refusal", excerpt_of(body, g.group(1)), tool, g.group(1))
                         continue
