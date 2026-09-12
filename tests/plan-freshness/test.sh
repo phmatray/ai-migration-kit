@@ -103,16 +103,43 @@ PLAN
 # stdout goes to a file; the assertions read that file. Nothing is piped through head/tail — the
 # whole output is the evidence, and a truncated capture is how a wrong line goes unnoticed.
 OUT="$WORK/out.txt"
+
+BOUND=10
+bounded_run() {   # bounded_run <plan> [extra args…] → $OUT, $GOT (143 = killed by the watchdog)
+  local plan="$1" pid dog; shift
+  GOT=0
+  "$SCRIPT" -C "$REPO" "$@" "$plan" > "$OUT" 2>&1 &
+  pid=$!
+  ( sleep "$BOUND"; kill "$pid" 2>/dev/null ) > /dev/null 2>&1 &   # /dev/null: a leftover sleep never holds the suite's stdout open
+  dog=$!
+  wait "$pid" || GOT=$?
+  kill "$dog" 2>/dev/null || true
+  wait "$dog" 2>/dev/null || true
+}
+
 run_case() {
   local label="$1" want="$2" plan="$3"; shift 3
-  local got=0
-  "$SCRIPT" -C "$REPO" "$@" "$plan" > "$OUT" 2>&1 || got=$?
-  if [ "$got" != "$want" ]; then
-    note_fail "$label — exit $got, wanted $want"
+  bounded_run "$plan" "$@"
+  if [ "$GOT" = 143 ]; then
+    note_fail "$label — no exit within ${BOUND}s: plan-freshness.sh hung"
+    return 0
+  fi
+  if [ "$GOT" != "$want" ]; then
+    note_fail "$label — exit $GOT, wanted $want"
     sed 's/^/      /' "$OUT"
     return 0
   fi
   note_ok "$label"
+}
+
+run_terminates() {   # run_terminates <label> <plan> — passes on exit 0, 2 or 5
+  local label="$1" plan="$2"
+  bounded_run "$plan"
+  case "$GOT" in
+    0|2|5) note_ok "$label" ;;
+    143)   note_fail "$label — no exit within ${BOUND}s: plan-freshness.sh hung" ;;
+    *)     note_fail "$label — exit $GOT, not one of 0/2/5" ;;
+  esac
 }
 
 want_line() {
@@ -307,6 +334,79 @@ cat > "$WORK/stale-marker.md" <<'PLAN'
 PLAN
 run_case "C49 a stale '(new)' marker exits 0   " 0 "$WORK/stale-marker.md"
 want_line "C50 …and still prints SKIP          " "SKIP modify a.sh (Task 1)"
+
+echo "== a ')' before a later '(' no longer hangs the aside strip (#519) =="
+#
+# The old first-'('-to-first-')' cut pairs the WRONG parens whenever a ')' precedes a later '(' —
+# an empty-parens function call inside an aside, e.g. `f()`. Each pass then doubles part of the
+# line instead of shrinking it, and the loop never terminates. These fixtures are all bounded by
+# `bounded_run`'s watchdog above, so a regression FAILs instead of hanging this suite.
+cat > "$WORK/hang-nested.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a nested empty-parens call inside an aside
+
+**Files:** modify `a.sh` (see `f()`), `dir with space/b.sh` (z).
+PLAN
+run_case "C51 a nested () aside terminates    " 0 "$WORK/hang-nested.md"
+want_line "C52 …and the first path is OK       " "OK modify a.sh (Task 1)"
+want_line "C53 …and the second path is OK      " "OK modify dir with space/b.sh (Task 1)"
+
+cat > "$WORK/hang-new-nested.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a nested () aside beside a '(new)' marker
+
+**Files:** modify `a.sh` (new `f()`); test `brand-new.sh` (new).
+PLAN
+run_case "C54 …beside a '(new)' marker: 0      " 0 "$WORK/hang-new-nested.md"
+want_line "C55 …the modify path is OK          " "OK modify a.sh (Task 1)"
+want_line "C56 …the new-marked path is SKIPped " "SKIP test brand-new.sh (Task 1)"
+
+# #512's own Task 1 **Files:** field, verbatim, with its two real paths swapped for this suite's
+# fixture repo (`hooks/git-write-gate.sh` -> `a.sh`, `tests/git-gate/test.sh` -> `dir with space/b.sh`).
+cat > "$WORK/hang-512-task1.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: guard_hint
+
+**Files:** modify `a.sh` (new `guard_hint()` beside `deny()` at :182–191; the replacement sentences at :382, :403, :406, :410, :417); test `dir with space/b.sh` (extend `verdict()` at :65–100 with an optional 7th argument, the `CLAUDE_PLUGIN_ROOT` value, passed through `env`).
+PLAN
+run_case "C57 #512 Task 1's field terminates  " 0 "$WORK/hang-512-task1.md"
+want_line "C58 …the modify path is OK          " "OK modify a.sh (Task 1)"
+want_line "C59 …the test path is OK            " "OK test dir with space/b.sh (Task 1)"
+
+# #512's own Task 2 field, same swap. Its prose and backticked shell code are #441's grammar to
+# read correctly; this case pins only that the parser TERMINATES on it, not what it prints.
+cat > "$WORK/hang-512-task2.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: the gate judges a raw gh pr merge
+
+**Files:** modify `a.sh`: the cheap reject at :78 becomes `case "$cmd" in *git*|*gh*) ;; *) exit 0 ;; esac`. A `gh|*/gh` dispatch goes in `judge()` after the `cd` block and before `case "$1" in git|*/git)`. A new `judge_gh()` sits beside `judge()`. `deny()`'s escape sentence at :186 gains ``(or `GIT_GATE=off gh …`)``. The header at :7–12 names the `gh` arm and quotes #326's premise. Test `dir with space/b.sh`.
+PLAN
+run_terminates "C60 #512 Task 2's field terminates  " "$WORK/hang-512-task2.md"
+
+cat > "$WORK/nested-aside.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a '(new ...)' aside that is not the exact marker
+
+**Files:** modify `a.sh` (new `guard_hint()` beside `deny()`).
+PLAN
+run_case "C61 a 'new ...' aside terminates     " 0 "$WORK/nested-aside.md"
+want_line "C62 …and the path is OK, not MISSING" "OK modify a.sh (Task 1)"
+
+cat > "$WORK/nested-plain.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a genuinely nested aside
+
+**Files:** modify `a.sh` (a (nested) aside), `dir with space/b.sh`.
+PLAN
+run_case "C63 a genuinely nested aside: 0      " 0 "$WORK/nested-plain.md"
+want_line "C64 …the first path is OK           " "OK modify a.sh (Task 1)"
+want_line "C65 …the second path is OK          " "OK modify dir with space/b.sh (Task 1)"
 
 echo "== …and a field with NO blank line before **Interfaces:** is not swallowed (#419 review) =="
 #
