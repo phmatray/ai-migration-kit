@@ -1835,6 +1835,42 @@ done
 echo "ok   both consumers name suggest_adr_from_change, ## Follow-ups and the docs/adr fallback"
 
 # ---------------------------------------------------------------------------------------------
+# implement-issue Step 7 used to run code-review with no level, so it inherited whatever level was
+# last typed in ANY session (#520) — one run inherited xhigh and spent 106.8M tokens on 25 review
+# sub-agents. Every `/code-review` span in the assembled prose must now name an explicit level, and
+# `ultra` must never be prescribed (it's a cloud review only a human can launch).
+kit_check_code_review_levels() {
+  # Reads $1 for backticked `/code-review ...` spans; FAILs (echoes and returns 1) the first time a
+  # span's level word is missing or not one of low|medium|high|xhigh|max — which also catches
+  # `ultra`, since it's not in that set.
+  local file="${1:?kit_check_code_review_levels needs a file}" span level
+  while IFS= read -r span; do
+    level="$(printf '%s\n' "$span" | sed -E 's/^`\/code-review[[:space:]]*//; s/`$//' | awk '{print $1}')"
+    case "$level" in
+      low|medium|high|xhigh|max) ;;
+      *) echo "FAIL: $file has a /code-review span with no valid level: $span"; return 1 ;;
+    esac
+  done < <(grep -oE '`/code-review[^`]*`' "$file")
+  return 0
+}
+
+echo "== implement-issue names an explicit code-review level on every call (#520) =="
+IMPLEMENT_ISSUE_PROSE="$(kit_skill_prose "$KIT_ROOT" implement-issue)"   # router + references/steps/*.md (#499)
+[ -s "$IMPLEMENT_ISSUE_PROSE" ] || { echo "FAIL: implement-issue prose is empty"; exit 1; }
+kit_check_code_review_levels "$IMPLEMENT_ISSUE_PROSE" || exit 1
+echo "ok   every /code-review span in implement-issue's prose names low|medium|high|xhigh|max, never bare or ultra"
+
+# The check must actually catch a bare call — proven on a scratch fixture, not just on the live
+# prose, so the expected answer doesn't come from the file under test.
+BARE_CODE_REVIEW="$(kit_scratch)/bare.md"
+printf 'Run `/code-review` over the diff.\n' > "$BARE_CODE_REVIEW"
+if kit_check_code_review_levels "$BARE_CODE_REVIEW" >/dev/null; then
+  echo "FAIL: kit_check_code_review_levels did not catch a bare /code-review span in $BARE_CODE_REVIEW"
+  exit 1
+fi
+echo "ok   the check fails on a bare \`/code-review\` span (scratch fixture)"
+
+# ---------------------------------------------------------------------------------------------
 # AdrMcp is documented as shipped, next to the RoselineMCP paragraph it mirrors, and the ADR index
 # is reachable from both entry documents (#316). A dependency the kit ships without saying so is
 # the failure this pins — the README already carries that promise for roseline.
