@@ -91,33 +91,51 @@ case "$GOUT" in
 esac
 write_line "$T" assistant "$D" "$(tool_use t7 Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C \"$WORKTREE\" feat/other -- -m x"}')"
 write_line "$T" user "$D" "$(tool_result t7 "$(printf 'Exit code 2\n%s' "$GOUT")" true)"
-# 6b-6d. guard-refusal, the other three names/words the real guards print (typed — the emitter's
+# 6b-6e. guard-refusal, the other four names/words the real guards print (typed — the emitter's
 # own output is exercised once above; these hold the other names/words to their documented shape).
 write_line "$T" assistant "$D" "$(tool_use t9 Bash '{"command":"\"$GUARDS/tick-plan.sh\" --issue 47"}')"
 write_line "$T" user "$D" "$(tool_result t9 "$(printf 'Exit code 1\ntick-plan: REFUSED — the PATCH to repos/o/r/issues/47 failed')" true)"
 write_line "$T" assistant "$D" "$(tool_use t10 Bash '{"command":"\"$GUARDS/guarded-pr-merge.sh\" 47"}')"
 write_line "$T" user "$D" "$(tool_result t10 "$(printf 'Exit code 2\nguarded-pr-merge: REJECTED — still OPEN and gh pr merge exited 1:')" true)"
-write_line "$T" assistant "$D" "$(tool_use t11 Bash '{"command":"\"$GUARDS/guarded-push.sh\" -C \"$WORKTREE\" feat/47-x"}')"
+write_line "$T" assistant "$D" "$(tool_use t20 Bash '{"command":"\"$GUARDS/guarded-merge.sh\" -C \"$WORKTREE\" feat/47-x -- origin/main"}')"
+write_line "$T" user "$D" "$(tool_result t20 "$(printf "Exit code 3\nguarded-merge: ALERT — HEAD is now 'wip', not 'feat/47-x'.")" true)"
+write_line "$T" assistant "$D" "$(tool_use t21 Bash '{"command":"\"$KIT/skills/implement-issue/scripts/make-worktree.sh\" 47"}')"
+write_line "$T" user "$D" "$(tool_result t21 "$(printf 'Exit code 2\nmake-worktree: REFUSED — a worktree home is not ignored in /repo/.gitignore.')" true)"
+# a compound command (a read piped/chained before the real guard call) is STILL an invocation —
+# invoked_guard gates on is_error, not on the command's first word (#513 review: a first-word
+# heuristic missed exactly this shape, and needed a growing read-command allowlist to approximate it).
+write_line "$T" assistant "$D" "$(tool_use t11 Bash '{"command":"cat plan.md && \"$GUARDS/guarded-push.sh\" -C \"$WORKTREE\" feat/47-x"}')"
 write_line "$T" user "$D" "$(tool_result t11 "$(printf 'Exit code 4\nguarded-push: ALERT — git push exited 0, but HEAD moved while it ran.')" true)"
 # decoy: a Read that merely QUOTES a guard line (a backticked table cell) — not the guard running.
 write_line "$T" assistant "$D" "$(tool_use t12 Read '{"file_path":"notes.md"}')"
 write_line "$T" user "$D" "$(tool_result t12 "| \`guarded-commit: REFUSED — HEAD is on 'main'\` |" false)"
-# AC6 (#496): invocation, not mention — a Read, and a Bash that only READS (cat), each carrying the
-# guard's own real refusal text (t7's $GOUT) verbatim, must NOT be recorded as a guard-refusal.
+# AC6 (#496): invocation, not mention. A Read carrying the guard's own real refusal text (t7's
+# $GOUT) verbatim is excluded because it isn't Bash; a Bash that actually NAMES the guard but did
+# NOT fail (is_error:false) is excluded even though the body still reads as a refusal — the
+# is_error gate is what does the work, not a guess about the command's shape.
 write_line "$T" assistant "$D" "$(tool_use t13 Read '{"file_path":"guarded-commit.sh"}')"
 write_line "$T" user "$D" "$(tool_result t13 "$GOUT" false)"
-write_line "$T" assistant "$D" "$(tool_use t14 Bash '{"command":"cat notes.md"}')"
+write_line "$T" assistant "$D" "$(tool_use t14 Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C \"$WORKTREE\" feat/other -- -m x"}')"
 write_line "$T" user "$D" "$(tool_result t14 "$GOUT" false)"
-# AC7 (#496): a Bash that only READS a guard's own source (grep) is not "invoking" it, even though
-# the command names a kit script and the source text mentions an exit code.
+# AC7 (#496): a Bash that only READS a guard's own source (grep) and did not fail (is_error:false)
+# is not "invoking" it, even though the command names a kit script and the source text mentions an
+# exit code.
 write_line "$T" assistant "$D" "$(tool_use t16 Bash '{"command":"grep -n usage skills/merge-pr/scripts/guarded-pr-merge.sh"}')"
 write_line "$T" user "$D" "$(tool_result t16 'skills/merge-pr/scripts/guarded-pr-merge.sh:56:refuse() { printf ... ; exit 64; }' false)"
-# AC8 (#496): kit_name counts only as a "/"-bounded PATH SEGMENT — never as a substring of a
+# a guard basename mentioned only in a Bash tool_use's `description` field (never its `command`)
+# must not flip the invocation gate.
+write_line "$T" assistant "$D" "$(tool_use t19 Bash '{"command":"ls -la","description":"test guarded-commit.sh behavior"}')"
+write_line "$T" user "$D" "$(tool_result t19 "$GOUT" true)"
+# AC8 (#496): kit_name counts only as a standalone identifier — never as a substring of a
 # dash-encoded scratchpad directory that happens to spell the kit's name.
 write_line "$T" assistant "$D" "$(tool_use t17 Bash '{"command":"cd /private/tmp/claude-501/-Users-x-ai-migration-kit/scratchpad && ls"}')"  # tmp-lint:allow — a fixture COMMAND string under test, not a path this suite writes
 write_line "$T" user "$D" "$(tool_result t17 'ls: cannot access '"'"'foo'"'"': No such file or directory' true)"
 write_line "$T" assistant "$D" "$(tool_use t18 Bash '{"command":"cd /Users/x/ai-migration-kit && scripts/preflight.sh"}')"
 write_line "$T" user "$D" "$(tool_result t18 'preflight: PyYAML missing' true)"
+# decoy: kit_name's trailing boundary — a same-PREFIXED sibling directory ("ai-migration-kit.bak")
+# is not the kit's own path segment, even though it starts with the kit's name.
+write_line "$T" assistant "$D" "$(tool_use t22 Bash '{"command":"ls /x/ai-migration-kit.bak/notes.txt"}')"
+write_line "$T" user "$D" "$(tool_result t22 "ls: cannot access notes.txt: No such file or directory" true)"
 # 7. harness-nudge (a plain user string).
 python3 - "$T" "$D" <<'PY'
 import json, sys
@@ -156,7 +174,7 @@ if len(tool_err) != 2 or not any("tick-plan.sh" in d for d in tool_err_details) 
         or not any("preflight.sh" in d for d in tool_err_details):
     print("FAIL: exactly two tool-errors were expected, on tick-plan.sh and preflight.sh:", tool_err_details); sys.exit(1)
 guard_details = sorted({r["detail"] for r in recs if r["kind"] == "guard-refusal"})
-want_guards = ["guarded-commit", "guarded-pr-merge", "guarded-push", "tick-plan"]
+want_guards = ["guarded-commit", "guarded-merge", "guarded-pr-merge", "guarded-push", "make-worktree", "tick-plan"]
 if guard_details != want_guards:
     print("FAIL: guard-refusal details differ from the four real guard names")
     print("  got :", guard_details); print("  want:", want_guards); sys.exit(1)
@@ -167,7 +185,7 @@ PY
 MD=$(kit_scratch)/tally.md
 python3 "$SCRIPT" "$PROJ" --markdown --since 2026-08-15 > "$MD" 2>/dev/null || { echo "FAIL: --markdown exited non-zero"; exit 1; }
 grep -q '^## implement-issue$' "$MD" || { echo "FAIL: the tally has no per-skill heading"; cat "$MD"; exit 1; }
-grep -q '^signals: 11 across 1 sessions' "$MD" || { echo "FAIL: the tally does not end with 'signals: 11 across 1 sessions'"; tail -3 "$MD"; exit 1; }
+grep -q '^signals: 13 across 1 sessions' "$MD" || { echo "FAIL: the tally does not end with 'signals: 13 across 1 sessions'"; tail -3 "$MD"; exit 1; }
 grep -q 'skipped 1 unparseable' "$MD" || { echo "FAIL: the non-JSON line was not counted as skipped"; tail -3 "$MD"; exit 1; }
 echo "ok   the markdown tally groups by skill and kind, counts the skipped line, ends with the signals line"
 
