@@ -114,7 +114,7 @@ write_line "$T" assistant "$D" "$(tool_use t16 Bash '{"command":"grep -n usage s
 write_line "$T" user "$D" "$(tool_result t16 'skills/merge-pr/scripts/guarded-pr-merge.sh:56:refuse() { printf ... ; exit 64; }' false)"
 # AC8 (#496): kit_name counts only as a "/"-bounded PATH SEGMENT — never as a substring of a
 # dash-encoded scratchpad directory that happens to spell the kit's name.
-write_line "$T" assistant "$D" "$(tool_use t17 Bash '{"command":"cd /private/tmp/claude-501/-Users-x-ai-migration-kit/scratchpad && ls"}')"
+write_line "$T" assistant "$D" "$(tool_use t17 Bash '{"command":"cd /private/tmp/claude-501/-Users-x-ai-migration-kit/scratchpad && ls"}')"  # tmp-lint:allow — a fixture COMMAND string under test, not a path this suite writes
 write_line "$T" user "$D" "$(tool_result t17 'ls: cannot access '"'"'foo'"'"': No such file or directory' true)"
 write_line "$T" assistant "$D" "$(tool_use t18 Bash '{"command":"cd /Users/x/ai-migration-kit && scripts/preflight.sh"}')"
 write_line "$T" user "$D" "$(tool_result t18 'preflight: PyYAML missing' true)"
