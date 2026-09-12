@@ -105,6 +105,10 @@ gh_host_resolve() {
   # 3. origin's host, for the same repository, when gh holds credentials for it
   url=$(git remote get-url origin 2>/dev/null) || return 0
   [ -n "$url" ] || return 0
+  # When a credential contains an unescaped `@` inside the userinfo (e.g., a password with a literal
+  # `@` character), the userinfo parsing becomes ambiguous. Fail open rather than derive a garbled host.
+  authority=$(printf '%s' "$url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#/.*$##')
+  case "$authority" in *@*@*) return 0 ;; esac
   origin_host=$(printf '%s' "$url" \
     | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#[:/].*$##' \
     | tr '[:upper:]' '[:lower:]')

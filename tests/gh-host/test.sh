@@ -152,6 +152,14 @@ expect slug-case ghe.example.com repos/Acme/Widgets/x
 # A CI clone that carries its token in the URL: the host is after the `user:token@`, not before it.
 run origin-https-userinfo "$CO_CRED" acme/widgets
 expect origin-https-userinfo ghe.example.com repos/acme/widgets/x
+# A credential with an unescaped @ inside the password: the host derivation cannot parse it
+# unambiguously, so the helper must not export a GH_HOST (fail open to gh's default).
+CO_MULTIATSAFE=$(checkout multiatsafe 'https://user:p@ssword@ghe.example.com/acme/widgets.git')
+run origin-multiatsafe-uncredentialed "$CO_MULTIATSAFE" acme/widgets GH_STUB_HOSTS=
+expect origin-multiatsafe-uncredentialed '<unset>' repos/acme/widgets/x
+# Even if we pretend the derived host is credentialed, multi-@ still fails open.
+run origin-multiatsafe-would-be-credentialed "$CO_MULTIATSAFE" acme/widgets
+expect origin-multiatsafe-would-be-credentialed '<unset>' repos/acme/widgets/x
 # The ordinary credentialed github.com checkout: the host is exported, and it is gh's default anyway.
 run github-credentialed "$CO_GITHUB" acme/widgets GH_STUB_HOSTS=github.com
 expect github-credentialed github.com repos/acme/widgets/x
