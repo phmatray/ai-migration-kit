@@ -150,10 +150,13 @@ Full reference — the `dnx` version floor, the `Edit` escape hatch for what ros
 `Bash` rather than `Read`, and it is built on the same three properties:
 
 - **What it denies** — whole-tree discards (`git checkout .`, `git restore .`), `git reset --hard`,
-  `git clean -f…`, a forced `git push`, and a **bare** `git commit`/`push`/`merge`. Each denial names
-  the replacement: the matching `guarded-*.sh` under `skills/implement-issue/scripts/`, which asserts
-  the branch before and after (#26, #280). A line that already calls one of those guards is allowed
-  whole, `--force-with-lease` included.
+  `git clean -f…`, a forced `git push`, a **bare** `git commit`/`push`/`merge`, and a **bare** `gh pr merge`.
+  Git denials name the matching `guarded-*.sh` under `skills/implement-issue/scripts/` (which asserts
+  the branch before and after; #26, #280), and `gh pr merge` denials name
+  `skills/merge-pr/scripts/guarded-pr-merge.sh`. A line that already calls one of those guards is
+  allowed whole, `--force-with-lease` and other options included. The escape hatch for both arms
+  is `GIT_GATE=off` (`0|false|no|disabled`), as a prefix on the one command (`GIT_GATE=off git …`
+  or `GIT_GATE=off gh …`), or set where Claude is launched for the whole session.
 - **Inert unless the guards exist** — it only ever denies in a repository that carries a
   `.claude/skills/repo-profile.md`, i.e. one that has opted into the lifecycle skills. Everywhere
   else the plugin is installed, it says nothing.
