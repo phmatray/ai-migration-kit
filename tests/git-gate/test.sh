@@ -269,6 +269,15 @@ verdict "RT4 GH_REPO= from a profiled cwd"     deny "guarded-pr-merge.sh" \
   "$(pay Bash 'GH_REPO=owner/other-repo gh pr merge 12' "$PROF")"
 verdict "RT5 a pull URL from a profiled cwd"   deny "guarded-pr-merge.sh" \
   "$(pay Bash 'gh pr merge https://github.com/owner/other-repo/pull/12' "$PROF")"
+# `-R` glued directly to its value (`-Rowner/repo`, no space, no `=`) is the same short-flag shape
+# gh's own flag parser accepts for `-R owner/repo` — both retarget scans in judge_gh need to
+# recognise it, not just the space-separated and `--repo=` forms (found in review).
+verdict "RT6 -R glued to its value, unprofiled cwd" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'gh pr merge -Rowner/profiled-repo 12 --squash' "$PLAIN")"
+# ...and a non-github.com pull URL (a GHES-shaped host) must retarget the same way — the check is
+# "a /pull/<number> path", not "a github.com host" specifically.
+verdict "RT7 a pull URL on a non-github.com host" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'gh pr merge https://ghe.example.com/owner/other-repo/pull/12' "$PROF")"
 
 # --------------------------------------------------------------------- 1f. launderings (#533)
 # Three ways to defeat the earlier walk's literal word match without touching the write itself:
@@ -300,6 +309,23 @@ verdict "L14 a launderable word inside a real message is inert" pass "" \
 # value, not as $1, so the segment is judged on its real command word ("git log", unrecognised).
 verdict "L15 a quoted \"gh\" as a value, not a command word" pass "" \
   "$(pay Bash 'git log -m "gh"' "$PROF")"
+# A backslash escaping one of the SEPARATOR characters (`;`/`&`/`|`) must fall back to the old
+# space-substitution, not the literal-keep above: `tr` already turned a real line continuation
+# (`git \`, newline, `commit -m x`) into `git \;commit -m x` by the time this scan sees it, and
+# literal-keeping that `;` would hand the segment walk a split that was never really there —
+# splitting one write into two unrecognisable halves (found in review).
+verdict "L16 an escaped line-continuation semicolon is not a real split" deny "guarded-commit.sh" \
+  "$(pay Bash "$(printf 'git \\\ncommit -m x')" "$PROF")"
+# ...and the mirror: an escaped separator that was never meant to end anything must not be
+# reinterpreted as one either — this is one `echo` call, arguments only, git never runs.
+verdict "L17 an escaped semicolon inside echo's arguments stays inert" pass "" \
+  "$(pay Bash 'echo hi\; git commit -m x' "$PROF")"
+# A backslash INSIDE a launcher word (not just before it) still defeats a literal `git`/`gh` match,
+# but it ALSO breaks the *raw command*'s contiguous "git"/"gh" substring the cheap fast-reject
+# filter (line ~88) looks for before any of this scan ever runs — so that filter has to let any
+# command carrying a backslash through to the real parse (found in review).
+verdict "L18 a backslash inside the word (not just before it)" deny "guarded-commit.sh" \
+  "$(pay Bash 'g\it commit -m x' "$PROF")"
 
 # --------------------------------------------------------- 1g. the allowlist is per-segment (#533)
 # The old allowlist matched `guarded-commit.sh` as a substring ANYWHERE on the line, so a line that

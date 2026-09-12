@@ -84,8 +84,12 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload" 2>/dev/null) || exit 0
 
 # The cheap reject, before any parsing: nothing here can matter to a command with no `git` in it and
 # no `gh` followed somewhere by `merge` — the one `gh` shape judged below (#512). `*gh*merge*`, not a
-# bare `*gh*`, so `github`, `high` and `though` stay on this fast path.
-case "$cmd" in *git*|*gh*merge*) ;; *) exit 0 ;; esac
+# bare `*gh*`, so `github`, `high` and `though` stay on this fast path. A literal backslash anywhere
+# also stays on the slow path (#533): the awk pass below now unwraps a backslash INSIDE a launcher
+# word too (`g\it commit`, not just `\git commit`), which breaks the contiguous `git`/`gh` substring
+# this cheap check looks for on the raw, unprocessed command — so a command carrying any backslash
+# can't be cheaply ruled out here and has to go through the real scan instead.
+case "$cmd" in *git*|*gh*merge*|*'\'*) ;; *) exit 0 ;; esac
 
 # A heredoc body is FILE CONTENT, not commands, and this parser cannot tell the two apart: newlines
 # are folded to `;` below, so `cat > x.sh <<'SH'` … `git commit -m x` … `SH` would be judged as a
@@ -162,7 +166,20 @@ function endsw(s, suf,    ls, lu) { ls = length(s); lu = length(suf); return (ls
       # An unquoted backslash escapes exactly the next character: real shell keeps that character
       # as literal content of the word (`\gh` is the word `gh`) rather than dropping it — dropping
       # it (the previous behaviour) is what let `\gh pr merge 12` slip the gate unrecognised (#533).
-      if (c == bs)            { out = out substr($0, i+1, 1); prev = "x"; i += 2; continue }
+      # EXCEPT when the escaped character is itself one of the segment separators (semicolon,
+      # ampersand, pipe — what a real newline becomes via the earlier tr step): a genuine shell
+      # line continuation reaches this scan as a backslash directly followed by a semicolon, and
+      # literal-keeping that separator would hand the segment walk below a real split where none
+      # exists, splitting one write into two unrecognisable halves (an UNDER-deny) and, the mirror
+      # case, turning an escaped separator that was never meant to end anything (one call, its
+      # separator merely quoted) into two segments and a false deny on text that never runs as git.
+      # Falling back to the old space-substitution for exactly these three characters keeps both.
+      if (c == bs) {
+        gate_esc = substr($0, i+1, 1)
+        if (gate_esc == ";" || gate_esc == "&" || gate_esc == "|") { out = out " " }
+        else { out = out gate_esc }
+        prev = "x"; i += 2; continue
+      }
       # `$(` opens a command substitution: find its matching close (a bare depth-count, not itself
       # quote-aware inside — ponytail: good enough for the reported bypass shape; a real shell
       # parser is out of scope for this hook) and record the inner text for a recursive check below
@@ -542,8 +559,14 @@ judge() { # $1 one segment of the stripped command
     push)
       # A dry run pushes nothing, so there is nothing for a guard to assert about it.
       case "$opts" in *" -n "*|*" --dry-run "*) return 0 ;; esac
-      # `--force-with-lease` is NOT `--force`: it is allowed, but only on a line that also invokes
-      # the guard (which asserted the branch first) — and such a line already returned above.
+      # `--force-with-lease` is NOT `--force`, so it skips the deny right below — but it still
+      # falls through to the unconditional "bare push" deny two lines down, same as any other push
+      # that isn't itself a call to the guard. Before #533 this segment was allowed whenever the
+      # *line* also mentioned guarded-push.sh anywhere, guard call or not; per-segment judging means
+      # that free ride is gone — only an actual `guarded-push.sh -- --force-with-lease` call (caught
+      # earlier, by "the guard recognition" below) is allowed. A raw `--force-with-lease` push is
+      # still exactly as unsafe in a shared checkout as `--force`; only the guard's own read-back
+      # after the branch assertion makes it safe.
       case "$opts" in
         *" -f "*|*" --force "*) deny "$seg" \
           "A forced push overwrites whatever the remote holds, which in a shared checkout is another agent's branch. Use \`$(guard_hint skills/implement-issue/scripts/guarded-push.sh) -C <worktree> <branch> -- --force-with-lease\`." ;;
@@ -584,6 +607,9 @@ judge_gh() { # $1 the segment  $2 gh_repo_seen (1 if GH_REPO= prefixed this segm
     while [ $# -gt 0 ]; do
       case "$1" in
         -R|--repo|--hostname) [ $# -ge 2 ] || return 0; retarget=1; shift 2 ;;
+        # `-R<value>` glued (no space, no `=`) is the same short-flag shape `gh`'s own flag parser
+        # (pflag) accepts for `-R owner/repo` — the value lives in THIS token, so only shift 1.
+        -R?*) retarget=1; shift ;;
         --repo=*|--hostname=*) retarget=1; shift ;;
         --*=*|-*) shift ;;
         *) break ;;
@@ -601,8 +627,10 @@ judge_gh() { # $1 the segment  $2 gh_repo_seen (1 if GH_REPO= prefixed this segm
   # form, rather than only catching the two positions the loop above happens to look at.
   for a in "$@"; do
     case "$a" in
-      -R|--repo|--hostname|--repo=*|--hostname=*) retarget=1 ;;
-      *github.com*/pull/*) retarget=1 ;;
+      -R|--repo|--hostname|-R?*|--repo=*|--hostname=*) retarget=1 ;;
+      # A URL naming a pull request, on github.com or any other host (GHES) that shapes one the
+      # same way — the profiled repo it points at is never THIS command's own cwd either way.
+      */pull/[0-9]*) retarget=1 ;;
     esac
   done
   [ "$gh_repo_seen" = 1 ] && retarget=1
