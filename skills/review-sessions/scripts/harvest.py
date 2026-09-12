@@ -69,7 +69,11 @@ HOOK_DENY_PREFIXES = (
     "Blocked by the git write-gate",
     "Blocked by the roseline gate",
 )
-HARNESS_REFUSAL_PREFIX = "This session is isolated in the worktree"
+# A main session's wording, then a sub-agent's — both the harness, never the kit.
+HARNESS_REFUSAL_PREFIXES = (
+    "This session is isolated in the worktree",
+    "This agent is isolated in the worktree",
+)
 NUDGES = ("[Request interrupted", "[Your previous response had no visible output")
 WORKER_REPORT_RE = re.compile(r"\bSTATUS:\s*(PARTIAL|BLOCKED|FAILED)\b")
 SUITE_FAIL_RE = re.compile(r"^FAIL[: \[].*", re.M)
@@ -247,7 +251,7 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
                         continue
                     body = text_of(b.get("content"))
                     tool, touched = tool_inputs.get(b.get("tool_use_id"), (None, ""))
-                    if body.startswith(HARNESS_REFUSAL_PREFIX):
+                    if body.startswith(HARNESS_REFUSAL_PREFIXES):
                         continue   # the harness's own worktree isolation, not the kit
                     if any(body.startswith(p) or ("\n" + p) in body for p in HOOK_DENY_PREFIXES):
                         emit("hook-deny", excerpt_of(body), tool, "gate")

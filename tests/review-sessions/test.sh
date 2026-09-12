@@ -60,9 +60,13 @@ write_line "$T" user "$D" "$(tool_result t3 'Blocked by the git write-gate: `git
 # decoy: a deny from a foreign hook.
 write_line "$T" assistant "$D" "$(tool_use t4 Grep '{"pattern":"class Foo"}')"
 write_line "$T" user "$D" "$(tool_result t4 'roseline-nudge: prefer search_symbols over Grep for C#' true)"
-# decoy: the harness worktree refusal (not the kit).
-write_line "$T" assistant "$D" "$(tool_use t5 Bash '{"command":"git -C /elsewhere status"}')"
-write_line "$T" user "$D" "$(tool_result t5 'This session is isolated in the worktree /x, but this command redirects git to the shared checkout via -C. Refusing to run it.' true)"
+# decoy: the harness worktree refusal (not the kit) — a main session's wording, on a command that
+# names a kit script (so it actually exercises the drop rather than being dropped for missing that).
+write_line "$T" assistant "$D" "$(tool_use t5 Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C /x feat/47-x -- -m x"}')"
+write_line "$T" user "$D" "$(tool_result t5 'This session is isolated in the worktree /x, but this command names git in a form too complex to verify. Refusing to run it.' true)"
+# decoy: the same harness refusal, a sub-agent's wording ("This agent is …").
+write_line "$T" assistant "$D" "$(tool_use t5b Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C /x feat/47-x -- -m x"}')"
+write_line "$T" user "$D" "$(tool_result t5b 'This agent is isolated in the worktree /x, but this command names git in a form too complex to verify. Refusing to run it.' true)"
 # 3. forbidden-wait.
 write_line "$T" assistant "$D" "$(text "The suite is running. I'll pause here and wait for the code-review report before continuing.")"
 # 4. worker-report.
