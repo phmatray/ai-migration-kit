@@ -84,8 +84,12 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload" 2>/dev/null) || exit 0
 
 # The cheap reject, before any parsing: nothing here can matter to a command with no `git` in it and
 # no `gh` followed somewhere by `merge` — the one `gh` shape judged below (#512). `*gh*merge*`, not a
-# bare `*gh*`, so `github`, `high` and `though` stay on this fast path.
-case "$cmd" in *git*|*gh*merge*) ;; *) exit 0 ;; esac
+# bare `*gh*`, so `github`, `high` and `though` stay on this fast path. A literal backslash anywhere
+# also stays on the slow path (#533): the awk pass below now unwraps a backslash INSIDE a launcher
+# word too (`g\it commit`, not just `\git commit`), which breaks the contiguous `git`/`gh` substring
+# this cheap check looks for on the raw, unprocessed command — so a command carrying any backslash
+# can't be cheaply ruled out here and has to go through the real scan instead.
+case "$cmd" in *git*|*gh*merge*|*'\'*) ;; *) exit 0 ;; esac
 
 # A heredoc body is FILE CONTENT, not commands, and this parser cannot tell the two apart: newlines
 # are folded to `;` below, so `cat > x.sh <<'SH'` … `git commit -m x` … `SH` would be judged as a
@@ -113,6 +117,13 @@ case "$cmd" in *git*|*gh*merge*) ;; *) exit 0 ;; esac
 # there too — a real shell tokenizer is the fix for either, and not worth it for a gate whose declared
 # direction is fail-open (ADR 0002).
 cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null) || exit 0
+
+# ---------------------------------------------------------------- #533: recognise past disguises
+# Three shapes let a real write slip past the walk below unrecognised: a backslash or quoting that
+# defeats a literal `gh`/`git` match (`\gh`, `"gh"`), a wrapper launcher not on the recognised list
+# (`timeout`), and a command hidden inside `$(...)`/backtick substitution. The first two are fixed
+# inside the same character scan that already strips quotes/comments (below); the third needs its
+# own recursive check, since the substituted command runs regardless of where it sits on the line.
 
 # ------------------------------------------------------------------- strip quotes and comments
 # `echo "git push --force"` is not a push, and `git log # git reset --hard` is not a reset. Matt's
@@ -143,16 +154,57 @@ cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null) || exit 0
 #
 # `sq`/`dq`/`bs` are built with sprintf because the program itself is single-quoted in shell and so
 # cannot contain a literal `'`.
-clean=$(printf '%s' "$cmd" | tr '\n' ';' | awk '
+awkout=$(printf '%s' "$cmd" | tr '\n' ';' | awk '
 BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92) }
+function endsw(s, suf,    ls, lu) { ls = length(s); lu = length(suf); return (ls >= lu && substr(s, ls-lu+1) == suf) }
 {
-  out = ""; q = ""; n = length($0); i = 1; prev = " "
+  out = ""; q = ""; qbuf = ""; n = length($0); i = 1; prev = " "; nsubs = 0
   while (i <= n) {
     c = substr($0, i, 1)
     if (q == "") {
       if (c == "<" && substr($0, i+1, 1) == "<") { break }
-      if (c == bs)            { out = out " "; prev = " "; i += 2; continue }
-      if (c == sq || c == dq) { q = c; out = out "@Q@"; prev = "Q"; i++; continue }
+      # An unquoted backslash escapes exactly the next character: real shell keeps that character
+      # as literal content of the word (`\gh` is the word `gh`) rather than dropping it — dropping
+      # it (the previous behaviour) is what let `\gh pr merge 12` slip the gate unrecognised (#533).
+      # EXCEPT when the escaped character is itself one of the segment separators (semicolon,
+      # ampersand, pipe — what a real newline becomes via the earlier tr step): a genuine shell
+      # line continuation reaches this scan as a backslash directly followed by a semicolon, and
+      # literal-keeping that separator would hand the segment walk below a real split where none
+      # exists, splitting one write into two unrecognisable halves (an UNDER-deny) and, the mirror
+      # case, turning an escaped separator that was never meant to end anything (one call, its
+      # separator merely quoted) into two segments and a false deny on text that never runs as git.
+      # Falling back to the old space-substitution for exactly these three characters keeps both.
+      if (c == bs) {
+        gate_esc = substr($0, i+1, 1)
+        if (gate_esc == ";" || gate_esc == "&" || gate_esc == "|") { out = out " " }
+        else { out = out gate_esc }
+        prev = "x"; i += 2; continue
+      }
+      # `$(` opens a command substitution: find its matching close (a bare depth-count, not itself
+      # quote-aware inside — ponytail: good enough for the reported bypass shape; a real shell
+      # parser is out of scope for this hook) and record the inner text for a recursive check below
+      # (#533) — the shell runs it regardless of where it sits in the outer command. Skipped over
+      # (not left for the generic "(" handling below) so the outer command is judged exactly as it
+      # would be without the substitution.
+      if (c == "$" && substr($0, i+1, 1) == "(") {
+        depth = 1; j = i + 2; start = j
+        while (j <= n && depth > 0) {
+          cc = substr($0, j, 1)
+          if (cc == "(") depth++
+          else if (cc == ")") depth--
+          if (depth > 0) j++
+        }
+        subs[nsubs++] = substr($0, start, j - start)
+        out = out " @P@ "; prev = " "; i = j + 1; continue
+      }
+      # Backtick command substitution: first matching backtick (no nesting without escaping).
+      if (c == "`") {
+        j = i + 1
+        while (j <= n && substr($0, j, 1) != "`") j++
+        subs[nsubs++] = substr($0, i + 1, j - i - 1)
+        out = out " @P@ "; prev = " "; i = j + 1; continue
+      }
+      if (c == sq || c == dq) { q = c; qbuf = ""; prev = "Q"; i++; continue }
       if (c == "#" && (prev == " " || prev == ";" || prev == "|" || prev == "&")) {
         while (i <= n) {
           c = substr($0, i, 1)
@@ -165,35 +217,86 @@ BEGIN { sq = sprintf("%c", 39); dq = sprintf("%c", 34); bs = sprintf("%c", 92) }
       if (c == "{" || c == "}") { out = out " "; prev = " "; i++; continue }
       out = out c; prev = c; i++
     } else {
-      if (q == dq && c == bs) { i += 2; continue }
-      if (c == q)             { q = "" }
+      if (q == dq && c == bs) { qbuf = qbuf substr($0, i+1, 1); i += 2; continue }
+      if (c == q) {
+        q = ""
+        # A quoted span collapses to a placeholder so its content can never be substring-matched
+        # (the reason it is opaque at all) — but a quoted `gh`/`git`, or a quoted path ending in one
+        # of the three guarded-*.sh names, is exactly the shape #533 needs recognised, so those get
+        # their OWN placeholder instead of the generic one; judge() below matches them the same as
+        # the bare word/path. Anything else stays @Q@, unrecognisable, same as before.
+        if (qbuf == "gh") out = out "@GH_WORD@"
+        else if (qbuf == "git") out = out "@GIT_WORD@"
+        else if (endsw(qbuf, "guarded-commit.sh")) out = out "@GUARDED_COMMIT@"
+        else if (endsw(qbuf, "guarded-push.sh")) out = out "@GUARDED_PUSH@"
+        else if (endsw(qbuf, "guarded-merge.sh")) out = out "@GUARDED_MERGE@"
+        else out = out "@Q@"
+      } else {
+        qbuf = qbuf c
+      }
       i++
     }
   }
   if (q != "") { exit 3 }
-  print out
+  print "C\t" out
+  for (k = 0; k < nsubs; k++) print "S\t" subs[k]
 }' 2>/dev/null) || exit 0
 
+# Split the awk output back into the clean command text (one "C" line) and zero or more extracted
+# substitution bodies (one "S" line each) — two channels carried over the one stdout stream rather
+# than a temp file, consistent with the rest of this hook's no-side-effects design.
+tab=$(printf '\t')
+clean=""
+gate_subs=""
+while IFS= read -r gate_ln; do
+  case "$gate_ln" in
+    "C$tab"*) clean="${gate_ln#C"$tab"}" ;;
+    "S$tab"*) gate_subs="$gate_subs${gate_ln#S"$tab"}
+" ;;
+  esac
+done <<EOF
+$awkout
+EOF
+
+# Each extracted substitution is a real command the shell will run, so it is checked the same way
+# any top-level command would be: recursively, through this exact script, from the same cwd (so
+# GIT_GATE/CLAUDE_PLUGIN_ROOT/the profile probe all see what the outer invocation would have seen).
+# A deny from any one of them denies the whole line — relayed verbatim, so the reason still names
+# the guard the SUBSTITUTED command needed.
+if [ -n "$gate_subs" ]; then
+  while IFS= read -r gate_subcmd; do
+    [ -n "$gate_subcmd" ] || continue
+    gate_subpay=$(jq -nc --arg d "$cwd" --arg c "$gate_subcmd" \
+      '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}' 2>/dev/null) || continue
+    gate_subout=$(printf '%s' "$gate_subpay" | bash "$0" 2>/dev/null)
+    if [ -n "$gate_subout" ]; then
+      printf '%s\n' "$gate_subout"
+      exit 0
+    fi
+  done <<EOF
+$gate_subs
+EOF
+fi
+
 # ------------------------------------------------------------------------- the guard recognition
-# A line that calls one of the kit's guards is the thing this hook exists to encourage, so the whole
-# line is allowed. The hook sees one command string and cannot see the guard's own inner `git` —
-# which is fine, because the guard is precisely what it wants to have run.
+# A line that calls one of the kit's guards is the thing this hook exists to encourage, so that
+# SEGMENT is allowed. Recognised in judge() below as a whole path segment at the START of a command
+# position — never a raw substring search over the whole line (#533's own fix): the old whole-line
+# check matched `guarded-commit.sh` anywhere on the line, which let `if …; then
+# "$G/guarded-commit.sh" …; else git commit -m x; fi` whitelist the else-branch's raw commit purely
+# because the guard was MENTIONED earlier on the same line. Per-segment recognition instead: the
+# quote-collapsing pass above hands back one of the @GUARDED_*@ placeholders in place of the generic
+# @Q@ specifically when a quoted span's content ends in one of the three guard filenames, and an
+# unquoted spelling matches the same filenames directly — either way judge() only looks at $1, the
+# first token of the SPECIFIC segment being judged, so a mention elsewhere on the line (a different
+# segment, a comment, a commit message) never allows a segment it doesn't belong to.
 #
-# Checked on the RAW command, not the stripped one, and that is deliberate. Every skill spells the
-# call `"$GUARDS/guarded-commit.sh" …`, so the guard's own name lives inside a quoted span and the
-# stripper would delete it — turning the prescribed call into an unrecognised one. The cost is that
-# `echo "guarded-commit.sh"` sitting on the same line as a real bare `git commit` would whitelist
-# it; that is an over-recognition, which fails OPEN, and this hook's whole declared direction (see
-# ADR 0002) is that over-allowing is the mistake it is willing to make.
-#
-# `guarded-pr-merge.sh` is deliberately NOT on the list (#512). Its own call never trips the `gh`
-# arm — that segment's command word is the guard, not `gh` — so listing it bought nothing, and it
-# let through the very incident the arm exists for: session 62c8dcf7's "look for the guard, else
-# merge raw" line (`if [ ! -d "$SKILLS_DIR" ]; then … gh pr merge 1340 …; else
-# "$SKILLS_DIR/guarded-pr-merge.sh" …; fi`) names the guard, so a whole-line allow never judged it.
-case "$cmd" in
-  *guarded-commit.sh*|*guarded-push.sh*|*guarded-merge.sh*) exit 0 ;;
-esac
+# `guarded-pr-merge.sh` is deliberately NOT recognised here (#512). Its own call never trips the `gh`
+# arm — that segment's command word is the guard, not `gh` — so recognising it bought nothing, and
+# the whole-line version of this check let through the very incident the arm exists for: session
+# 62c8dcf7's "look for the guard, else merge raw" line (`if [ ! -d "$SKILLS_DIR" ]; then … gh pr
+# merge 1340 …; else "$SKILLS_DIR/guarded-pr-merge.sh" …; fi`) named the guard, so the old whole-line
+# allow never judged the raw merge in the `if` branch either.
 
 # ------------------------------------------------------------------------------- the deny output
 deny() { # $1 the offending segment  $2 the replacement sentence
@@ -279,7 +382,7 @@ whole_tree() { # $@ pathspecs
 
 # ------------------------------------------------------------------- judge one command segment
 judge() { # $1 one segment of the stripped command
-  local seg="$1" seg_dir="" sub="" grouped=0
+  local seg="$1" seg_dir="" sub="" grouped=0 gh_repo_seen=0
   # Word splitting is the tokeniser; `set -f` above is what makes it safe.
   set -- $seg
   [ $# -gt 0 ] || return 0
@@ -289,20 +392,39 @@ judge() { # $1 one segment of the stripped command
   # spaces, so that `if true; then git commit …; fi` and `for f in a b; do git push; done` are
   # judged on their bodies rather than skipped as "the segment starts with `then`". Anything else
   # stops the walk — the segment simply is not a git invocation.
+  #
+  # `timeout`/`nice`/`stdbuf` join the launcher list (#533); `timeout` alone also takes a mandatory
+  # duration argument (`timeout 60 …`), so it additionally shifts away whatever follows it — the
+  # other launchers here take no argument of their own in the shape this hook needs to recognise.
   while [ $# -gt 0 ]; do
     case "$1" in
-      env|sudo|command|nohup|time|exec|builtin) shift ;;
+      env|sudo|command|nohup|time|exec|builtin|nice|stdbuf) shift ;;
+      timeout) shift; [ $# -gt 0 ] && shift ;;
       then|do|else|elif|'!') shift ;;
       @P@) grouped=1; shift ;;
       # The one assignment the walk READS instead of stepping over: the per-command off-switch the
       # deny text advertises. It has to be honoured here, because the environment check at the top
       # of this file sees the hook's own environment, never a prefix typed into the command (#372).
       GIT_GATE=off|GIT_GATE=0|GIT_GATE=false|GIT_GATE=no|GIT_GATE=disabled) return 0 ;;
+      # `GH_REPO=` retargets a later `gh pr merge` at another repo the same way `-R`/`--repo` does
+      # (#533) — recorded here, since by the time `judge_gh` sees the segment this prefix is
+      # already consumed and gone from "$@".
+      GH_REPO=*) gh_repo_seen=1; shift ;;
       [A-Za-z_]*=*) shift ;;
       *) break ;;
     esac
   done
   [ $# -gt 0 ] || return 0
+
+  # The three guarded-*.sh scripts this hook exists to route writes through are always allowed,
+  # recognised as a whole path segment at the START of a command position — never a raw substring
+  # search over the whole line (#533; see "the guard recognition" below for why). `@GUARDED_*@` is
+  # what the quote-collapsing pass above hands back for a QUOTED invocation; the bare `*/…sh` forms
+  # cover an unquoted one.
+  case "$1" in
+    @GUARDED_COMMIT@|@GUARDED_PUSH@|@GUARDED_MERGE@|guarded-commit.sh|*/guarded-commit.sh| \
+    guarded-push.sh|*/guarded-push.sh|guarded-merge.sh|*/guarded-merge.sh) return 0 ;;
+  esac
 
   # A `cd` segment is never a git write, but it decides which repository the NEXT segments act
   # in — unless it ran inside `( … )`, where it died with the subshell.
@@ -311,10 +433,13 @@ judge() { # $1 one segment of the stripped command
     return 0
   fi
 
-  # `gh` is judged for exactly one subcommand, by `judge_gh` below (#512).
-  case "$1" in gh|*/gh) judge_gh "$seg" "$@"; return 0 ;; esac
+  # `gh` is judged for exactly one subcommand, by `judge_gh` below (#512). `@GH_WORD@` is a quoted
+  # `"gh"`/`'gh'` (#533) — the quote-collapsing pass above hands it back in place of the generic
+  # @Q@ specifically for that exact content.
+  case "$1" in gh|*/gh|@GH_WORD@) judge_gh "$seg" "$gh_repo_seen" "$@"; return 0 ;; esac
 
-  case "$1" in git|*/git) shift ;; *) return 0 ;; esac
+  # `@GIT_WORD@` is the same trick for a quoted `"git"`/`'git'` (#533).
+  case "$1" in git|*/git|@GIT_WORD@) shift ;; *) return 0 ;; esac
 
   # git's OWN options, before the subcommand — including the `git -c user.email=… -c user.name=… commit`
   # shape the kit's own guards emit, which a naive "second word is the subcommand" reader would miss
@@ -434,8 +559,14 @@ judge() { # $1 one segment of the stripped command
     push)
       # A dry run pushes nothing, so there is nothing for a guard to assert about it.
       case "$opts" in *" -n "*|*" --dry-run "*) return 0 ;; esac
-      # `--force-with-lease` is NOT `--force`: it is allowed, but only on a line that also invokes
-      # the guard (which asserted the branch first) — and such a line already returned above.
+      # `--force-with-lease` is NOT `--force`, so it skips the deny right below — but it still
+      # falls through to the unconditional "bare push" deny two lines down, same as any other push
+      # that isn't itself a call to the guard. Before #533 this segment was allowed whenever the
+      # *line* also mentioned guarded-push.sh anywhere, guard call or not; per-segment judging means
+      # that free ride is gone — only an actual `guarded-push.sh -- --force-with-lease` call (caught
+      # earlier, by "the guard recognition" below) is allowed. A raw `--force-with-lease` push is
+      # still exactly as unsafe in a shared checkout as `--force`; only the guard's own read-back
+      # after the branch assertion makes it safe.
       case "$opts" in
         *" -f "*|*" --force "*) deny "$seg" \
           "A forced push overwrites whatever the remote holds, which in a shared checkout is another agent's branch. Use \`$(guard_hint skills/implement-issue/scripts/guarded-push.sh) -C <worktree> <branch> -- --force-with-lease\`." ;;
@@ -462,15 +593,24 @@ judge() { # $1 one segment of the stripped command
 # The one `gh` write the kit has a guard for (#512): `gh … pr … merge`. Everything else `gh` does —
 # `pr view`, `pr checks`, `issue …`, `api …`, the REST merge endpoint included (no incident has used
 # it) — returns without a verdict, and so does any word this walk cannot place.
-judge_gh() { # $1 the segment  $2… its tokens, the `gh` command word first
-  local seg="$1" want
-  shift 2
+judge_gh() { # $1 the segment  $2 gh_repo_seen (1 if GH_REPO= prefixed this segment, #533)
+             # $3… its tokens, the `gh` command word first
+  local seg="$1" gh_repo_seen="$2" want retarget=0 a
+  shift 3
   # gh's options may sit before `pr` and again before `merge`: `-R`/`--repo`/`--hostname` take a
-  # value, every other `-x` and `--x=y` stands alone.
+  # value, every other `-x` and `--x=y` stands alone. Any of `-R`/`--repo`/`--hostname`,
+  # `GH_REPO=` (consumed by judge()'s prefix walk, reported in $gh_repo_seen), or a github.com pull
+  # URL as the target names a repo this probe cannot see — #533's own assumption is that these deny
+  # outright rather than resolving that repo's own profile, so `retarget` records the sighting and
+  # skips the probe below entirely once set, regardless of what the flag/URL actually names.
   for want in pr merge; do
     while [ $# -gt 0 ]; do
       case "$1" in
-        -R|--repo|--hostname) [ $# -ge 2 ] || return 0; shift 2 ;;
+        -R|--repo|--hostname) [ $# -ge 2 ] || return 0; retarget=1; shift 2 ;;
+        # `-R<value>` glued (no space, no `=`) is the same short-flag shape `gh`'s own flag parser
+        # (pflag) accepts for `-R owner/repo` — the value lives in THIS token, so only shift 1.
+        -R?*) retarget=1; shift ;;
+        --repo=*|--hostname=*) retarget=1; shift ;;
         --*=*|-*) shift ;;
         *) break ;;
       esac
@@ -481,10 +621,25 @@ judge_gh() { # $1 the segment  $2… its tokens, the `gh` command word first
   # `--disable-auto` cancels an auto-merge and merges nothing — this arm's `git merge --abort`.
   # Routed to the guard, it would read back as a merge queued for a landing that never comes.
   case " $* " in *" --disable-auto "*) return 0 ;; esac
-  # The git arms' probe, minus `fresh_init`: gh has no `-C`, so the repository is the one the walk
-  # is standing in (a followed `cd` moves it), and a `git init` earlier on the line — even
-  # `git init /tmp/x`, which moves nothing — makes no PR mergeable and no raw merge safe.
-  [ "$FORCE" = 1 ] || is_profiled "$eff_dir" || return 0
+  # `-R`/`--repo`/`--hostname` most commonly sit AFTER `merge` (`gh pr merge -R o/r 12 --squash`),
+  # past where the per-want loop above already stopped (it only scans options standing before each
+  # of `pr`/`merge`) — so the remaining args get their own retarget scan here, alongside the URL
+  # form, rather than only catching the two positions the loop above happens to look at.
+  for a in "$@"; do
+    case "$a" in
+      -R|--repo|--hostname|-R?*|--repo=*|--hostname=*) retarget=1 ;;
+      # A URL naming a pull request, on github.com or any other host (GHES) that shapes one the
+      # same way — the profiled repo it points at is never THIS command's own cwd either way.
+      */pull/[0-9]*) retarget=1 ;;
+    esac
+  done
+  [ "$gh_repo_seen" = 1 ] && retarget=1
+  if [ "$retarget" != 1 ]; then
+    # The git arms' probe, minus `fresh_init`: gh has no `-C`, so the repository is the one the walk
+    # is standing in (a followed `cd` moves it), and a `git init` earlier on the line — even
+    # `git init /tmp/x`, which moves nothing — makes no PR mergeable and no raw merge safe.
+    [ "$FORCE" = 1 ] || is_profiled "$eff_dir" || return 0
+  fi
   deny "$seg" \
     "A raw \`gh pr merge\` decides nothing: its one exit code covers both the merge on GitHub and gh's local cleanup, so a merge that landed reads as a failure (#178, #184). Use \`$(guard_hint skills/merge-pr/scripts/guarded-pr-merge.sh) [-R <owner/repo>] <PR> -- --squash --delete-branch\`, which reads the PR's state back and exits once per outcome." \
     "is the one \`gh\` write the kit routes through a guard (#512)" gh
