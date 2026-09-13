@@ -3,7 +3,9 @@
 The heart of the skill. Re-read the merge state, run the decision, apply the correction it names,
 push, re-wait — until it answers `merge`.
 
-**First, is Step 3's own `$ci` verdict (`.verdict`, read as `$ci_verdict` below) `needs-approval`?**
+**First, is Step 3's own `$ci_verdict` `needs-approval`?** Step 3's recipe (`merge-mechanics.md` §3)
+already assigns it — `ci_verdict=$(printf '%s' "$verdict" | jq -r .verdict)` — so it is already in
+scope here; nothing below recomputes it from a variable this step never defined.
 Handle it here, before building any `merge.step4` state (#495). `ci.verdict`'s three widened sets —
 `failed`, `needs_approval`, `pending` — do not all reach the state block below: §4's shape only ever
 forwards `.failed` and `.pending` by name, because `merge.step4`'s own vocabulary has no word for
@@ -18,7 +20,6 @@ this repository's own release bot.
 | `needs-approval` | Run `skills/merge-pr/scripts/approve-runs.sh "$PR"` (below), then act on its exit code. |
 
 ```bash
-ci_verdict=$(printf '%s' "$ci" | jq -r .verdict)
 if [ "$ci_verdict" = "needs-approval" ]; then
   # rc=0 BEFORE the call, `|| rc=$?` after: under this skill's own `set -euo pipefail` convention,
   # `out=$(cmd); rc=$?` aborts the whole snippet on a non-zero exit before `rc=$?` ever runs — the
