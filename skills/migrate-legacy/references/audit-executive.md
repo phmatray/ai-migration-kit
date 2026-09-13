@@ -40,6 +40,15 @@ profiles:
 6. **Risks & cost of inaction** — non-installable platform, dead distribution (Store), knowledge
    debt, archived dependencies.
 
+7. **Architecture diagram** — the app's *shape*, not only its counts: projects, their references,
+   the Windows-only surface, the test projects, drawn from the same `audit-inventory.sh` JSON every
+   figure above comes from. This audit costs that shape in days, so it draws it; and this is where
+   an executive reader meets it for the first time. With the `archify` session skill present,
+   deliver the explorable `migration/architecture.html` — the two invocations and their
+   `ARCHIFY_UPDATE_CHECK_DISABLED=1` env guard live in `phase-1-assess.md`, step 8, and are not
+   restated here. Absent, the report carries the spec's companion **mermaid** flowchart inline and
+   says so in one sentence: documented degradation, never a hard stop and never a silent omission.
+
 ## Effort formula (days)
 
 | Item | Cost |

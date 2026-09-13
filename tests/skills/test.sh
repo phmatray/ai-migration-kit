@@ -2259,6 +2259,62 @@ done
 pm_case "PM3 a bare spelling is refused, naming file:line" "$_pscratch/drift" kit-prefix fail "05-merge.md:"
 pm_case "PM4 a Never fall back without gh pr merge is refused" "$_pscratch/drift" fallback fail "guard-invocation.md:"
 
+echo "== every migrate-legacy file that invokes archify names its mermaid fallback (#476) =="
+# Archify is a RECOMMENDED session capability (requirements.json `sessionSkills`), so a host without
+# it must still get a picture: the migration phases fall back to the mermaid fence they already
+# build as the archify spec's own companion. That degradation holds only if it is WRITTEN where the
+# invocation is — a file naming archify and not mermaid is one a session would follow into a hard
+# stop or a silent omission, which is exactly what `level: recommended` promises never happens.
+# Same shape as case SP1: the defect IS the committed prose, so the green half scans the real tree
+# and the red half a mutated copy of it.
+#
+# The mutation replaces the mermaid TOKEN rather than deleting its line. Prose wraps, and a
+# `/mermaid/d` would delete the archify mention along with it on any line carrying both — the
+# fixture would then stop naming archify at all and the guard would pass it for the wrong reason.
+archify_fallback_check() {   # <a skills/migrate-legacy tree> → 0 clean · 1 offenders · 2 vacuous
+  local root="$1" offenders="" named=0 f
+  for f in "$root"/SKILL.md "$root"/references/*.md; do
+    [ -f "$f" ] || continue
+    grep -qi 'archify' "$f" || continue
+    named=$((named + 1))
+    grep -qi 'mermaid' "$f" || offenders="$offenders ${f#$root/}"
+  done
+  if [ -n "$offenders" ]; then
+    echo "names archify with no mermaid fallback:$offenders"
+    return 1
+  fi
+  # A guard with nothing to check must say so. Without this, deleting every archify mention from the
+  # pipeline would read as "all clear" forever — the one way this case could pass vacuously.
+  [ "$named" -gt 0 ] || { echo "no file under $root names archify at all"; return 2; }
+  echo "$named file(s) name archify, each with its mermaid fallback"
+  return 0
+}
+set +e
+af_out=$(archify_fallback_check "$KIT_ROOT/skills/migrate-legacy" 2>&1); af_rc=$?
+set -e
+if [ "$af_rc" -eq 0 ]; then
+  echo "ok   [A1 shipped tree: $af_out]"
+else
+  echo "FAIL: [A1 shipped tree names archify with its fallback] rc=$af_rc $af_out"
+  fails=$((fails + 1))
+fi
+_ascratch=$(kit_scratch)
+mkdir -p "$_ascratch/migrate-legacy/references"
+sed 's/[Mm]ermaid/diagram-fence/g' "$KIT_ROOT/skills/migrate-legacy/SKILL.md" \
+  > "$_ascratch/migrate-legacy/SKILL.md"
+for f in "$KIT_ROOT"/skills/migrate-legacy/references/*.md; do
+  sed 's/[Mm]ermaid/diagram-fence/g' "$f" > "$_ascratch/migrate-legacy/references/$(basename "$f")"
+done
+set +e
+af_red=$(archify_fallback_check "$_ascratch/migrate-legacy" 2>&1); af_red_rc=$?
+set -e
+if [ "$af_red_rc" -eq 1 ] && grep -q 'phase-1-assess.md' <<<"$af_red"; then
+  echo "ok   [A2 a stripped fallback is refused, naming the file]"
+else
+  echo "FAIL: [A2 a stripped fallback is refused, naming the file] rc=$af_red_rc $af_red"
+  fails=$((fails + 1))
+fi
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1
