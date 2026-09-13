@@ -171,7 +171,24 @@ case "$CMD" in
       elif [ "$tracker_host" = "gitlab.com" ] || { command -v glab >/dev/null 2>&1 && glab repo view >/dev/null 2>&1; }; then
         printf 'tracker: gitlab (%s)\n' "$tracker_host"
       else
-        printf 'tracker: other: %s\n' "$tracker_host"
+        # Azure DevOps: three remote shapes, each carrying <org>/<project> in a different spot.
+        # The legacy `<org>.visualstudio.com` host serves the same organisation as
+        # dev.azure.com/<org>, so it's normalised to the same canonical form.
+        case "$tracker_host" in
+          dev.azure.com|ssh.dev.azure.com)
+            org_project="$(printf '%s\n' "$origin_url" | sed -E \
+              -e 's#^https?://([^@/]+@)?dev\.azure\.com/([^/]+)/([^/]+)/_git/.*#\2/\3#' \
+              -e 's#^git@ssh\.dev\.azure\.com:v3/([^/]+)/([^/]+)/.*#\1/\2#')" ;;
+          *.visualstudio.com)
+            org_project="$(printf '%s\n' "$origin_url" | sed -E \
+              's#^https?://([^.]+)\.visualstudio\.com/([^/]+)/_git/.*#\1/\2#')" ;;
+          *) org_project="$origin_url" ;;
+        esac
+        if [ "$org_project" != "$origin_url" ]; then
+          printf 'tracker: azure-devops (dev.azure.com/%s)\n' "$org_project"
+        else
+          printf 'tracker: other: %s\n' "$tracker_host"
+        fi
       fi
     fi
 
