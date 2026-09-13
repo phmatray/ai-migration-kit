@@ -18,6 +18,13 @@ Every migration (in place or rewrite) delivers **two files** committed to the ta
    delivery-playbook §9) · method and limitations.
 2. **`migration/report.md` — the diffable summary** (grep/diff-friendly): the same figures
    condensed, with a link to the dashboard.
+3. **`migration/architecture.html` — the explorable architecture diagram**, when phase 1 drew one
+   (`phase-1-assess.md`, step 8). A **peer** of the two above, never a section of them: `report.html`
+   is deliberately self-contained and sendable, so a relative link into a sibling file would break
+   the moment it is emailed. The dashboard therefore **embeds the dual-theme SVG** and **links** the
+   explorable HTML — the `architecture` block below. Without the archify skill there is no third
+   file: the **mermaid** fence the phase built as the spec's own companion carries the picture
+   instead, and the recap says so in one sentence.
 
 ⚠ **`coverage.cobertura` must name a DIRECTORY, not a file.** Under Microsoft Testing Platform,
 each test project writes its own report and the collector names it, with a fresh identifier on
@@ -78,6 +85,21 @@ number reads as a measurement. Two cases:
 ⚠ The `coverage` field remains **mandatory**: the report is generated from a cobertura, and a
 `report.json` without it does not generate at all. A hand-written tile is not an escape hatch for
 publishing unmeasured coverage.
+
+**The optional `architecture` block.** This is what puts phase 1's diagram in the dashboard. Omit it
+and the generated HTML is byte-for-byte what it was before the block existed — the diagram is an
+addition, never a change to an existing report:
+
+```json
+"architecture": { "path": "architecture.svg", "href": "architecture.html", "caption": "…" }
+```
+
+`path` is the dual-theme SVG archify exports, embedded as a data URI like the screenshot, and it
+**resolves against the `report.json`'s directory** — the same rule as `screenshot.path` and
+`coverage.cobertura`, with the same named diagnostic when it is missing and the same refusal on an
+extension outside the accepted list. `href` is the explorable artifact, **linked and never inlined**
+(the reason it stays a peer file: `report.html` must survive being emailed). `caption` doubles as the
+image's alt text. No archify, no block — the **mermaid** fence carries the picture in `report.md`.
 
 "Next steps" are an **actionable checklist** with an estimated effort — that is the hand-off: the
 person who picks up the repo knows what to do without reading the history. Structure of the

@@ -12,6 +12,10 @@ répertoire de couverture** est la forme durable — un chemin littéral serait 
 run suivant. Les rapports sont agrégés (cf. parse_cobertura), jamais concaténés.
 La capture (`screenshot.path`) est embarquée en data URI ; formats acceptés : png, jpg/jpeg, svg,
 webp, gif — toute autre extension sort un `SystemExit` nommé plutôt qu'un `KeyError` (#142).
+Le bloc `architecture` (optionnel, #476) suit exactement les mêmes règles : `architecture.path` est
+le SVG bi-thème exporté par archify, embarqué de la même façon et validé par le même contrôle, et
+`architecture.href` LIE l'artefact explorable (`architecture.html`) sans jamais l'inliner. Clé
+absente ⇒ document identique à l'octet près à ce qu'il était avant l'ajout du bloc.
 
 ⚠ TOUT chemin relatif du report.json — `coverage.cobertura` comme `screenshot.path` — se résout
 contre LE RÉPERTOIRE DU REPORT.JSON, jamais contre le cwd ni contre la racine du repo. Dans la
@@ -450,6 +454,21 @@ def render(r):
         shot = (f'<div class="card"><h2>The product, in the browser</h2>'
                 f'<p class="sub">{esc(s["caption"])}</p>'
                 f'<img class="shot" src="{data_uri(s["path"])}" alt="{esc(s["alt"])}" /></div>')
+    arch = ""
+    if r.get("architecture"):
+        a = r["architecture"]
+        # Le SVG est EMBARQUÉ (data URI) pour que report.html reste autonome, double-cliquable,
+        # envoyable. L'artefact explorable d'archify, lui, est LIÉ et jamais inliné : un lien relatif
+        # casse dès que la page part par mail, et c'est assumé — l'explorable se lit à côté du
+        # rapport, pas dedans. La carte porte son propre saut de ligne, donc une clé absente
+        # n'ajoute pas un octet au document (cf. l'interpolation {arch} plus bas).
+        href = (f'<p class="sub"><a href="{esc(a["href"])}">Explorer le diagramme</a></p>'
+                if a.get("href") else "")
+        caption = esc(a.get("caption", ""))
+        arch = (f'\n  <div class="card"><h2>Architecture</h2>'
+                f'<p class="sub">{caption}</p>'
+                f'<img class="shot" src="{data_uri(a["path"])}" alt="{caption}" />'
+                f'{href}</div>')
     css_vars_light = "".join(f"--s{i + 1}: {c};" for i, c in enumerate(PALETTE_LIGHT))
     css_vars_dark = "".join(f"--s{i + 1}: {c};" for i, c in enumerate(PALETTE_DARK))
 
@@ -533,7 +552,7 @@ def render(r):
     {shot}
     <div class="card"><h2>Coverage of the ported core</h2>
       <p class="sub">Lines covered by tests (cobertura, measured — never declared).</p>{cov_svg}</div>
-  </div>
+  </div>{arch}
   <div class="grid2">
     <div class="card"><h2>Before / after</h2><div style="overflow-x:auto"><table>
       <thead><tr><th></th><th>Before</th><th>After</th></tr></thead><tbody>{rows_ba}</tbody></table></div></div>
@@ -596,6 +615,22 @@ def main():
         if ext not in SCREENSHOT_MIME:
             unsupported_screenshot_format(ext, path)
         r["screenshot"]["path"] = str(path)
+    if r.get("architecture"):
+        # Même base, même diagnostic, même refus que la capture. Le bloc `architecture` (#476) porte
+        # le SVG bi-thème exporté par archify ; comme TOUT chemin relatif du report.json il se
+        # résout contre LE RÉPERTOIRE DU REPORT.JSON, jamais contre le cwd. La validation vit ICI,
+        # avant tout rendu, pour la raison de #142 : un report.json invalide ne doit jamais produire
+        # de report.html partiel. `href` n'est PAS validé — il désigne l'artefact explorable
+        # (architecture.html), volontairement non inliné, et peut ne pas encore être écrit.
+        item = r["architecture"]["path"]
+        path = Path(item) if Path(item).is_absolute() else base / item
+        if not path.is_file():
+            raise SystemExit(f"diagramme d'architecture introuvable : {path}"
+                             f"{resolution_hint(item, base)}")
+        ext = screenshot_ext(path)
+        if ext not in SCREENSHOT_MIME:
+            unsupported_screenshot_format(ext, path)
+        r["architecture"]["path"] = str(path)
     output = Path(args.output) if args.output else base / "report.html"
     output.write_text(render(r))
     print(f"OK {output}", file=sys.stderr)
