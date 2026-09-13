@@ -24,6 +24,17 @@
       "verdict": { "source": "stdout-json",
                    "vocabulary": ["no-ci","pending","failed","clear"],
                    "nonTerminal": ["pending"] }
+    },
+    {
+      "id": "tracker.capable",
+      "issue": 505,
+      "program": { "kind": "exec", "path": "scripts/tracker/capable.sh" },
+      "shape":   null,
+      "owner":   "skills/_shared/preconditions.md",
+      "suites":  ["tests/tracker/test.sh", "tests/decisions/test.sh"],
+      "stdin": true,
+      "verdict": { "source": "stdout-json",
+                   "vocabulary": ["capable","missing","unsupported"] }
     }
   ],
   "not_decisions": {

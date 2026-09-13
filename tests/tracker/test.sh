@@ -203,6 +203,81 @@ run_tracker "$BARE" --repo other/repo repo
   && ok "--repo — accepted and forwarded to the backend" \
   || note_fail "--repo — expected exit 0, got $RC ($ERR)"
 
+echo "== B. the state report, and the tracker.capable verdict"
+
+# The report itself: five facts, judging none of them. `needs` is null because no skill is on the
+# contract yet, and that is a different absence from `implements` being null — the decision below is
+# what tells them apart, which is only possible if the report keeps them distinct.
+run_tracker "$PROFILED" state merge-pr
+if [ "$RC" -ne 0 ]; then
+  note_fail "state — exited $RC ($ERR)"
+else
+  got=$(printf '%s' "$OUT" | jq -r '[.tracker, .skill, (.needs|tostring), (.implements|length|tostring)] | join("|")' 2>/dev/null) \
+    || got="<unparseable: $OUT>"
+  if [ "$got" != 'github|merge-pr|null|4' ]; then
+    note_fail "state — wrong report
+      want: github|merge-pr|null|4
+      got:  $got"
+  else
+    ok "state — reports {tracker, skill, needs, implements} and judges nothing"
+  fi
+fi
+
+# The verdict is reached through the DISPATCHER, by id, over hand-written state fixtures. `--json` so
+# the RULE is pinned and not only the word: three words cover five causes here, so an assertion on
+# the word alone could not tell a mis-ordered precedence from a correct one.
+capable() {
+  local fixture="$1" want="$2" what="$3"
+  local path="$FIXTURES/$fixture" out got rc=0
+  if [ ! -r "$path" ]; then
+    note_fail "$fixture — fixture missing ($what)"
+    return 0
+  fi
+  out=$("$DECIDE" tracker.capable --json "$path" 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    note_fail "$fixture — decide.sh tracker.capable exited $rc ($what):
+$(printf '%s\n' "$out" | sed 's/^/      /')"
+    return 0
+  fi
+  got=$(printf '%s' "$out" | jq -r '"\(.verdict)/\(.rule)"' 2>/dev/null) || got="<unparseable: $out>"
+  if [ "$got" != "$want" ]; then
+    note_fail "$fixture — $what
+      want: $want
+      got:  $got"
+    return 0
+  fi
+  ok "$fixture — $what"
+}
+
+# GitHub is the reference backend and answers capable for EVERY skill, migrated or not: an unmigrated
+# skill's direct `gh` calls are correct there, so refusing it would refuse today's working behaviour.
+capable github.json capable/github-reference \
+  'GitHub answers capable for any skill, because an unmigrated skill is still correct there'
+
+capable gitlab-no-backend.json unsupported/no-backend \
+  'a tracker with no backend at all is unsupported, not merely missing a verb'
+
+capable skill-not-on-contract.json missing/skill-not-on-contract \
+  'a skill absent from the contract is missing on a non-GitHub host'
+
+capable verb-not-implemented.json missing/verb-not-implemented \
+  'a backend lacking a verb the skill needs is missing'
+
+capable backend-covers-skill.json capable/backend-covers-skill \
+  'a backend implementing every verb the skill needs is capable — the rule that makes migration pay'
+
+# AC5, end to end and on this very repository's shape: the report feeds the decision through a pipe,
+# which is exactly the invocation preconditions.md Step 1 carries.
+out=$(cd "$PROFILED" && PATH="$WORK/bin:$PATH" "$TRACKER" state merge-pr 2>/dev/null | "$DECIDE" tracker.capable 2>&1)
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  note_fail "end-to-end — the Step 1 pipe exited $rc: $out"
+elif [ "$out" != "capable" ]; then
+  note_fail "end-to-end — expected 'capable' from the Step 1 pipe, got '$out'"
+else
+  ok "end-to-end — tracker.sh state | decide.sh tracker.capable answers capable here"
+fi
+
 if [ "$FAILED" -ne 0 ]; then
   echo
   echo "tracker: FAILED"
