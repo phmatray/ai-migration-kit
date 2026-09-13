@@ -32,13 +32,46 @@ the pipeline follows.
    Then recommend a target: latest LTS TFM unless the user specified one; list packages needing major-version bumps (empty for `ALREADY_MODERN`).
 7. Write `migration/assessment.md`, **leading with `verdict: <ALREADY_MODERN | RED_BY_TFM_LAG | NORMAL>`** and its one-line reason, then: projects table (name, TFM, style, packages), diagnostics histogram, risk map, recommended target + estimated phase-3 order.
 
+8. **Draw the architecture.** The inventory in step 2 measured a *shape* — which project depends on
+   which, where the Windows-only surface sits, which projects have tests — and every deliverable so
+   far only counts it. This step draws it. Build an `architecture` spec (a JSON document plus its
+   companion mermaid flowchart) from the same `audit-inventory.sh` output every figure above comes
+   from, then render it with the `archify` session skill:
+
+   ```bash
+   ARCHIFY_UPDATE_CHECK_DISABLED=1 node bin/archify.mjs validate architecture <spec>.json \
+     --quality showcase --json
+   ARCHIFY_UPDATE_CHECK_DISABLED=1 node bin/archify.mjs deliver architecture <spec>.json \
+     migration/architecture.html --quality showcase --json
+   ```
+
+   Three details are the pipeline's, not the session's. `ARCHIFY_UPDATE_CHECK_DISABLED=1` goes on
+   **every** invocation: the renderer otherwise makes an optional update call over the network, and
+   an unattended `auto-dev` worker or a CI run must never need the network to draw a diagram.
+   `deliver` returns a JSON receipt carrying a SHA-256 and byte counts — that receipt is what makes
+   the artifact reproducible enough to commit. And the render is **one-shot**: archify's
+   conversational refinement ("add Redis", "move auth to the left") has nobody to talk to under
+   [ADR-0005](../../../docs/adr/0005-the-lifecycle-skills-run-hands-off-triage-backlog-does-not.md),
+   so the spec is built once and rendered once.
+
+   **Archify absent → the mermaid fence. Never a hard stop, never a silent omission.** The spec's
+   companion mermaid flowchart goes straight into the assessment, and the phase's recap carries one
+   sentence: *"architecture drawn as mermaid; the archify skill is not installed"*. The fence is not
+   a competing format — it is archify's own declared input alongside the JSON spec, which is why
+   this degradation costs a sentence rather than a rewrite.
+
+   **Scope.** `migration/architecture.html` is written only on a full `/migrate`. Under
+   `/migrate-assess` the absolute read-only guarantee stands — `migration/assessment.md` and nothing
+   else — so there the mermaid fence is embedded in the assessment whether or not archify is
+   installed.
+
 ## RoselineMCP calls
 
 `analyze_solution`, `search_symbols`, `find_references` (all read-only).
 
 ## Exit gate
 
-`migration/assessment.md` exists carrying a `verdict`; `git status` shows **no modified files** (only the new assessment file). **Stop after phase 1** when running `/migrate-assess` **or** when `verdict: ALREADY_MODERN` — present the assessment and route by verdict: `ALREADY_MODERN` → offer `/migrate-verify` (a modern app can still be unclean — e.g. a high-severity transitive advisory); `RED_BY_TFM_LAG` / `NORMAL` → offer `/migrate`.
+`migration/assessment.md` exists carrying a `verdict`; `git status` shows **no modified files** (only the new assessment file — plus, on a full `/migrate` where step 8 rendered it, the new `migration/architecture.html`). **Stop after phase 1** when running `/migrate-assess` **or** when `verdict: ALREADY_MODERN` — present the assessment and route by verdict: `ALREADY_MODERN` → offer `/migrate-verify` (a modern app can still be unclean — e.g. a high-severity transitive advisory); `RED_BY_TFM_LAG` / `NORMAL` → offer `/migrate`.
 
 ## Verdict fixtures (regression lock — real dogfood cases, 2026-07-23)
 

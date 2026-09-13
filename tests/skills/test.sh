@@ -2259,6 +2259,120 @@ done
 pm_case "PM3 a bare spelling is refused, naming file:line" "$_pscratch/drift" kit-prefix fail "05-merge.md:"
 pm_case "PM4 a Never fall back without gh pr merge is refused" "$_pscratch/drift" fallback fail "guard-invocation.md:"
 
+echo "== every migrate-legacy file that invokes archify names its mermaid fallback (#476) =="
+# Archify is a RECOMMENDED session capability (requirements.json `sessionSkills`), so a host without
+# it must still get a picture: the migration phases fall back to the mermaid fence they already
+# build as the archify spec's own companion. That degradation holds only if it is WRITTEN where the
+# invocation is — a file naming archify and not mermaid is one a session would follow into a hard
+# stop or a silent omission, which is exactly what `level: recommended` promises never happens.
+# Same shape as case SP1: the defect IS the committed prose, so the green half scans the real tree
+# and the red half a mutated copy of it.
+#
+# The mutation replaces the mermaid TOKEN rather than deleting its line. Prose wraps, and a
+# `/mermaid/d` would delete the archify mention along with it on any line carrying both — the
+# fixture would then stop naming archify at all and the guard would pass it for the wrong reason.
+archify_fallback_check() {   # <a skills/migrate-legacy tree> → 0 clean · 1 offenders · 2 vacuous
+  local root="$1" offenders="" named=0 f
+  for f in "$root"/SKILL.md "$root"/references/*.md; do
+    [ -f "$f" ] || continue
+    grep -qi 'archify' "$f" || continue
+    named=$((named + 1))
+    grep -qi 'mermaid' "$f" || offenders="$offenders ${f#$root/}"
+  done
+  if [ -n "$offenders" ]; then
+    echo "names archify with no mermaid fallback:$offenders"
+    return 1
+  fi
+  # A guard with nothing to check must say so. Without this, deleting every archify mention from the
+  # pipeline would read as "all clear" forever — the one way this case could pass vacuously.
+  [ "$named" -gt 0 ] || { echo "no file under $root names archify at all"; return 2; }
+  echo "$named file(s) name archify, each with its mermaid fallback"
+  return 0
+}
+set +e
+af_out=$(archify_fallback_check "$KIT_ROOT/skills/migrate-legacy" 2>&1); af_rc=$?
+set -e
+if [ "$af_rc" -eq 0 ]; then
+  echo "ok   [A1 shipped tree: $af_out]"
+else
+  echo "FAIL: [A1 shipped tree names archify with its fallback] rc=$af_rc $af_out"
+  fails=$((fails + 1))
+fi
+_ascratch=$(kit_scratch)
+mkdir -p "$_ascratch/migrate-legacy/references"
+sed 's/[Mm]ermaid/diagram-fence/g' "$KIT_ROOT/skills/migrate-legacy/SKILL.md" \
+  > "$_ascratch/migrate-legacy/SKILL.md"
+for f in "$KIT_ROOT"/skills/migrate-legacy/references/*.md; do
+  sed 's/[Mm]ermaid/diagram-fence/g' "$f" > "$_ascratch/migrate-legacy/references/$(basename "$f")"
+done
+set +e
+af_red=$(archify_fallback_check "$_ascratch/migrate-legacy" 2>&1); af_red_rc=$?
+set -e
+if [ "$af_red_rc" -eq 1 ] && grep -q 'phase-1-assess.md' <<<"$af_red"; then
+  echo "ok   [A2 a stripped fallback is refused, naming the file]"
+else
+  echo "FAIL: [A2 a stripped fallback is refused, naming the file] rc=$af_red_rc $af_red"
+  fails=$((fails + 1))
+fi
+
+echo "== every sessionSkills entry has a node in ARCHITECTURE.md's External dependencies graph (#476) =="
+# requirements.json is the single source of truth for prerequisites, and ARCHITECTURE.md is where the
+# kit draws them. A manifest entry with no node is a dependency the architecture does not admit to
+# having — which is exactly how `archify` could end up declared, reported by preflight and explained
+# in the README while the one picture of the kit's dependencies still showed four session skills.
+#
+# Only the *External dependencies* graph is read. The `## Skill call graph` fence is parsed by
+# scripts/recap-wiring-check.py as a CI gate, and nothing here may touch it.
+# Written to a file first, never a heredoc inside `$( … )` (#131, the bash 3.2 scanner hazard).
+_dscratch=$(kit_scratch)
+cat > "$_dscratch/session-skill-nodes.py" <<'PY'
+import json, pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+manifest = json.load(open(root / "requirements.json", encoding="utf-8"))
+names = [s["name"] for s in manifest["sessionSkills"]]
+if not names:
+    sys.exit("requirements.json declares no sessionSkills at all — nothing to check")
+text = (root / "ARCHITECTURE.md").read_text(encoding="utf-8")
+m = re.search(r"^## External dependencies.*?(?=^## |\Z)", text, re.S | re.M)
+if not m:
+    sys.exit("ARCHITECTURE.md has no '## External dependencies' section")
+section = m.group(0)
+missing = [n for n in names if n not in section]
+if missing:
+    sys.exit("sessionSkills with no node in the External dependencies graph: " + ", ".join(missing))
+print("%d session skill(s), each with a node" % len(names))
+PY
+set +e
+ss_out=$(python3 "$_dscratch/session-skill-nodes.py" "$KIT_ROOT" 2>&1); ss_rc=$?
+set -e
+if [ "$ss_rc" -eq 0 ]; then
+  echo "ok   [SS1 shipped tree: $ss_out]"
+else
+  echo "FAIL: [SS1 every sessionSkills entry has a node] $ss_out"
+  fails=$((fails + 1))
+fi
+# The red half: delete the archify node from a scratch copy and the check must refuse, naming it.
+# The cmp guard is load-bearing, not decoration — a fixture that did not actually change would leave
+# this case green for a reason unrelated to what it claims to measure (cf. case C2 above).
+mkdir -p "$_dscratch/drift"
+cp "$KIT_ROOT/requirements.json" "$_dscratch/drift/requirements.json"
+sed '/ARCHIFY\[/d' "$KIT_ROOT/ARCHITECTURE.md" > "$_dscratch/drift/ARCHITECTURE.md"
+if cmp -s "$KIT_ROOT/ARCHITECTURE.md" "$_dscratch/drift/ARCHITECTURE.md"; then
+  echo "FAIL: [SS2 a deleted node is refused, naming the skill] the fixture did not drift — there is"
+  echo "      no 'ARCHIFY[' node line in ARCHITECTURE.md to delete"
+  fails=$((fails + 1))
+else
+  set +e
+  ss_red=$(python3 "$_dscratch/session-skill-nodes.py" "$_dscratch/drift" 2>&1); ss_red_rc=$?
+  set -e
+  if [ "$ss_red_rc" -ne 0 ] && grep -q 'archify' <<<"$ss_red"; then
+    echo "ok   [SS2 a deleted node is refused, naming the skill]"
+  else
+    echo "FAIL: [SS2 a deleted node is refused, naming the skill] rc=$ss_red_rc $ss_red"
+    fails=$((fails + 1))
+  fi
+fi
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1
