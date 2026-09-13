@@ -269,8 +269,20 @@ else
 fi
 
 # ------------------------------------------------------------------------- 7. usage errors → exit 2
-run_case "no-parent" --repo o/r --child 11
-expect_rc 2 && expect_no_calls && ok "missing --parent is exit 2 and calls nothing"
+run_case "no-parent-with-blocker" --repo o/r --child 7:blocked-by=3
+expect_rc 0 && expect_no_line '^SUB ' \
+  && expect_line '^DEP 7⇐3 ok' \
+  && expect_call 'POST.*repos/o/r/issues/7/dependencies/blocked_by.*issue_id=1003' \
+  && ok "AC1: a parent-less --child 7:blocked-by=3 prints one DEP 7⇐3 ok, no SUB, exits 0, POSTs issue_id=1003"
+
+run_case "no-parent-no-blocker" --repo o/r --child 7
+expect_rc 2 && expect_no_calls && ok "AC2: a parent-less bare --child 7 exits 2 and calls nothing"
+
+run_case "no-parent-dry-run" --dry-run --repo o/r --child 7:blocked-by=3
+expect_rc 0 && expect_no_calls \
+  && expect_line '^DRY-RUN POST repos/o/r/issues/7/dependencies/blocked_by' \
+  && expect_no_line '/sub_issues' \
+  && ok "a parent-less --dry-run prints only DEP POSTs, no sub_issues POST"
 
 run_case "no-repo" --parent 10 --child 11
 expect_rc 2 && expect_no_calls && ok "missing --repo is exit 2 and calls nothing"
