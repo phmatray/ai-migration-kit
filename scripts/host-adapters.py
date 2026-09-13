@@ -56,7 +56,6 @@ RULE_COPIES = (
     (".clinerules/ai-migration-kit.md", ""),
     (".kiro/steering/ai-migration-kit.md", "---\ninclusion: always\n---\n\n"),
     (".github/copilot-instructions.md", ""),
-    (".agents/rules/ai-migration-kit.md", ""),
 )
 
 # Every plugin manifest that carries a version. release-please bumps each through `extra-files`;
@@ -211,7 +210,10 @@ def invariants(repo):
             refusals.append(f"REFUSE: package.json names pi skills {target!r}, which does not exist")
 
     readme = read_source(repo, "README.md")
-    for host in load_hosts(repo):
+    hosts = load_hosts(repo)
+
+    # Forward check: every host adapter exists
+    for host in hosts:
         hid = host.get("id", "?")
         adapter = host.get("adapter", "")
         if not adapter or not (repo / adapter).exists():
@@ -220,6 +222,13 @@ def invariants(repo):
             for line in host.get("install", []):
                 if line not in readme:
                     refusals.append(f"REFUSE: README.md does not carry {hid}'s install line: {line}")
+
+    # Reverse check: every RULE_COPIES entry is named by some host adapter
+    adapters = {host.get("adapter", "") for host in hosts}
+    for rel, _front in RULE_COPIES:
+        if rel not in adapters:
+            refusals.append(f"REFUSE: RULE_COPIES names {rel!r}, which no {HOSTS} host names as its adapter")
+
     return refusals
 
 
