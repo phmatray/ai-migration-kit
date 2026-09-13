@@ -1,0 +1,7 @@
+{
+  "tracker": "gitlab",
+  "detail": "gitlab.com",
+  "skill": "merge-pr",
+  "needs": null,
+  "implements": ["verbs", "issue-view"]
+}

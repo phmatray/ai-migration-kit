@@ -1,0 +1,22 @@
+{
+  "description": "The verb table: the ONE home for what a tracker verb is called, what it takes and what it prints. scripts/tracker.sh validates a verb against this file BEFORE it resolves a backend, so a typo is a bad invocation (exit 2) on every host rather than 'not implemented' (exit 3) on some. `skills` names, per migrated skill, the verbs that skill needs — it is empty until the first skill moves its own gh calls onto the contract, and `tracker.capable` reads it to answer whether a skill can run on a host. See skills/_shared/tracker-contract.md.",
+  "verbs": {
+    "verbs": {
+      "args": "",
+      "stdout": "one verb per line — the backend protocol's own introspection call, answered without gh, a network or a host resolution"
+    },
+    "auth": {
+      "args": "",
+      "stdout": "the authenticated login, one line"
+    },
+    "repo": {
+      "args": "",
+      "stdout": "{\"slug\",\"host\",\"defaultBranch\"}"
+    },
+    "issue-view": {
+      "args": "<number>",
+      "stdout": "{\"number\",\"title\",\"state\",\"body\",\"labels\",\"url\",\"format\"} — state lower-cased, labels as bare names"
+    }
+  },
+  "skills": {}
+}

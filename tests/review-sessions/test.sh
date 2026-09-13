@@ -41,6 +41,29 @@ tool_result() { # $1 id  $2 text  $3 is_error (true|false)
 }
 text() { python3 -c 'import json,sys; print(json.dumps([{"type":"text","text":sys.argv[1]}]))' "$1"; }
 
+# source_guard <outvar> <label> <want-rc> <want-prefix> -- <cmd…> — runs a guard for real,
+# captures its combined stdout+stderr, asserts the exit code and the guard's own documented
+# "<name>: <WORD> — " prefix (an independent literal, never re-derived from harvest.py's own
+# GUARD_RE), and leaves the captured text in $<outvar> for the caller to read right after the
+# call — so a fixture can never agree with a drifted guard message by construction (#552).
+source_guard() {
+  local outvar="$1" label="$2" want_rc="$3" want_prefix="$4"; shift 4
+  [ "$1" = "--" ] || { echo "FAIL: source_guard($label): missing -- before the command"; exit 1; }
+  shift
+  local rc=0 out
+  set +e
+  out=$("$@" 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -eq "$want_rc" ] || {
+    echo "FAIL: source_guard($label): expected exit $want_rc, got $rc:"; echo "$out"; exit 1; }
+  case "$out" in
+    "$want_prefix"*) : ;;
+    *) echo "FAIL: source_guard($label): output no longer starts '$want_prefix': $out"; exit 1 ;;
+  esac
+  eval "$outvar=\$out"
+}
+
 PROJ=$(kit_scratch)/-Users-me-repo-ai-migration-kit    # the dir name carries the kit name → in-kit paths count
 mkdir -p "$PROJ"
 T="$PROJ/sess-1.jsonl"
@@ -88,32 +111,82 @@ FAIL: SKILL.md Step 4 does not carry the immediate re-survey trigger (tests/surv
 GR=$(kit_scratch)/guard-repo
 git init -q "$GR"
 git -C "$GR" symbolic-ref HEAD refs/heads/main
-set +e
-GOUT=$("$KIT/skills/implement-issue/scripts/guarded-commit.sh" -C "$GR" feat/other -- -m x 2>&1)
-GRC=$?
-set -e
-[ "$GRC" -eq 2 ] || { echo "FAIL: guarded-commit.sh on the scratch repo did not exit 2 (got $GRC)"; echo "$GOUT"; exit 1; }
-case "$GOUT" in
-  "guarded-commit: REFUSED — "*) : ;;
-  *) echo "FAIL: guarded-commit.sh's refusal text no longer starts 'guarded-commit: REFUSED — ': $GOUT"; exit 1 ;;
-esac
+source_guard GOUT t7 2 "guarded-commit: REFUSED — " -- \
+  "$KIT/skills/implement-issue/scripts/guarded-commit.sh" -C "$GR" feat/other -- -m x
 write_line "$T" assistant "$D" "$(tool_use t7 Bash '{"command":"\"$GUARDS/guarded-commit.sh\" -C \"$WORKTREE\" feat/other -- -m x"}')"
 write_line "$T" user "$D" "$(tool_result t7 "$(printf 'Exit code 2\n%s' "$GOUT")" true)"
-# 6b-6e. guard-refusal, the other four names/words the real guards print (typed — the emitter's
-# own output is exercised once above; these hold the other names/words to their documented shape).
+# 6b-6e. guard-refusal, the other five real guards' own real output — sourced through
+# source_guard the same way t7 is above, never typed by hand (#552).
+TICK_BEFORE=$(kit_scratch)/tick-before.md
+TICK_AFTER=$(kit_scratch)/tick-after.md
+printf -- '- [ ] **Step 1:** fix the widget\n' > "$TICK_BEFORE"
+printf -- '- [x] **Step 1:** fix the gadget\n' > "$TICK_AFTER"
+source_guard TICK_OUT t9 1 "tick-plan: REFUSED — " -- \
+  "$KIT/skills/implement-issue/scripts/tick-plan.sh" --repo o/r --issue 1 \
+  --before "$TICK_BEFORE" --after "$TICK_AFTER"
 write_line "$T" assistant "$D" "$(tool_use t9 Bash '{"command":"\"$GUARDS/tick-plan.sh\" --issue 47"}')"
-write_line "$T" user "$D" "$(tool_result t9 "$(printf 'Exit code 1\ntick-plan: REFUSED — the PATCH to repos/o/r/issues/47 failed')" true)"
+write_line "$T" user "$D" "$(tool_result t9 "$(printf 'Exit code 1\n%s' "$TICK_OUT")" true)"
+
+GH_STUB=$(kit_scratch)/gh-stub-bin
+mkdir -p "$GH_STUB"
+cat > "$GH_STUB/gh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  echo "a required status check has not passed" >&2
+  exit 1
+elif [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  printf 'OPEN\t\t\n'
+else
+  echo "gh stub: unexpected invocation: $*" >&2
+  exit 99
+fi
+STUB
+chmod +x "$GH_STUB/gh"
+OLD_PATH="$PATH"
+PATH="$GH_STUB:$PATH"
+source_guard PRMERGE_OUT t10 2 "guarded-pr-merge: REJECTED — " -- \
+  "$KIT/skills/merge-pr/scripts/guarded-pr-merge.sh" 999
+PATH="$OLD_PATH"
 write_line "$T" assistant "$D" "$(tool_use t10 Bash '{"command":"\"$GUARDS/guarded-pr-merge.sh\" 47"}')"
-write_line "$T" user "$D" "$(tool_result t10 "$(printf 'Exit code 2\nguarded-pr-merge: REJECTED — still OPEN and gh pr merge exited 1:')" true)"
+write_line "$T" user "$D" "$(tool_result t10 "$(printf 'Exit code 2\n%s' "$PRMERGE_OUT")" true)"
+
+source_guard MERGE_OUT t20 2 "guarded-merge: REFUSED — " -- \
+  "$KIT/skills/implement-issue/scripts/guarded-merge.sh" -C "$GR" feat/other -- origin/main
 write_line "$T" assistant "$D" "$(tool_use t20 Bash '{"command":"\"$GUARDS/guarded-merge.sh\" -C \"$WORKTREE\" feat/47-x -- origin/main"}')"
-write_line "$T" user "$D" "$(tool_result t20 "$(printf "Exit code 3\nguarded-merge: ALERT — HEAD is now 'wip', not 'feat/47-x'.")" true)"
+write_line "$T" user "$D" "$(tool_result t20 "$(printf 'Exit code 2\n%s' "$MERGE_OUT")" true)"
+
+WT_REPO=$(kit_scratch)/worktree-repo
+mkdir -p "$WT_REPO"
+git -C "$WT_REPO" init -q -b main
+git -C "$WT_REPO" config user.email t@example.com
+git -C "$WT_REPO" config user.name "Golden Test"
+printf 'unrelated.txt\n' > "$WT_REPO/.gitignore"
+git -C "$WT_REPO" add -A
+git -C "$WT_REPO" commit -q -m base
+source_guard WT_OUT t21 2 "make-worktree: REFUSED — " -- \
+  "$KIT/skills/implement-issue/scripts/make-worktree.sh" -C "$WT_REPO" feat/x
 write_line "$T" assistant "$D" "$(tool_use t21 Bash '{"command":"\"$KIT/skills/implement-issue/scripts/make-worktree.sh\" 47"}')"
-write_line "$T" user "$D" "$(tool_result t21 "$(printf 'Exit code 2\nmake-worktree: REFUSED — a worktree home is not ignored in /repo/.gitignore.')" true)"
+write_line "$T" user "$D" "$(tool_result t21 "$(printf 'Exit code 2\n%s' "$WT_OUT")" true)"
 # a compound command (a read piped/chained before the real guard call) is STILL an invocation —
 # invoked_guard gates on is_error, not on the command's first word (#513 review: a first-word
 # heuristic missed exactly this shape, and needed a growing read-command allowlist to approximate it).
-write_line "$T" assistant "$D" "$(tool_use t11 Bash '{"command":"cat plan.md && \"$GUARDS/guarded-push.sh\" -C \"$WORKTREE\" feat/47-x"}')"
-write_line "$T" user "$D" "$(tool_result t11 "$(printf 'Exit code 4\nguarded-push: ALERT — git push exited 0, but HEAD moved while it ran.')" true)"
+PUSH_REPO=$(kit_scratch)/push-repo
+PUSH_ORIGIN=$(kit_scratch)/push-origin.git
+mkdir -p "$PUSH_REPO"
+git -C "$PUSH_REPO" init -q -b main
+git -C "$PUSH_REPO" config user.email t@example.com
+git -C "$PUSH_REPO" config user.name "Golden Test"
+printf 'seed\n' > "$PUSH_REPO/seed.txt"
+git -C "$PUSH_REPO" add -A
+git -C "$PUSH_REPO" commit -q -m seed
+git init -q --bare "$PUSH_ORIGIN"
+git -C "$PUSH_REPO" remote add origin "$PUSH_ORIGIN"
+git -C "$PUSH_REPO" push -q -u origin main
+git -C "$PUSH_REPO" checkout -q -b feature
+source_guard PUSH_OUT t11 4 "guarded-push: ALERT — " -- \
+  "$KIT/skills/implement-issue/scripts/guarded-push.sh" -C "$PUSH_REPO" --verify-only feature
+write_line "$T" assistant "$D" "$(tool_use t11 Bash '{"command":"cat plan.md && \"$GUARDS/guarded-push.sh\" -C \"$WORKTREE\" --verify-only feat/47-x"}')"
+write_line "$T" user "$D" "$(tool_result t11 "$(printf 'Exit code 4\n%s' "$PUSH_OUT")" true)"
 # decoy: a Read that merely QUOTES a guard line (a backticked table cell) — not the guard running.
 write_line "$T" assistant "$D" "$(tool_use t12 Read '{"file_path":"notes.md"}')"
 write_line "$T" user "$D" "$(tool_result t12 "| \`guarded-commit: REFUSED — HEAD is on 'main'\` |" false)"
@@ -188,7 +261,7 @@ if len(tool_err) != 2 or not any("tick-plan.sh" in d for d in tool_err_details) 
 guard_details = sorted({r["detail"] for r in recs if r["kind"] == "guard-refusal"})
 want_guards = ["guarded-commit", "guarded-merge", "guarded-pr-merge", "guarded-push", "make-worktree", "tick-plan"]
 if guard_details != want_guards:
-    print("FAIL: guard-refusal details differ from the four real guard names")
+    print("FAIL: guard-refusal details differ from the six real guard names")
     print("  got :", guard_details); print("  want:", want_guards); sys.exit(1)
 print("ok   the JSON records are exactly the planted set, keyed as documented, and --since holds")
 PY

@@ -153,6 +153,19 @@ a rule copy generated from `AGENTS.md` by `scripts/host-adapters.py`, which also
 drifts from its source.
 _Avoid_: port, shim
 
+**Tracker**:
+The issue/PR host a repository files against — named by the profile's Tracker line (`github
+(github.com)`, `gitlab (gitlab.com)`, `azure-devops (…)`, `other: <host>`). It is a different axis
+from **Host**: the host is the agent program running the kit, the tracker is where the issues live,
+and the two vary independently (ADR 0015).
+_Avoid_: forge, provider, remote, platform
+
+**Backend**:
+The one file implementing the contract's verbs for a single tracker — `scripts/tracker/<tracker>.sh`.
+It translates a verb into that host's calls and normalises the reply; it decides nothing, and
+`tracker.capable` is what decides whether a skill may use it.
+_Avoid_: driver, connector, adapter (that word belongs to the **Host** axis, not this one)
+
 ## Flagged ambiguities
 
 - **decision** carries three meanings and all three stay — this file records that they coexist, it

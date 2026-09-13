@@ -1,0 +1,7 @@
+{
+  "tracker": "github",
+  "detail": "github.com",
+  "skill": "merge-pr",
+  "needs": null,
+  "implements": ["verbs", "auth", "repo", "issue-view"]
+}

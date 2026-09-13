@@ -182,9 +182,10 @@ hand-copying it further.
   evidence, not a template heading.
 
 ## Tracker
-- **Tracker:** github (github.com) — the lifecycle skills drive GitHub semantics through `gh`; any
-  other value is refused at preconditions (`skills/_shared/preconditions.md` §Verify
-  authentication).
+- **Tracker:** github (github.com) — every lifecycle skill is refused at Step 1 unless
+  `tracker.capable` answers capable (`skills/_shared/preconditions.md` §Verify authentication).
+  GitHub is the reference backend and answers capable for every skill, so nothing is refused here;
+  the verbs and the verdict are `skills/_shared/tracker-contract.md`.
 
 ## Domain language
 - **`CONTEXT.md`** at the repo root (#313) — the kit's own glossary in Matt Pocock's CONTEXT.md

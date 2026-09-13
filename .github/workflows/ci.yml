@@ -507,6 +507,9 @@ jobs:
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 
+      - name: Approve-runs golden test (only the release bot's action_required runs get approved)
+        run: ./tests/approve-runs/test.sh
+
       - name: Guard-invocation golden test (every $GUARDS site points at the fallback when the path is refused)
         run: ./tests/guard-invocation/test.sh
 
@@ -522,6 +525,9 @@ jobs:
       # `wait` to `merge` with CI green.
       - name: Decision engine golden test (every rule driven to red; the precedence pinned)
         run: ./tests/decisions/test.sh
+
+      - name: Tracker contract golden test (a verb routes to a per-host backend; an absent one is named)
+        run: ./tests/tracker/test.sh
 
       - name: Guarded PR-merge golden test (state decides the takeover, never gh's exit code)
         run: ./tests/guarded-pr-merge/test.sh

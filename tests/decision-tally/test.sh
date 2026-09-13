@@ -69,7 +69,7 @@ table=$(printf '%s\n' "$out" | head -5)
 }
 footer=$(printf '%s\n' "$out" | tail -1)
 case "$footer" in
-  "malformed lines: 1 · log: $FIXTURE · events since program change: 67 · non-terminal: fix-check,pending,sync,wait (registry)") : ;;
+  "malformed lines: 1 · log: $FIXTURE · events since program change: 67 · non-terminal: fix-check,needs-approval,pending,sync,wait (registry)") : ;;
   *) echo "FAIL [table]: unexpected footer: $footer"; exit 1 ;;
 esac
 echo "  ok: table+flags+footer — repeat-poll, no flag, and systematic all fire on the Spec's own numbers"

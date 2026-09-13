@@ -22,8 +22,19 @@
       "suites":  ["tests/merge-gate/test.sh", "tests/decisions/test.sh"],
       "stdin": true,
       "verdict": { "source": "stdout-json",
-                   "vocabulary": ["no-ci","pending","failed","clear"],
-                   "nonTerminal": ["pending"] }
+                   "vocabulary": ["no-ci","pending","needs-approval","failed","clear"],
+                   "nonTerminal": ["pending","needs-approval"] }
+    },
+    {
+      "id": "tracker.capable",
+      "issue": 505,
+      "program": { "kind": "exec", "path": "scripts/tracker/capable.sh" },
+      "shape":   null,
+      "owner":   "skills/_shared/preconditions.md",
+      "suites":  ["tests/tracker/test.sh", "tests/decisions/test.sh"],
+      "stdin": true,
+      "verdict": { "source": "stdout-json",
+                   "vocabulary": ["capable","missing","unsupported"] }
     }
   ],
   "not_decisions": {
@@ -50,6 +61,8 @@
     "scripts/report-dashboard.py": "renders a static HTML dashboard from report.json; a report generator, not a control-flow choice",
     "scripts/run-all-tests.sh": "the test-suite orchestrator; it runs gates and suites in sequence, it does not itself decide anything",
     "scripts/session-retro.sh": "a scheduler: it runs review-sessions' harvest.py on a timer, writes a dated report when the harvest returned records, and installs/removes the systemd user unit that calls it \u2014 the record count is a fact it reports, not a control-flow choice, and the clustering, already-fixed check and filing bar all stay with the review-sessions skill it hands off to",
+    "scripts/tracker.sh": "the verb dispatcher and state report; routes a verb to a backend and decides nothing, `tracker.capable` decides",
+    "scripts/tracker/github.sh": "a backend: translates a verb into gh calls and normalises the reply; decides nothing",
     "scripts/worktrees-ignored.sh": "a structural guard (worktree homes are ignored), not a control-flow choice with a verdict vocabulary",
     "skills/_shared/scripts/_gh-host.sh": "sourced by the kit's gh-calling scripts, never executed on its own — resolves which host gh talks to, not a decision",
     "skills/auto-dev/scripts/analyze_cache.py": "an offline token-usage analysis report, not a control-flow choice",
@@ -71,6 +84,7 @@
     "skills/implement-issue/scripts/plan-freshness.sh": "a structural freshness guard \u2014 every path the plan names either resolves against the base ref or it does not; the re-anchor that follows a MISSING is SKILL.md Step 2's judgement, not this script's, so there is no verdict vocabulary to register",
     "skills/implement-issue/scripts/finish-task.sh": "closes one plan task in one call by composing guarded-commit.sh, tick-plan.sh, the PR mirror edit and guarded-push.sh in Step 6's order (#499); a sequencer of existing guards, not a control-flow choice",
     "skills/implement-issue/scripts/tick-plan.sh": "writes a checkbox-flipped plan back to GitHub, fail-closed; a mechanical write helper, not a control-flow choice",
+    "skills/merge-pr/scripts/approve-runs.sh": "a guarded write — approves a release-please run stuck `action_required`, refusing (exit 2) any other PR author outright; the only branch it takes is that refusal, not a registered verdict vocabulary",
     "skills/merge-pr/scripts/base-run-followup.sh": "one bounded, non-polling `gh run list` lookup for a timeout-reasoned unverified base verdict (#561); maps a single already-resolved run's own conclusion onto the same green/RED/unverified report-line words base-run-verdict.sh uses for its workflow-runs fallback, delegating no CI rule of its own and never polling",
     "skills/merge-pr/scripts/base-run-verdict.sh": "resolves the base branch's check-runs for one sha and maps the registered `ci.verdict` answer onto a post-merge green/red/unverified report; it delegates every CI rule to that decision rather than restating one",
     "skills/merge-pr/scripts/guarded-pr-merge.sh": "merges a PR and reads the outcome back from `gh pr view`'s state; a guarded write plus read-back, not a registered verdict vocabulary",

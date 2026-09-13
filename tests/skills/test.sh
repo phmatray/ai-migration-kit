@@ -836,6 +836,32 @@ for pair in "create-issue:brainstorm-and-spec" "create-issue:plan-shape" "implem
   fi
 done
 
+# #523: a lifecycle hand-off typed in the same session starts on top of everything the previous
+# skill read, and every later turn re-reads it (measured: 156-320 turns, 192k-287k average context
+# per session). recap.md's Next bullet is the one home every skill's recap carries (#324), so the
+# fix is one sentence there: send the reader to a fresh session and name deliver-issue as the skill
+# that already runs the rest of the chain that way.
+NEXT_LINE=$(grep -m1 '^\*\*Next\*\*' "$KIT_ROOT/skills/_shared/recap.md" 2>/dev/null || true)
+if [ -n "$NEXT_LINE" ] && grep -qF 'fresh session' <<<"$NEXT_LINE" && grep -qF '`deliver-issue`' <<<"$NEXT_LINE"; then
+  echo "ok   [DR4 recap.md's Next line sends the hand-off to a fresh session (#523)]"
+else
+  echo "FAIL: [DR4 recap.md's Next line sends the hand-off to a fresh session (#523)] recap.md's Next line does not send the hand-off to a fresh session"
+  fails=$((fails + 1))
+fi
+
+# #523 (Task 2): one context holds every task of a plan only when there is a single one to hold —
+# implement-issue Step 3 stops calling a plan of up to three tasks "small, localized" and keeps
+# inline for a single-task plan only; everything else runs subagent-per-task, which already
+# explores once (the pointer-note recipe just above this bullet in the same step).
+IMPLEMENT_PROSE=$(kit_skill_prose "$KIT_ROOT" implement-issue)
+INLINE_LINE=$(grep -m1 -- '^- \*\*Inline' "$IMPLEMENT_PROSE" 2>/dev/null || true)
+if [ -n "$INLINE_LINE" ] && grep -qF 'single-task' <<<"$INLINE_LINE" && ! grep -qF '≤3 tasks' <<<"$INLINE_LINE"; then
+  echo "ok   [DR5 implement-issue Step 3 keeps inline only for a single-task plan (#523)]"
+else
+  echo "FAIL: [DR5 implement-issue Step 3 keeps inline only for a single-task plan (#523)] Step 3 still keeps a plan of up to three tasks inline"
+  fails=$((fails + 1))
+fi
+
 # tdd-loop.md carries two ports: the loop from obra/superpowers (checked above) and the good-test
 # and mock-at-boundaries guidance from mattpocock/skills, which earns its own credit line.
 if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/_shared/tdd-loop.md" 2>/dev/null; then
@@ -1223,17 +1249,28 @@ done
 echo "ok   ARCHITECTURE.md and README.md both mention CONTEXT.md"
 
 # ---------------------------------------------------------------------------------------------
-# preconditions.md refuses a non-GitHub tracker in one sentence (#311). Fixture-free: this is a
-# grep against the committed reference itself, not a probe run against a scratch repo — the
+# preconditions.md refuses a tracker this skill cannot run against (#311, #505). Fixture-free: this
+# is a grep against the committed reference itself, not a probe run against a scratch repo — the
 # probe/profile side of the Tracker line is pinned by tests/repo-profile/test.sh.
-echo "== preconditions refuse a non-GitHub tracker (#311) =="
+#
+# #505 MOVED THE MECHANISM, so this pin moved with it. The refusal used to be a sentence the agent
+# applied by hand ("`<host>` is not a supported tracker"); it is now the registered decision
+# `tracker.capable`, which Step 1 asks through `decide.sh` and which answers `capable` for every
+# skill on GitHub. The greps below are deliberately STRICTER than the one sentence they replace:
+# naming a decision without invoking it is prose that decides nothing — precisely the drift
+# `scripts/decision-check.py` R7 refuses — so the invocation is pinned separately from the refusal.
+# Keep both. Dropping the invocation grep would let the refusal go decorative again, which is the
+# failure #311 was filed for in the first place.
+echo "== preconditions refuse a tracker the skill cannot run against (#311, #505) =="
 PRECONDITIONS="$KIT_ROOT/skills/_shared/preconditions.md"
 [ -f "$PRECONDITIONS" ] || { echo "FAIL: $PRECONDITIONS missing"; exit 1; }
 grep -q 'Tracker' "$PRECONDITIONS" \
   || { echo "FAIL: $PRECONDITIONS does not mention the profile's Tracker line"; exit 1; }
-grep -q 'not a supported tracker' "$PRECONDITIONS" \
-  || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
-echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
+grep -q 'decide.sh tracker.capable' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not INVOKE tracker.capable — a named decision that is never run decides nothing"; exit 1; }
+grep -q 'Proceed only on' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not refuse a verdict other than capable"; exit 1; }
+echo "ok   preconditions names Tracker, invokes tracker.capable and refuses a non-capable verdict"
 
 # ---------------------------------------------------------------------------------------------
 # create-issue's Inputs states the flag-position rule (#404): a flag is a standalone token at the
