@@ -41,7 +41,8 @@ shift
 if [ "$VERB" = verbs ]; then
   printf '%s\n' verbs auth repo issue-view \
     issue-search issue-comments issue-create issue-edit-body \
-    issue-add-labels issue-remove-labels issue-reopen issue-comment label-list label-create
+    issue-add-labels issue-remove-labels issue-reopen issue-comment label-list label-create \
+    issue-link-parent issue-link-blocked-by issue-children issue-blocked-by-count
   exit 0
 fi
 
@@ -52,6 +53,88 @@ fi
 # Sets KIT_REPO_SLUG (empty in, empty out) and exports GH_HOST when a host resolves. Returns 2 on a
 # malformed slug, having called nothing.
 gh_host_resolve "${TRACKER_REPO-}" || exit 2
+
+# Bare OWNER/REPO when a --repo resolved one; gh api's own {owner}/{repo} placeholder (expanded from
+# the checkout's own remote) when it did not — the same fallback the kit's prose already used for a
+# repo-less call (references/tracking-issue.md's old `gh api repos/{owner}/{repo}/issues/…`).
+_repo_slug() { local s="$KIT_REPO_SLUG"; [ -n "$s" ] || s='{owner}/{repo}'; printf '%s' "$s"; }
+
+# Shared by issue-link-parent and issue-link-blocked-by: the DATABASE id the sub-issues and
+# dependencies endpoints key on — never the #number, never the GraphQL node id (wire-edges.sh's own
+# header used to state this rule; it moved here with the code). TRACKER_ID_CACHE, when a caller sets
+# it to a file (wire-edges.sh, wiring several edges from one run), holds "<number> <id>" lines so an
+# issue already resolved this run is never looked up twice, and so every id is proven to resolve
+# before wire-edges.sh posts its first edge (its own --resolve-only pass, below). Prints the id on
+# success; on failure prints gh's own error text and returns 1 — nothing is cached.
+_issue_db_id() {
+  local n="$1" id=""
+  if [ -n "${TRACKER_ID_CACHE:-}" ] && [ -r "$TRACKER_ID_CACHE" ]; then
+    id=$(awk -v n="$n" '$1 == n { print $2; exit }' "$TRACKER_ID_CACHE")
+    if [ -n "$id" ]; then printf '%s' "$id"; return 0; fi
+  fi
+  id=$(gh api -H "Accept: application/vnd.github+json" "repos/$(_repo_slug)/issues/$n" --jq .id 2>&1) \
+    || { printf '%s' "$id"; return 1; }
+  # A SUCCESSFUL call can still hand back something that is not an id, because the `2>&1` above
+  # folds stderr into this value and gh writes to stderr on success too: its update notifier, a
+  # deprecation notice, a corporate proxy's banner. Unvalidated, such a value was appended to
+  # TRACKER_ID_CACHE as a MULTI-LINE entry, poisoning every later `awk '$1==n {print $2}'` lookup
+  # for that number, and then POSTed as `-F sub_issue_id=<garbage>` to a MUTATING endpoint with no
+  # refusal. This is the guard wire-edges.sh's own id_of() carried before the code moved here; it
+  # was dropped in the move, which is the regression (#507 review). Restored, not reinvented.
+  case "$id" in
+    ''|*[!0-9]*)
+      printf "#%s resolved to '%s', which is not a database id" "$n" "$id"; return 1 ;;
+  esac
+  [ -n "${TRACKER_ID_CACHE:-}" ] && printf '%s %s\n' "$n" "$id" >> "$TRACKER_ID_CACHE"
+  printf '%s' "$id"
+}
+
+# The classifier both link verbs share — moved from wire-edges.sh's post() unchanged. `gh api`
+# reports a non-2xx as `gh: <message> (HTTP <code>)` on stderr and exit 1 (or a bare
+# `gh: HTTP <code>` when the error body was not JSON — a proxy's HTML page in front of a GHES host);
+# `--silent` drops the JSON body on stdout for a 2xx. Prints ok | fallback | FAILED (HTTP <code>:
+# <message>) and returns 0 for ok/fallback, 1 for FAILED — the calling verb's own exit code.
+_link_post() {
+  local endpoint="$1" field="$2" err code msg
+  if err=$(gh api -H "Accept: application/vnd.github+json" --method POST --silent "$endpoint" -F "$field" 2>&1 >/dev/null); then
+    echo "ok"; return 0
+  fi
+  code=$(printf '%s' "$err" | sed -n 's/.*HTTP \([0-9][0-9][0-9]\))\{0,1\}$/\1/p' | head -1)
+  msg=$(printf '%s' "$err" | sed -n 's/^gh: \(.*\) (HTTP [0-9][0-9][0-9])$/\1/p' | head -1)
+  [ -n "$msg" ] || msg=$(printf '%s' "$err" | tr '\n' ' ')
+  case "$code" in
+    404) echo "fallback"; return 0 ;;
+    422)
+      # Measured on github.com (2026-08-31, throwaway issues #346–#348): a second sub_issues POST
+      # answers "Issue may not contain duplicate sub-issues and Sub issue may only have one
+      # parent"; a second blocked_by POST answers "Validation failed: Target issue has already
+      # been taken". `exists` covers the phrasing drifting. Anything else under 422 is a real
+      # refusal — a cycle, a cross-repository edge — and stays FAILED.
+      case "$msg" in
+        *already*|*Already*|*duplicate*|*Duplicate*|*exists*)
+          echo "ok (already wired)"; return 0 ;;
+      esac
+      echo "FAILED (HTTP 422: $msg)"; return 1 ;;
+    '') echo "FAILED (no HTTP status in gh's answer: $msg)"; return 1 ;;
+    *)  echo "FAILED (HTTP $code: $msg)"; return 1 ;;
+  esac
+}
+
+# Both link verbs take the same two private flags plus two positionals, and this loop was
+# duplicated verbatim between them: a third flag would have to be added identically in two places,
+# and a one-line divergence would silently make one verb accept what the other rejects (#507
+# review). Sets DRY, RESOLVE_ONLY and POS for the calling verb.
+_parse_link_args() {
+  DRY=0; RESOLVE_ONLY=0; POS=()
+  local a
+  for a in "$@"; do
+    case "$a" in
+      --dry-run) DRY=1 ;;
+      --resolve-only) RESOLVE_ONLY=1 ;;
+      *) POS+=("$a") ;;
+    esac
+  done
+}
 
 case "$VERB" in
   auth)
@@ -233,6 +316,78 @@ case "$VERB" in
     [ -n "$COLOR" ] && ARGS+=(--color "$COLOR")
     [ -n "$DESC" ] && ARGS+=(--description "$DESC")
     gh "${ARGS[@]}" || exit 1
+    ;;
+
+  # The two link verbs (#507) — wire-edges.sh's own SUB/DEP edges, moved off its direct `gh api`
+  # calls. `--resolve-only` is wire-edges.sh's own private flag, not part of the verb's public
+  # contract: it resolves (and, with TRACKER_ID_CACHE set, caches) both ends without posting, which
+  # is how wire-edges.sh proves every id in a whole run resolves before it wires its first edge.
+  issue-link-parent)
+    _parse_link_args "$@"
+    P="${POS[0]-}"; C="${POS[1]-}"
+    [ -n "$P" ] && [ -n "$C" ] \
+      || { echo "github: issue-link-parent needs <parent> <child>" >&2; exit 2; }
+    if [ "$DRY" -eq 1 ]; then
+      echo "DRY-RUN POST repos/$(_repo_slug)/issues/$P/sub_issues -F sub_issue_id=<database id of #$C>"
+      exit 0
+    fi
+    pid=$(_issue_db_id "$P") \
+      || { echo "github: issue-link-parent: cannot resolve the database id of #$P — $pid" >&2; exit 1; }
+    cid=$(_issue_db_id "$C") \
+      || { echo "github: issue-link-parent: cannot resolve the database id of #$C — $cid" >&2; exit 1; }
+    [ "$RESOLVE_ONLY" -eq 1 ] && exit 0
+    _link_post "repos/$(_repo_slug)/issues/$P/sub_issues" "sub_issue_id=$cid"
+    ;;
+
+  issue-link-blocked-by)
+    _parse_link_args "$@"
+    C="${POS[0]-}"; B="${POS[1]-}"
+    [ -n "$C" ] && [ -n "$B" ] \
+      || { echo "github: issue-link-blocked-by needs <child> <blocker>" >&2; exit 2; }
+    if [ "$DRY" -eq 1 ]; then
+      echo "DRY-RUN POST repos/$(_repo_slug)/issues/$C/dependencies/blocked_by -F issue_id=<database id of #$B>"
+      exit 0
+    fi
+    cid=$(_issue_db_id "$C") \
+      || { echo "github: issue-link-blocked-by: cannot resolve the database id of #$C — $cid" >&2; exit 1; }
+    bid=$(_issue_db_id "$B") \
+      || { echo "github: issue-link-blocked-by: cannot resolve the database id of #$B — $bid" >&2; exit 1; }
+    [ "$RESOLVE_ONLY" -eq 1 ] && exit 0
+    _link_post "repos/$(_repo_slug)/issues/$C/dependencies/blocked_by" "issue_id=$bid"
+    ;;
+
+  issue-children)
+    n="${1-}"
+    [ -n "$n" ] || { echo "github: issue-children needs a parent issue number" >&2; exit 2; }
+    if out=$(gh api -H "Accept: application/vnd.github+json" "repos/$(_repo_slug)/issues/$n/sub_issues" 2>&1); then
+      printf '%s' "$out" | jq -c '[.[].number]'
+    elif printf '%s' "$out" | grep -q 'HTTP 404'; then
+      # Two spellings, same as the link verbs' own classifier: `gh: <message> (HTTP 404)` and the
+      # bare `gh: HTTP 404` a GHES proxy's non-JSON error body produces — both must read as
+      # "the feature is off", not as "no status" (#507 review).
+      echo "fallback"
+    else
+      echo "github: issue-children: $out" >&2; exit 1
+    fi
+    ;;
+
+  issue-blocked-by-count)
+    n="${1-}"
+    [ -n "$n" ] || { echo "github: issue-blocked-by-count needs an issue number" >&2; exit 2; }
+    if out=$(gh api -H "Accept: application/vnd.github+json" "repos/$(_repo_slug)/issues/$n" \
+               --jq '.issue_dependencies_summary.blocked_by // "n/a"' 2>&1); then
+      printf '%s\n' "$out"
+    elif printf '%s' "$out" | grep -q 'HTTP 404'; then
+      # 404 is the documented "the dependencies feature is off" answer, read the same way
+      # issue-children reads it. Every OTHER failure (401 bad credentials, 403, a network error, a
+      # rate limit) is a REAL failure and must not be laundered into that same `n/a`: Step 7's
+      # readback exists to be "the proof the edges exist where GitHub reads them", and an `n/a` on
+      # an auth error reads as a benign degraded host, so an operator moves on instead of
+      # investigating (#507 review).
+      printf 'n/a\n'
+    else
+      echo "github: issue-blocked-by-count: $out" >&2; exit 1
+    fi
     ;;
 
   *)
