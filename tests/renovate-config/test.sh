@@ -429,8 +429,14 @@ else
   node_major=${node_ver%%.*}
   node_rest=${node_ver#*.}
   node_minor=${node_rest%%.*}
+  # `:*` and `*:` are the EMPTY-field arms, and they are the ones that matter: when `node -p` fails
+  # or prints nothing, both fields are empty and the subject is a bare ":", which matches neither
+  # '' nor either `*[!0-9]*` arm — every one of those needs a character to land on. Without them the
+  # subject fell through to the numeric arm, where `[ "" -lt 24 ]` prints "integer expression
+  # expected" and returns 2, so the `if` read FALSE and the SKIP this block exists to set was never
+  # set: renovate then ran anyway, on the broken node the guard had just failed to notice.
   case "$node_major:$node_minor" in
-    ''|*[!0-9]*:*|*:*[!0-9]*)
+    ''|:*|*:|*[!0-9]*:*|*:*[!0-9]*)
       resolved_skip="could not read node's version (got '$node_ver')" ;;
     *)
       if [ "$node_major" -lt "$NODE_FLOOR_MAJOR" ] ||
