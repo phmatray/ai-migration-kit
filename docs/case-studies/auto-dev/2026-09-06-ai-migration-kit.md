@@ -72,13 +72,17 @@ None. No worker reported a passage failing the untrusted-input boundary.
 `merge.step4 sync` carries the `systematic` flag, but reads as a property of the fleet rather than a
 defect: with three workers merging in parallel a branch is nearly always behind `main` when it is
 first looked at. `ci.verdict` is the row that should be uncomfortable — **194 `pending` for 35
-`clear`**, roughly 5.5 polls per verdict, each one a turn that re-reads the whole context.
+`clear`**: those 194 events are `base-run-verdict.sh`'s in-script iterations (`POLL_SECONDS=15`, one
+decision event per iteration, 16 s apart in `.claude/decision-events.jsonl` on 2026-09-07 10:15:03 →
+10:17:27), not agent turns. The per-turn CI wait that did exist was `merge-pr` Step 3's re-polling,
+fixed in #521 to call `wait-ci.sh` once.
 
 lessons:
   - category: tool-economy
-    evidence: tally row `ci.verdict pending 194 events / 72 distinct inputs` against `ci.verdict clear 35`
-    candidate: Replace merge-pr's poll-until-final loop with a single blocking wait on the run, so a
-      CI verdict costs one turn instead of the ~5.5 it costs today.
+    evidence: tally row `ci.verdict pending 194 events` are `base-run-verdict.sh`'s in-script loop
+      iterations (`POLL_SECONDS=15`), not turns; the per-turn CI wait was `merge-pr` Step 3's re-poll,
+      which waits in one `wait-ci.sh` call (#521)
+    candidate: merge-pr Step 3 waits in one `wait-ci.sh` call (#521)
   - category: steering
     evidence: usage_report — orchestrator 35% of $equiv from one session, above the 33% benchmark this
       skill records; the session compacted once across 27 supervised merges

@@ -55,7 +55,7 @@ so.
 
 **To turn the gate off**, set `ROSELINE_GATE=off` in your environment (also `0`, `false`, `no`,
 `disabled`). There is no `Read` matcher to remove from your own settings — the hook is supplied by
-the plugin in [`hooks/hooks.json`](../hooks/hooks.json), so the other levers are uninstalling the
+the plugin in [`hooks/claude-hooks.json`](../hooks/claude-hooks.json), so the other levers are uninstalling the
 plugin or Claude Code's global `disableAllHooks`.
 
 **To turn it *on* regardless**, set `ROSELINE_GATE=on` (also `1`, `true`, `yes`, `enabled`). This is

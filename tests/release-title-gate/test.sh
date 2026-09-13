@@ -94,7 +94,10 @@ refuses chore-scripts      "'chore'" "chore(ci): tidy the inventory script"   sc
 refuses chore-commands     "'chore'" "chore: reword the migrate command"     commands/migrate.md
 refuses chore-templates    "'chore'" "chore: bump the workflow action"       templates/ci-dotnet.yml
 refuses chore-requirements "'chore'" "chore: add a prerequisite"             requirements.json
-refuses chore-hooks        "'chore'" "chore: adjust the hook"                hooks/hooks.json
+refuses chore-hooks        "'chore'" "chore: adjust the hook"                hooks/claude-hooks.json
+# The Copilot CLI plugin manifest lives under .github/, which is otherwise not shipped — yet it is
+# what `copilot plugin install` reads (#526), so a chore: edit to it must still cut a release.
+refuses chore-copilot-manifest "'chore'" "chore: reword the Copilot manifest" .github/plugin/plugin.json
 
 # 8c. One shipped path is enough — a mixed changeset gates on the shipped half, exactly as the old
 #     anchor gated a skills/+README changeset.
@@ -210,12 +213,24 @@ passes renovate-onboarding-title "Configure Renovate" renovate.json
 passes docs-skills-nested "docs: rewrite the walkthrough" docs/skills/guide.md
 
 # LOAD-BEARING BYPASS: release-please's own release PR is titled `chore(main): release X.Y.Z` by
-# construction and touches exactly these three files. If it were refused, no release could ever
-# merge and the gate would deadlock the mechanism it exists to protect. Drive the real shape.
+# construction and touches only its manifest, its changelog and the files its extra-files bump. If
+# it were refused, no release could ever merge and the gate would deadlock the mechanism it exists
+# to protect. Drive the real shape.
 passes release-please-pr "chore(main): release 1.11.0" \
   .claude-plugin/plugin.json .release-please-manifest.json CHANGELOG.md
 passes release-please-pr-subset "chore(main): release 2.0.0" \
   .release-please-manifest.json CHANGELOG.md
+# ...and the release PR the LIVE config would open (#526): every extra-files path, the manifest and
+# the changelog, read from release-please-config.json itself. A manifest added to extra-files but
+# not to RELEASE_PR_FILES — the three host manifests of #526 were, first — goes red here instead
+# of on the next release PR.
+live_release_files=$(python3 -c 'import json, sys
+c = json.load(open(sys.argv[1], encoding="utf-8"))["packages"]["."]
+print(" ".join([e["path"] for e in c.get("extra-files", [])] + [".release-please-manifest.json", c.get("changelog-path", "CHANGELOG.md")]))' \
+  "$(cd "$(dirname "$0")/../.." && pwd)/release-please-config.json")
+# One path per word, split on purpose.
+# shellcheck disable=SC2086
+passes release-please-pr-live-config "chore(main): release 2.5.0" $live_release_files
 
 # …and BOTH halves of that exemption are required, or it becomes the blanket path-exclusion it was
 # written not to be. Wrong title with the release changeset, and release-please's title with an

@@ -146,7 +146,7 @@ PAYLOAD=""
 # blank line, a new `### Task`, a new `**Files:**`/`**Files**:` line, or end of file, and only then
 # handed to the same parsing logic that always ran on a single line.
 flush_files_field() {
-  local payload item verb new_marker aside aside_lc
+  local payload item verb new_marker aside aside_lc head rest
   payload=$(trim "$1")
   # A `**Files:**` line above the first `### Task` belongs to no task, so there is nothing to
   # report it against and nothing for Step 2 to re-anchor through. Skipping it is deliberate.
@@ -159,14 +159,29 @@ flush_files_field() {
   # and exit 5 on a plan that is perfectly fresh. That is not a cosmetic miscount: exit 5 routes
   # Step 2 into re-anchoring, and a path invented by the splitter re-anchors to nothing, which is
   # the "no usable plan" stop. A false stale costs the whole run.
+  #
+  # Asides come out INNERMOST-FIRST: on every pass, pair the FIRST `)` with the LAST `(` before it
+  # (or, when no `(` precedes that `)`, drop the stray `)` alone). #519: the old first-`(`-to-first-
+  # `)` cut pairs the WRONG parens whenever a `)` precedes a later `(` — e.g. an empty-parens call
+  # inside an aside, `(see \`f()\`)` — and then re-inserts the text between them, doubling part of
+  # the line on every pass instead of shrinking it, so the loop never terminated. Pairing innermost
+  # removes exactly one `)` per pass and inserts none, so the loop ends within as many passes as the
+  # field holds `)`.
   while :; do
     case "$payload" in
-      *'('*')'*)
-        aside=$(trim "${payload#*(}"); aside=${aside%%)*}; aside=$(trim "$aside")
-        aside_lc=$(printf '%s' "$aside" | tr '[:upper:]' '[:lower:]')
-        case "$aside_lc" in
-          new|'new file') payload="${payload%%(*}${NEWMARK}${payload#*)}" ;;
-          *)              payload="${payload%%(*}${payload#*)}" ;;
+      *')'*)
+        head=${payload%%)*}                  # text before the FIRST `)`
+        rest=${payload#*)}                    # text after it
+        case "$head" in
+          *'('*)                              # the innermost pair: the LAST `(` before that `)`
+            aside=$(trim "${head##*(}")
+            aside_lc=$(printf '%s' "$aside" | tr '[:upper:]' '[:lower:]')
+            case "$aside_lc" in
+              new|'new file') payload="${head%(*}${NEWMARK}${rest}" ;;
+              *)              payload="${head%(*}${rest}" ;;
+            esac
+            ;;
+          *) payload="${head}${rest}" ;;      # a stray `)` with no `(` before it: drop the `)` alone
         esac
         ;;
       *) break ;;
@@ -184,12 +199,10 @@ flush_files_field() {
     esac
 
     item=$(trim "$item")
-    # Trailing sentence punctuation, then any aside the payload-level strip could not pair off.
-    # GUARDED on the item holding BOTH parentheses: `${item%(*}` is a silent no-op when the `(` is
-    # already gone, so an unguarded strip leaves a bare `)` glued to the path and then reports that
-    # as MISSING.
+    # Trailing sentence punctuation only. No `)` survives the payload-level loop above — it pairs
+    # off every `)` (innermost-first) or drops a stray one alone — so no item ever reaches here
+    # still carrying a paren, and the item-level aside strip this comment used to describe is gone.
     case "$item" in *.|*,|*';') item=${item%?} ;; esac
-    case "$item" in *'('*')') item=$(trim "${item%(*}") ;; esac
 
     case "$item" in
       'create '*) verb=create; item=${item#create } ;;

@@ -1,0 +1,38 @@
+// Colour scheme "kit-dark" (#527): the five roles of kit.scss, re-tuned for a dark ground rather
+// than borrowed from the theme's own dark scheme. The ground is the kit's ink, deepened; slate
+// becomes the raised surface; verdigris lightens until a link clears AA on both. The theme imports
+// light.scss first and this file after it, so every role below must be set here — kit.scss is not
+// imported for this scheme. Switched to at runtime: docs/assets/css/just-the-docs-kit-dark.scss,
+// the restore in _includes/head_custom.html and the toggle in _includes/header_custom.html.
+//
+// Measured with scripts/contrast-check.py, every pair at WCAG AA or better:
+//   python3 scripts/contrast-check.py "#c9d4da:#151d23:body" "#eef3f5:#151d23:headings" \
+//     "#4fbfb4:#151d23:links" "#4fbfb4:#1c262d:links on the sidebar" "#8e9ca6:#151d23:muted" \
+//     "#c9d4da:#1c262d:text on the sidebar" "#ffffff:#0f7b74:primary button"
+//   body 11.29:1 · headings 15.24:1 · links 7.67:1 · links on the sidebar 6.92:1 · muted 6.05:1 ·
+//   text on the sidebar 10.20:1 · primary button 5.11:1
+$color-scheme: dark;
+
+$ink-deep: #151d23;
+$slate-raised: #1c262d;
+$verdigris-lit: #4fbfb4;
+$mist: #c9d4da;
+$frost: #eef3f5;
+
+$body-background-color: $ink-deep;
+$body-heading-color: $frost;
+$body-text-color: $mist;
+$link-color: $verdigris-lit;
+$nav-child-link-color: $mist;
+$sidebar-color: $slate-raised;
+$base-button-color: #24313a;
+$btn-primary-color: #0f7b74;
+$code-background-color: #1a242b;
+$code-linenumber-color: #8e9ca6;
+$feedback-color: #24313a;
+$table-background-color: $ink-deep;
+$search-background-color: $slate-raised;
+$search-result-preview-color: $mist;
+$border-color: #2d3b45;
+
+@import "./vendor/accessible-pygments/github-dark";

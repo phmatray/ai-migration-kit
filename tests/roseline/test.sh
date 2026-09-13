@@ -240,7 +240,7 @@ out=$(printf '%s' "$MAYBE" | env PATH="$NODNX" ROSELINE_GATE=maybe bash "$GATE" 
 echo "ok: an unrecognised ROSELINE_GATE value falls through to the probe"
 
 # --------------------------------------------------------------------- 4. the hook registration
-HJ="$KIT/hooks/hooks.json"
+HJ="$KIT/hooks/claude-hooks.json"
 [ -f "$HJ" ] || { echo "FAIL: $HJ missing"; exit 1; }
 jq -e . "$HJ" >/dev/null 2>&1 || { echo "FAIL: hooks.json is not valid JSON"; exit 1; }
 

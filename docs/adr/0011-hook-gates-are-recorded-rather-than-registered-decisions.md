@@ -35,7 +35,7 @@ Two facts pull the other way, and both were discovered only by reading the hook 
 registry row is a claim about a *verdict*: `verdict.source` names how `scripts/decide.sh` extracts
 one, and a hook has none to extract — its deny is a `permissionDecision` on stdout in Claude Code's
 PreToolUse envelope, consumed by the harness, never by the dispatcher. And R7 requires an *owner*
-document that invokes the decision inside a fenced block; a hook is invoked by `hooks/hooks.json`
+document that invokes the decision inside a fenced block; a hook is invoked by `hooks/claude-hooks.json`
 matching a tool name, so there is no owner to name and nothing for R7 to check.
 
 ## Considered Options

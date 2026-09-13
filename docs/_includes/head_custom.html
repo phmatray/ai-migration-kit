@@ -2,3 +2,26 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Atkinson+Hyperlegible+Next:wght@400;500;600;700;800&display=swap">
 <link rel="icon" type="image/svg+xml" href="{{ '/assets/favicon.svg' | relative_url }}">
+<!-- The dark scheme (#527), applied before first paint: the theme's just-the-docs.js loads earlier in
+     this same <head>, so jtd.setTheme is already defined. A stored choice wins; without one the page
+     follows the system's prefers-color-scheme. header_custom.html holds the toggle. Block comments
+     only inside the script: the theme folds the page onto one line, where a // would swallow it. -->
+<script>
+  (function () {
+    var stored = null;
+    try { stored = localStorage.getItem('kit-scheme'); } catch (e) { /* private mode: nothing stored */ }
+    var dark = stored === 'dark' ||
+      (stored === null && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (dark) {
+      jtd.setTheme('kit-dark');
+      document.documentElement.setAttribute('data-kit-scheme', 'dark');
+    }
+  })();
+</script>
+<!-- Without JavaScript nothing above runs and the toggle cannot work, so a dark system gets the dark
+     stylesheet directly — loaded after the default one, it overrides it rule for rule — and the
+     toggle is hidden. -->
+<noscript>
+<link rel="stylesheet" media="(prefers-color-scheme: dark)" href="{{ '/assets/css/just-the-docs-kit-dark.css' | relative_url }}">
+<style>.kit-scheme-toggle { display: none; }</style>
+</noscript>
