@@ -8,6 +8,15 @@ Starting with the version after [1.9.1], the entries below this paragraph are ge
 adopt its format (*Features* / *Bug Fixes* sections, comparison link, sha per entry) rather than
 the hand-written entries below. Earlier entries are kept as written.
 
+## [2.7.0](https://github.com/phmatray/ai-migration-kit/compare/v2.6.0...v2.7.0) (2026-09-13)
+
+
+### Features
+
+* **create-issue:** file and edit issues through the tracker contract ([#506](https://github.com/phmatray/ai-migration-kit/issues/506)) ([#591](https://github.com/phmatray/ai-migration-kit/issues/591)) ([2081c5b](https://github.com/phmatray/ai-migration-kit/commit/2081c5bea85e65ca151590be22da6db83dc5d0d5))
+* **migrate:** archify draws the architecture the migration phases could only describe ([#476](https://github.com/phmatray/ai-migration-kit/issues/476)) ([#593](https://github.com/phmatray/ai-migration-kit/issues/593)) ([5083edd](https://github.com/phmatray/ai-migration-kit/commit/5083edd1f5b18381b726ff14d58002f13b75aa59))
+* **tracker:** create-issue's decomposition wires its edges through the tracker contract ([#507](https://github.com/phmatray/ai-migration-kit/issues/507)) ([#598](https://github.com/phmatray/ai-migration-kit/issues/598)) ([65246dc](https://github.com/phmatray/ai-migration-kit/commit/65246dcdd8374dda68b4a950128803a3741c1acd))
+
 ## [2.6.0](https://github.com/phmatray/ai-migration-kit/compare/v2.5.0...v2.6.0) (2026-09-13)
 
 
