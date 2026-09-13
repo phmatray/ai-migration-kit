@@ -279,6 +279,39 @@ sweep "$KIT_ROOT" > "$WORK/out.sweep-tree" 2>&1 || RC=$?
 }
 echo "  ok: sweep-tree — every shipped script that addresses a repository by slug loads the helper"
 
+# One locator idiom, everywhere it is needed (#531): three of the scripts that load
+# skills/_shared/scripts/_gh-host.sh used to compute their own directory straight from
+# `dirname "$0"`/`dirname "${BASH_SOURCE[0]}"` — reached through a symlink (a plugin install, or a
+# symlinked checkout), that names the SYMLINK's own directory, not the real script's, so the helper
+# — which genuinely exists at the real kit root — could not be found. Every loader must resolve
+# $SELF through this exact loop first, textually identical everywhere, so a future edit to any of
+# them (or a ninth loader that skips it) cannot reintroduce the split silently.
+echo "every _gh-host.sh-loading script resolves its own path through the identical symlink loop"
+LOOP_BODY='while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done'
+git -C "$KIT_ROOT" ls-files -- 'skills/*/scripts/*.sh' > "$WORK/gh-host-loaders.list"
+loaders=0
+while IFS= read -r f; do
+  case "$f" in */_gh-host.sh) continue ;; esac
+  grep -qF '_gh-host.sh' "$KIT_ROOT/$f" || continue
+  loaders=$((loaders + 1))
+  body=$(awk '/^while \[ -L "\$SELF" \]; do$/{f=1} f{print} f && /^done$/{exit}' "$KIT_ROOT/$f")
+  [ "$body" = "$LOOP_BODY" ] || {
+    echo "FAIL: $f's \$SELF-resolving loop is not the shared idiom — expected:"
+    echo "$LOOP_BODY" | sed 's/^/  | /'
+    echo "  got:"
+    echo "$body" | sed 's/^/  | /'
+    exit 1
+  }
+done < "$WORK/gh-host-loaders.list"
+[ "$loaders" -ge 8 ] || { echo "FAIL: expected at least 8 _gh-host.sh-loading scripts, found $loaders"; exit 1; }
+echo "  ok: all $loaders _gh-host.sh-loading scripts resolve \$SELF through the identical loop"
+
 # ------------------------------------------------------------------- prose sweep (#530)
 #
 # A `gh api … repos/` line in skill/command prose is a worked EXAMPLE, not a live call — nothing
