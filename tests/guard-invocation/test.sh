@@ -73,15 +73,22 @@ done < <(grep -rn '^GUARDS=' skills/)
 # ------------------------------------------------------------ 2b. every literal guarded-pr-merge.sh call site points at it
 #
 # guarded-pr-merge.sh is never behind a `$GUARDS=` line, so the scan above cannot see it — hand-list
-# its known call sites instead (#414's reopened round). A fourth call site added later without
-# updating this list is a gap this test accepts (see the issue's Out of scope / approach C).
-PR_MERGE_SITES="skills/merge-pr/SKILL.md:69 skills/merge-pr/references/steps/05-merge.md:7 skills/auto-dev/SKILL.md:733"
-for site in $PR_MERGE_SITES; do
-  file="${site%:*}"
-  line="${site#*:}"
+# its known FILES instead (#414's reopened round), but derive the LINE dynamically by grepping the
+# full-path spelling: a hardcoded line number drifts the moment either file grows or shrinks above
+# it (these three are edited in nearly every auto-dev PR), silently narrowing or missing the window.
+# A fifth call site in a file this scan doesn't know about is a gap this test accepts (see the
+# issue's Out of scope / approach C).
+PR_MERGE_FILES="skills/merge-pr/SKILL.md skills/merge-pr/references/steps/05-merge.md skills/auto-dev/SKILL.md"
+for file in $PR_MERGE_FILES; do
   [ -f "$file" ] || { note_fail "$file (a guarded-pr-merge.sh call site) does not exist"; continue; }
-  site_points_at_doc "$file" "$line" \
-    || note_fail "$file:$line invokes guarded-pr-merge.sh but does not point at $DOC within $CONTEXT_LINES lines"
+  found=0
+  while IFS=: read -r line _; do
+    found=1
+    site_points_at_doc "$file" "$line" \
+      || note_fail "$file:$line invokes guarded-pr-merge.sh but does not point at $DOC within $CONTEXT_LINES lines"
+  done < <(grep -n 'merge-pr/scripts/guarded-pr-merge\.sh' "$file")
+  [ "$found" -eq 1 ] \
+    || note_fail "$file no longer invokes guarded-pr-merge.sh by its full path — update this scan or the fallback is orphaned there"
 done
 
 # ------------------------------------------------------------ 3. fleet workers get the standing clause
