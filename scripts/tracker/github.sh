@@ -124,9 +124,12 @@ case "$VERB" in
       || { echo "github: issue-create needs a non-empty --body-file" >&2; exit 2; }
     ARGS=(issue create --title "$TITLE" --body-file "$BODY_FILE")
     [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
-    # A label not in the live set is passed through, exactly as `gh issue create --label` does
-    # today — the host decides, and the caller (create-issue Step 7) is what checks the live set
-    # first and flags the gap; this verb does not second-guess it.
+    # A label not in the live set is passed through UNFILTERED — this verb does not second-guess
+    # it. gh's own behaviour on an unknown --label is to FAIL THE WHOLE CALL (exit 1, nothing
+    # filed), not to create the issue without it, exactly as a direct `gh issue create --label`
+    # does today. The caller (create-issue Step 7) is what checks the live label set first and
+    # drops what isn't there, before ever reaching this verb — that pre-filtering is what makes
+    # "create without it rather than failing" true, not anything this backend does.
     if [ "${#LBLS[@]}" -gt 0 ]; then
       for l in "${LBLS[@]}"; do ARGS+=(--label "$l"); done
     fi

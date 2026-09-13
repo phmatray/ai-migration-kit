@@ -27,7 +27,7 @@
     },
     "issue-create": {
       "args": "--title <t> [--label <l>]… --body-file <f>",
-      "stdout": "{\"number\",\"url\"} — a label not in the live set is passed through; the host decides"
+      "stdout": "{\"number\",\"url\"} — a label not in the live set is passed through and the host FAILS the whole call (exit 1), exactly as `gh issue create --label` does today; the caller checks the live set first"
     },
     "issue-edit-body": {
       "args": "<number> --body-file <f>",
