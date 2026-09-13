@@ -30,7 +30,9 @@ esac
 # An empty $BASE_SHA has nothing to resolve, and the helper refuses it (exit 64, no stdout) rather
 # than answer — the one case where it does NOT answer. Don't call it: that would leave $BASE_LINE
 # empty, breaking the "BASE: field IS $BASE_LINE" guarantee below. Compose the non-verdict directly,
-# in the same grammar, instead.
+# in the same grammar, instead. (Exit 64 also covers a malformed -R slug or a missing
+# skills/_shared/scripts/_gh-host.sh, #530 — neither reachable from THIS call, which passes no -R
+# and runs from an install a much earlier preflight step already proved has the helper.)
 if [ -n "$BASE_SHA" ]; then
   BASE_LINE=$(skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" --timeout 240 --report-line)
 else
@@ -117,7 +119,7 @@ Then act on `$base_verdict_word` — three outcomes, and all three are reported 
   non-polling read (the run is already settled, so there is nothing left to wait for — this is not a
   second `base-run-verdict.sh` call, which would re-run its whole poll loop for no reason):
   ```bash
-  gh api "repos/${OWNER_REPO:-{owner}/{repo}}/commits/$BASE_SHA/check-runs" --paginate --slurp \
+  gh api "repos/${OWNER_REPO:-{owner}/{repo}}/commits/$BASE_SHA/check-runs" --hostname <host> --paginate --slurp \
     | jq -r '.[].check_runs[] | select(.conclusion != null and .conclusion != "success") | .name' | sort -u
   ```
   **Fold on the breakage, not on the sha.** A sibling merge in the train produces a *different*
