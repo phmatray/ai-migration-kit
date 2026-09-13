@@ -240,4 +240,16 @@ grep -q '^- \[x\] \*\*Step 1:\*\* Commit: `feat(x): sixth slice`' "$GH_ISSUE" ||
 [ -e "$WT/undeclared.txt" ] || fail undeclared-left "undeclared.txt should remain on disk"
 echo "  ok: undeclared file left untracked and named, task still ticked, no hard failure"
 
+echo "== 14. reached through a symlink to the script itself (#531): resolves the real kit root, not the symlink's own directory =="
+SYMROOT="$WORK/symlinked/skills/implement-issue/scripts"
+mkdir -p "$SYMROOT"
+ln -s "$FINISH" "$SYMROOT/finish-task.sh"
+: > "$GH_LOG"
+rc=0; out=$(bash "$SYMROOT/finish-task.sh" --repo acme --issue 42 --task 2 --worktree "$WT" --branch fix/42 --dry-run 2>&1) || rc=$?
+[ "$rc" -eq 64 ] || fail symlink "expected exit 64 (malformed slug, same as a direct run), got $rc — $out"
+grep -qF "malformed repository slug 'acme'" <<<"$out" || fail symlink-say "the real _gh-host.sh must load and validate through the symlink: $out"
+grep -qF 'cannot load' <<<"$out" && fail symlink-broken "refused to load _gh-host.sh even though it exists at the real kit root: $out"
+[ ! -s "$GH_LOG" ] || fail symlink-call "gh was called for a malformed slug: $(cat "$GH_LOG")"
+echo "  ok: reached through a symlinked script, the real kit root (not the symlink's) is resolved"
+
 echo "finish-task golden test: all cases behaved as specified"

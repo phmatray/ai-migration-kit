@@ -33,7 +33,18 @@
 set -euo pipefail
 
 TOOL="finish-task"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# $0 through any symlinks first — a plugin install reaches this file by link, and `pwd` alone
+# canonicalizes neither the link nor the directory. No `readlink -f`: macOS's readlink has no -f.
+# Same loop base-run-verdict.sh carries (#514, #531).
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+HERE=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd -P) || HERE=$(dirname -- "$SELF")
 usage() { sed -n '/^# Usage:/,/^# Exit:/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; }
 refuse() { echo "$TOOL: $1" >&2; usage; exit 64; }
 
