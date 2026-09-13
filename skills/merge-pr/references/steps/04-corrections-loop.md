@@ -20,7 +20,11 @@ this repository's own release bot.
 ```bash
 ci_verdict=$(printf '%s' "$ci" | jq -r .verdict)
 if [ "$ci_verdict" = "needs-approval" ]; then
-  out=$(skills/merge-pr/scripts/approve-runs.sh "$PR"); rc=$?
+  # rc=0 BEFORE the call, `|| rc=$?` after: under this skill's own `set -euo pipefail` convention,
+  # `out=$(cmd); rc=$?` aborts the whole snippet on a non-zero exit before `rc=$?` ever runs — the
+  # same reason base-run-verdict.sh's own reads never write it that way (merge-mechanics.md's
+  # worktrees-ignored check and base-run-verdict.sh's check-runs/workflow-runs reads all use this).
+  rc=0; out=$(skills/merge-pr/scripts/approve-runs.sh "$PR") || rc=$?
   case "$rc" in
     0) echo "$out" ;;   # `approved <id>` per run, or `approved 0 run(s)` — either way, re-wait
     2) echo "$out" >&2; exit 1 ;;   # REFUSED — not the release bot; ids + manual remedy printed
