@@ -88,7 +88,7 @@ case "$repo" in */*) exit 0 ;; esac
 # (treat the host as underivable) rather than derive a garbled one.
 authority=$(printf '%s' "$remote_url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#/.*$##')
 case "$authority" in *@*@*) exit 0 ;; esac
-host=$(printf '%s' "$remote_url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/:]*@##' -e 's#[:/].*$##' | tr '[:upper:]' '[:lower:]')
+host=$(printf '%s' "$remote_url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#[:/].*$##' | tr '[:upper:]' '[:lower:]')
 [ -n "$host" ] || exit 0
 case "$host" in */*) exit 0 ;; esac
 
