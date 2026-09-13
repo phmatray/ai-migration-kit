@@ -56,7 +56,6 @@ RULE_COPIES = (
     (".clinerules/ai-migration-kit.md", ""),
     (".kiro/steering/ai-migration-kit.md", "---\ninclusion: always\n---\n\n"),
     (".github/copilot-instructions.md", ""),
-    (".agents/rules/ai-migration-kit.md", ""),
 )
 
 # Every plugin manifest that carries a version. release-please bumps each through `extra-files`;
