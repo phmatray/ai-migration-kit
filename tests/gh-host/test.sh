@@ -279,4 +279,31 @@ sweep "$KIT_ROOT" > "$WORK/out.sweep-tree" 2>&1 || RC=$?
 }
 echo "  ok: sweep-tree — every shipped script that addresses a repository by slug loads the helper"
 
+# ------------------------------------------------------------------- prose sweep (#530)
+#
+# A `gh api … repos/` line in skill/command prose is a worked EXAMPLE, not a live call — nothing
+# here resolves a host for it — so skills/_shared/preconditions.md's own rule applies instead:
+# "spell --hostname <host> on that call". Checked on the SAME line or the line immediately before
+# it, matching both shapes already in this tree (an inline flag vs. a preceding comment/⚠️ note)
+# rather than forcing every call site into one spelling.
+prose_violations() {
+  find "$1/skills" "$1/commands" -name '*.md' -print0 2>/dev/null \
+    | xargs -0 awk '
+        FNR == 1 { prev = "" }
+        /gh api/ && /repos\// {
+          if ($0 !~ /--hostname/ && prev !~ /--hostname/) { print FILENAME ":" FNR ": " $0 }
+        }
+        { prev = $0 }
+      '
+}
+
+violations="$(prose_violations "$KIT_ROOT")"
+if [ -n "$violations" ]; then
+  echo "FAIL: gh api … repos/ worked example(s) under skills/**/*.md or commands/*.md carry no"
+  echo "      --hostname on their own line or the line before it (skills/_shared/preconditions.md):"
+  printf '%s\n' "$violations" | sed 's/^/  /'
+  exit 1
+fi
+echo "  ok: prose — every gh api … repos/ worked example under skills/**/*.md and commands/*.md carries --hostname on its own line or the line before it"
+
 echo "gh-host golden test OK"
