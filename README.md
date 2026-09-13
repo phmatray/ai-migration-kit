@@ -235,6 +235,33 @@ degradation is named rather than silent. CI cannot start an MCP server, so
 `python3 tests/adr/check-adrs.py` is a deliberate structural mirror of the server's own
 `validate_adr`, and it gates the committed ADRs on every run.
 
+### Archify is recommended too — but you install it, not the plugin
+
+A migration decision is a decision about *shape*: which projects depend on which, where the
+Windows-only surface sits, what the target topology becomes. The pipeline's most consequential
+deliverables — phase 1's assessment, `/migrate-audit`'s per-app report, `migration/report.html` —
+costed that shape in days and never drew it.
+[Archify](https://tt-a1i.github.io/archify/) ([tt-a1i/archify](https://github.com/tt-a1i/archify),
+MIT) draws it: a validator and a deterministic renderer that turn a JSON spec plus a mermaid
+flowchart into a self-contained, explorable `migration/architecture.html`, plus a dual-theme SVG the
+dashboard embeds.
+
+The difference from roseline and AdrMcp is **how it arrives**. Those two are MCP servers shipped in
+[`.mcp.json`](.mcp.json), so installing the plugin installs them. Archify is an agent *skill*: it
+lands in your own skill list and **does not arrive with the plugin**. Install it yourself:
+
+```bash
+npx skills add tt-a1i/archify -g
+```
+
+[`requirements.json`](requirements.json) records it as a **`recommended`** session skill, and that
+level is a promise about its absence. A session capability cannot be checked from bash — the agent
+confirms it against its own skill list, and `scripts/preflight.sh` reports it `unknown` — so a
+`required` line here would be documentation pretending to be a gate, and a phase-0 hard fail over a
+diagram would stop every migration on a host without Node. Without Archify the phases draw the
+**mermaid** fence they already built as the spec's own companion and say so in their recap: never a
+hard stop, never a silent omission.
+
 ## Install
 
 The kit is written for Claude Code and installs as a plugin on five more hosts from this same

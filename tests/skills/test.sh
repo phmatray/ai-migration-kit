@@ -2315,6 +2315,64 @@ else
   fails=$((fails + 1))
 fi
 
+echo "== every sessionSkills entry has a node in ARCHITECTURE.md's External dependencies graph (#476) =="
+# requirements.json is the single source of truth for prerequisites, and ARCHITECTURE.md is where the
+# kit draws them. A manifest entry with no node is a dependency the architecture does not admit to
+# having — which is exactly how `archify` could end up declared, reported by preflight and explained
+# in the README while the one picture of the kit's dependencies still showed four session skills.
+#
+# Only the *External dependencies* graph is read. The `## Skill call graph` fence is parsed by
+# scripts/recap-wiring-check.py as a CI gate, and nothing here may touch it.
+# Written to a file first, never a heredoc inside `$( … )` (#131, the bash 3.2 scanner hazard).
+_dscratch=$(kit_scratch)
+cat > "$_dscratch/session-skill-nodes.py" <<'PY'
+import json, pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+manifest = json.load(open(root / "requirements.json", encoding="utf-8"))
+names = [s["name"] for s in manifest["sessionSkills"]]
+if not names:
+    sys.exit("requirements.json declares no sessionSkills at all — nothing to check")
+text = (root / "ARCHITECTURE.md").read_text(encoding="utf-8")
+m = re.search(r"^## External dependencies.*?(?=^## |\Z)", text, re.S | re.M)
+if not m:
+    sys.exit("ARCHITECTURE.md has no '## External dependencies' section")
+section = m.group(0)
+missing = [n for n in names if n not in section]
+if missing:
+    sys.exit("sessionSkills with no node in the External dependencies graph: " + ", ".join(missing))
+print("%d session skill(s), each with a node" % len(names))
+PY
+set +e
+ss_out=$(python3 "$_dscratch/session-skill-nodes.py" "$KIT_ROOT" 2>&1); ss_rc=$?
+set -e
+if [ "$ss_rc" -eq 0 ]; then
+  echo "ok   [SS1 shipped tree: $ss_out]"
+else
+  echo "FAIL: [SS1 every sessionSkills entry has a node] $ss_out"
+  fails=$((fails + 1))
+fi
+# The red half: delete the archify node from a scratch copy and the check must refuse, naming it.
+# The cmp guard is load-bearing, not decoration — a fixture that did not actually change would leave
+# this case green for a reason unrelated to what it claims to measure (cf. case C2 above).
+mkdir -p "$_dscratch/drift"
+cp "$KIT_ROOT/requirements.json" "$_dscratch/drift/requirements.json"
+sed '/ARCHIFY\[/d' "$KIT_ROOT/ARCHITECTURE.md" > "$_dscratch/drift/ARCHITECTURE.md"
+if cmp -s "$KIT_ROOT/ARCHITECTURE.md" "$_dscratch/drift/ARCHITECTURE.md"; then
+  echo "FAIL: [SS2 a deleted node is refused, naming the skill] the fixture did not drift — there is"
+  echo "      no 'ARCHIFY[' node line in ARCHITECTURE.md to delete"
+  fails=$((fails + 1))
+else
+  set +e
+  ss_red=$(python3 "$_dscratch/session-skill-nodes.py" "$_dscratch/drift" 2>&1); ss_red_rc=$?
+  set -e
+  if [ "$ss_red_rc" -ne 0 ] && grep -q 'archify' <<<"$ss_red"; then
+    echo "ok   [SS2 a deleted node is refused, naming the skill]"
+  else
+    echo "FAIL: [SS2 a deleted node is refused, naming the skill] rc=$ss_red_rc $ss_red"
+    fails=$((fails + 1))
+  fi
+fi
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails case(s) failed"
   exit 1
