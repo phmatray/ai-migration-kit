@@ -70,21 +70,82 @@ set -uo pipefail
 # that has to re-derive gh's own flag grammar.
 if [ -n "${GH_CALL_LOG:-}" ]; then printf '%s\n' "$*" >> "$GH_CALL_LOG"; fi
 
+fail_http() {
+  local code="$1" msg
+  case "$code" in
+    404) msg="Not Found" ;;
+    422) msg="${GH_422_MESSAGE:-Validation Failed}" ;;
+    *)   msg="Server Error" ;;
+  esac
+  printf '{"message":"%s"}' "$msg"
+  echo "gh: $msg (HTTP $code)" >&2
+  exit 1
+}
+
 payload=""
-case "${1-} ${2-}" in
-  "api user")     payload='{"login":"octocat"}' ;;
-  "auth token")   echo "gho_stubtoken"; exit 0 ;;
-  "repo view")    payload='{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;
-  "issue view")   payload='{"number":7,"title":"A stub issue","state":"OPEN","body":"body text","comments":[{"body":"first comment"},{"body":"second comment"}],"labels":[{"name":"bug"},{"name":"area: skills"}],"url":"https://example.invalid/o/r/issues/7"}' ;;
-  "issue list")   payload='[{"number":12,"title":"A stub closed issue","state":"CLOSED"}]' ;;
-  "issue create") echo "https://example.invalid/o/r/issues/42"; exit 0 ;;
-  "issue edit")   exit 0 ;;
-  "issue reopen") exit 0 ;;
-  "issue comment") exit 0 ;;
-  "label list")   payload='[{"name":"bug"},{"name":"area: skills"}]' ;;
-  "label create") exit 0 ;;
-  *)              echo "gh stub: unsupported call: $*" >&2; exit 1 ;;
-esac
+
+# `gh api …` is dispatched on METHOD + ENDPOINT rather than "$1 $2" — the link verbs (#507) and
+# their id lookups all start `api -H …`, so the second token is never the endpoint the way it is
+# for "issue view"/"label list" below. Status per endpoint comes from the environment, the way
+# wire-edges.sh's own (pre-move) stub already proved this out: GH_SUB_STATUS/GH_DEP_STATUS for the
+# two POST endpoints, GH_ISSUE_STATUS for a bare issue GET (the id lookup and the
+# issue_dependencies_summary read alike), GH_CHILDREN_STATUS for the sub-issues list, GH_422_MESSAGE
+# for a 422's body, GH_BLOCKED_BY to populate issue_dependencies_summary.blocked_by (unset = the
+# field is absent, the degraded-host shape issue-blocked-by-count reads as "n/a").
+method=GET; endpoint=""
+if [ "${1-}" = api ]; then
+  prev=""
+  for a in "$@"; do
+    case "$prev" in --method|-X) method="$a" ;; esac
+    case "$a" in repos/*) endpoint="$a" ;; esac
+    prev="$a"
+  done
+fi
+
+# Only a `repos/…` endpoint (the link verbs, their id lookups, issue-children,
+# issue-blocked-by-count) is dispatched here — a bare `gh api user` (the `auth` verb) has none and
+# falls through to the ORIGINAL "$1 $2" dispatch below, unchanged.
+if [ -n "$endpoint" ]; then
+  case "$method $endpoint" in
+    "POST "*/sub_issues)
+      s="${GH_SUB_STATUS:-201}"
+      case "$s" in 2??) exit 0 ;; *) fail_http "$s" ;; esac ;;
+    "POST "*/dependencies/blocked_by)
+      s="${GH_DEP_STATUS:-201}"
+      case "$s" in 2??) exit 0 ;; *) fail_http "$s" ;; esac ;;
+    "GET "*/sub_issues)
+      s="${GH_CHILDREN_STATUS:-200}"
+      case "$s" in 2??) payload="${GH_CHILDREN_JSON:-[]}" ;; *) fail_http "$s" ;; esac ;;
+    "GET repos/"*/issues/[0-9]*)
+      s="${GH_ISSUE_STATUS:-200}"
+      case "$s" in
+        2??)
+          n="${endpoint##*/issues/}"
+          if [ -n "${GH_BLOCKED_BY:-}" ]; then
+            payload=$(printf '{"id":%s,"issue_dependencies_summary":{"blocked_by":%s}}' "$((1000 + n))" "$GH_BLOCKED_BY")
+          else
+            payload=$(printf '{"id":%s}' "$((1000 + n))")
+          fi ;;
+        *) fail_http "$s" ;;
+      esac ;;
+    *) echo "gh stub: unexpected api call: $method $endpoint" >&2; exit 1 ;;
+  esac
+else
+  case "${1-} ${2-}" in
+    "api user")     payload='{"login":"octocat"}' ;;
+    "auth token")   echo "gho_stubtoken"; exit 0 ;;
+    "repo view")    payload='{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;
+    "issue view")   payload='{"number":7,"title":"A stub issue","state":"OPEN","body":"body text","comments":[{"body":"first comment"},{"body":"second comment"}],"labels":[{"name":"bug"},{"name":"area: skills"}],"url":"https://example.invalid/o/r/issues/7"}' ;;
+    "issue list")   payload='[{"number":12,"title":"A stub closed issue","state":"CLOSED"}]' ;;
+    "issue create") echo "https://example.invalid/o/r/issues/42"; exit 0 ;;
+    "issue edit")   exit 0 ;;
+    "issue reopen") exit 0 ;;
+    "issue comment") exit 0 ;;
+    "label list")   payload='[{"name":"bug"},{"name":"area: skills"}]' ;;
+    "label create") exit 0 ;;
+    *)              echo "gh stub: unsupported call: $*" >&2; exit 1 ;;
+  esac
+fi
 
 # Honour a trailing `--jq <expr>` the way gh does; otherwise hand back the whole object.
 jq_expr=""
@@ -320,6 +381,73 @@ run_tracker "$PROFILED" --tracker github label-create "area: export" --color c5d
   && ok "label-create — name, color and description reached gh label create" \
   || note_fail "label-create — exit $RC, log: $(cat "$GH_CALL_LOG")"
 
+echo "== A3. the four link verbs (#507)"
+
+# ------------------------------------------------------------------------------------------- AC2
+# The three replies AC2 names, over issue-link-blocked-by: a 404 on the POST is fallback (the
+# dependencies feature is off, not that either issue is missing — both already resolved by a
+# successful GET), a 422 whose message says the edge already exists is ok, and any other 422 is a
+# real refusal, FAILED.
+: > "$GH_CALL_LOG"
+GH_DEP_STATUS=404 run_tracker "$PROFILED" --tracker github --repo o/r issue-link-blocked-by 11 10
+[ "$RC" -eq 0 ] && [ "$OUT" = fallback ] \
+  && ok "AC2 issue-link-blocked-by — a 404 on the POST is fallback, exit 0" \
+  || note_fail "AC2 issue-link-blocked-by 404 — expected 'fallback' exit 0, got '$OUT' exit $RC ($ERR)"
+
+: > "$GH_CALL_LOG"
+GH_DEP_STATUS=422 GH_422_MESSAGE="Validation failed: Target issue has already been taken" \
+  run_tracker "$PROFILED" --tracker github --repo o/r issue-link-blocked-by 11 10
+[ "$RC" -eq 0 ] && [ "$OUT" = "ok (already wired)" ] \
+  && ok "AC2 issue-link-blocked-by — an already-exists 422 is ok, exit 0 (re-running converges)" \
+  || note_fail "AC2 issue-link-blocked-by already-exists — expected 'ok (already wired)' exit 0, got '$OUT' exit $RC ($ERR)"
+
+: > "$GH_CALL_LOG"
+GH_DEP_STATUS=422 GH_422_MESSAGE="Validation Failed: would create a cycle" \
+  run_tracker "$PROFILED" --tracker github --repo o/r issue-link-blocked-by 11 10
+[ "$RC" -eq 1 ] && [ "$OUT" = "FAILED (HTTP 422: Validation Failed: would create a cycle)" ] \
+  && ok "AC2 issue-link-blocked-by — any other 422 is FAILED, exit 1" \
+  || note_fail "AC2 issue-link-blocked-by other-422 — expected FAILED exit 1, got '$OUT' exit $RC ($ERR)"
+
+# Both ends resolved by a successful GET before the POST — the id lookups are logged, one per
+# issue, and the POST carries the resolved database ids (1000 + the issue number, matching the
+# stub — see the wire-edges golden test this mirrors).
+: > "$GH_CALL_LOG"
+run_tracker "$PROFILED" --tracker github --repo o/r issue-link-parent 10 11
+[ "$RC" -eq 0 ] && [ "$OUT" = ok ] \
+  && grep -Fq -- 'api -H Accept: application/vnd.github+json repos/o/r/issues/10 --jq .id' "$GH_CALL_LOG" \
+  && grep -Fq -- 'api -H Accept: application/vnd.github+json repos/o/r/issues/11 --jq .id' "$GH_CALL_LOG" \
+  && grep -Fq -- '--method POST --silent repos/o/r/issues/10/sub_issues -F sub_issue_id=1011' "$GH_CALL_LOG" \
+  && ok "AC2 issue-link-parent — both ends resolved by GET, POST carries the database ids, exit 0" \
+  || note_fail "AC2 issue-link-parent — exit $RC, out '$OUT', log: $(cat "$GH_CALL_LOG")"
+
+# --dry-run prints the POST it would send and calls gh not at all — not even the id lookups.
+: > "$GH_CALL_LOG"
+run_tracker "$PROFILED" --tracker github --repo o/r issue-link-parent 10 11 --dry-run
+[ "$RC" -eq 0 ] && [ "$OUT" = 'DRY-RUN POST repos/o/r/issues/10/sub_issues -F sub_issue_id=<database id of #11>' ] && [ ! -s "$GH_CALL_LOG" ] \
+  && ok "issue-link-parent --dry-run — prints the POST, calls gh not at all" \
+  || note_fail "issue-link-parent --dry-run — got '$OUT' exit $RC, log: $(cat "$GH_CALL_LOG")"
+
+# ------------------------------------------------------------------------------------------- AC1
+GH_CHILDREN_JSON='[{"number":11},{"number":12}]' run_tracker "$PROFILED" --tracker github --repo o/r issue-children 10
+[ "$RC" -eq 0 ] && [ "$OUT" = '[11,12]' ] \
+  && ok "issue-children — a JSON array of numbers from a sub-issues reply" \
+  || note_fail "issue-children — expected '[11,12]', got '$OUT' exit $RC ($ERR)"
+
+GH_CHILDREN_STATUS=404 run_tracker "$PROFILED" --tracker github --repo o/r issue-children 10
+[ "$RC" -eq 0 ] && [ "$OUT" = fallback ] \
+  && ok "issue-children — fallback on a 404 (sub-issues feature off)" \
+  || note_fail "issue-children 404 — expected 'fallback' exit 0, got '$OUT' exit $RC ($ERR)"
+
+GH_BLOCKED_BY=2 run_tracker "$PROFILED" --tracker github --repo o/r issue-blocked-by-count 9
+[ "$RC" -eq 0 ] && [ "$OUT" = 2 ] \
+  && ok "issue-blocked-by-count — the open-blocker count" \
+  || note_fail "issue-blocked-by-count — expected '2', got '$OUT' exit $RC ($ERR)"
+
+run_tracker "$PROFILED" --tracker github --repo o/r issue-blocked-by-count 9
+[ "$RC" -eq 0 ] && [ "$OUT" = n/a ] \
+  && ok "issue-blocked-by-count — n/a when issue_dependencies_summary is absent (dependencies feature off)" \
+  || note_fail "issue-blocked-by-count missing-field — expected 'n/a', got '$OUT' exit $RC ($ERR)"
+
 echo "== B. the state report, and the tracker.capable verdict"
 
 # The report itself: five facts, judging none of them. `needs` is null because no skill is on the
@@ -331,9 +459,9 @@ if [ "$RC" -ne 0 ]; then
 else
   got=$(printf '%s' "$OUT" | jq -r '[.tracker, .skill, (.needs|tostring), (.implements|length|tostring)] | join("|")' 2>/dev/null) \
     || got="<unparseable: $OUT>"
-  if [ "$got" != 'github|merge-pr|null|14' ]; then
+  if [ "$got" != 'github|merge-pr|null|18' ]; then
     note_fail "state — wrong report
-      want: github|merge-pr|null|14
+      want: github|merge-pr|null|18
       got:  $got"
   else
     ok "state — reports {tracker, skill, needs, implements} and judges nothing"

@@ -56,13 +56,30 @@
     "label-create": {
       "args": "<name> [--color <hex>] [--description <d>]",
       "stdout": "nothing — grows the taxonomy for a genuinely new sub-area with no fitting label"
+    },
+    "issue-link-parent": {
+      "args": "<parent> <child> [--dry-run]",
+      "stdout": "ok | fallback | FAILED (HTTP <code>: <message>) — a 404 means the sub-issues feature is off on this host, not that either issue is missing (both are resolved by a successful read first); --dry-run prints the POST it would send and calls nothing"
+    },
+    "issue-link-blocked-by": {
+      "args": "<child> <blocker> [--dry-run]",
+      "stdout": "ok | fallback | FAILED (HTTP <code>: <message>) — same rule as issue-link-parent, on the dependencies endpoint"
+    },
+    "issue-children": {
+      "args": "<parent>",
+      "stdout": "a JSON array of issue numbers, or fallback when the sub-issues feature is off"
+    },
+    "issue-blocked-by-count": {
+      "args": "<number>",
+      "stdout": "an integer, or n/a when the dependencies feature is off (no issue_dependencies_summary on the issue)"
     }
   },
   "skills": {
     "create-issue": [
       "auth", "repo", "issue-view", "issue-search", "issue-comments", "issue-create",
       "issue-edit-body", "issue-add-labels", "issue-remove-labels", "issue-reopen",
-      "issue-comment", "label-list", "label-create"
+      "issue-comment", "label-list", "label-create",
+      "issue-link-parent", "issue-link-blocked-by", "issue-children", "issue-blocked-by-count"
     ]
   }
 }
