@@ -313,6 +313,13 @@ run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a missing pi skills folder, want 1: $OUT $ERR"
 names "./nope" && ok "names the missing folder on stdout" || bad "stdout does not name ./nope: $OUT"
 
+echo "== W. a RULE_COPIES entry with no host adapter =="
+T="$WORK/w"; scratch_tree "$T"
+sed '/^- id: cline$/,/^$/d' "$REPO/docs/_data/hosts.yml" > "$T/docs/_data/hosts.yml"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a dangling RULE_COPIES entry, want 1: $OUT $ERR"
+names ".clinerules/ai-migration-kit.md" && ok "names the dangling adapter on stdout" || bad "stdout does not name .clinerules/ai-migration-kit.md: $OUT"
+
 if [ "$fails" -eq 0 ]; then
   echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi, host table, manifest paths, orphans"
 else
