@@ -60,6 +60,22 @@ while IFS=: read -r file line _; do
   fi
 done < <(grep -rn '^GUARDS=' skills/)
 
+# ------------------------------------------------------------ 2b. every literal guarded-pr-merge.sh call site points at it
+#
+# guarded-pr-merge.sh is never behind a `$GUARDS=` line, so the scan above cannot see it — hand-list
+# its known call sites instead (#414's reopened round). A fourth call site added later without
+# updating this list is a gap this test accepts (see the issue's Out of scope / approach C).
+PR_MERGE_SITES="skills/merge-pr/SKILL.md:69 skills/merge-pr/references/steps/05-merge.md:7 skills/auto-dev/SKILL.md:733"
+for site in $PR_MERGE_SITES; do
+  file="${site%:*}"
+  line="${site#*:}"
+  [ -f "$file" ] || { note_fail "$file (a guarded-pr-merge.sh call site) does not exist"; continue; }
+  end=$((line + CONTEXT_LINES))
+  if ! sed -n "${line},${end}p" "$file" | grep -q -- 'guard-invocation\.md'; then
+    note_fail "$file:$line invokes guarded-pr-merge.sh but does not point at $DOC within $CONTEXT_LINES lines"
+  fi
+done
+
 # ------------------------------------------------------------ 3. fleet workers get the standing clause
 for f in commands/auto-dev-worker.md commands/auto-dev-merge.md; do
   [ -f "$f" ] || { note_fail "$f does not exist"; continue; }
