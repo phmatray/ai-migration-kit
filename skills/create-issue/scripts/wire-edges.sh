@@ -37,9 +37,10 @@
 #     the representation that survives, and the skill's report says so.
 #   * A 422 whose message says the edge already exists is `ok`: re-running the wiring after a
 #     partial run must converge, not fail. Any OTHER 422 (a cycle, a cross-repo refusal) is FAILED.
-#   * Ids are DATABASE ids (`gh api repos/o/r/issues/N --jq .id`), never the `#number` and never
-#     the GraphQL node_id — the dependency endpoint rejects both, and it rejects the number with
-#     a 404 that a careless reader would file under "feature off".
+#   * Ids are DATABASE ids (resolved by the tracker's `issue-link-parent`/`issue-link-blocked-by`
+#     verbs — scripts/tracker/github.sh, #507), never the `#number` and never the GraphQL node_id —
+#     the dependency endpoint rejects both, and it rejects the number with a 404 that a careless
+#     reader would file under "feature off".
 #   * `--dry-run` prints the POSTs it would send and makes no API call — not even the id lookups —
 #     so a skill can show the plan before a single write. The host helper's one gh call, `gh auth
 #     token`, is a local credential lookup, so --dry-run still touches nothing on GitHub.
@@ -144,11 +145,13 @@ done || exit 2
 
 # -------------------------------------------------------------------- the repository's own host
 #
-# `gh api` never infers a host, so on a GitHub Enterprise repository the id lookups and every POST
-# below reached github.com (#514). Which host gh talks to is decided in ONE place, the helper
-# below; its exported GH_HOST is what every call inherits. Resolved AFTER every check above, so a
-# refusal there still means nothing was called, and BEFORE the dry run, so it prints the
-# normalised OWNER/REPO endpoints the real run would use.
+# A direct call never infers a host, so on a GitHub Enterprise repository the id lookups and every
+# POST below reached github.com (#514). Which host is talked to is decided in ONE place, the helper
+# below; its exported GH_HOST is what every call inherits — including the tracker's, since this
+# script's own `--repo` is already resolved to a bare OWNER/REPO by the time it reaches
+# `tracker.sh --repo` (#507). Resolved AFTER every check above, so a refusal there still means
+# nothing was called, and BEFORE the dry run, so it prints the normalised OWNER/REPO endpoints the
+# real run would use.
 #
 # $0 through any symlinks first, as guarded-commit.sh does: `pwd -P` canonicalizes the directory,
 # not the link, and macOS's readlink has no -f.
@@ -168,6 +171,11 @@ command -v gh_host_resolve > /dev/null 2>&1 || refuse "cannot load $GH_HOST_LIB;
 gh_host_resolve "$REPO" || exit 2
 REPO="$KIT_REPO_SLUG"
 
+# The tracker contract (#507): every edge below asks it rather than calling a host directly, so a
+# GitLab or Azure DevOps backend has something to answer with instead of nothing.
+TRACKER_SH="$SCRIPT_DIR/../../../scripts/tracker.sh"
+[ -x "$TRACKER_SH" ] || refuse "cannot find $TRACKER_SH; reinstall the kit"
+
 # ------------------------------------------------------------------------------------- dry run
 if [ "$DRY_RUN" -eq 1 ]; then
   printf '%s' "$CHILD_SPECS" | while read -r child blockers; do
@@ -183,69 +191,40 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# ------------------------------------------------------------------------------ id resolution
-# One lookup per issue, cached in a temp file as "<number> <id>" lines. A lookup that fails is
-# exit 1 BEFORE any POST: a database id is what the write endpoints key on, and there is no
-# useful guess for one.
+# ---------------------------------------------------------------------- resolve every id, up front
+#
+# Database-id resolution now lives in the tracker's two link verbs (contract.json, #507) — each
+# proves its own two numbers resolve before it ever posts. This pass runs the SAME edges through
+# them with --resolve-only (private to this script, not part of the verb's public contract) so
+# EVERY id in the whole run is proven to resolve, and cached, before the first edge is wired — a
+# missing issue is reported before the first write rather than between two of them, and an issue
+# named on several edges (the usual case: the parent, a blocker shared by two children) costs one
+# lookup, not one per edge. TRACKER_ID_CACHE is a file of "<number> <id>" lines both this pass and
+# the real wiring pass below read and grow, so no id already resolved this run is looked up twice.
 IDS=$(mktemp "${TMPDIR:-/tmp}/wire-edges-ids.XXXXXX") || { echo "$TOOL: cannot create a temp file" >&2; exit 1; }
 trap 'rm -f "$IDS"' EXIT
+export TRACKER_ID_CACHE="$IDS"
 
-id_of() {
-  local n="$1" id
-  id=$(awk -v n="$n" '$1 == n { print $2; exit }' "$IDS")
-  if [ -z "$id" ]; then
-    if ! id=$(gh api -H "Accept: application/vnd.github+json" "repos/$REPO/issues/$n" --jq .id 2>"$IDS.err"); then
-      echo "$TOOL: cannot resolve the database id of #$n — $(tr '\n' ' ' < "$IDS.err")" >&2
-      rm -f "$IDS.err"
-      exit 1
-    fi
-    rm -f "$IDS.err"
-    is_number "$id" || { echo "$TOOL: #$n resolved to '$id', which is not a database id" >&2; exit 1; }
-    echo "$n $id" >> "$IDS"
+while read -r child blockers; do
+  [ -n "$child" ] || continue
+  if [ -n "$PARENT" ]; then
+    out=$("$TRACKER_SH" --repo "$REPO" issue-link-parent "$PARENT" "$child" --resolve-only 2>&1) \
+      || { echo "$TOOL: cannot resolve the database id of #$PARENT or #$child — $out" >&2; exit 1; }
   fi
-  printf '%s' "$id"
-}
-
-# Resolve every id up front, so a missing issue is reported before the first write rather than
-# between two of them.
-for n in $PARENT $(printf '%s' "$CHILD_SPECS" | tr '\n' ' '); do
-  id_of "$n" > /dev/null
-done
+  for b in $blockers; do
+    out=$("$TRACKER_SH" --repo "$REPO" issue-link-blocked-by "$child" "$b" --resolve-only 2>&1) \
+      || { echo "$TOOL: cannot resolve the database id of #$child or #$b — $out" >&2; exit 1; }
+  done
+done <<EOF
+$CHILD_SPECS
+EOF
 
 # ------------------------------------------------------------------------------------ the POSTs
-# post <endpoint> <field>=<value> → prints ok | fallback | FAILED (HTTP <code>: <message>)
-# and returns 0 for ok/fallback, 1 for FAILED. `gh api` reports a non-2xx as
-# `gh: <message> (HTTP <code>)` on stderr and exit 1; `--silent` drops the JSON body on stdout.
-post() {
-  local endpoint="$1" field="$2" err code msg
-  if err=$(gh api -H "Accept: application/vnd.github+json" --method POST --silent "$endpoint" -F "$field" 2>&1 >/dev/null); then
-    echo "ok"; return 0
-  fi
-  # Two spellings: `gh: <message> (HTTP <code>)` when the error body was JSON with a message,
-  # and a bare `gh: HTTP <code>` when it was not (a proxy's HTML 404 in front of a GHES host).
-  # The second must still read as a status — a plain-text 404 is the fallback case, not a
-  # "no status" failure.
-  code=$(printf '%s' "$err" | sed -n 's/.*HTTP \([0-9][0-9][0-9]\))\{0,1\}$/\1/p' | head -1)
-  msg=$(printf '%s' "$err" | sed -n 's/^gh: \(.*\) (HTTP [0-9][0-9][0-9])$/\1/p' | head -1)
-  [ -n "$msg" ] || msg=$(printf '%s' "$err" | tr '\n' ' ')
-  case "$code" in
-    404) echo "fallback"; return 0 ;;
-    422)
-      # Measured on github.com (2026-08-31, throwaway issues #346–#348): a second sub_issues POST
-      # answers "Issue may not contain duplicate sub-issues and Sub issue may only have one
-      # parent"; a second blocked_by POST answers "Validation failed: Target issue has already
-      # been taken". `exists` covers the phrasing drifting. Anything else under 422 is a real
-      # refusal — a cycle, a cross-repository edge — and stays FAILED.
-      case "$msg" in
-        *already*|*Already*|*duplicate*|*Duplicate*|*exists*)
-          echo "ok (already wired)"; return 0 ;;
-      esac
-      echo "FAILED (HTTP 422: $msg)"; return 1 ;;
-    '') echo "FAILED (no HTTP status in gh's answer: $msg)"; return 1 ;;
-    *)  echo "FAILED (HTTP $code: $msg)"; return 1 ;;
-  esac
-}
-
+#
+# Each edge is now one call to the matching link verb, which prints exactly ok | fallback | FAILED
+# (HTTP <code>: <message>) and exits 0 for ok/fallback, 1 for FAILED — this script only relays that
+# verdict onto its own SUB/DEP line and counts it; the classification itself (the 404 → fallback
+# rule, the already-wired 422) lives with the verb now (scripts/tracker/github.sh).
 n_ok=0; n_fallback=0; n_failed=0
 count() {
   case "$1" in
@@ -260,7 +239,7 @@ count() {
 while read -r child blockers; do
   [ -n "$child" ] || continue
   if [ -n "$PARENT" ]; then
-    verdict=$(post "repos/$REPO/issues/$PARENT/sub_issues" "sub_issue_id=$(id_of "$child")") || true
+    verdict=$("$TRACKER_SH" --repo "$REPO" issue-link-parent "$PARENT" "$child") || true
     # Braced on purpose: macOS /bin/bash 3.2 reads the UTF-8 bytes of the arrow that follows a bare
     # `$PARENT` as part of the variable name and dies under `set -u` ("PARENT�: unbound variable")
     # — every edge, every run, while CI's bash 5 printed the line fine. `bash -n` cannot see this.
@@ -268,7 +247,7 @@ while read -r child blockers; do
     count "$verdict"
   fi
   for b in $blockers; do
-    verdict=$(post "repos/$REPO/issues/$child/dependencies/blocked_by" "issue_id=$(id_of "$b")") || true
+    verdict=$("$TRACKER_SH" --repo "$REPO" issue-link-blocked-by "$child" "$b") || true
     echo "DEP ${child}⇐${b} $verdict"
     count "$verdict"
   done
