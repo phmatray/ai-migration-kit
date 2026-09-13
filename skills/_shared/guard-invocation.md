@@ -9,6 +9,12 @@ sits outside the repo entirely — and therefore outside the worktree an `auto-d
 then refuse to invoke a script that lives outside it, at the exact moment a commit needs to go
 through the guards rather than around them.
 
+The same reachability question applies to `skills/merge-pr/scripts/guarded-pr-merge.sh` — a fourth
+guard script, invoked by its literal path rather than through a `$GUARDS=` variable, but sitting in
+the same plugin-cache-vs-worktree position as the other three. It is covered by the same fallback
+below, with one difference: it sources nothing, so for this script copying the single file is the
+whole of step 1 — there is no `_assert-branch.sh`-style sibling to remember.
+
 **This does not apply to `make-worktree.sh`.** That call runs *before* any worktree exists, from the
 main checkout, where `$GUARDS` resolving to the kit's own directory is not a problem — there is
 nothing yet to be confined to. The fallback below is for the *later* calls —

@@ -42,6 +42,9 @@ grep -qi -- 'report' "$DOC" \
 grep -qi -- 'make-worktree\.sh' "$DOC" \
   || note_fail "$DOC does not explicitly exclude make-worktree.sh's pre-worktree \$GUARDS usage"
 
+grep -qi -- 'guarded-pr-merge\.sh' "$DOC" \
+  || note_fail "$DOC does not name guarded-pr-merge.sh — the fallback's scope missed a fourth guard script"
+
 # ------------------------------------------------------------ 2. every GUARDS= site points at it
 #
 # A `GUARDS=` line that defines the variable must be accompanied — within the next few lines — by
