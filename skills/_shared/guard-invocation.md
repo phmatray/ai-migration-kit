@@ -9,6 +9,12 @@ sits outside the repo entirely — and therefore outside the worktree an `auto-d
 then refuse to invoke a script that lives outside it, at the exact moment a commit needs to go
 through the guards rather than around them.
 
+The same reachability question applies to `skills/merge-pr/scripts/guarded-pr-merge.sh` — a fourth
+guard script, invoked by its literal path rather than through a `$GUARDS=` variable, but sitting in
+the same plugin-cache-vs-worktree position as the other three. It is covered by the same fallback
+below, with one difference: it sources nothing, so for this script copying the single file is the
+whole of step 1 — there is no `_assert-branch.sh`-style sibling to remember.
+
 **This does not apply to `make-worktree.sh`.** That call runs *before* any worktree exists, from the
 main checkout, where `$GUARDS` resolving to the kit's own directory is not a problem — there is
 nothing yet to be confined to. The fallback below is for the *later* calls —
@@ -28,6 +34,13 @@ If invoking a guard at `$GUARDS` is refused:
    cp "$GUARDS/guarded-commit.sh" "$GUARDS/guarded-push.sh" "$GUARDS/guarded-merge.sh" \
       "$GUARDS/_assert-branch.sh" "$WORKTREE/.git-guards/"
    ```
+   **For `guarded-pr-merge.sh` specifically** — it is invoked by its literal path
+   (`<kit>/skills/merge-pr/scripts/guarded-pr-merge.sh`), never through `$GUARDS`, so it is not in
+   the `cp` above. Copy just that one file instead:
+   ```bash
+   cp <kit>/skills/merge-pr/scripts/guarded-pr-merge.sh "$WORKTREE/.git-guards/"
+   ```
+   It sources nothing, so there is no `_assert-branch.sh`-style sibling to bring with it.
 2. **Run them from there** — same arguments, same `-C "$WORKTREE"`, same `$BRANCH` — nothing about
    the guard's behavior changes, only where it was copied from.
 3. **Delete the scratch directory before finishing** — it must never reach the commit or the diff:

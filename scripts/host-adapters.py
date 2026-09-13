@@ -68,6 +68,14 @@ VERSIONED = (
     "gemini-extension.json",
 )
 
+# The two plugin marketplace manifests, which carry no version of their own (#556) — named here so
+# CI's JSON-validity check has one source for "every manifest the kit ships", the same way VERSIONED
+# already is that source for the versioned ones.
+UNVERSIONED_JSON = (
+    ".claude-plugin/marketplace.json",
+    ".agents/plugins/marketplace.json",
+)
+
 HOSTS = "docs/_data/hosts.yml"
 OLD_HOOKS = "hooks/hooks.json"
 

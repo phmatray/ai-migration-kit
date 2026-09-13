@@ -733,7 +733,9 @@ Then, per slot:
 `<kit>/skills/merge-pr/scripts/guarded-pr-merge.sh <PR> -- --squash --delete-branch` and decide the
 slot's fate from its exit code, never from a bare `gh pr merge`'s (this kit's normal layout — the
 worker's `implement-issue` worktree still holding the head branch while the supervisor sits on
-`main` — makes gh's own local-cleanup half fail routinely, on a merge that landed regardless). What
+`main` — makes gh's own local-cleanup half fail routinely, on a merge that landed regardless). If
+that call is refused (an agent confined to its worktree, the path resolving outside it), see the
+fallback in [`_shared/guard-invocation.md`](../_shared/guard-invocation.md). What
 each code means is the script's own header comment and `merge-pr` SKILL.md Step 5's table (#184) —
 one home, not restated here — but what **auto-dev** specifically does with each outcome is:
 `0` (MERGED) → retire the slot and refill it (same as any other retirement, right away — don't
