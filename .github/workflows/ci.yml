@@ -266,16 +266,27 @@ jobs:
       - name: xunit v3 transform golden test (scratch copy, fixture untouched)
         run: ./tests/xunit-v3/test.sh
 
+      # Every plugin manifest the kit ships is read from scripts/host-adapters.py's own VERSIONED
+      # and UNVERSIONED_JSON tuples (#556) rather than hand-typed here a second time — the gap this
+      # closes: #526 added four manifests this step didn't cover until now, silently, at the same
+      # commit that grew the kit's manifest surface. Loaded through py_module (tests/_lib/py.sh),
+      # the kit's one importlib loader (#51), rather than a second hand-rolled one.
       - name: Plugin manifests and requirements are valid JSON
         run: |
-          python3 -m json.tool .claude-plugin/plugin.json > /dev/null
-          python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
-          python3 -m json.tool requirements.json > /dev/null
-          python3 -m json.tool release-please-config.json > /dev/null
-          python3 -m json.tool .release-please-manifest.json > /dev/null
+          . tests/_lib/py.sh
+          py_module scripts/host-adapters.py <<'PY'
+          import json, sys
           # A malformed renovate.json does not fail anything visibly: Renovate simply stops
           # proposing updates for the repo, and the only symptom is an absence of PRs.
-          python3 -m json.tool renovate.json > /dev/null
+          for rel in (*mod.VERSIONED, *mod.UNVERSIONED_JSON,
+                      'requirements.json', 'release-please-config.json',
+                      '.release-please-manifest.json', 'renovate.json'):
+              try:
+                  json.load(open(rel, encoding='utf-8'))
+              except Exception as e:
+                  sys.exit(f'{rel}: {e}')
+              print(f'ok  {rel}')
+          PY
 
       # Parsing is not acceptance. The step above proves renovate.json is JSON; this one asks the
       # engine that consumes it. `customManagers` must compile under RE2, and any unknown key raises

@@ -104,14 +104,23 @@ add_suite "tests/recap-wiring/test.sh"
 
 add_suite "tests/xunit-v3/test.sh"
 
-# 6: JSON manifests are valid JSON.
+# 6: JSON manifests are valid JSON — every plugin manifest host-adapters.py's VERSIONED and
+# UNVERSIONED_JSON tuples name, plus the four release/requirements files that aren't either (#556).
 add_gate "$(cat <<'EOF'
-python3 -m json.tool .claude-plugin/plugin.json > /dev/null
-python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
-python3 -m json.tool requirements.json > /dev/null
-python3 -m json.tool release-please-config.json > /dev/null
-python3 -m json.tool .release-please-manifest.json > /dev/null
-python3 -m json.tool renovate.json > /dev/null
+. tests/_lib/py.sh
+py_module scripts/host-adapters.py <<'PY'
+import json, sys
+# A malformed renovate.json does not fail anything visibly: Renovate simply stops
+# proposing updates for the repo, and the only symptom is an absence of PRs.
+for rel in (*mod.VERSIONED, *mod.UNVERSIONED_JSON,
+            'requirements.json', 'release-please-config.json',
+            '.release-please-manifest.json', 'renovate.json'):
+    try:
+        json.load(open(rel, encoding='utf-8'))
+    except Exception as e:
+        sys.exit(f'{rel}: {e}')
+    print(f'ok  {rel}')
+PY
 EOF
 )"
 
