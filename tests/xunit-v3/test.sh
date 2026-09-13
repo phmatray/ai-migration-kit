@@ -1496,17 +1496,30 @@ def check(cfg):
 
     THE BOUNDARY THIS SECTION DOES NOT CROSS: `cfg` is the UNRESOLVED renovate.json, read straight
     off disk. Renovate resolves `extends` first and merges the preset underneath the local keys, so
-    everything a preset contributes is invisible here — `cfg.get("ignorePaths")` is empty today
-    because the file declares none, not because nothing ignores the transform, and a preset setting
-    `enabledManagers` would disable the custom managers repo-wide while every assertion below still
-    passed. This repo extends `local>phmatray/.github:renovate-ci` (#99, hole 4).
+    everything a preset contributes is invisible here, and a preset setting `enabledManagers` would
+    disable the custom managers repo-wide while every assertion below still passed. This repo
+    extends `local>phmatray/.github:renovate-ci` (#99, hole 4).
 
     Resolving a preset means fetching another repository, which is exactly what this section must
-    not do — it is the offline, always-runnable half of the pair. The engine-backed half is
-    `tests/renovate-config/`, where the real renovate-config-validator judges this file instead of a
-    model of it. Note the honest limit even there: the validator is handed the file, so it does not
-    fetch `local>` presets either. Nothing in the kit asserts the RESOLVED config today; that is the
-    engine-backed follow-through #99 records, not a claim this docstring may make."""
+    not do — it is the offline, always-runnable half of the pair.
+
+    WHERE THE BOUNDARY MOVED (#156): `tests/renovate-config/test.sh` section 10 now asks Renovate
+    itself, via `renovate --dry-run=extract --print-config`, and asserts the two reach questions
+    against the RESOLVED config. That closed hole 4 and immediately found the defect it was built to
+    find — the resolved config inherited Renovate's default `ignorePaths`, whose `**/tests/**`
+    filtered this very file out of the candidate list before any manager matched it, so both pins
+    were unwatched. The fix is the explicit `ignorePaths` renovate.json now carries: the inherited
+    list minus that one entry.
+
+    The two halves divide as follows, and NEITHER covers the other:
+      * a regression in the FILE is this section's, caught offline on every CI run. The loop below
+        is no longer vacuous — renovate.json declares seven `ignorePaths` today, and
+        `_ignore_the_whole_tree` pins that a `tests/**`-shaped entry returning to it is refused.
+      * a regression in the PRESET is section 10's alone, with its own honest limits: it reads the
+        DEFAULT BRANCH as the platform serves it, not the working tree, and it SKIPs when node is
+        below renovate's 24.11 floor or no token is available — which is every CI run until
+        `actions/setup-node` is wired. A SKIP is not a pass, and nothing offline is a substitute for
+        it: no model here can see a preset edit made in another repository."""
     unevaluated = []
     managers = cfg.get("customManagers", [])
     assert managers, "renovate.json declares no customManagers — the pins are invisible to Renovate"
