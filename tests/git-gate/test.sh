@@ -43,6 +43,30 @@ plain_repo() {
   printf '%s' "$d"
 }
 
+# A profiled repo carrying REAL uncommitted state, for #560's named-path-checkout probe — the one
+# fixture in this file whose working tree is deliberately dirty:
+#   src/Clean.cs        committed, untouched.
+#   src/Dirty.cs         committed, then edited UNSTAGED — worktree differs from the index.
+#   src/StagedClean.cs  committed, then edited AND staged — index differs from HEAD, but the
+#                       worktree matches the index (porcelain's own 2nd/worktree column reads
+#                       " "), so a bare `git checkout -- <path>` (index -> worktree, no ref) is a
+#                       genuine no-op against it — nothing to discard (#560 review).
+dirty_repo() {
+  local d; d=$(mktemp -d "$WORK/dirty.XXXXXX")
+  git -C "$d" init -q >/dev/null 2>&1
+  mkdir -p "$d/.claude/skills" "$d/src"
+  : > "$d/.claude/skills/repo-profile.md"
+  printf 'clean\n' > "$d/src/Clean.cs"
+  printf 'clean\n' > "$d/src/Dirty.cs"
+  printf 'v1\n' > "$d/src/StagedClean.cs"
+  git -C "$d" add -A >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -q -m seed >/dev/null 2>&1
+  printf 'edited, uncommitted\n' > "$d/src/Dirty.cs"
+  printf 'v2\n' > "$d/src/StagedClean.cs"
+  git -C "$d" add src/StagedClean.cs >/dev/null 2>&1
+  printf '%s' "$d"
+}
+
 # A PATH holding exactly what the gate shells out to, plus whichever stubs are named — built by
 # NAMING the tools rather than by subtracting one from $PATH, so the "absent" case holds on every
 # host. Every extra argument becomes an empty executable.
@@ -102,7 +126,7 @@ verdict() {
   echo "ok: $name -> $decision"
 }
 
-PROF=$(profile_repo); PLAIN=$(plain_repo)
+PROF=$(profile_repo); PLAIN=$(plain_repo); DIRTY=$(dirty_repo)
 [ "$PROF" != "$PLAIN" ] || { echo "FAIL: fixture helpers returned the same directory"; exit 1; }
 
 # ------------------------------------------------------- 1. the deny rows, in a profiled repo (D)
@@ -352,7 +376,32 @@ verdict "A1  branch -D after a merge"  pass "" "$(pay Bash 'git branch -D feat/3
 verdict "A2  checkout a branch"        pass "" "$(pay Bash 'git checkout main' "$PROF")"
 verdict "A3  switch"                   pass "" "$(pay Bash 'git switch -c feat/x' "$PROF")"
 verdict "A4  restore one named path"   pass "" "$(pay Bash 'git restore src/App.cs' "$PROF")"
-verdict "A5  checkout -- one path"     pass "" "$(pay Bash 'git checkout -- src/App.cs' "$PROF")"
+verdict "A5  checkout -- one clean path" pass "" "$(pay Bash 'git checkout -- src/App.cs' "$PROF")"
+# ------------------------------------------------- 1e. the named-path checkout probe, scoped (#560)
+# A named-path checkout/switch is exactly as capable of silently overwriting one file's
+# uncommitted edit as the whole-tree form is of overwriting all of them — the hook denied only the
+# whole-tree shape until now. `$DIRTY` carries a real unstaged edit at `src/Dirty.cs`.
+verdict "A43 checkout -- one dirty path" deny "checkout -- <path>" \
+  "$(pay Bash 'git checkout -- src/Dirty.cs' "$DIRTY")"
+verdict "A44 checkout <ref> -- two paths, one dirty" deny "src/Dirty.cs" \
+  "$(pay Bash 'git checkout HEAD -- src/Clean.cs src/Dirty.cs' "$DIRTY")"
+# A bare ref before `--` (a branch/commit name, not a path) must never be probed against the
+# working tree: that would false-deny an ordinary branch switch that happens to share a name with
+# an unrelated dirty file elsewhere in the tree.
+verdict "A45 checkout a ref named like a dirty path is still just a ref" pass "" \
+  "$(pay Bash 'git checkout src/Dirty.cs' "$DIRTY")"
+# A46/A47: a path that is dirty ONLY in the index (staged, worktree already matches) is a no-op
+# for the no-ref restore form, but a REAL discard once a ref is named — the ref replaces the
+# worktree from itself, not from the index, so the staged edit is lost either way.
+verdict "A46 checkout -- a staged-but-worktree-clean path is a no-op" pass "" \
+  "$(pay Bash 'git checkout -- src/StagedClean.cs' "$DIRTY")"
+verdict "A47 checkout <ref> -- the same staged-clean path still denies" deny "src/StagedClean.cs" \
+  "$(pay Bash 'git checkout HEAD -- src/StagedClean.cs' "$DIRTY")"
+# A48: FORCE mode (GIT_GATE=on) must not defeat the probe by leaving `dir` pointed at the hook's
+# own cwd instead of the repo the payload names — the exact regression an earlier draft of this
+# fix shipped (`dir` was resolved only inside the `is_profiled` arm, which FORCE skips entirely).
+verdict "A48 GIT_GATE=on still denies a dirty named-path checkout" deny "checkout -- <path>" \
+  "$(pay Bash 'git checkout -- src/Dirty.cs' "$DIRTY")" "$PATH" on
 verdict "A6  stash -u"                 pass "" "$(pay Bash 'git stash -u' "$PROF")"
 verdict "A7  rebase"                   pass "" "$(pay Bash 'git rebase main' "$PROF")"
 verdict "A8  reset without --hard"     pass "" "$(pay Bash 'git reset --soft HEAD~1' "$PROF")"
