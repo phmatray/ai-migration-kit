@@ -34,6 +34,26 @@ printf '# Repo profile\n- fixture\n' > "$tmp/.claude/skills/repo-profile.md"
 [ "$(bash "$SCRIPT" show "$tmp")" = "$(cat "$tmp/.claude/skills/repo-profile.md")" ] \
   || fail "show with profile: output differs from the committed file"
 
+# 2b. tracker (#504) — reads the committed profile's Tracker line back as `<name> <detail>`.
+tmp2b=$(kit_scratch)
+rc=0; out=$(bash "$SCRIPT" tracker "$tmp2b") || rc=$?
+[ "$rc" -eq 3 ] || fail "tracker without a committed profile: expected exit 3, got $rc"
+[ -z "$out" ] || fail "tracker without a committed profile: expected no output, got '$out'"
+
+mkdir -p "$tmp2b/.claude/skills"
+printf -- '# Repo profile\n\n## Tracker\n- **Tracker:** azure-devops (dev.azure.com/acme/Shop) — the lifecycle skills drive GitHub semantics through `gh`; any other value is refused at preconditions.\n' \
+  > "$tmp2b/.claude/skills/repo-profile.md"
+rc=0; out=$(bash "$SCRIPT" tracker "$tmp2b") || rc=$?
+[ "$rc" -eq 0 ] || fail "tracker with an azure-devops profile: expected exit 0, got $rc"
+[ "$out" = "azure-devops dev.azure.com/acme/Shop" ] \
+  || fail "tracker with an azure-devops profile: expected 'azure-devops dev.azure.com/acme/Shop', got '$out'"
+
+printf -- '- **Tracker:** other: bitbucket.org — the lifecycle skills refuse this tracker.\n' \
+  > "$tmp2b/.claude/skills/repo-profile.md"
+out=$(bash "$SCRIPT" tracker "$tmp2b")
+[ "$out" = "other bitbucket.org" ] \
+  || fail "tracker with an 'other: <host>' profile: expected 'other bitbucket.org', got '$out'"
+
 # 3. detect outside a git repository → exits 4.
 tmp2=$(kit_scratch)
 rc=0; bash "$SCRIPT" detect "$tmp2" >/dev/null 2>&1 || rc=$?
@@ -411,6 +431,51 @@ $sec"
 grep -qF "on this machine only" <<<"$sec" \
   || fail "detect: the AdrMcp server line was not flagged as a machine-local fact, not a repo fact:
 $sec"
+
+# 8d. GitLab remotes (#504): gitlab.com is a direct host match, no `glab` probe needed.
+glc=$(kit_scratch)
+git -C "$glc" init -q -b main
+git -C "$glc" -c user.email=t@test -c user.name=T commit -q --allow-empty -m base
+git -C "$glc" remote add origin https://gitlab.com/acme/widgets.git
+out=$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$glc")
+grep -qF "tracker: gitlab (gitlab.com)" <<<"$out" \
+  || fail "detect: a gitlab.com origin was not reported as 'gitlab (gitlab.com)':
+$out"
+
+# 8e. A self-managed GitLab host (case 8's own $fx, origin git@gitlab.example.com:x/y.git) is
+#     recognized only through the positive `glab repo view` probe — with a stub `glab` on PATH
+#     that exits 0. Case 8a above already proves the negative (no `glab` on PATH → stays
+#     'other: gitlab.example.com'); this proves the positive without touching that case.
+GLAB_BIN="$(kit_scratch)/bin"
+mkbin "$GLAB_BIN" $DETECT_TOOLS
+cat > "$GLAB_BIN/glab" <<'STUBEOF'
+#!/bin/sh
+if [ "$1" = "repo" ] && [ "$2" = "view" ]; then exit 0; fi
+exit 1
+STUBEOF
+chmod +x "$GLAB_BIN/glab"
+out=$(PATH="$GLAB_BIN" bash "$SCRIPT" detect "$fx")
+grep -qF "tracker: gitlab (gitlab.example.com)" <<<"$out" \
+  || fail "detect: a self-managed GitLab origin with a positive 'glab repo view' probe was not
+reported as 'gitlab (gitlab.example.com)':
+$out"
+
+# 8f. Azure DevOps remotes (#504): three real-world shapes all name the same tracker line.
+for adospec in \
+  "https://acme@dev.azure.com/acme/Shop/_git/widgets" \
+  "git@ssh.dev.azure.com:v3/acme/Shop/widgets" \
+  "https://acme.visualstudio.com/Shop/_git/widgets"
+do
+  ado=$(kit_scratch)
+  git -C "$ado" init -q -b main
+  git -C "$ado" -c user.email=t@test -c user.name=T commit -q --allow-empty -m base
+  git -C "$ado" remote add origin "$adospec"
+  out=$(PATH="$NOCLAUDE" bash "$SCRIPT" detect "$ado")
+  grep -qF "tracker: azure-devops (dev.azure.com/acme/Shop)" <<<"$out" \
+    || fail "detect: Azure DevOps origin '$adospec' was not reported as
+'azure-devops (dev.azure.com/acme/Shop)':
+$out"
+done
 
 # 9. Tracker host-extraction must handle more than `git@host:` and bare `https://host/`: an
 #    `ssh://` remote and a remote carrying embedded CI credentials (`user:token@host`) are both
