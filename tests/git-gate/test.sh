@@ -350,6 +350,32 @@ verdict "L17 an escaped semicolon inside echo's arguments stays inert" pass "" \
 # command carrying a backslash through to the real parse (found in review).
 verdict "L18 a backslash inside the word (not just before it)" deny "guarded-commit.sh" \
   "$(pay Bash 'g\it commit -m x' "$PROF")"
+# `timeout`'s own option forms (#562, follow-up to #540): a launcher recognised only in its BARE
+# form left every option of its own — value-taking or not — unswallowed, so `-k`/`-v` broke the
+# walk before it ever reached git/gh and the segment fell through unrecognised (never denied).
+# NOTE: labelled L19-L22 rather than the issue's own L16-L19 — L16-L18 were already taken by the
+# escaped-separator cases above by the time this landed; see the PR's "Fixed along the way".
+verdict "L19 timeout -k 5 60 git commit -m x (separated value)" deny "guarded-commit.sh" \
+  "$(pay Bash 'timeout -k 5 60 git commit -m x' "$PROF")"
+verdict "L20 timeout --kill-after=5 60 gh pr merge (long option)" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'timeout --kill-after=5 60 gh pr merge 12 --squash' "$PROF")"
+verdict "L21 timeout -v 60 git commit -m x (value-less flag)" deny "guarded-commit.sh" \
+  "$(pay Bash 'timeout -v 60 git commit -m x' "$PROF")"
+verdict "L22 timeout -k 5 60 git commit -m x, unprofiled cwd" pass "" \
+  "$(pay Bash 'timeout -k 5 60 git commit -m x' "$PLAIN")"
+# `nice`/`stdbuf`'s own option forms, plus three launchers chained in one segment (#562).
+verdict "L23 nice -n 10 git push (separated value)" deny "guarded-push.sh" \
+  "$(pay Bash 'nice -n 10 git push' "$PROF")"
+verdict "L24 nice -n10 git push (attached value)" deny "guarded-push.sh" \
+  "$(pay Bash 'nice -n10 git push' "$PROF")"
+verdict "L25 stdbuf -oL -eL git commit -m x (two attached options)" deny "guarded-commit.sh" \
+  "$(pay Bash 'stdbuf -oL -eL git commit -m x' "$PROF")"
+verdict "L26 stdbuf -o L -e L git commit -m x (separated form)" deny "guarded-commit.sh" \
+  "$(pay Bash 'stdbuf -o L -e L git commit -m x' "$PROF")"
+verdict "L27 nice -n 10 git push, unprofiled cwd" pass "" \
+  "$(pay Bash 'nice -n 10 git push' "$PLAIN")"
+verdict "L28 env FOO=1 nice -n 10 timeout 60 git commit -m x (three chained launchers)" deny "guarded-commit.sh" \
+  "$(pay Bash 'env FOO=1 nice -n 10 timeout 60 git commit -m x' "$PROF")"
 
 # --------------------------------------------------------- 1g. the allowlist is per-segment (#533)
 # The old allowlist matched `guarded-commit.sh` as a substring ANYWHERE on the line, so a line that
