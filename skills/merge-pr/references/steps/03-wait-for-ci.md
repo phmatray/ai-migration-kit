@@ -6,12 +6,13 @@ check-run alongside the real one for the same job (a known GitHub Actions behavi
 job re-triggers), so don't act on its verdict directly. **Run the check-runs recipe from
 `references/merge-mechanics.md` §3**: it collects every check-run on the head SHA (paginated),
 **reduces them to the latest run of each job** — a SHA carries a *history per job*, not one run per
-job (#91) — and derives two sets from that reduced set: `failed` (failure / cancelled / timed_out /
-action_required) and `pending` (queued / in_progress / waiting / requested / pending) — the first pair
-is a run under way, the last three are a run that has **not started at all**, behind an environment
-protection rule or posted by an app before it begins (#191). None of the five has a conclusion, so
-none is evidence of anything; reading them as green is how a gated `deploy` job merges without ever
-running.
+job (#91) — and derives three sets from that reduced set: `failed` (failure / cancelled / timed_out),
+`needs_approval` (action_required — a completed run awaiting a maintainer's approval, neither a
+failure nor unstarted, #495) and `pending` (queued / in_progress / waiting / requested / pending) —
+the first pair of `pending` is a run under way, the last three are a run that has **not started at
+all**, behind an environment protection rule or posted by an app before it begins (#191). None of
+those five has a conclusion, so none is evidence of anything; reading them as green is how a gated
+`deploy` job merges without ever running.
 
 That reduction **and** the rule that reads it are the registered decision `ci.verdict`, so run it —
 do not re-derive it here. `$DECIDE` is Step 2's variable; the recipe in §3 is the same call with the

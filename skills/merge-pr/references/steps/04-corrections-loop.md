@@ -3,6 +3,56 @@
 The heart of the skill. Re-read the merge state, run the decision, apply the correction it names,
 push, re-wait — until it answers `merge`.
 
+**First, is Step 3's own `$ci_verdict` `needs-approval`?** Step 3's recipe (`merge-mechanics.md` §3)
+already assigns it — `ci_verdict=$(printf '%s' "$verdict" | jq -r .verdict)` — so it is already in
+scope here; nothing below recomputes it from a variable this step never defined.
+Handle it here, before building any `merge.step4` state (#495). `ci.verdict`'s three widened sets —
+`failed`, `needs_approval`, `pending` — do not all reach the state block below: §4's shape only ever
+forwards `.failed` and `.pending` by name, because `merge.step4`'s own vocabulary has no word for
+"awaiting approval" and never needs one. A run that has moved out of `.failed` and into
+`.needs_approval` would otherwise vanish from the precedence entirely and read as mergeable the
+moment `mergeStateStatus` says `CLEAN` — which is exactly what it says, since GitHub does not block
+a merge on an approval-pending run. Nothing a push can fix here; only an approval can, and only for
+this repository's own release bot.
+
+| `$ci_verdict` | What to do |
+|---|---|
+| `needs-approval` | Run `skills/merge-pr/scripts/approve-runs.sh "$PR"` (below), then act on its exit code. |
+
+```bash
+if [ "$ci_verdict" = "needs-approval" ]; then
+  # rc=0 BEFORE the call, `|| rc=$?` after: under this skill's own `set -euo pipefail` convention,
+  # `out=$(cmd); rc=$?` aborts the whole snippet on a non-zero exit before `rc=$?` ever runs — the
+  # same reason base-run-verdict.sh's own reads never write it that way (merge-mechanics.md's
+  # worktrees-ignored check and base-run-verdict.sh's check-runs/workflow-runs reads all use this).
+  rc=0; out=$(skills/merge-pr/scripts/approve-runs.sh "$PR") || rc=$?
+  case "$rc" in
+    0) echo "$out" ;;   # `approved <id>` per run, or `approved 0 run(s)` — either way, re-wait
+    2) echo "$out" >&2; exit 1 ;;   # REFUSED — not the release bot; ids + manual remedy printed
+    *) echo "$out" >&2; exit 1 ;;   # a `gh` call failed — not this PR's fault; re-run the skill
+  esac
+fi
+```
+
+**No `-R`.** Run from the PR's own worktree, exactly like every other `gh` call in this skill — the
+script resolves the repository itself (`skills/_shared/scripts/_gh-host.sh`, the same helper
+`base-run-verdict.sh` uses); passing `{owner}/{repo}` as a literal `-R` value would only break it,
+since `gh` expands that placeholder in a REST *path*, never in the `-R` flag itself.
+
+- **Exit 0** — approved (or there was nothing left to approve): push nothing, loop back to Step 3
+  and re-wait. If Step 3 reads `needs-approval` **again on the same head sha**, stop —
+  `STATUS: BLOCKED | DETAIL: runs <ids> need approval by a maintainer` — a second occurrence on an
+  unchanged sha means the approval did not clear anything a re-try could fix, so looping again would
+  hang rather than converge.
+- **Exit 2** — REFUSED: the PR's author is not the repository's release bot. Stop —
+  `STATUS: BLOCKED | DETAIL: runs <ids> need approval by a maintainer` (the ids and the manual `gh
+  api … approve` remedy are already in `$out`) — approving a stranger's workflow run executes their
+  code with this repository's secrets, which is not this skill's call to make.
+- Any other exit is a `gh` failure, not a verdict about the PR: report it and stop rather than retry
+  blind.
+
+Only once `$ci_verdict` is *not* `needs-approval` does the rest of this step apply.
+
 **You do not derive the correction from `mergeStateStatus` by hand.** Which correction a state calls
 for is the registered decision `merge.step4`, and its fifteen-rule precedence lives in exactly one
 place: `skills/merge-pr/scripts/merge-verdict.sh`. Re-deriving it here is what this step used to do,

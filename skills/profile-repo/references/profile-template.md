@@ -55,8 +55,9 @@ them exactly as the repo uses them.
 
 ## Tracker
 - **Tracker:** <github (<host>) | gitlab (<host>) | azure-devops (dev.azure.com/<org>/<project>) |
-  other: <host> | TODO: no origin remote> — the lifecycle skills drive GitHub semantics through
-  `gh`; any other value is refused at preconditions.
+  other: <host> | TODO: no origin remote> — every lifecycle skill is refused at Step 1 unless
+  `tracker.capable` answers capable; GitHub is the reference backend and answers capable for every
+  skill.
 
 ## Domain language
 - <path of CONTEXT.md / CONTEXT-MAP.md / docs/CONTEXT.md, or "none"> — `create-issue` /

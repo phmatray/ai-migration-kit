@@ -183,7 +183,13 @@ R1 refuses a second copy of these markers, because two homes for a gate is how a
         # job has nothing else — the path-filter case, which stays a non-event.
         | ((map(select(.state != "skipped")) | last) // last))
   | { latest: .,
-      failed:  [ .[] | select(.state == "failure" or .state == "cancelled" or .state == "timed_out" or .state == "action_required") ],
+      failed:  [ .[] | select(.state == "failure" or .state == "cancelled" or .state == "timed_out") ],
+      # A completed run whose conclusion is `action_required` (#495) is a third state, neither
+      # failed nor pending: GitHub uses it for a workflow run awaiting approval (first-time
+      # contributors, or a bot-authored PR under "require approval for all outside collaborators").
+      # Nothing a push can change clears it — only an approval can — so it must not be filed under
+      # `failed`, where a correction loop would hunt forever for a fix that does not exist.
+      needs_approval: [ .[] | select(.state == "action_required") ],
       # queued/in_progress are a run under way; waiting/requested/pending are a run that has not
       # started at all (behind an environment protection rule, or an app posting the check before
       # it begins). None of the five has a conclusion, and none is skipped, so none is evidence of
@@ -201,10 +207,16 @@ R1 refuses a second copy of these markers, because two homes for a gate is how a
   # exactly: #191 decides WHICH runs count as pending, this decides what a caller DOES about them.
   # A waiting deployment gate therefore now reaches verdict:"pending" rather than falling through
   # to clear — which was the whole point of #191, carried into the registered decision.
-  | . + (if   (.latest | length) == 0  then {verdict:"no-ci",   rule:"no-checks"}
-         elif (.pending | length) > 0  then {verdict:"pending", rule:"pending"}
-         elif (.failed  | length) > 0  then {verdict:"failed",  rule:"failed"}
-         else                               {verdict:"clear",   rule:"clear"} end)
+  #
+  # `needs-approval` sits between `pending` and `failed` (#495): like `pending` it is non-terminal
+  # (a remedy exists — approve the run) and like `failed` it must not be masked by an unrelated
+  # job still in flight, which is why `pending` is still checked first — a PR that is BOTH waiting
+  # on a slow job AND awaiting approval reports the one a caller can do nothing about yet.
+  | . + (if   (.latest | length) == 0        then {verdict:"no-ci",          rule:"no-checks"}
+         elif (.pending | length) > 0        then {verdict:"pending",        rule:"pending"}
+         elif (.needs_approval | length) > 0 then {verdict:"needs-approval", rule:"needs-approval"}
+         elif (.failed  | length) > 0        then {verdict:"failed",         rule:"failed"}
+         else                                     {verdict:"clear",          rule:"clear"} end)
   # <<< decision ci.verdict rule <<<
 ```
 

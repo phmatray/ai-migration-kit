@@ -65,9 +65,19 @@ If the auth check fails with a 401 error, stop and tell the user to run this in 
 The `!` prefix runs the command in the current session, so the token lands in your environment. Then
 re-check the `gh api user` command before continuing.
 
-If the profile's **Tracker** line (or, with no profile, the host of `git remote get-url origin`) is
-not GitHub, stop with one sentence — *the lifecycle skills drive GitHub semantics through `gh`;
-`<host>` is not a supported tracker* — and do not infer a substitute.
+Whether **this** skill can run against **this** repository's tracker is a registered decision, not a
+judgement to make here. Ask it — the report feeds the verdict:
+
+```bash
+<kit>/scripts/tracker.sh state <this skill> | <kit>/scripts/decide.sh tracker.capable
+```
+
+Proceed only on `capable`. On any other answer, stop with one sentence that quotes the verdict and
+names the tracker — *`merge-pr` cannot run here: `tracker.capable` answered `unsupported`* — and
+point at #503, which tracks the remaining backends. Do not infer a substitute, and do not re-derive
+the answer from the Tracker line yourself: [`tracker-contract.md`](./tracker-contract.md) explains
+what each verdict means and what clears it, and `scripts/tracker/capable.sh` is the only thing that
+produces one.
 
 **On a GitHub host other than github.com** (a Tracker line of `github (<host>)`, e.g. GitHub
 Enterprise), the kit's own scripts reach the repository's host by themselves: each one resolves it
@@ -120,3 +130,4 @@ This ensures commits are authored with the canonical identity (usually GitHub, n
 - `skills/implement-issue/references/steps/01-preconditions.md` — Step 1 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)
 - `skills/create-issue/references/steps/01-preconditions.md` — Step 1 of create-issue, split out of its SKILL.md for progressive disclosure (#499)
 - `skills/merge-pr/references/steps/01-preconditions.md` — Step 1 of merge-pr, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/_shared/tracker-contract.md` — explains the `tracker.capable` verdict this file asks for at Step 1, and what clears each answer (#505)
