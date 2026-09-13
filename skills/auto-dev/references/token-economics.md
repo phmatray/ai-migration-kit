@@ -139,10 +139,10 @@ session at a *phase* boundary. A length boundary is the same cut at a less natur
 
 ### The two budgets — declared here, cited everywhere else
 
-Both integers live in this file and **nowhere else**. `SKILL.md` and `commands/auto-dev-worker.md`
+These integers live in this file and **nowhere else**. `SKILL.md` and `commands/auto-dev-worker.md`
 cite this section rather than carrying a number of their own, and `tests/auto-dev-cost-budgets/test.sh`
-fails the build if either is restated there — a figure repeated in two documents is a figure that
-drifts, which is why this repo already gates its pinned version literals the same way.
+fails the build if either of the first two is restated there — a figure repeated in two documents is
+a figure that drifts, which is why this repo already gates its pinned version literals the same way.
 
 - **CONTEXT BOUND = autoCompactWindow 20.** No model has a tool that runs `/compact` — Claude Code
   documents that a built-in command executes only when a user types it, so the cadence this bullet
@@ -164,8 +164,14 @@ drifts, which is why this repo already gates its pinned version literals the sam
   `STATUS: PARTIAL` naming the plan checkboxes it did not reach. Derived from the 127-turn mean —
   comfortably above it, well below the 434-turn outlier. Two 150-turn sessions cost far less than one
   300-turn session because the second one restarts at ~30K instead of continuing from ~300K.
+- **SUPERVISED WINDOW = 30 minutes.** `hooks/autodev-stop-gate.sh` (#548) exits 0 on a Stop event
+  whenever the fleet's state file was touched within this window, on the theory that a supervisor who
+  touched it that recently is mid-cycle and expected back on its own — not walked away. It is a floor
+  on `SKILL.md` Step 5's documented long heartbeat fallback (~20–30 min): set any lower and an
+  idle-but-alive supervisor's own mtime would age past it purely from having nothing to reconcile,
+  which is why Step 5 makes that heartbeat touch the state file unconditionally.
 
-Both are **starting values derived from one run on one repo, not A/B-verified optima**, and this
+These are **starting values derived from one run on one repo, not A/B-verified optima**, and this
 file's own standard (*never claim a lever works without an A/B*) applies to them too. Re-measure with
 `analyze_cache.py` and change them **here**, in the one place, when a second run disagrees.
 
