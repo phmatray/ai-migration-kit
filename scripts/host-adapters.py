@@ -38,6 +38,7 @@ Exit codes:
 import argparse
 import json
 import pathlib
+import re
 import sys
 
 FIX = "run python3 scripts/host-adapters.py build"
@@ -55,7 +56,6 @@ RULE_COPIES = (
     (".clinerules/ai-migration-kit.md", ""),
     (".kiro/steering/ai-migration-kit.md", "---\ninclusion: always\n---\n\n"),
     (".github/copilot-instructions.md", ""),
-    (".agents/rules/ai-migration-kit.md", ""),
 )
 
 # Every plugin manifest that carries a version. release-please bumps each through `extra-files`;
@@ -67,12 +67,26 @@ VERSIONED = (
     "gemini-extension.json",
 )
 
+# The two plugin marketplace manifests, which carry no version of their own (#556) — named here so
+# CI's JSON-validity check has one source for "every manifest the kit ships", the same way VERSIONED
+# already is that source for the versioned ones.
+UNVERSIONED_JSON = (
+    ".claude-plugin/marketplace.json",
+    ".agents/plugins/marketplace.json",
+)
+
 HOSTS = "docs/_data/hosts.yml"
 OLD_HOOKS = "hooks/hooks.json"
 
 
 class NoVerdict(Exception):
     """A source is unreadable or unparseable: exit 2, never a pass."""
+
+
+# `$1` is a substring of `$10`, `$11`, … (and `$100`+), so the guard and the replacement below share
+# this one regex-defined token boundary — a digit-string `in` check and a bare `.replace("$1", ...)`
+# could (and did, #555) disagree about what counts as "the token $1".
+POSITIONAL = re.compile(r"\$([1-9]\d*)")
 
 
 def read_source(repo, rel):
@@ -104,10 +118,11 @@ def toml_command(repo, md_rel):
     # Claude Code fills `$ARGUMENTS` with the whole argument string and `$1` with the first; Gemini
     # has one placeholder, `{{args}}`. Every kit command takes a single argument, so both map to it
     # — and a command reading a second positional argument cannot be expressed at all.
-    for n in "23456789":
-        if f"${n}" in body:
-            raise NoVerdict(f"{md_rel} reads ${n} — Gemini commands take one argument, {{{{args}}}}")
-    prompt = body.lstrip("\n").replace("$ARGUMENTS", "{{args}}").replace("$1", "{{args}}")
+    for match in POSITIONAL.finditer(body):
+        if match.group(1) != "1":
+            raise NoVerdict(f"{md_rel} reads ${match.group(1)} — Gemini commands take one argument, {{{{args}}}}")
+    prompt = POSITIONAL.sub(lambda m: "{{args}}" if m.group(1) == "1" else m.group(0),
+                             body.lstrip("\n").replace("$ARGUMENTS", "{{args}}"))
     # A TOML literal string cannot contain its own closing delimiter, and nothing can escape it.
     if "'''" in prompt:
         raise NoVerdict(f"{md_rel} contains ''' — it cannot be written as a TOML literal string")
@@ -195,7 +210,10 @@ def invariants(repo):
             refusals.append(f"REFUSE: package.json names pi skills {target!r}, which does not exist")
 
     readme = read_source(repo, "README.md")
-    for host in load_hosts(repo):
+    hosts = load_hosts(repo)
+
+    # Forward check: every host adapter exists
+    for host in hosts:
         hid = host.get("id", "?")
         adapter = host.get("adapter", "")
         if not adapter or not (repo / adapter).exists():
@@ -204,6 +222,13 @@ def invariants(repo):
             for line in host.get("install", []):
                 if line not in readme:
                     refusals.append(f"REFUSE: README.md does not carry {hid}'s install line: {line}")
+
+    # Reverse check: every RULE_COPIES entry is named by some host adapter
+    adapters = {host.get("adapter", "") for host in hosts}
+    for rel, _front in RULE_COPIES:
+        if rel not in adapters:
+            refusals.append(f"REFUSE: RULE_COPIES names {rel!r}, which no {HOSTS} host names as its adapter")
+
     return refusals
 
 

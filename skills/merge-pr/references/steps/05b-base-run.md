@@ -55,6 +55,9 @@ from a **different** workflow's run (`release-please`'s or GitHub Pages' `pages-
 whose jobs are named `build`/`deploy`/`report-build-status`) as their evidence. **Never call `gh run
 list` for this step, and never infer this merge's base verdict from another workflow's job names —
 `release-please` and `pages-build-deployment` are not this merge's CI and prove nothing about it.**
+The one sanctioned exception is `base-run-followup.sh` below (#561), invoked only on a `timeout`
+reason and only from that one prescribed call site — it never composes its own ad hoc question,
+and its answer *replaces* `$BASE_LINE` rather than being weighed alongside it.
 `$BASE_LINE` is the only source of truth `--report-line` was built to make un-paraphrasable
 (`tests/merge-base-ci/test.sh` pins this exact trap: a fabricated `pages-build-deployment` success
 armed alongside a real failure for this sha, asserting the line still reads `RED (failed)`).
@@ -76,6 +79,34 @@ twice was never seen. A verdict from the fallback says so: `green (base-run)`, `
 honest answer about one merge; the same reason three merges running means the base has no
 health check at all, and the recap says that in those words rather than recording another
 quiet row.
+
+**On a `timeout` reason only, spend one bounded, non-polling follow-up before treating
+`$BASE_LINE` as final (#561).** `timeout` means the poll loop's own convergence criterion — two
+consecutive identical job-name signatures — never settled inside the budget; under several
+`auto-dev` workers sharing the same CI runners the job graph for one sha can keep shifting long
+enough that this never happens even while the run is genuinely converging toward green. Measured
+2026-09-12: two merges in a 5-worker fleet run answered `unverified (timeout)` for a base that had
+already finished cleanly by the time a human re-checked, minutes later, with exactly this lookup.
+This is the ONE case a second lookup is sanctioned — never for `green`/`RED`, and never for any
+other `unverified` reason (`api-404`, `query-failed`, `no-run-yet`, `decision-failed`, `cancelled`
+are already-settled or already-decided answers; #479 decided how those are handled and this
+changes nothing about them):
+
+```bash
+case "$BASE_LINE" in
+  "unverified (timeout)")
+    # $BASE is the baseRefName Step 1 already captured. One `gh run list` call, no sleep, no
+    # re-poll of base-run-verdict.sh itself — never a second poll loop.
+    BASE_LINE=$(skills/merge-pr/scripts/base-run-followup.sh "$BASE" "$BASE_SHA")
+    base_verdict_word=${BASE_LINE%% *}
+    ;;
+esac
+```
+
+The helper prints one of `green (base-run)` / `RED (base-run)` / `unverified (timeout)` (unchanged,
+if its own lookup is *also* inconclusive) and always exits `0`. `$BASE_LINE` is reassigned to
+*its* answer outright, never composed alongside the original — the ⛔ rule above still holds:
+whichever line is now current is quoted verbatim, never both.
 
 Then act on `$base_verdict_word` — three outcomes, and all three are reported as `$BASE_LINE`:
 

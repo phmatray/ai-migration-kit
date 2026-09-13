@@ -393,13 +393,52 @@ judge() { # $1 one segment of the stripped command
   # judged on their bodies rather than skipped as "the segment starts with `then`". Anything else
   # stops the walk — the segment simply is not a git invocation.
   #
-  # `timeout`/`nice`/`stdbuf` join the launcher list (#533); `timeout` alone also takes a mandatory
-  # duration argument (`timeout 60 …`), so it additionally shifts away whatever follows it — the
-  # other launchers here take no argument of their own in the shape this hook needs to recognise.
+  # `timeout`/`nice`/`stdbuf` join the launcher list (#533). Each of the three also recognises its
+  # OWN GNU coreutils option flags before the launcher word is fully consumed (#562 — #533 only
+  # unwrapped their BARE form, so `nice -n 10 git …`/`timeout -k 5 60 …` broke the walk on `-n`/`-k`
+  # before it ever reached git/gh): a short flag that takes a value, attached (`-k5`) or separated
+  # (`-k 5`); a long flag only in `--name=value` form (GNU getopt's separated `--name value` long
+  # form is NOT recognised — out of scope, same as any BSD spelling of these three launchers, which
+  # fall through unrecognised exactly as before). `timeout` alone also takes a mandatory duration
+  # argument after its own options (`timeout 60 …`) — `nice`/`stdbuf` have no such positional.
   while [ $# -gt 0 ]; do
     case "$1" in
-      env|sudo|command|nohup|time|exec|builtin|nice|stdbuf) shift ;;
-      timeout) shift; [ $# -gt 0 ] && shift ;;
+      env|sudo|command|nohup|time|exec|builtin) shift ;;
+      nice)
+        shift
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            -n) shift; [ $# -gt 0 ] && shift ;;
+            -n?*) shift ;;
+            --adjustment=*) shift ;;
+            *) break ;;
+          esac
+        done
+        ;;
+      stdbuf)
+        shift
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            -i|-o|-e) shift; [ $# -gt 0 ] && shift ;;
+            -i?*|-o?*|-e?*) shift ;;
+            --input=*|--output=*|--error=*) shift ;;
+            *) break ;;
+          esac
+        done
+        ;;
+      timeout)
+        shift
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            -k|-s) shift; [ $# -gt 0 ] && shift ;;
+            -k?*|-s?*) shift ;;
+            --kill-after=*|--signal=*) shift ;;
+            -v|--verbose|--foreground|--preserve-status) shift ;;
+            *) break ;;
+          esac
+        done
+        [ $# -gt 0 ] && shift
+        ;;
       then|do|else|elif|'!') shift ;;
       @P@) grouped=1; shift ;;
       # The one assignment the walk READS instead of stepping over: the per-command off-switch the
@@ -474,20 +513,24 @@ judge() { # $1 one segment of the stripped command
     *) return 0 ;;
   esac
 
+  # Resolved unconditionally — not only under FORCE!=1 — because the named-path dirty-checkout
+  # probe below (#560) needs the real target directory even under `GIT_GATE=on`; leaving `dir`
+  # declared only inside the `is_profiled` arm left it unset there, so that probe silently checked
+  # the hook's own cwd instead of the repo `-C` named (#560 follow-up).
+  local dir="$eff_dir"
+  if [ -n "$seg_dir" ]; then
+    local cdir="$seg_dir"
+    case "$cdir" in /*) ;; *) cdir="${eff_dir:-.}/$cdir" ;; esac
+    # The `-C` path is used ONLY when it resolves to a real repository. A path that does not —
+    # `git -C $WORKTREE commit`, where the hook sees the variable unexpanded, or `-C @Q@` where
+    # it was quoted — is no evidence at all, and treating "cannot resolve" as "not profiled"
+    # made every `-C` carrying a variable a silent off-switch for that segment. Falling back to
+    # the payload's cwd is the honest reading: this is still a command the session is running
+    # from somewhere, and that somewhere is what the probe can actually answer about.
+    if git -C "$cdir" rev-parse --show-toplevel >/dev/null 2>&1; then dir="$cdir"; fi
+  fi
   if [ "$FORCE" != 1 ]; then
     [ "$fresh_init" -eq 0 ] || return 0
-    local dir="$eff_dir"
-    if [ -n "$seg_dir" ]; then
-      local cdir="$seg_dir"
-      case "$cdir" in /*) ;; *) cdir="${eff_dir:-.}/$cdir" ;; esac
-      # The `-C` path is used ONLY when it resolves to a real repository. A path that does not —
-      # `git -C $WORKTREE commit`, where the hook sees the variable unexpanded, or `-C @Q@` where
-      # it was quoted — is no evidence at all, and treating "cannot resolve" as "not profiled"
-      # made every `-C` carrying a variable a silent off-switch for that segment. Falling back to
-      # the payload's cwd is the honest reading: this is still a command the session is running
-      # from somewhere, and that somewhere is what the probe can actually answer about.
-      if git -C "$cdir" rev-parse --show-toplevel >/dev/null 2>&1; then dir="$cdir"; fi
-    fi
     is_profiled "$dir" || return 0
   fi
 
@@ -528,6 +571,39 @@ judge() { # $1 one segment of the stripped command
       esac
       whole_tree $paths && deny "$seg" \
         "That discards every uncommitted change in the tree, including another agent's in a shared checkout. Use \`git checkout -- <path>\` for the one file you mean, or switch branches without the force flag."
+
+      # A NAMED-path checkout/switch is just as capable of silently overwriting one file's
+      # uncommitted edit as the whole-tree form is of overwriting all of them — smaller blast
+      # radius, not a different risk (#560). Only the pathspec strictly after `--` is probed: a
+      # bare arg before it is a REF (a branch/commit name), and `paths` above already mixes those
+      # in for the whole_tree() check — probing a ref against the working tree would false-deny an
+      # ordinary branch switch that merely shares a name with an unrelated dirty file elsewhere.
+      if [ "$seen_dd" -eq 1 ]; then
+        local dd_paths="" dd_seen=0 has_ref=0 dirty names
+        for a in "$@"; do
+          if [ "$dd_seen" -eq 1 ]; then dd_paths="$dd_paths $a"; continue; fi
+          case "$a" in
+            --) dd_seen=1 ;;
+            -*) ;;
+            *) has_ref=1 ;;
+          esac
+        done
+        if [ -n "$dd_paths" ]; then
+          dirty=$(git -C "$dir" status --porcelain -- $dd_paths 2>/dev/null) || dirty=""
+          # No ref before `--` means `git checkout -- <path>` restores index -> worktree only, so
+          # a path that is dirty ONLY in the index (staged, worktree already matches — porcelain's
+          # own 2nd/worktree column reads " ") is a no-op for that exact command, not a discard.
+          # A ref before `--` replaces the worktree from the REF instead, so any difference from
+          # it — staged or not, even an untracked path the ref would create — is real (review of
+          # #560, caught empirically: the unfiltered form denied a harmless staged-only checkout).
+          [ "$has_ref" -eq 1 ] || dirty=$(printf '%s\n' "$dirty" | awk 'substr($0,2,1) != " "')
+          if [ -n "$dirty" ]; then
+            names=$(printf '%s\n' "$dirty" | cut -c4- | tr '\n' ' ')
+            deny "$seg" \
+              "That would silently overwrite an uncommitted edit at ${names% } — the same discard #26 fixed for the whole tree, just scoped to one path. Commit or stash it first, then \`git checkout -- <path>\` once it's clean."
+          fi
+        fi
+      fi
       ;;
     restore)
       # `--staged` without `--worktree` unstages and touches nothing in the tree — it is less

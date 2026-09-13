@@ -62,6 +62,26 @@ BUDGET=$(grep -E '^- \*\*WORKER TURN BUDGET = [0-9]+ turns\.\*\*' "$REF" | sed -
 [ -n "$BOUND" ]  || fail "could not read the context bound out of $REF"
 [ -n "$BUDGET" ]  || fail "could not read the worker turn budget out of $REF"
 
+# The third budget (#548) declared the same shouty, fixed-shape way, so it can be read back and
+# cross-checked against the ONE consumer that actually needs the number as a running value:
+# hooks/autodev-stop-gate.sh's SUPERVISED_MINUTES constant. Unlike CONTEXT BOUND/WORKER TURN
+# BUDGET (prose-only outside this file), this one has a real second copy by necessity — the hook
+# cannot read a markdown file at Stop-hook time — so "declared once" here means "the code copy
+# matches the declared source", checked by comparing the two integers, not by forbidding the copy.
+window_decl=$(grep -cE '^- \*\*SUPERVISED WINDOW = [0-9]+ minutes\.\*\*' "$REF" || true)
+[ "$window_decl" = "1" ] \
+  || fail "token-economics.md must declare the supervised window exactly once as '- **SUPERVISED WINDOW = <n> minutes.**' (found $window_decl)"
+WINDOW=$(grep -E '^- \*\*SUPERVISED WINDOW = [0-9]+ minutes\.\*\*' "$REF" | sed -E 's/.*= ([0-9]+) minutes.*/\1/')
+[ -n "$WINDOW" ] || fail "could not read the supervised window out of $REF"
+
+GATE="$KIT/hooks/autodev-stop-gate.sh"
+[ -f "$GATE" ] || fail "missing $GATE"
+gate_window=$(grep -E '^SUPERVISED_MINUTES=[0-9]+' "$GATE" | sed -E 's/^SUPERVISED_MINUTES=([0-9]+)/\1/')
+[ -n "$gate_window" ] \
+  || fail "$GATE has no 'SUPERVISED_MINUTES=<n>' constant for the supervised-window check"
+[ "$gate_window" = "$WINDOW" ] \
+  || fail "$GATE's SUPERVISED_MINUTES=$gate_window has drifted from token-economics.md's declared SUPERVISED WINDOW = $WINDOW minutes — change it in the ONE place ($REF) and update the gate's constant to match"
+
 # Both are starting values from one run, not A/B-verified optima — the section's own standard for
 # every other lever. Dropping that caveat is how a derived number becomes a law nobody re-measures.
 grep -qi "not A/B-verified optima\|not A/B-verified" "$REF" \

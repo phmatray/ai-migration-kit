@@ -733,7 +733,9 @@ Then, per slot:
 `<kit>/skills/merge-pr/scripts/guarded-pr-merge.sh <PR> -- --squash --delete-branch` and decide the
 slot's fate from its exit code, never from a bare `gh pr merge`'s (this kit's normal layout — the
 worker's `implement-issue` worktree still holding the head branch while the supervisor sits on
-`main` — makes gh's own local-cleanup half fail routinely, on a merge that landed regardless). What
+`main` — makes gh's own local-cleanup half fail routinely, on a merge that landed regardless). If
+that call is refused (an agent confined to its worktree, the path resolving outside it), see the
+fallback in [`_shared/guard-invocation.md`](../_shared/guard-invocation.md). What
 each code means is the script's own header comment and `merge-pr` SKILL.md Step 5's table (#184) —
 one home, not restated here — but what **auto-dev** specifically does with each outcome is:
 `0` (MERGED) → retire the slot and refill it (same as any other retirement, right away — don't
@@ -841,6 +843,13 @@ actively waiting on a specific CI run** to land a merge — that's external GitH
 can't notify you about; return to the long fallback once it lands. (Cache nuance in Token economics: a
 wake past the ~5-min TTL pays a full cache write, so batch pending reconcile work into a long-idle
 wake.)
+
+**Every heartbeat wake touches the state file — even one where reconcile finds nothing else to
+change** (rewriting the same content, or a plain `touch`, is enough). `hooks/autodev-stop-gate.sh`
+reads that file's mtime to tell an actively-cycling supervisor from one that has walked away
+(Token economics § *The two budgets*, `SUPERVISED WINDOW`); a quiet-but-alive run that only ever
+touches the file "after any change" would let its own mtime drift past that window on a long idle
+stretch, which reintroduces the exact false block this mechanism exists to remove.
 
 ## Step 6 — Stop & recap
 
