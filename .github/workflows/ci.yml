@@ -496,6 +496,9 @@ jobs:
       - name: Merge-freshness golden test (a stale CLEAN must not merge)
         run: ./tests/merge-freshness/test.sh
 
+      - name: Approve-runs golden test (only the release bot's action_required runs get approved)
+        run: ./tests/approve-runs/test.sh
+
       - name: Guard-invocation golden test (every $GUARDS site points at the fallback when the path is refused)
         run: ./tests/guard-invocation/test.sh
 
