@@ -34,6 +34,26 @@ printf '# Repo profile\n- fixture\n' > "$tmp/.claude/skills/repo-profile.md"
 [ "$(bash "$SCRIPT" show "$tmp")" = "$(cat "$tmp/.claude/skills/repo-profile.md")" ] \
   || fail "show with profile: output differs from the committed file"
 
+# 2b. tracker (#504) — reads the committed profile's Tracker line back as `<name> <detail>`.
+tmp2b=$(kit_scratch)
+rc=0; out=$(bash "$SCRIPT" tracker "$tmp2b") || rc=$?
+[ "$rc" -eq 3 ] || fail "tracker without a committed profile: expected exit 3, got $rc"
+[ -z "$out" ] || fail "tracker without a committed profile: expected no output, got '$out'"
+
+mkdir -p "$tmp2b/.claude/skills"
+printf -- '# Repo profile\n\n## Tracker\n- **Tracker:** azure-devops (dev.azure.com/acme/Shop) — the lifecycle skills drive GitHub semantics through `gh`; any other value is refused at preconditions.\n' \
+  > "$tmp2b/.claude/skills/repo-profile.md"
+rc=0; out=$(bash "$SCRIPT" tracker "$tmp2b") || rc=$?
+[ "$rc" -eq 0 ] || fail "tracker with an azure-devops profile: expected exit 0, got $rc"
+[ "$out" = "azure-devops dev.azure.com/acme/Shop" ] \
+  || fail "tracker with an azure-devops profile: expected 'azure-devops dev.azure.com/acme/Shop', got '$out'"
+
+printf -- '- **Tracker:** other: bitbucket.org — the lifecycle skills refuse this tracker.\n' \
+  > "$tmp2b/.claude/skills/repo-profile.md"
+out=$(bash "$SCRIPT" tracker "$tmp2b")
+[ "$out" = "other bitbucket.org" ] \
+  || fail "tracker with an 'other: <host>' profile: expected 'other bitbucket.org', got '$out'"
+
 # 3. detect outside a git repository → exits 4.
 tmp2=$(kit_scratch)
 rc=0; bash "$SCRIPT" detect "$tmp2" >/dev/null 2>&1 || rc=$?

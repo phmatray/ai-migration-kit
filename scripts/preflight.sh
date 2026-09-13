@@ -112,31 +112,44 @@ launcher_note() {
 }
 
 # requirements.json → one tab-separated line per entry: kind, level, name, test/match, requiredBy,
-# requiresSdk, launcher, hint. "-" placeholder where a field is empty: an empty field would be
-# swallowed by read (tab = IFS whitespace). Every kind prints the SAME number of columns, including
+# requiresSdk, launcher, hint, tracker. "-" placeholder where a field is empty: an empty field would
+# be swallowed by read (tab = IFS whitespace). Every kind prints the SAME number of columns, including
 # the ones that can never carry the field, so the `read` below binds the same name to the same
-# position on every line. hint stays LAST because `read` gives the trailing field the remainder.
+# position on every line. tracker stays LAST because `read` gives the trailing field the remainder.
 manifest() {
 python3 - "$REQ" <<'PY'
 import json, sys
 req = json.load(open(sys.argv[1]))
 def reqby(e): return ", ".join(e.get("requiredBy", [])) or "-"
 for t in req.get("tools", []):
-    print("\t".join(["tool", t["level"], t["name"], t["test"], reqby(t), "-", "-", t.get("hint", "")]))
+    print("\t".join(["tool", t["level"], t["name"], t["test"], reqby(t), "-", "-",
+                     t.get("hint", ""), t.get("tracker", "-")]))
 for m in req.get("mcps", []):
     print("\t".join(["mcp", m["level"], m["name"], m["match"], reqby(m),
                      str(m.get("requiresSdk") or "-"), str(m.get("launcher") or "-"),
-                     m.get("hint", "")]))
+                     m.get("hint", ""), m.get("tracker", "-")]))
 for s in req.get("sessionSkills", []):
     print("\t".join(["skill", s["level"], "skill " + s["name"], "-", reqby(s), "-", "-",
-                     s.get("when", "")]))
+                     s.get("when", ""), s.get("tracker", "-")]))
 PY
 }
 
 CLAUDE_CLI=1
 command -v claude >/dev/null 2>&1 || CLAUDE_CLI=0
 
-while IFS=$'\t' read -r kind level name test reqby floor launcher hint; do
+# The profile's own Tracker line, first word only ("github", "gitlab", …) — resolved ONCE, here,
+# never per-entry. Empty on ANY non-zero exit (no committed profile, no Tracker line, bad dir):
+# "no verdict" and "the profile disagrees" must not read alike, so an entry naming a `tracker` is
+# skipped only on a POSITIVE mismatch, never on the absence of one.
+PROFILE_TRACKER=""
+_pt_out="$("$KIT_DIR/skills/profile-repo/scripts/repo-profile.sh" tracker 2>/dev/null)" \
+  && PROFILE_TRACKER="${_pt_out%% *}"
+
+while IFS=$'\t' read -r kind level name test reqby floor launcher hint tracker; do
+  # Skip an entry whose declared tracker isn't the profile's — never on "no verdict" either side.
+  if [ "$tracker" != "-" ] && [ -n "$PROFILE_TRACKER" ] && [ "$tracker" != "$PROFILE_TRACKER" ]; then
+    continue
+  fi
   case "$kind" in
     tool)
       if eval "$test" >/dev/null 2>&1; then record ok "$name" "$reqby" ""

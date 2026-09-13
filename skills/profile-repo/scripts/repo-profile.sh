@@ -58,6 +58,20 @@ case "$CMD" in
     fi
     ;;
 
+  tracker)
+    # Reads the committed profile's Tracker line back as `<name> <detail>` (`github github.com`,
+    # `azure-devops dev.azure.com/acme/Shop`, `other bitbucket.org`) — preflight's one consumer,
+    # so its prerequisites can skip a CLI the profile's own tracker doesn't need.
+    out=""
+    [ -f "$PROFILE_REL" ] && out="$(sed -n \
+      's/^- \*\*Tracker:\*\* \([a-z-]*\):\{0,1\} (\{0,1\}\([^) ]*\).*/\1 \2/p' "$PROFILE_REL")"
+    if [ -n "$out" ]; then
+      printf '%s\n' "$out"
+    else
+      exit 3
+    fi
+    ;;
+
   detect)
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       echo "ERR: not inside a git repository — nothing to profile." >&2
