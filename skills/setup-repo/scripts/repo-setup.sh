@@ -284,12 +284,30 @@ command -v gh >/dev/null 2>&1 || GH_OK=0
 [ "$GH_OK" = 1 ] && { gh auth status >/dev/null 2>&1 || GH_OK=0; }
 command -v jq >/dev/null 2>&1 || { echo "ERR: jq is missing — it is a required prerequisite" >&2; exit 2; }
 
-SLUG=""
+# Prefer the host `gh repo view --json url` has ALREADY resolved (#530) over the origin-remote
+# probe _gh-host.sh falls back to when handed a bare owner/repo: a GHE fork checkout (origin still
+# on github.com), a `gh repo set-default` pointed at a different remote, or a renamed repository
+# all reach the wrong host under that probe, and `gh repo view` already knows the real one.
+SLUG=""; VIEW_HOST=""
 if [ "$GH_OK" = 1 ]; then
   SLUG="$(gh repo view --json nameWithOwner 2>/dev/null | jq -r '.nameWithOwner // empty' 2>/dev/null)"
+  # Two separate reads, not one TSV split: `.url` can come back empty, and `IFS=$'\t' read` treats
+  # a LEADING empty field as whitespace to trim rather than a field boundary — silently
+  # misassigning the values after it.
+  if [ -n "$SLUG" ]; then
+    VIEW_URL="$(gh repo view --json url 2>/dev/null | jq -r '.url // empty' 2>/dev/null)"
+    [ -n "$VIEW_URL" ] && VIEW_HOST="$(printf '%s' "$VIEW_URL" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#/.*$##' | tr '[:upper:]' '[:lower:]')"
+  fi
 fi
 if [ "$GH_OK" = 1 ] && [ -n "$SLUG" ]; then
-  gh_host_resolve "$SLUG" || exit 2
+  # A HOST prefix makes gh_host_resolve take rule 1 outright — no origin match, no credential
+  # probe needed — falling back to the pre-#530 origin-probe order only when the url field was
+  # unreadable (VIEW_HOST would then be empty too, not just "no host").
+  if [ -n "$VIEW_HOST" ]; then
+    gh_host_resolve "$VIEW_HOST/$SLUG" || exit 2
+  else
+    gh_host_resolve "$SLUG" || exit 2
+  fi
   SLUG="$KIT_REPO_SLUG"
 fi
 

@@ -57,8 +57,16 @@ note_fail() { echo "FAIL: $1"; FAILED=1; }
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-echo "ARGS: $*" >> "$GH_CALL_LOG"
-if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+# Each line also carries the GH_HOST the call ran under (#514/#530) — <unset> when nothing set
+# one, so the GHE case below can tell "reached the stub under the right host" from "reached it
+# under gh's own default".
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_CALL_LOG"
+if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+  # _gh-host.sh's credential probe, for the no-`-R` cases below: none of them stub an origin host
+  # a credential exists for, so it always refuses — GH_HOST then stays unset, unchanged from
+  # before #530, exactly like every case that never passes -R.
+  exit 1
+elif [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   [ -n "${GH_MERGE_STDOUT:-}" ] && echo "$GH_MERGE_STDOUT"
   [ -n "${GH_MERGE_STDERR:-}" ] && echo "$GH_MERGE_STDERR" >&2
   exit "${GH_MERGE_RC:-0}"
@@ -257,6 +265,25 @@ if [ -s "$WORK/gh-calls.bad-sleep-override.log" ]; then
   note_fail "bad-sleep-override — refused but still called gh:
 $(sed 's/^/    /' "$WORK/gh-calls.bad-sleep-override.log")"
 fi
+
+# --------------------------------------------------------------------- 11. GHE host resolution (#530)
+#
+# A `host/owner/repo` prefix on -R names the host outright (skills/_shared/scripts/_gh-host.sh
+# rule 1) — no origin probe, no credential check, so this needs no fake checkout. Before #530 this
+# script passed the whole "-R" value straight through and never exported GH_HOST at all, so
+# `gh pr merge`/`gh pr view` ran under gh's own default host (github.com) regardless of the prefix.
+GH_MERGE_RC=0 GH_MERGE_STDERR="" \
+GH_VIEW_MODE=ok GH_VIEW_FAIL_FIRST_N=0 GH_VIEW_STATE=MERGED GH_VIEW_MERGED_AT=2026-08-20T00:00:00Z GH_VIEW_SHA=ghe1234 \
+run_case ghe-prefix 0 "MERGED ghe1234" \
+  '-R ghe.example.com/acme/widgets -> both gh calls run under GH_HOST=ghe.example.com, stripped to -R acme/widgets' \
+  -R ghe.example.com/acme/widgets 42 -- --squash --delete-branch
+grep -qF "GH_HOST=ghe.example.com ARGS: pr merge 42 -R acme/widgets --squash --delete-branch" "$WORK/gh-calls.ghe-prefix.log" \
+  || note_fail "ghe-prefix — gh pr merge did not run under GH_HOST=ghe.example.com with -R acme/widgets:
+$(sed 's/^/    /' "$WORK/gh-calls.ghe-prefix.log")"
+grep -qF "GH_HOST=ghe.example.com ARGS: pr view 42 -R acme/widgets" "$WORK/gh-calls.ghe-prefix.log" \
+  || note_fail "ghe-prefix — gh pr view did not run under GH_HOST=ghe.example.com with -R acme/widgets:
+$(sed 's/^/    /' "$WORK/gh-calls.ghe-prefix.log")"
+echo "ok: ghe-prefix — -R HOST/OWNER/REPO reaches both gh calls under GH_HOST=ghe.example.com"
 
 # ---------------------------------------------------------------------------------------- verdict
 if [ "$FAILED" -ne 0 ]; then

@@ -218,6 +218,31 @@ function endsw(s, suf,    ls, lu) { ls = length(s); lu = length(suf); return (ls
       out = out c; prev = c; i++
     } else {
       if (q == dq && c == bs) { qbuf = qbuf substr($0, i+1, 1); i += 2; continue }
+      # #559: real shell still expands `$(...)`/backticks INSIDE a double-quoted argument (only
+      # single quotes suppress that) — so a substitution hidden there is extracted for the same
+      # recursive subs[] relay the unquoted branch above already feeds, instead of being silently
+      # absorbed into qbuf and collapsing to an opaque, never-checked @Q@ placeholder. Verbatim
+      # copies of the two extraction blocks above; only `sq` never gets this (real shell agrees).
+      if (q == dq && c == "$" && substr($0, i+1, 1) == "(") {
+        depth = 1; j = i + 2; start = j
+        while (j <= n && depth > 0) {
+          cc = substr($0, j, 1)
+          if (cc == "(") depth++
+          else if (cc == ")") depth--
+          if (depth > 0) j++
+        }
+        subs[nsubs++] = substr($0, start, j - start)
+        # Never drop the extracted span with nothing in its place (see the code comment two blocks
+        # up on the unquoted @P@ append): a stray `"gh` + trailing `"` either side of a silently
+        # dropped span could otherwise reassemble into a literal `gh`/`git` by accident.
+        qbuf = qbuf "@P@"; i = j + 1; continue
+      }
+      if (q == dq && c == "`") {
+        j = i + 1
+        while (j <= n && substr($0, j, 1) != "`") j++
+        subs[nsubs++] = substr($0, i + 1, j - i - 1)
+        qbuf = qbuf "@P@"; i = j + 1; continue
+      }
       if (c == q) {
         q = ""
         # A quoted span collapses to a placeholder so its content can never be substring-matched

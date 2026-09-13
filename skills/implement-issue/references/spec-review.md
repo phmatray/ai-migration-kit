@@ -49,7 +49,7 @@ that knows two files and no checkout has nothing to edit, commit or push (#477):
    ```bash
    # The 📋 Spec collapsed block that create-issue Step 5 wrote. sed, not jq: the body is markdown
    # and the block is delimited by its own summary line.
-   gh api "repos/{owner}/{repo}/issues/$ISSUE" --jq .body \
+   gh api "repos/{owner}/{repo}/issues/$ISSUE" --hostname <host> --jq .body \
      | sed -n '/<summary><b>📋 Spec<\/b><\/summary>/,/<\/details>/p' > "/tmp/issue-$ISSUE-spec.md"
    [ -s "/tmp/issue-$ISSUE-spec.md" ] || echo "no 📋 Spec on #$ISSUE — see 'When there is no Spec'"
    ```
