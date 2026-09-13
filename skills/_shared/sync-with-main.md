@@ -131,7 +131,7 @@ flowchart LR
 git -C "$WORKTREE" log --merge --oneline -- <file>
 
 # For each main-side sha, the PR that landed it (squash-merge means usually exactly one):
-gh api "repos/{owner}/{repo}/commits/<sha>/pulls" --jq '.[].number'
+gh api "repos/{owner}/{repo}/commits/<sha>/pulls" --hostname <host> --jq '.[].number'
 
 # That PR's own stated intent, and the issue it closes:
 gh pr view <N> --json title,body

@@ -214,7 +214,7 @@ gh_fail_body() {
 
 case "$1 $2" in
   "auth status")   [ "${GH_AUTH_FAILS:-0}" = 1 ] && exit 1; exit 0 ;;
-  "repo view")     printf '{"nameWithOwner":"acme/widgets"}\n'; exit 0 ;;
+  "repo view")     printf '{"nameWithOwner":"acme/widgets"%s}\n' "${GH_STUB_REPO_URL:+,\"url\":\"$GH_STUB_REPO_URL\"}"; exit 0 ;;
   "label list")
     if [ "${GH_LIST_FAILS:-0}" = 1 ]; then
       gh_fail_body "${GH_LIST_FAIL_STATUS:-403}" "labels"
@@ -1470,6 +1470,28 @@ if grep -qE '^GH_HOST=<unset> ARGS: (api|label) ' "$GH_CALL_LOG"; then
   fail "a label or api call ran without the host — log: $(cat "$GH_CALL_LOG")"
 fi
 echo "  ok: host — on a GHE checkout the settings, topics and Pages reads and the label list run under GH_HOST=ghe.example.com"
+
+# 16b. A GHE FORK checkout (#530): origin still points at github.com (the fork), but `gh repo
+# view --json url` — gh's own default-repo resolution, not origin — names a GitHub Enterprise
+# host. The pre-#530 code derived the host only from origin (matched against `gh repo view`'s
+# nameWithOwner), so this exact shape reached github.com silently. No GH_STUB_HOSTS credential is
+# armed for ghe.example.com here on purpose: a url-derived host is rule 1 (a HOST prefix) in
+# _gh-host.sh, which needs no credential probe at all — unlike the origin-probe path case 16 above
+# already exercises.
+repo16b=$(new_repo) || fail "could not create a scratch git repo"
+git -C "$repo16b" remote add origin https://github.com/someone/widgets-fork.git
+printf '[]\n' > "$GH_LABELS_JSON"
+printf '{"delete_branch_on_merge":true,"description":"","homepage":null}\n' > "$GH_SETTINGS_JSON"
+printf '{"names":[]}\n' > "$GH_TOPICS_JSON"
+: > "$GH_PAGES_JSON"
+fresh_log ghe_fork
+rc=0; out=$(GH_STUB_REPO_URL=https://ghe.example.com/acme/widgets bash "$SCRIPT" plan "$repo16b" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "plan on a GHE fork checkout: expected exit 1 (drift), got $rc — $out"
+for r in "api repos/acme/widgets" "api repos/acme/widgets/topics --jq .names[]" "api repos/acme/widgets/pages"; do
+  grep -qxF -- "GH_HOST=ghe.example.com ARGS: $r" "$GH_CALL_LOG" \
+    || fail "the '$r' read did not run under GH_HOST=ghe.example.com on a GHE fork checkout (origin's github.com leaked through) — log: $(cat "$GH_CALL_LOG")"
+done
+echo "  ok: host — a GHE fork checkout (origin github.com, gh repo view --json url naming the GHE host) resolves the GHE host, not origin's"
 
 # The host helper is part of the install: without it the run refuses, naming the missing file,
 # rather than reading gh's default host — the exact #514 failure. The parser and the projector are

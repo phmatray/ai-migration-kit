@@ -105,9 +105,29 @@ case "$CMD" in
     command -v gh_host_resolve >/dev/null 2>&1 \
       || { echo "repo-profile: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2; exit 2; }
 
+    # Prefer the host `gh repo view --json url` has ALREADY resolved (#530) over the origin-remote
+    # probe _gh-host.sh falls back to when handed a bare owner/repo: a GHE fork checkout (origin
+    # still on github.com), a `gh repo set-default` pointed at a different remote, or a renamed
+    # repository all reach the wrong host under that probe, and `gh repo view` already knows the
+    # real one. Two separate reads, not one TSV split: `.url` can come back empty, and
+    # `IFS=$'\t' read` treats a LEADING empty field as whitespace to trim rather than a field
+    # boundary — silently misassigning the values after it. Both calls use gh's own --jq, matching
+    # this script's existing style (no separate jq dependency here).
     SLUG="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
+    VIEW_HOST=""
     if [ -n "$SLUG" ]; then
-      gh_host_resolve "$SLUG" || exit 2
+      VIEW_URL="$(gh repo view --json url --jq '.url // empty' 2>/dev/null || true)"
+      [ -n "$VIEW_URL" ] && VIEW_HOST="$(printf '%s' "$VIEW_URL" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#/.*$##' | tr '[:upper:]' '[:lower:]')"
+    fi
+    if [ -n "$SLUG" ]; then
+      # A HOST prefix makes gh_host_resolve take rule 1 outright — no origin match, no credential
+      # probe needed — falling back to the pre-#530 origin-probe order only when the url field was
+      # unreadable (a rare gh output surprise, not "no host": VIEW_HOST would then be empty too).
+      if [ -n "$VIEW_HOST" ]; then
+        gh_host_resolve "$VIEW_HOST/$SLUG" || exit 2
+      else
+        gh_host_resolve "$SLUG" || exit 2
+      fi
       SLUG="$KIT_REPO_SLUG"
     fi
 

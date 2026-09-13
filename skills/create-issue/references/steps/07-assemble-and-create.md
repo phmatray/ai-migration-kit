@@ -115,7 +115,7 @@ skills/create-issue/scripts/wire-edges.sh --repo {owner}/{repo} --parent "$P" \
 rc=$?; cat /tmp/issue-<slug>-edges.txt; echo "wire-edges exit $rc"     # 0 = ok/fallback; 1 = a real API failure
 ```
 
-`wire-edges.sh` resolves database ids itself (`gh api repos/o/r/issues/<n> --jq .id` — never the
+`wire-edges.sh` resolves database ids itself (`gh api repos/o/r/issues/<n> --jq .id --hostname <host>` — never the
 number, never the node id), is idempotent (an edge that already exists is `ok`), and takes `--dry-run`
 to print the POSTs without sending them. Its contract and exit codes are in its header
 (`--help`) and pinned by `tests/wire-edges/test.sh`.
@@ -129,7 +129,7 @@ live=$(gh issue view "$P" --json body --jq .body | grep -cE 'Implementation plan
 for c in "$C1" "$C2" "$C3"; do
   n=$(gh issue view "$c" --json body --jq .body | grep -c '^- \[ \]' || true)
   head=$(gh issue view "$c" --json body --jq .body | head -2 | grep -cE "^Part of #$P|^\*\*Blocked by:\*\*" || true)
-  blocked=$(gh api "repos/{owner}/{repo}/issues/$c" --jq '.issue_dependencies_summary.blocked_by // "n/a"')
+  blocked=$(gh api "repos/{owner}/{repo}/issues/$c" --hostname <host> --jq '.issue_dependencies_summary.blocked_by // "n/a"')
   echo "#$c checkboxes=$n header-lines=$head blocked_by=$blocked"    # n > 0, head = 2, blocked_by = its open-blocker count
 done
 ```

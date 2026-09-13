@@ -115,7 +115,7 @@ not what the token may do to it, and the first irreversible act here (filing an 
 any push would have failed:
 
 ```bash
-gh api "repos/{owner}/{repo}" --jq '.permissions.push'     # must print true; false or null → stop
+gh api "repos/{owner}/{repo}" --hostname <host> --jq '.permissions.push'     # must print true; false or null → stop
 ```
 
 Then classify the input by the *Inputs* rule: the whole request is a number, a `#N` or an issue
@@ -132,7 +132,7 @@ probe — the same dispatch-time guard `auto-dev` runs before every worker (its 
 
 ```bash
 gh issue view "$N" --json state,assignees --jq '{state, assignees: [.assignees[].login]}'
-gh api "repos/{owner}/{repo}/issues/$N" --jq '.issue_dependencies_summary.blocked_by // "n/a"'
+gh api "repos/{owner}/{repo}/issues/$N" --hostname <host> --jq '.issue_dependencies_summary.blocked_by // "n/a"'
 gh issue view "$N" --json body --jq .body | grep -m1 -E '^\*\*Blocked by:\*\*'      # the text fallback
 ```
 

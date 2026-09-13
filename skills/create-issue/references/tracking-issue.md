@@ -139,5 +139,6 @@ rides inside so the link still works. The one place the bare number is the point
 ## Recognising a parent
 
 There is no tracking label. A parent is the issue whose body carries a `## Destination` heading and
-whose children carry `Part of #<its number>` at the top of theirs. `gh api repos/o/r/issues/P/sub_issues`
+whose children carry `Part of #<its number>` at the top of theirs.
+`gh api repos/o/r/issues/P/sub_issues --hostname <host>` (GHE only — see preconditions.md)
 lists them when the sub-issue API is on; the `Part of` line is the fallback that always exists.

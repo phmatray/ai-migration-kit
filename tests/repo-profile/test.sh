@@ -602,4 +602,47 @@ rc=0; out=$(bash "$NOHELPER/repo-profile.sh" show "$CO_GHE") || rc=$?
   || fail "show without the host helper: expected NO_PROFILE and exit 3, got $rc: $out — show must never load it"
 echo "  ok: detect without its host helper exits 2 naming it, before any gh call; show never needs it"
 
+# 13. A GHE FORK checkout (#530): origin still points at github.com (the fork), but `gh repo
+#     view --json url` — which resolves from gh's own default-repo config, not from origin — names
+#     a GitHub Enterprise host. The pre-#530 code derived the host only from origin (matched
+#     against `gh repo view`'s nameWithOwner), so this exact shape reached github.com silently —
+#     the wrong host, and the one this case pins shut. No GH_STUB_HOSTS credential is armed for
+#     ghe.example.com here on purpose: a url-derived host is rule 1 (a HOST prefix), which needs no
+#     credential probe at all — unlike the origin-probe path case 12 above already exercises.
+CO_FORK=$(kit_scratch)
+git -C "$CO_FORK" init -q -b main
+git -C "$CO_FORK" -c user.email=t@test -c user.name=T commit -q --allow-empty -m base
+git -C "$CO_FORK" remote add origin https://github.com/someone/widgets-fork.git
+FORK_BIN="$(kit_scratch)/bin"
+mkbin "$FORK_BIN" $DETECT_TOOLS jq
+rm -f "$FORK_BIN/gh"
+cat > "$FORK_BIN/gh" <<'STUBEOF'
+#!/usr/bin/env bash
+echo "GH_HOST=${GH_HOST-<unset>} ARGS: $*" >> "$GH_CALL_LOG"
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  host=""; prev=""
+  for a in "$@"; do [ "$prev" = "--hostname" ] && host="$a"; prev="$a"; done
+  case " ${GH_STUB_HOSTS:-} " in *" $host "*) echo "gho_stub_token_for_$host"; exit 0 ;; esac
+  exit 1
+fi
+jq_expr=""; prev=""
+for a in "$@"; do [ "$prev" = "--jq" ] && jq_expr="$a"; prev="$a"; done
+case "${1:-} ${2:-}" in
+  "repo view") json='{"url":"https://ghe.example.com/acme/widgets","nameWithOwner":"acme/widgets","defaultBranchRef":{"name":"main"}}' ;;
+  "api repos/acme/widgets/branches/main") json='{"name":"main","protection":{"enabled":true}}' ;;
+  "label list") json='[{"name":"bug","description":"Something is broken"}]' ;;
+  *) echo "unexpected gh invocation: $*" >&2; exit 99 ;;
+esac
+if [ -n "$jq_expr" ]; then printf '%s\n' "$json" | jq -r "$jq_expr"; else printf '%s\n' "$json"; fi
+STUBEOF
+chmod +x "$FORK_BIN/gh"
+: > "$GH_CALL_LOG"
+rc=0; out=$(unset GH_HOST; PATH="$FORK_BIN" bash "$SCRIPT" detect "$CO_FORK" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "detect on a GHE fork checkout: expected exit 0, got $rc:
+$out"
+grep -qxF 'GH_HOST=ghe.example.com ARGS: api repos/acme/widgets/branches/main --jq .protection' "$GH_CALL_LOG" \
+  || fail "detect on a GHE fork checkout: the branch-protection read did not run under GH_HOST=ghe.example.com (origin's github.com leaked through):
+$(cat "$GH_CALL_LOG")"
+echo "  ok: detect on a GHE fork checkout (origin github.com, gh repo view --json url naming the GHE host): resolves the GHE host, not origin's"
+
 echo "repo-profile golden test OK"
