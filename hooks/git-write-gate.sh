@@ -393,13 +393,52 @@ judge() { # $1 one segment of the stripped command
   # judged on their bodies rather than skipped as "the segment starts with `then`". Anything else
   # stops the walk — the segment simply is not a git invocation.
   #
-  # `timeout`/`nice`/`stdbuf` join the launcher list (#533); `timeout` alone also takes a mandatory
-  # duration argument (`timeout 60 …`), so it additionally shifts away whatever follows it — the
-  # other launchers here take no argument of their own in the shape this hook needs to recognise.
+  # `timeout`/`nice`/`stdbuf` join the launcher list (#533). Each of the three also recognises its
+  # OWN GNU coreutils option flags before the launcher word is fully consumed (#562 — #533 only
+  # unwrapped their BARE form, so `nice -n 10 git …`/`timeout -k 5 60 …` broke the walk on `-n`/`-k`
+  # before it ever reached git/gh): a short flag that takes a value, attached (`-k5`) or separated
+  # (`-k 5`); a long flag only in `--name=value` form (GNU getopt's separated `--name value` long
+  # form is NOT recognised — out of scope, same as any BSD spelling of these three launchers, which
+  # fall through unrecognised exactly as before). `timeout` alone also takes a mandatory duration
+  # argument after its own options (`timeout 60 …`) — `nice`/`stdbuf` have no such positional.
   while [ $# -gt 0 ]; do
     case "$1" in
-      env|sudo|command|nohup|time|exec|builtin|nice|stdbuf) shift ;;
-      timeout) shift; [ $# -gt 0 ] && shift ;;
+      env|sudo|command|nohup|time|exec|builtin) shift ;;
+      nice)
+        shift
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            -n) shift; [ $# -gt 0 ] && shift ;;
+            -n?*) shift ;;
+            --adjustment=*) shift ;;
+            *) break ;;
+          esac
+        done
+        ;;
+      stdbuf)
+        shift
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            -i|-o|-e) shift; [ $# -gt 0 ] && shift ;;
+            -i?*|-o?*|-e?*) shift ;;
+            --input=*|--output=*|--error=*) shift ;;
+            *) break ;;
+          esac
+        done
+        ;;
+      timeout)
+        shift
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            -k|-s) shift; [ $# -gt 0 ] && shift ;;
+            -k?*|-s?*) shift ;;
+            --kill-after=*|--signal=*) shift ;;
+            -v|--verbose|--foreground|--preserve-status) shift ;;
+            *) break ;;
+          esac
+        done
+        [ $# -gt 0 ] && shift
+        ;;
       then|do|else|elif|'!') shift ;;
       @P@) grouped=1; shift ;;
       # The one assignment the walk READS instead of stepping over: the per-command off-switch the
