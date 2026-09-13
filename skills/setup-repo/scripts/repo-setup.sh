@@ -34,8 +34,20 @@
 set -uo pipefail
 
 # Resolved BEFORE the cd below: $0 can be relative, and cd-ing into the target repo breaks it.
-# Kit root = three levels up from skills/setup-repo/scripts.
-KIT_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd -P)"
+# Kit root = three levels up from skills/setup-repo/scripts. $0 through any symlinks first — a
+# plugin install reaches this file by link, and `pwd -P` alone canonicalizes the directory, not the
+# link. No `readlink -f`: macOS's readlink has no -f. Same loop base-run-verdict.sh carries (#514,
+# #531).
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+KIT_ROOT=$(CDPATH= cd -- "$(dirname -- "$SELF")/../../.." && pwd -P) \
+  || KIT_ROOT="$(dirname -- "$SELF")/../../.."
 PARSER="$KIT_ROOT/skills/setup-repo/scripts/parse-manifest.py"
 PROJECTOR="$KIT_ROOT/skills/setup-repo/scripts/project-area-options.py"
 FORMS_DIR="$KIT_ROOT/templates/issue-forms"
