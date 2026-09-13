@@ -131,7 +131,7 @@ SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
 # one tests/merge-gate/test.sh pins over fixtures — a pasted copy could drift from it, and a
 # drifted copy of a gate is the failure this whole reduction exists to prevent, wearing a passing
 # test. `--json` asks for the whole object, because the counts read below are part of it.
-verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp | "$DECIDE" ci.verdict --json)
+verdict=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --hostname <host> --paginate --slurp | "$DECIDE" ci.verdict --json)
 
 # A failed query prints nothing, and without `pipefail` the pipeline still exits 0 — at which point
 # an empty verdict reads as "this SHA has no check-runs", i.e. as a pass. No verdict is not a pass.
@@ -308,7 +308,8 @@ post-merge caller also has to poll and has to map four pre-merge words onto a po
 skills/merge-pr/scripts/base-run-verdict.sh "$BASE_SHA" \
   [--timeout <s>] [--poll-seconds <s>] [--settle <s>] [-R <owner/repo>]
 # -> {"verdict":"green|red|unverified","reason":"<slug>","sha":"<sha>","runs":[{name,html_url,state}]}
-#    exit 0 on every outcome; exit 64 only for a usage error
+#    exit 0 on every outcome; exit 64 for a usage error (no sha, an unparseable option, a
+#    non-numeric bound, a malformed -R slug) OR skills/_shared/scripts/_gh-host.sh missing (#530)
 ```
 
 Three things about it are load-bearing, and each is pinned by `tests/merge-base-ci/test.sh`:
@@ -380,7 +381,7 @@ threads=$( set -o pipefail
            | jq -Rsc 'split("\n") | map(select(length > 0))' ) \
   || { echo "merge-pr: the reviewThreads query failed — an unanswered query is not 'no threads'" >&2
        exit 1; }
-state=$( { gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" \
+state=$( { gh api "repos/{owner}/{repo}/compare/$BASE...$BRANCH" --hostname <host> \
              --jq '{behind_by, ahead_by}'
            gh pr view "$PR" --json mergeStateStatus,isDraft,reviewDecision \
              --jq '{mergeStateStatus, isDraft, reviewDecision}'
@@ -516,7 +517,7 @@ that reading is what made the merges look defensible afterwards.
 Inline review comments (REST — quick read of what reviewers said and where):
 
 ```bash
-gh api "repos/{owner}/{repo}/pulls/$PR/comments" --paginate \
+gh api "repos/{owner}/{repo}/pulls/$PR/comments" --hostname <host> --paginate \
   --jq '.[] | {path, line, user:.user.login, body}'
 ```
 
@@ -580,7 +581,7 @@ gh pr view "$PR" --json body --jq .body \
 **Review comments that defer work** — phrases that explicitly punt to a later change:
 
 ```bash
-gh api "repos/{owner}/{repo}/pulls/$PR/comments" --paginate --jq '.[].body' \
+gh api "repos/{owner}/{repo}/pulls/$PR/comments" --hostname <host> --paginate --jq '.[].body' \
   | grep -iE 'follow[ -]?up|separate (pr|issue)|in a (later|future) (pr|change)|out of scope|TODO.*(later|future)'
 ```
 

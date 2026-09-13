@@ -18,10 +18,14 @@
 # whether the `gh pr merge` call itself exited 0, and uses that to tell the two apart.
 #
 # Usage:
-#   guarded-pr-merge.sh [-R <owner/repo>] <PR-number> [-- <gh pr merge args…>]
+#   guarded-pr-merge.sh [-R <[host/]owner/repo>] <PR-number> [-- <gh pr merge args…>]
 #
-#   -R <owner/repo>  passed to both `gh pr merge` and `gh pr view` — needed when this runs
-#                    outside a git checkout of the target repo (gh cannot infer it then).
+#   -R <[host/]owner/repo>  passed to both `gh pr merge` and `gh pr view` — needed when this runs
+#                    outside a git checkout of the target repo (gh cannot infer it then). Routed
+#                    through skills/_shared/scripts/_gh-host.sh (#514/#530): a bare `owner/repo`
+#                    (no host prefix) used to reach `gh`'s own DEFAULT host — github.com — even
+#                    inside a GitHub Enterprise checkout; a `host/owner/repo` prefix now resolves
+#                    that host outright and GH_HOST is exported before either gh call either way.
 #   <PR-number>      the pull request to merge.
 #   --               everything after it goes to `gh pr merge` verbatim. Defaults to
 #                    `--squash --delete-branch` when omitted OR given with nothing after it —
@@ -58,10 +62,24 @@ set -euo pipefail
 TOOL=guarded-pr-merge
 
 usage() {
-  echo "usage: $TOOL.sh [-R <owner/repo>] <PR-number> [-- <gh pr merge args…>]" >&2
+  echo "usage: $TOOL.sh [-R <[host/]owner/repo>] <PR-number> [-- <gh pr merge args…>]" >&2
 }
 
 refuse() { echo "$TOOL: $1" >&2; usage; exit 64; }
+
+# Self-location, same recipe as base-run-verdict.sh (#514/#530): follow symlinks first, `pwd -P`
+# on the directory only, so a plugin install that symlinks this file in still finds
+# skills/_shared/scripts/_gh-host.sh three `dirname`s up.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+KIT_ROOT=$(CDPATH= cd -- "$(dirname -- "$SELF")/../../.." && pwd -P) \
+  || KIT_ROOT="$(dirname -- "$SELF")/../../.."
 
 # Overridable so the golden suite (tests/guarded-pr-merge/test.sh) can exercise the UNCONFIRMED
 # and retry paths without real sleeps; production callers get the defaults. Validated, not just
@@ -78,14 +96,14 @@ case "$READBACK_SLEEP" in
   ''|*[!0-9]*) refuse "GUARDED_PR_MERGE_READBACK_SLEEP must be a whole number of seconds, got '$READBACK_SLEEP'" ;;
 esac
 
-REPO_FLAG=()
+REPO=""
 PR=""
 MERGE_ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -R)        [ -n "${2:-}" ] || refuse "-R needs an <owner/repo>"
-               REPO_FLAG=(-R "$2"); shift 2 ;;
+               REPO="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --)        shift; MERGE_ARGS=("$@"); break ;;
     -*)        refuse "unknown option: $1" ;;
@@ -105,6 +123,19 @@ esac
 
 command -v gh > /dev/null 2>&1 || refuse "gh is missing — this script has no way to merge a PR without it"
 command -v jq > /dev/null 2>&1 || refuse "jq is missing — it is a \`required\` prerequisite in requirements.json"
+
+# The repository's own host (#514/#530): a bare `-R owner/repo` reaches gh's DEFAULT host —
+# github.com — even inside a GitHub Enterprise checkout, since `-R` alone gives gh no local
+# checkout to infer a host from. Decided in ONE place, before either gh call, so its exported
+# GH_HOST reaches both. A `host/owner/repo` prefix on -R names the host outright and is stripped
+# to OWNER/REPO for the flag gh itself receives; with no -R at all this falls through to the
+# checkout's own origin host, same as every other caller of this helper.
+GH_HOST_LIB="$KIT_ROOT/skills/_shared/scripts/_gh-host.sh"
+if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+command -v gh_host_resolve > /dev/null 2>&1 || refuse "cannot load $GH_HOST_LIB; reinstall the kit"
+gh_host_resolve "$REPO" || exit 64
+REPO_FLAG=()
+[ -n "$REPO" ] && REPO_FLAG=(-R "$KIT_REPO_SLUG")
 
 # ---------------------------------------------------------------- merge (exit code is a HINT,
 # not a verdict — kept only to disambiguate the OPEN case below, never trusted on its own)

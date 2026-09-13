@@ -6,9 +6,9 @@ kit's templates are **mandatory** (no hand-rolled workflow).
 ## Steps
 
 1. **Discover the default branch** (it varies: `main`, `dev`…):
-   `gh api repos/<o>/<r> --jq .default_branch` — that is the merge target and the workflow trigger.
+   `gh api repos/<o>/<r> --jq .default_branch --hostname <host>` — that is the merge target and the workflow trigger.
 2. **Check the remote repo's state**: if it is **archived** (read-only), unarchive it before any
-   push: `gh api repos/<o>/<r> -X PATCH -f archived=false` — report it to the user (reversible).
+   push: `gh api repos/<o>/<r> -X PATCH -f archived=false --hostname <host>` — report it to the user (reversible).
 3. **Drop in the workflows from the templates**:
    - `templates/ci-dotnet.yml` → `.github/workflows/ci.yml` — **set `SOLUTION`** if the old legacy
      solution still coexists at the root (otherwise MSB1011). If the repo **commits a front-end
@@ -18,7 +18,7 @@ kit's templates are **mandatory** (no hand-rolled workflow).
    - `templates/deploy-pages-blazor.yml` → `.github/workflows/deploy-pages.yml` — set `SOLUTION`,
      `WEB_PROJECT`, `BASE_PATH=/<repo>/`, and `branches:` = the default branch.
 4. **Push the migration branch, merge** (`--no-ff`) into the default branch, push.
-5. **Enable Pages in workflow mode**: `gh api repos/<o>/<r>/pages -X POST -f build_type=workflow`
+5. **Enable Pages in workflow mode**: `gh api repos/<o>/<r>/pages -X POST -f build_type=workflow --hostname <host>`
    — idempotent: a `409` means "already enabled", that is a success, continue.
    (Also works from a private repo if the plan allows it — the returned URL is authoritative.)
 6. **Wait for the runs to conclude** (`gh run list`) — a CI failure gets fixed before continuing,
