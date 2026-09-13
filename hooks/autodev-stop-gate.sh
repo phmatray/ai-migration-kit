@@ -102,6 +102,18 @@ state_base="${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}"
 state_file="$state_base/ai-migration-kit/auto-dev/$host/$owner/$repo.md"
 [ -r "$state_file" ] || exit 0
 
+# ---------------------------------------------------------- supervised window (#548)
+# A background supervisor ends its turn between dispatching workers and being woken by their
+# report — the documented, correct behaviour (skills/auto-dev/SKILL.md Step 4) — and that turn-end
+# fires this same Stop event. Undrained work existing is no longer evidence nobody is watching it
+# (#314 / ADR 0007 made workers addressable background sub-agents), so a state file touched this
+# recently means the supervisor is actively cycling, not walked away: exit 0 before even reading
+# the undrained-work sections below. SUPERVISED_MINUTES is owned by
+# skills/auto-dev/references/token-economics.md's "SUPERVISED WINDOW" bullet — change it there, not
+# here. Placed ahead of the 24h STALE_MINUTES check below (same `find -mmin` idiom, shorter bound).
+SUPERVISED_MINUTES=30
+[ -n "$(find "$state_file" -mmin -"$SUPERVISED_MINUTES" 2>/dev/null)" ] && exit 0
+
 # ------------------------------------------------------------------- staleness bound (24h)
 # A crashed supervisor leaves the file behind forever otherwise. 24 hours is generous against a
 # genuinely long-running fleet (auto-dev is meant to run hands-off, often overnight) while still

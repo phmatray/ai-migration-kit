@@ -844,6 +844,13 @@ can't notify you about; return to the long fallback once it lands. (Cache nuance
 wake past the ~5-min TTL pays a full cache write, so batch pending reconcile work into a long-idle
 wake.)
 
+**Every heartbeat wake touches the state file — even one where reconcile finds nothing else to
+change** (rewriting the same content, or a plain `touch`, is enough). `hooks/autodev-stop-gate.sh`
+reads that file's mtime to tell an actively-cycling supervisor from one that has walked away
+(Token economics § *The two budgets*, `SUPERVISED WINDOW`); a quiet-but-alive run that only ever
+touches the file "after any change" would let its own mtime drift past that window on a long idle
+stretch, which reintroduces the exact false block this mechanism exists to remove.
+
 ## Step 6 — Stop & recap
 
 Close with the shared recap shape — [`../_shared/recap.md`](../_shared/recap.md). It owns the four
