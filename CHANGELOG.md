@@ -8,6 +8,37 @@ Starting with the version after [1.9.1], the entries below this paragraph are ge
 adopt its format (*Features* / *Bug Fixes* sections, comparison link, sha per entry) rather than
 the hand-written entries below. Earlier entries are kept as written.
 
+## [2.6.0](https://github.com/phmatray/ai-migration-kit/compare/v2.5.0...v2.6.0) (2026-09-13)
+
+
+### Features
+
+* **auto-dev:** write a worker's BLOCKED verdict back as a hold the survey reads ([#511](https://github.com/phmatray/ai-migration-kit/issues/511)) ([#589](https://github.com/phmatray/ai-migration-kit/issues/589)) ([e9cf11e](https://github.com/phmatray/ai-migration-kit/commit/e9cf11e3933d0c905346dc98ec265a61b44bac82))
+* **auto-dev:** write a worker's BLOCKED verdict back as a hold the survey reads ([#511](https://github.com/phmatray/ai-migration-kit/issues/511)) ([#589](https://github.com/phmatray/ai-migration-kit/issues/589)) ([dfdc817](https://github.com/phmatray/ai-migration-kit/commit/dfdc817ff0a005410dfa17d2692e1026449716cb))
+* **implement-issue:** send lifecycle hand-offs to a fresh session and shrink inline runs to one task ([#523](https://github.com/phmatray/ai-migration-kit/issues/523)) ([#584](https://github.com/phmatray/ai-migration-kit/issues/584)) ([a85c0d3](https://github.com/phmatray/ai-migration-kit/commit/a85c0d3b863cf43f288b1d5b54e15805a326be4a))
+* **profile-repo:** name GitLab and Azure DevOps trackers in the profile ([#504](https://github.com/phmatray/ai-migration-kit/issues/504)) ([#568](https://github.com/phmatray/ai-migration-kit/issues/568)) ([265b0e4](https://github.com/phmatray/ai-migration-kit/commit/265b0e4888f981e0d1b4a3dc0baac5a9eebd5533))
+* **skills:** close GHE host-resolution gaps left after [#514](https://github.com/phmatray/ai-migration-kit/issues/514) ([#530](https://github.com/phmatray/ai-migration-kit/issues/530)) ([#581](https://github.com/phmatray/ai-migration-kit/issues/581)) ([9388358](https://github.com/phmatray/ai-migration-kit/commit/93883587f9ec23f541e401d3ca00751c20a7e7e3))
+* **tracker:** one tracker contract, and a capable verdict at Step 1 ([#505](https://github.com/phmatray/ai-migration-kit/issues/505)) ([#583](https://github.com/phmatray/ai-migration-kit/issues/583)) ([6336d9b](https://github.com/phmatray/ai-migration-kit/commit/6336d9bbd1635f6638488c79bba91d46ab8bdc9e))
+
+
+### Bug Fixes
+
+* **auto-dev:** fail open when a credential's literal '@' makes the userinfo unparseable ([#546](https://github.com/phmatray/ai-migration-kit/issues/546)) ([#564](https://github.com/phmatray/ai-migration-kit/issues/564)) ([dfba5cc](https://github.com/phmatray/ai-migration-kit/commit/dfba5cc572235b3977559ae9a5cf4b19891e219e))
+* **auto-dev:** retro-taxonomy steering category no longer claims the kit ships no AGENTS.md ([#557](https://github.com/phmatray/ai-migration-kit/issues/557)) ([#563](https://github.com/phmatray/ai-migration-kit/issues/563)) ([3cf9e0b](https://github.com/phmatray/ai-migration-kit/commit/3cf9e0ba87e426d0d374b8994baa1b0e17e3b16d))
+* **ci:** the plugin-manifest JSON check covers every manifest host-adapters.py knows about, not a shorter hand-typed list ([#556](https://github.com/phmatray/ai-migration-kit/issues/556)) ([#576](https://github.com/phmatray/ai-migration-kit/issues/576)) ([87d5adf](https://github.com/phmatray/ai-migration-kit/commit/87d5adf56611c0c539735cb38b4823a5c747dbf3))
+* **deps:** update non-major dependencies ([#577](https://github.com/phmatray/ai-migration-kit/issues/577)) ([c191c9f](https://github.com/phmatray/ai-migration-kit/commit/c191c9ff282e4f3aab304c82af1ef343106e4358))
+* **hooks:** deny a named-path checkout that would discard an uncommitted edit ([#560](https://github.com/phmatray/ai-migration-kit/issues/560)) ([#569](https://github.com/phmatray/ai-migration-kit/issues/569)) ([92ab8ee](https://github.com/phmatray/ai-migration-kit/commit/92ab8ee79ca4f4f321265847a343665fbb83d057))
+* **hooks:** handle launcher option forms in write-gate unwrapping ([#562](https://github.com/phmatray/ai-migration-kit/issues/562)) ([#582](https://github.com/phmatray/ai-migration-kit/issues/582)) ([d7eec49](https://github.com/phmatray/ai-migration-kit/commit/d7eec491225c985dd7611b16b9cf848ab946733c))
+* **hooks:** recognize command substitution inside double-quoted write-gate arguments ([#559](https://github.com/phmatray/ai-migration-kit/issues/559)) ([#588](https://github.com/phmatray/ai-migration-kit/issues/588)) ([dba0395](https://github.com/phmatray/ai-migration-kit/commit/dba0395ac72c781616476e04b4af25ce9e0e213d))
+* **hooks:** the auto-dev stop gate allows a stop while the supervisor is actively cycling ([#548](https://github.com/phmatray/ai-migration-kit/issues/548)) ([#574](https://github.com/phmatray/ai-migration-kit/issues/574)) ([15fe040](https://github.com/phmatray/ai-migration-kit/commit/15fe04094eb2c3542477b031cc5f6d538302bf56))
+* **implement-issue:** plan-freshness.sh reads Files: paths as backtick-quoted spans ([#441](https://github.com/phmatray/ai-migration-kit/issues/441)) ([#594](https://github.com/phmatray/ai-migration-kit/issues/594)) ([4c51f24](https://github.com/phmatray/ai-migration-kit/commit/4c51f2483e7b0e8ee7d380231af75d0ed6049ebe))
+* **merge-pr:** every guarded-pr-merge.sh call site points at the invocation fallback ([#414](https://github.com/phmatray/ai-migration-kit/issues/414)) ([#571](https://github.com/phmatray/ai-migration-kit/issues/571)) ([7356234](https://github.com/phmatray/ai-migration-kit/commit/73562348b543bd2f0c2359f00073b66c183e3c1d))
+* **merge-pr:** one bounded follow-up lookup on a timeout-reasoned base verdict ([#561](https://github.com/phmatray/ai-migration-kit/issues/561)) ([#572](https://github.com/phmatray/ai-migration-kit/issues/572)) ([518df1c](https://github.com/phmatray/ai-migration-kit/commit/518df1c682899c8cf968155b2d3bfab57c0f7dcf))
+* **merge-pr:** treat a run awaiting approval as needs-approval, not failed ([#495](https://github.com/phmatray/ai-migration-kit/issues/495)) ([#580](https://github.com/phmatray/ai-migration-kit/issues/580)) ([83b721c](https://github.com/phmatray/ai-migration-kit/commit/83b721cdf01c32217203d54e55462bd98f8a7b4b))
+* **scripts:** host-adapters.py check refuses RULE_COPIES with no host adapter ([#558](https://github.com/phmatray/ai-migration-kit/issues/558)) ([#585](https://github.com/phmatray/ai-migration-kit/issues/585)) ([4a31099](https://github.com/phmatray/ai-migration-kit/commit/4a31099a7a61985cc2854c2869fe31802d993c4a))
+* **scripts:** host-adapters.py's $1 guard and replace share one token boundary, so $10+ can't be mistaken for $1 ([#555](https://github.com/phmatray/ai-migration-kit/issues/555)) ([#573](https://github.com/phmatray/ai-migration-kit/issues/573)) ([b8f63e8](https://github.com/phmatray/ai-migration-kit/commit/b8f63e82a6aefad8e03d4eb3340d72fcb03aa633))
+* **skills:** share one locator idiom across the eight host-helper load blocks ([#531](https://github.com/phmatray/ai-migration-kit/issues/531)) ([#590](https://github.com/phmatray/ai-migration-kit/issues/590)) ([4ce61c5](https://github.com/phmatray/ai-migration-kit/commit/4ce61c5116705eb067ecd82d7cca8be083f5e7b7))
+
 ## [2.5.0](https://github.com/phmatray/ai-migration-kit/compare/v2.4.0...v2.5.0) (2026-09-12)
 
 
