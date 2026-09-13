@@ -528,6 +528,28 @@ judge() { # $1 one segment of the stripped command
       esac
       whole_tree $paths && deny "$seg" \
         "That discards every uncommitted change in the tree, including another agent's in a shared checkout. Use \`git checkout -- <path>\` for the one file you mean, or switch branches without the force flag."
+
+      # A NAMED-path checkout/switch is just as capable of silently overwriting one file's
+      # uncommitted edit as the whole-tree form is of overwriting all of them — smaller blast
+      # radius, not a different risk (#560). Only the pathspec strictly after `--` is probed: a
+      # bare arg before it is a REF (a branch/commit name), and `paths` above already mixes those
+      # in for the whole_tree() check — probing a ref against the working tree would false-deny an
+      # ordinary branch switch that merely shares a name with an unrelated dirty file elsewhere.
+      if [ "$seen_dd" -eq 1 ]; then
+        local dd_paths="" dd_seen=0 dirty names
+        for a in "$@"; do
+          if [ "$dd_seen" -eq 1 ]; then dd_paths="$dd_paths $a"; continue; fi
+          [ "$a" = "--" ] && dd_seen=1
+        done
+        if [ -n "$dd_paths" ]; then
+          dirty=$(git -C "$dir" status --porcelain -- $dd_paths 2>/dev/null) || dirty=""
+          if [ -n "$dirty" ]; then
+            names=$(printf '%s\n' "$dirty" | cut -c4- | tr '\n' ' ')
+            deny "$seg" \
+              "That would silently overwrite an uncommitted edit at ${names% } — the same discard #26 fixed for the whole tree, just scoped to one path. Commit or stash it first, then \`git checkout -- <path>\` once it's clean."
+          fi
+        fi
+      fi
       ;;
     restore)
       # `--staged` without `--worktree` unstages and touches nothing in the tree — it is less
