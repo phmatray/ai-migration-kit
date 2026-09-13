@@ -206,7 +206,7 @@ names "gemini-extension.json" && ok "names gemini-extension.json on stdout" || b
 
 echo "== O. the live TOML commands are what Gemini CLI reads =="
 if python3 - "$REPO" > "$WORK/o.out" 2>&1 <<'PY'
-import pathlib, sys, tomllib
+import pathlib, re, sys, tomllib
 repo = pathlib.Path(sys.argv[1])
 mds = sorted((repo / "commands").glob("*.md"))
 assert mds, "no commands/*.md"
@@ -215,7 +215,11 @@ for md in mds:
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert set(data) == {"description", "prompt"}, f"{toml.name}: keys {sorted(data)}"
     assert "$ARGUMENTS" not in data["prompt"], f"{toml.name}: $ARGUMENTS survived"
-    assert "$1" not in data["prompt"], f"{toml.name}: a positional $1 survived — Gemini fills only {{args}}"
+    # A bare $<digit> that survived, or a digit trailing {{args}} (what an un-refused "$1N" leaves
+    # behind once ".replace(\"$1\", \"{{args}}\")" eats the "$1" and strands the "N" — #555) — either
+    # shape means a positional token was mangled instead of refused.
+    assert not re.search(r"\$\d|\{\{args\}\}\d", data["prompt"]), \
+        f"{toml.name}: a positional token survived or was mangled — Gemini fills only {{args}}"
 m = tomllib.loads((repo / "commands" / "migrate.toml").read_text(encoding="utf-8"))
 want = "Run the full seven-phase legacy upgrade pipeline (assess → verified production) powered by RoselineMCP"
 assert m["description"] == want, m["description"]
