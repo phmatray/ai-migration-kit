@@ -206,5 +206,19 @@ run anyone reads.
 1. Write ONLY the PR number (digits, nothing else) to the path the supervisor gave you, if it gave one.
 2. Then your FINAL message must be this single line and nothing else:
 
-PHASE1 | ISSUE: {{args}} | PR: <number|none> | STATUS: READY|PARTIAL|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none>
+PHASE1 | ISSUE: {{args}} | PR: <number|none> | STATUS: READY|PARTIAL|BLOCKED|FAILED | DETAIL: <1–2 sentences> | FILED: <issues you opened, or none> | BLOCKED_BY: <#a[,#b]|replan|none>
+
+`BLOCKED_BY:` is what turns a `STATUS: BLOCKED` report into a hold the next `auto-dev` run's
+survey actually honours, instead of a re-dispatched worker re-finding the same block from
+scratch. Three shapes:
+
+- `#a[,#b]` — this issue is **prerequisite-blocked**: one or more OPEN issues (named by number)
+  whose own plan must land first, e.g. a file your plan modifies is created by another issue's
+  still-open Task. Name every one.
+- `replan` — the plan itself is disproven (already attempted and failed, assumes work that turns
+  out not to exist, or is otherwise unimplementable as written) — only a person re-planning it can
+  unblock it.
+- `none` — every other case, including anything that is not `STATUS: BLOCKED` at all.
+
+A missing field (an older worker's report) reads as `none`.
 '''

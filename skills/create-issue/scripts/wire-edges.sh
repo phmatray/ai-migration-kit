@@ -5,7 +5,11 @@
 # files the parent and the children first (blockers before the children they block) and then runs
 # this once with the numbers it got back.
 #
-#   wire-edges.sh --repo <[host/]owner/repo> --parent <N> --child <C>[:blocked-by=<A>[,<B>…]] … [--dry-run]
+#   wire-edges.sh --repo <[host/]owner/repo> [--parent <N>] --child <C>[:blocked-by=<A>[,<B>…]] … [--dry-run]
+#
+#   Without --parent, no SUB-ISSUE edge is wired at all — only the DEP (blocked_by) edges — so
+#   every --child in that mode must carry a blocked-by=; a --child with no blocker and no parent
+#   has nothing to wire and is a usage error (exit 2), same as any other malformed --child.
 #
 #   HOST/OWNER/REPO names a GitHub Enterprise host outright; with a bare OWNER/REPO the host is the
 #   checkout's own origin's, when origin is that repository. Resolved once, before the first gh
@@ -122,15 +126,20 @@ case "$REPO" in
   */*) ;;
   *) refuse "--repo '$REPO' is not [<host>/]<owner>/<repo>" ;;
 esac
-[ -n "$PARENT" ] || refuse "--parent <N> is required"
-is_number "$PARENT" || refuse "--parent '$PARENT' is not an issue number"
+if [ -n "$PARENT" ]; then
+  is_number "$PARENT" || refuse "--parent '$PARENT' is not an issue number"
+fi
 [ "$CHILD_COUNT" -gt 0 ] || refuse "at least one --child is required"
 printf '%s' "$CHILD_SPECS" | while read -r child blockers; do
   [ -n "$child" ] || continue
-  [ "$child" != "$PARENT" ] || { echo "$TOOL: REFUSED — child #$child is the parent" >&2; exit 2; }
-  for b in $blockers; do
-    [ "$b" != "$PARENT" ] || { echo "$TOOL: REFUSED — child #$child is blocked by the parent #$PARENT; the parent is a tracking issue, never a blocker" >&2; exit 2; }
-  done
+  if [ -n "$PARENT" ]; then
+    [ "$child" != "$PARENT" ] || { echo "$TOOL: REFUSED — child #$child is the parent" >&2; exit 2; }
+    for b in $blockers; do
+      [ "$b" != "$PARENT" ] || { echo "$TOOL: REFUSED — child #$child is blocked by the parent #$PARENT; the parent is a tracking issue, never a blocker" >&2; exit 2; }
+    done
+  else
+    [ -n "$blockers" ] || { echo "$TOOL: REFUSED — --child $child has no blockers and --parent is absent; nothing to wire" >&2; exit 2; }
+  fi
 done || exit 2
 
 # -------------------------------------------------------------------- the repository's own host
@@ -163,7 +172,9 @@ REPO="$KIT_REPO_SLUG"
 if [ "$DRY_RUN" -eq 1 ]; then
   printf '%s' "$CHILD_SPECS" | while read -r child blockers; do
     [ -n "$child" ] || continue
-    echo "DRY-RUN POST repos/$REPO/issues/$PARENT/sub_issues -F sub_issue_id=<database id of #$child>"
+    if [ -n "$PARENT" ]; then
+      echo "DRY-RUN POST repos/$REPO/issues/$PARENT/sub_issues -F sub_issue_id=<database id of #$child>"
+    fi
     for b in $blockers; do
       echo "DRY-RUN POST repos/$REPO/issues/$child/dependencies/blocked_by -F issue_id=<database id of #$b>"
     done
@@ -248,12 +259,14 @@ count() {
 # `while` runs in a subshell under bash 3.2 and 4 alike).
 while read -r child blockers; do
   [ -n "$child" ] || continue
-  verdict=$(post "repos/$REPO/issues/$PARENT/sub_issues" "sub_issue_id=$(id_of "$child")") || true
-  # Braced on purpose: macOS /bin/bash 3.2 reads the UTF-8 bytes of the arrow that follows a bare
-  # `$PARENT` as part of the variable name and dies under `set -u` ("PARENT�: unbound variable")
-  # — every edge, every run, while CI's bash 5 printed the line fine. `bash -n` cannot see this.
-  echo "SUB ${PARENT}←${child} $verdict"
-  count "$verdict"
+  if [ -n "$PARENT" ]; then
+    verdict=$(post "repos/$REPO/issues/$PARENT/sub_issues" "sub_issue_id=$(id_of "$child")") || true
+    # Braced on purpose: macOS /bin/bash 3.2 reads the UTF-8 bytes of the arrow that follows a bare
+    # `$PARENT` as part of the variable name and dies under `set -u` ("PARENT�: unbound variable")
+    # — every edge, every run, while CI's bash 5 printed the line fine. `bash -n` cannot see this.
+    echo "SUB ${PARENT}←${child} $verdict"
+    count "$verdict"
+  fi
   for b in $blockers; do
     verdict=$(post "repos/$REPO/issues/$child/dependencies/blocked_by" "issue_id=$(id_of "$b")") || true
     echo "DEP ${child}⇐${b} $verdict"
