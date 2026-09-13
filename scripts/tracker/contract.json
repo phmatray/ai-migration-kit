@@ -52,13 +52,17 @@
     "label-list": {
       "args": "",
       "stdout": "one label name per line"
+    },
+    "label-create": {
+      "args": "<name> [--color <hex>] [--description <d>]",
+      "stdout": "nothing — grows the taxonomy for a genuinely new sub-area with no fitting label"
     }
   },
   "skills": {
     "create-issue": [
       "auth", "repo", "issue-view", "issue-search", "issue-comments", "issue-create",
       "issue-edit-body", "issue-add-labels", "issue-remove-labels", "issue-reopen",
-      "issue-comment", "label-list"
+      "issue-comment", "label-list", "label-create"
     ]
   }
 }

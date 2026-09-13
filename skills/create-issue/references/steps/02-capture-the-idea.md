@@ -17,7 +17,7 @@ A raw issue — filed from the GitHub UI, by a bot, or by hand — carries no br
 past the ceiling before the plan check is even reached. Both buckets appear in the survey's `SEED`
 row, which is why that row counts `plan=false` in *any* bucket.) `--seed #N` is that
 promotion: the *existing* issue is the idea, and Steps 3–7 run against it in place. Nothing is filed;
-`gh issue create` is never called on this path. This branch only runs when `--seed #N` itself sat at
+`issue-create` is never called on this path. This branch only runs when `--seed #N` itself sat at
 an edge of the request (*Inputs*, above) — an idea whose own sentence cites `#40` mid-sentence (as
 in "do it like `--seed #40` does for issues") seeds nothing.
 
@@ -26,7 +26,7 @@ has wasted the run:
 
 ```bash
 N=<the seeded issue number>
-gh issue view "$N" --json number,title,body,labels,state > /tmp/issue-seed-$N.json
+"<kit>/scripts/tracker.sh" issue-view "$N" > /tmp/issue-seed-$N.json
 [ -s /tmp/issue-seed-$N.json ] || { echo "REFUSED — could not read #$N"; exit 1; }
 jq -r '.state, .title' /tmp/issue-seed-$N.json
 
@@ -40,7 +40,7 @@ jq -r '.state, .title' /tmp/issue-seed-$N.json
 # without it, the one outcome that lets the seed proceed is the one that aborts a `set -e` shell.
 jq -r '.body // ""' /tmp/issue-seed-$N.json \
   | grep -cE 'Implementation plan|^### Task|^- \[[ x]\]' || true          # plan in the body?
-gh issue view "$N" --json comments --jq '.comments[].body' \
+"<kit>/scripts/tracker.sh" issue-comments "$N" | jq -r '.[]' \
   | grep -cE 'Implementation plan|^### Task|^- \[[ x]\]' || true          # plan in a comment?
 ```
 

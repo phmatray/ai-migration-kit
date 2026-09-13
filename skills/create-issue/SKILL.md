@@ -1,7 +1,7 @@
 ---
 name: create-issue
 description: >-
-  Create a fully-seeded GitHub issue — not a bare `gh issue create`: template-compliant, carrying a
+  Create a fully-seeded GitHub issue — not a bare `issue-create` call: template-compliant, carrying a
   brainstorm → spec → implementation-plan trail so a contributor can pick it up cold. ALWAYS reach
   for this whenever the user wants to open, file, add, raise, log, or track a NEW issue / feature
   request / idea / ticket / backlog item — "track this idea", "make a ticket", « ouvre une issue
@@ -106,7 +106,7 @@ Create a task per item and complete in order. For a batch of ideas, run steps 2-
 4. **Build the template-compliant body fields** — read the live issue template and fill it.
 5. **Brainstorm + Spec** — collapsible `<details>` sections (per `_shared/brainstorm-and-spec.md`).
 6. **Implementation plan** (per `_shared/plan-shape.md`) — a *visible* section whose `- [ ]` checkboxes feed the progress meter; never inside a `<details>`. **If the plan would earn the largest effort size** (and no `--no-split`): decompose it into a parent plus vertical-slice children instead.
-7. **Assemble the description, choose labels, create the issue** — one body, one `gh issue create` (or, with `--seed #N`, one `gh issue edit` onto the existing issue and never a create), labels (type + priority + effort + area, plus any sub-area the profile defines) from the profile, then read the issue back. **Decomposed:** parent first, children in dependency order, then `scripts/wire-edges.sh` wires the edges in a second pass.
+7. **Assemble the description, choose labels, create the issue** — one body, one `"<kit>/scripts/tracker.sh" issue-create` (or, with `--seed #N`, one `"<kit>/scripts/tracker.sh" issue-edit-body` onto the existing issue and never a create), labels (type + priority + effort + area, plus any sub-area the profile defines) from the profile, then read the issue back. **Decomposed:** parent first, children in dependency order, then `scripts/wire-edges.sh` wires the edges in a second pass (still direct `gh`, per *The decomposed variant*).
 8. **Recap** — the shared closing shape ([`../_shared/recap.md`](../_shared/recap.md), with its [Boundary findings block](../_shared/recap.md#the-boundary-findings-block)); list each issue with its URL, point the user at `/implement-issue`. **Decomposed:** name then number, and hand off to the first frontier child, never the parent.
 
 ---
@@ -130,7 +130,7 @@ shared references it names load the same way, from inside that step.
 
 ## Notes on quality
 
-- **Stay template-driven** — read `.github/ISSUE_TEMPLATE/*.yml` each run; don't hardcode fields that drift.
+- **Stay template-driven** — read the live issue-template YAML each run (location from the profile's *Issue templates* section; the kit's own `templates/issue-forms/feature_request.yml` when it names none); don't hardcode fields that drift.
 - **Ground content in the repo** — reference real files, the actual architecture, and the roadmap; generic boilerplate is worthless.
 - **Respect the architecture invariant** — shape specs/plans to the profile's *Architecture grain* so a plan reads like it belongs here.
 - **The plan is a tracked checklist, not an essay** — preserve `plan-shape.md`'s `- [ ]` checkboxes into the body and keep the section visible; flattened-to-prose or hidden-in-`<details>` loses its job and its place in the progress meter.

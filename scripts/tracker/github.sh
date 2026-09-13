@@ -41,7 +41,7 @@ shift
 if [ "$VERB" = verbs ]; then
   printf '%s\n' verbs auth repo issue-view \
     issue-search issue-comments issue-create issue-edit-body \
-    issue-add-labels issue-remove-labels issue-reopen issue-comment label-list
+    issue-add-labels issue-remove-labels issue-reopen issue-comment label-list label-create
   exit 0
 fi
 
@@ -209,6 +209,27 @@ case "$VERB" in
     [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
     out=$(gh "${ARGS[@]}") || exit 1
     printf '%s' "$out" | jq -r '.[].name'
+    ;;
+
+  # Not one of the nine filing verbs Task 1 (#506) named, but the SAME migration (Step 7's Sub-area
+  # bullet grows the taxonomy with `gh label create` when no fitting label exists) — added here
+  # rather than left as the one direct `gh label` call AC5 would otherwise still catch.
+  label-create)
+    NAME="${1-}"; shift || true
+    COLOR=""; DESC=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --color)       COLOR="${2-}"; shift 2 ;;
+        --description) DESC="${2-}"; shift 2 ;;
+        *) echo "github: label-create: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    [ -n "$NAME" ] || { echo "github: label-create needs a name" >&2; exit 2; }
+    ARGS=(label create "$NAME")
+    [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
+    [ -n "$COLOR" ] && ARGS+=(--color "$COLOR")
+    [ -n "$DESC" ] && ARGS+=(--description "$DESC")
+    gh "${ARGS[@]}" || exit 1
     ;;
 
   *)

@@ -1,6 +1,6 @@
 ## Step 7 — Assemble the description, choose labels, and create the issue
 
-Stitch one description and file it in a single `gh issue create`. Because the plan exists, you know the
+Stitch one description and file it in a single `issue-create` call. Because the plan exists, you know the
 effort too — **all** labels go on at creation.
 
 **Assemble the body** top (most-read) to bottom, into one temp file:
@@ -26,7 +26,7 @@ grep -c '^### Acceptance criteria' /tmp/issue-<slug>.md   # must be exactly 1
 in the profile's *Labels* section. Read the **live** set first (labels drift):
 
 ```bash
-gh label list --limit 100
+"<kit>/scripts/tracker.sh" label-list
 ```
 
 Pick one label per axis (none are guesses — your analysis already implies them):
@@ -36,47 +36,48 @@ Pick one label per axis (none are guesses — your analysis already implies them
 - **Effort** — exactly one size, the one you settled on in Step 6.
 - **Area** — **exactly one** area label, when the profile's *Labels* section defines an area axis.
   This is the queryable functional-area tag, so a whole area is one filter away
-  (`gh issue list --label "<area label>"`); the scope you'd derive for the PR-title prefix usually
-  names the area outright.
+  (`"<kit>/scripts/tracker.sh" issue-search --label "<area label>"`); the scope you'd derive for the
+  PR-title prefix usually names the area outright.
 - **Sub-area** — *only when the profile defines a sub-namespace under the chosen area*, add **one**
   sub-label too — that's what makes a single feature findable. If the work is a genuinely new
-  sub-area with no fitting label, `gh label create "<namespace>: <slug>" --color c5def5
-  --description "…"` first, then apply it — grow the taxonomy rather than collapsing to the parent
-  area alone.
+  sub-area with no fitting label, `"<kit>/scripts/tracker.sh" label-create "<namespace>: <slug>"
+  --color c5def5 --description "…"` first, then apply it — grow the taxonomy rather than collapsing
+  to the parent area alone.
 
 Decide, note the call in the report, don't open a triage Q&A. Create with every axis the profile
 defines:
 
 ```bash
-gh issue create \
+OUT=$("<kit>/scripts/tracker.sh" issue-create \
   --title "Add CSV export" \
   --label "<type>" \
   --label "<priority tier>" \
   --label "<effort size>" \
   --label "<area>" \
-  --body-file /tmp/issue-<slug>.md
+  --body-file /tmp/issue-<slug>.md)
 ```
 
-Capture the printed URL and number. If a chosen label isn't in the live list, create without it rather
-than failing, and flag the gap.
+The verb's stdout is `{"number","url"}` — parse both rather than grep-ing for trailing digits.
+If a chosen label isn't in the live list, create without it rather than failing, and flag the gap.
 
 **Read it back.** The pre-create `grep` proved your *local* file; this proves *GitHub* stored it (a
 malformed `<details>`, an oversized field, or a `--body-file` that didn't carry everything can leave a
 broken issue that looks fine in the terminal):
 
 ```bash
-NUM=<issue-number>
+NUM=$(printf '%s' "$OUT" | jq -r .number)   # $OUT is the issue-create call's stdout, above
 filed=$(grep -c '^- \[ \]' /tmp/issue-<slug>.md)
-live=$(gh issue view "$NUM" --json body --jq .body | grep -c '^- \[ \]')
+live=$("<kit>/scripts/tracker.sh" issue-view "$NUM" | jq -r .body | grep -c '^- \[ \]')
 echo "checkboxes — filed $filed / live $live"          # must be equal and > 0
-gh issue view "$NUM" --json labels --jq '.labels[].name'   # confirm every intended label applied
+"<kit>/scripts/tracker.sh" issue-view "$NUM" | jq -r '.labels[]'   # confirm every intended label applied
 ```
 
 If `live` ≠ `filed` (or zero), the body didn't round-trip — repair and push with
-`gh issue edit "$NUM" --body-file …`, **guarded by `[ -s /tmp/issue-<slug>.md ]` first**: that flag
-overwrites the whole body, so handing it an empty or truncated file destroys the issue exactly the
-way `implement-issue`'s checkbox PATCH once did. If a label is missing, re-add (`gh issue edit "$NUM"
---add-label …`) or flag it. Move on only once the readback is clean.
+`"<kit>/scripts/tracker.sh" issue-edit-body "$NUM" --body-file …`, **guarded by
+`[ -s /tmp/issue-<slug>.md ]` first**: that verb refuses on an empty or truncated file, so a repair
+attempt built on one is caught before it destroys the issue the way `implement-issue`'s checkbox PATCH
+once did. If a label is missing, re-add (`"<kit>/scripts/tracker.sh" issue-add-labels "$NUM" <label>`)
+or flag it. Move on only once the readback is clean.
 
 ### The decomposed variant — parent first, children in dependency order, then wire the edges
 
@@ -140,7 +141,7 @@ child with the edges file saying `fallback` is the documented degraded state, no
 
 ### The `--seed #N` variant — edit in place, never create
 
-Same body, one destination change: it goes onto the **existing** issue with `gh issue edit`, and no
+Same body, one destination change: it goes onto the **existing** issue with `issue-edit-body`, and no
 issue is created. The assembly order puts the original first because it is the part the author wrote:
 
 1. **The original body, verbatim** — byte for byte as Step 2 fetched it, no reflow, no correction.
@@ -179,28 +180,29 @@ prints its verdict is a gate that does nothing at the one moment it matters:
 # was written by somebody who is not in this conversation. The `[ -s ]` test is the guard, and it
 # is load-bearing, not decoration.
 [ -s /tmp/issue-seed-$N.md ] || { echo "REFUSED — assembled body is empty; #$N untouched"; exit 1; }
-gh issue edit "$N" --body-file /tmp/issue-seed-$N.md
+"<kit>/scripts/tracker.sh" issue-edit-body "$N" --body-file /tmp/issue-seed-$N.md
 ```
 
-**Labels: complete the axes, replace nothing.** Read what the issue already carries and `--add-label`
+**Labels: complete the axes, replace nothing.** Read what the issue already carries and add-label
 only the axes that are **absent**. A `priority: low` you disagree with stays `priority: low` — the
 owner set it, and re-triaging someone's issue is `triage-backlog`'s job, not the seeder's. The type
 axis is usually already there (the form applied it); **effort** and **area** usually are not, and
 effort you now genuinely know, because you just wrote the plan:
 
 ```bash
-gh issue view "$N" --json labels --jq '.labels[].name'      # what it already carries
-gh issue edit "$N" --add-label "effort: medium" --add-label "area: create-issue"   # ABSENT axes only
+"<kit>/scripts/tracker.sh" issue-view "$N" | jq -r '.labels[]'      # what it already carries
+"<kit>/scripts/tracker.sh" issue-add-labels "$N" "effort: medium" "area: create-issue"   # ABSENT axes only
 ```
 
-Never pass `--remove-label` on this path, and never re-apply an axis that is already present under a
-different value — that is a replacement wearing an addition's clothes.
+Never call `issue-remove-labels` on this path, and never re-apply an axis that is already present under
+a different value — that is a replacement wearing an addition's clothes.
 
 **Read it back** — the same proof a create gets, plus one a create never needs, because this path
 edits a body it did not author:
 
 ```bash
-gh issue view "$N" --json body --jq .body > /tmp/seed-live-$N.md
+LIVE=$("<kit>/scripts/tracker.sh" issue-view "$N")
+printf '%s' "$LIVE" | jq -r .body > /tmp/seed-live-$N.md
 jq -r '.body // ""' /tmp/issue-seed-$N.json  > /tmp/seed-orig-$N.md
 
 # `|| true` on BOTH: `grep -c` exits 1 when it counts none, and `live` being 0 is precisely the
@@ -209,8 +211,8 @@ jq -r '.body // ""' /tmp/issue-seed-$N.json  > /tmp/seed-orig-$N.md
 filed=$(grep -c '^- \[ \]' /tmp/issue-seed-$N.md || true)
 live=$(grep  -c '^- \[ \]' /tmp/seed-live-$N.md  || true)
 echo "checkboxes — filed $filed / live $live"               # must be equal and > 0
-gh issue view "$N" --json labels --jq '.labels[].name'      # every intended axis present
-gh issue view "$N" --json title --jq .title                 # UNCHANGED from Step 2's fetch
+printf '%s' "$LIVE" | jq -r '.labels[]'      # every intended axis present
+printf '%s' "$LIVE" | jq -r .title           # UNCHANGED from Step 2's fetch
 
 # The original text is still the head of the body, byte for byte. `wc -c < file` with the redirect
 # (never `… | wc -c`) and `tr -d ' '`, the same spelling implement-issue's tick-plan.sh uses: BSD
@@ -222,7 +224,8 @@ head -c "$orig_bytes" /tmp/seed-live-$N.md | diff - /tmp/seed-orig-$N.md
 ```
 
 That `diff` is the one that matters. If it reports anything, you rewrote someone's issue: restore the
-original (`[ -s /tmp/seed-orig-$N.md ]`, then `gh issue edit "$N" --body-file /tmp/seed-orig-$N.md`)
+original (`[ -s /tmp/seed-orig-$N.md ]`, then
+`"<kit>/scripts/tracker.sh" issue-edit-body "$N" --body-file /tmp/seed-orig-$N.md`)
 and say so, rather than leaving the edit standing.
 
 **`--seed #N` on the decompose branch — #N becomes the parent, if its own text allows it.** The
@@ -249,4 +252,4 @@ jq -r '.body // ""' /tmp/issue-seed-$N.json | grep -cE 'Implementation plan|### 
 Labels on this path: the parent must carry the **largest** effort size, because the tier check is the
 second guard that keeps it out of `QUEUE` even if a later edit trips the token invariant. This is the
 **one** sanctioned replacement on the seed path: an `effort: small`/`medium` on #N is swapped for
-`effort: large` (`--remove-label` then `--add-label`), and the report says so by name.
+`effort: large` (`issue-remove-labels` then `issue-add-labels`), and the report says so by name.

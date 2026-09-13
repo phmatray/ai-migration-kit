@@ -82,6 +82,7 @@ case "${1-} ${2-}" in
   "issue reopen") exit 0 ;;
   "issue comment") exit 0 ;;
   "label list")   payload='[{"name":"bug"},{"name":"area: skills"}]' ;;
+  "label create") exit 0 ;;
   *)              echo "gh stub: unsupported call: $*" >&2; exit 1 ;;
 esac
 
@@ -313,6 +314,12 @@ run_tracker "$PROFILED" --tracker github label-list
   && ok "label-list — one name per line" \
   || note_fail "label-list — expected 'bug\\narea: skills', got '$OUT' exit $RC ($ERR)"
 
+: > "$GH_CALL_LOG"
+run_tracker "$PROFILED" --tracker github label-create "area: export" --color c5def5 --description "new sub-area"
+[ "$RC" -eq 0 ] && grep -Fq -- 'label create area: export --color c5def5 --description new sub-area' "$GH_CALL_LOG" \
+  && ok "label-create — name, color and description reached gh label create" \
+  || note_fail "label-create — exit $RC, log: $(cat "$GH_CALL_LOG")"
+
 echo "== B. the state report, and the tracker.capable verdict"
 
 # The report itself: five facts, judging none of them. `needs` is null because no skill is on the
@@ -324,9 +331,9 @@ if [ "$RC" -ne 0 ]; then
 else
   got=$(printf '%s' "$OUT" | jq -r '[.tracker, .skill, (.needs|tostring), (.implements|length|tostring)] | join("|")' 2>/dev/null) \
     || got="<unparseable: $OUT>"
-  if [ "$got" != 'github|merge-pr|null|13' ]; then
+  if [ "$got" != 'github|merge-pr|null|14' ]; then
     note_fail "state — wrong report
-      want: github|merge-pr|null|13
+      want: github|merge-pr|null|14
       got:  $got"
   else
     ok "state — reports {tracker, skill, needs, implements} and judges nothing"
@@ -386,6 +393,58 @@ elif [ "$out" != "capable" ]; then
   note_fail "end-to-end — expected 'capable' from the Step 1 pipe, got '$out'"
 else
   ok "end-to-end — tracker.sh state | decide.sh tracker.capable answers capable here"
+fi
+
+echo "== C. contract coverage over create-issue's prose (#506)"
+
+# AC4. Every `"<kit>/scripts/tracker.sh" <verb>` spelling under a prose tree must be on BOTH the
+# verb table (contract.json's `verbs`) and the skill's own declared needs (`skills.<name>`) — a
+# verb missing from either is a bad invocation waiting to happen the day this prose actually runs.
+# Reads the same spelling AC5's own grep sweep pins, never a paraphrase of it.
+CONTRACT_JSON="$KIT_ROOT/scripts/tracker/contract.json"
+
+collect_verbs() {
+  grep -rhoE '"<kit>/scripts/tracker\.sh" [A-Za-z][A-Za-z-]*' "$1" 2>/dev/null \
+    | awk '{print $2}' | sort -u
+}
+
+# check_coverage <dir> <skill> — prints one "gap: <verb>" line per verb the prose invokes that is
+# missing from the verb table or from that skill's declared needs; empty output means covered.
+check_coverage() {
+  local dir="$1" skill="$2" v
+  local table needs
+  table=$(jq -r '.verbs | keys[]' "$CONTRACT_JSON")
+  needs=$(jq -r --arg s "$skill" '.skills[$s] // [] | .[]' "$CONTRACT_JSON")
+  while IFS= read -r v; do
+    [ -n "$v" ] || continue
+    printf '%s\n' "$table" | grep -Fxq "$v" || echo "gap: $v not on contract.json's verb table"
+    printf '%s\n' "$needs" | grep -Fxq "$v" || echo "gap: $v not on skills.$skill"
+  done <<EOF
+$(collect_verbs "$dir")
+EOF
+}
+
+FIXTURE_DIR="$WORK/create-issue-fixture"
+mkdir -p "$FIXTURE_DIR"
+cp "$KIT_ROOT/skills/create-issue/references/steps/07-assemble-and-create.md" "$FIXTURE_DIR/"
+printf '\n"<kit>/scripts/tracker.sh" issue-frobnicate 5\n' >> "$FIXTURE_DIR/07-assemble-and-create.md"
+
+fixture_out=$(check_coverage "$FIXTURE_DIR" create-issue)
+if [ -z "$fixture_out" ]; then
+  note_fail "AC4 fixture — a verb absent from the contract should have failed coverage, nothing was reported"
+elif ! printf '%s\n' "$fixture_out" | grep -Fq 'issue-frobnicate'; then
+  note_fail "AC4 fixture — coverage output did not name issue-frobnicate:
+      $fixture_out"
+else
+  ok "AC4 fixture — a verb absent from the contract fails coverage, named"
+fi
+
+real_out=$(check_coverage "$KIT_ROOT/skills/create-issue" create-issue)
+if [ -n "$real_out" ]; then
+  note_fail "AC4 real tree — coverage reported gaps:
+      $real_out"
+else
+  ok "AC4 real tree — every tracker.sh verb create-issue's prose invokes is on the verb table and skills.create-issue"
 fi
 
 if [ "$FAILED" -ne 0 ]; then
