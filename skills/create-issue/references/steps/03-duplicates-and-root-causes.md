@@ -4,8 +4,8 @@ A duplicate is noise; an issue that ignores its neighbours reads like it landed 
 *and* closed issues for the idea's key terms first:
 
 ```bash
-gh issue list --state all --search "csv export" --limit 10 \
-  --json number,title,state,url --jq '.[] | "#\(.number) [\(.state)] \(.title)"'
+"<kit>/scripts/tracker.sh" issue-search --query "csv export" --state all --limit 10 \
+  | jq -r '.[] | "#\(.number) [\(.state)] \(.title)"'
 ```
 
 Then run a **second, differently-shaped search** — by the file or subsystem the idea touches, and
@@ -14,10 +14,10 @@ are phrased in terms of what the user saw, so the two share almost no vocabulary
 search above structurally cannot find the issue that already owns this work:
 
 ```bash
-gh issue list --state all --search "ExportService in:title,body" --limit 15 \
-  --json number,title,state --jq '.[] | "#\(.number) [\(.state)] \(.title)"'
-gh issue list --state open --label "type:refactor" --limit 30 \
-  --json number,title --jq '.[] | "#\(.number) \(.title)"'
+"<kit>/scripts/tracker.sh" issue-search --query "ExportService in:title,body" --state all --limit 15 \
+  | jq -r '.[] | "#\(.number) [\(.state)] \(.title)"'
+"<kit>/scripts/tracker.sh" issue-search --state open --label "type:refactor" --limit 30 \
+  | jq -r '.[] | "#\(.number) \(.title)"'
 ```
 
 The file search spans **closed** issues too: ideas that arrive while working in a subsystem usually
@@ -66,7 +66,7 @@ idea came from*, which is the same axis the filing bar already turns on:
 Then decide (don't interrogate):
 
 - **Clear duplicate** (open issue already captures it): don't refile. Report *"#N already covers this — skipped"* and move on; file anyway only if asked.
-- **The same job as a recently closed issue** — the fix landed but didn't finish the job. **Reopen it** (`gh issue reopen <N> --comment "<what still fails>"`) instead of filing a sibling, and report *"reopened #N"*. If the idea is genuinely a different job in the same code, proceed — but open the body with `Continues #N.` so the lineage stays one thread. A chain already two deep means the root is mis-scoped: say so and let the owner rescope it rather than adding attempt four.
+- **The same job as a recently closed issue** — the fix landed but didn't finish the job. **Reopen it** (write `<what still fails>` to a temp file and run `"<kit>/scripts/tracker.sh" issue-reopen <N> --body-file <that file>`) instead of filing a sibling, and report *"reopened #N"*. If the idea is genuinely a different job in the same code, proceed — but open the body with `Continues #N.` so the lineage stays one thread. A chain already two deep means the root is mis-scoped: say so and let the owner rescope it rather than adding attempt four.
 - **An instance of a tracked root cause** — an open issue owns the *cause* and this idea is one of its symptoms (it converges two code paths, and this is one more attribute that drifted; it replaces a parser, and this is one more input it mishandles). Don't file a leaf: add it to that issue as a `- [ ]` checklist item, or as a comment when it has no plan, and report *"folded into #N"*. Filing it separately splits one piece of work across two trackers and buries the issue that would actually close it.
 - **Related but distinct**: proceed, carry the links forward — add a `**Related:** #N, #M` line near the top of the body in Step 7 (GitHub auto-renders the cross-references, and it's where your brainstorm's prior art gets cited).
 - **Nothing similar**: proceed clean.
@@ -92,12 +92,12 @@ duplicate already covers this" and abandons the seed — the one outcome this pa
 match #N just as reliably:
 
 ```bash
-gh issue list --state all --search "<key terms>" --limit 10 \
-  --json number,title,state --jq ".[] | select(.number != $N) | \"#\(.number) [\(.state)] \(.title)\""
-gh issue list --state all --search "<file or subsystem> in:title,body" --limit 15 \
-  --json number,title,state --jq ".[] | select(.number != $N) | \"#\(.number) [\(.state)] \(.title)\""
-gh issue list --state open --label "type:refactor" --limit 30 \
-  --json number,title --jq ".[] | select(.number != $N) | \"#\(.number) \(.title)\""
+"<kit>/scripts/tracker.sh" issue-search --query "<key terms>" --state all --limit 10 \
+  | jq -r ".[] | select(.number != $N) | \"#\(.number) [\(.state)] \(.title)\""
+"<kit>/scripts/tracker.sh" issue-search --query "<file or subsystem> in:title,body" --state all --limit 15 \
+  | jq -r ".[] | select(.number != $N) | \"#\(.number) [\(.state)] \(.title)\""
+"<kit>/scripts/tracker.sh" issue-search --state open --label "type:refactor" --limit 30 \
+  | jq -r ".[] | select(.number != $N) | \"#\(.number) \(.title)\""
 ```
 
 The dispositions above still apply to what remains, with one change of shape: on this path they are

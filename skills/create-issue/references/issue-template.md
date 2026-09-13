@@ -1,6 +1,6 @@
 # Issue template → markdown mapping
 
-`gh issue create` posts a plain markdown body; it does **not** render the GitHub *form* template in
+Filing an issue posts a plain markdown body; it does **not** render the GitHub *form* template in
 `.github/ISSUE_TEMPLATE/*.yml`. So you read the YAML form and reconstruct an equivalent markdown body
 by hand. This file shows how.
 
@@ -61,7 +61,7 @@ This body is only the form fields. In the real run the brainstorm/spec/plan get 
 all known by SKILL.md Step 7, since the plan already exists:
 
 ```bash
-gh issue create --title "Add CSV export" \
+"<kit>/scripts/tracker.sh" issue-create --title "Add CSV export" \
   --label "<type>" --label "<priority tier>" --label "<effort size>" \
   --body-file /tmp/issue-csv-export.md
 ```
@@ -164,9 +164,10 @@ Three things this example is showing, all of them rules rather than style:
 - **The plan sits at the bottom, outside every `<details>`**, exactly as on the create path — it is
   what `implement-issue` reads and what the progress meter counts.
 
-The whole file is written to a temp path and pushed with `gh issue edit "$N" --body-file` behind a
-`[ -s … ]` guard. That flag replaces the *entire* body, so an empty file does not "fail to update"
-#412 — it erases it, along with the two lines the author wrote.
+The whole file is written to a temp path and pushed with `"<kit>/scripts/tracker.sh" issue-edit-body
+"$N" --body-file` behind a `[ -s … ]` guard (the verb refuses on its own too). That flag replaces the
+*entire* body, so an empty file does not "fail to update" #412 — it erases it, along with the two
+lines the author wrote.
 
 ## Area dropdown values (feature_request)
 

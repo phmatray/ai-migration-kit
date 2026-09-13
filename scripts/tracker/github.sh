@@ -39,7 +39,9 @@ shift
 # gh, a network or a credential — a backend that could only introspect itself when authenticated
 # would report "not implemented" for every verb on a machine that is merely logged out.
 if [ "$VERB" = verbs ]; then
-  printf '%s\n' verbs auth repo issue-view
+  printf '%s\n' verbs auth repo issue-view \
+    issue-search issue-comments issue-create issue-edit-body \
+    issue-add-labels issue-remove-labels issue-reopen issue-comment label-list label-create
   exit 0
 fi
 
@@ -73,6 +75,164 @@ case "$VERB" in
     printf '%s' "$out" | jq -c \
       '{number, title, state: (.state | ascii_downcase), body,
         labels: [(.labels // [])[].name], url, format: "markdown"}'
+    ;;
+
+  issue-search)
+    # Every filter is optional — a bare `issue-search` with no --query is valid (Step 3's
+    # open-refactor scan filters by --label alone). --label may repeat.
+    Q=""; ST=""; LIM=""; LBLS=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --query) Q="${2-}"; shift 2 ;;
+        --state) ST="${2-}"; shift 2 ;;
+        --label) LBLS+=("${2-}"); shift 2 ;;
+        --limit) LIM="${2-}"; shift 2 ;;
+        *) echo "github: issue-search: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    ARGS=(issue list --json number,title,state)
+    [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
+    [ -n "$Q" ] && ARGS+=(--search "$Q")
+    [ -n "$ST" ] && ARGS+=(--state "$ST")
+    [ -n "$LIM" ] && ARGS+=(--limit "$LIM")
+    if [ "${#LBLS[@]}" -gt 0 ]; then
+      for l in "${LBLS[@]}"; do ARGS+=(--label "$l"); done
+    fi
+    out=$(gh "${ARGS[@]}") || exit 1
+    printf '%s' "$out" | jq -c '[.[] | {number, title, state: (.state | ascii_downcase)}]'
+    ;;
+
+  issue-comments)
+    n="${1-}"
+    [ -n "$n" ] || { echo "github: issue-comments needs an issue number" >&2; exit 2; }
+    out=$(gh issue view "$n" ${KIT_REPO_SLUG:+--repo "$KIT_REPO_SLUG"} --json comments) || exit 1
+    printf '%s' "$out" | jq -c '[.comments[].body]'
+    ;;
+
+  issue-create)
+    TITLE=""; BODY_FILE=""; LBLS=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --title)     TITLE="${2-}"; shift 2 ;;
+        --label)     LBLS+=("${2-}"); shift 2 ;;
+        --body-file) BODY_FILE="${2-}"; shift 2 ;;
+        *) echo "github: issue-create: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    [ -n "$TITLE" ] || { echo "github: issue-create needs --title" >&2; exit 2; }
+    [ -n "$BODY_FILE" ] && [ -s "$BODY_FILE" ] \
+      || { echo "github: issue-create needs a non-empty --body-file" >&2; exit 2; }
+    ARGS=(issue create --title "$TITLE" --body-file "$BODY_FILE")
+    [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
+    # A label not in the live set is passed through UNFILTERED — this verb does not second-guess
+    # it. gh's own behaviour on an unknown --label is to FAIL THE WHOLE CALL (exit 1, nothing
+    # filed), not to create the issue without it, exactly as a direct `gh issue create --label`
+    # does today. The caller (create-issue Step 7) is what checks the live label set first and
+    # drops what isn't there, before ever reaching this verb — that pre-filtering is what makes
+    # "create without it rather than failing" true, not anything this backend does.
+    if [ "${#LBLS[@]}" -gt 0 ]; then
+      for l in "${LBLS[@]}"; do ARGS+=(--label "$l"); done
+    fi
+    url=$(gh "${ARGS[@]}") || exit 1
+    num=$(printf '%s' "$url" | grep -oE '[0-9]+$') || {
+      echo "github: issue-create: could not read an issue number off of: $url" >&2; exit 1; }
+    jq -nc --arg n "$num" --arg u "$url" '{number: ($n | tonumber), url: $u}'
+    ;;
+
+  issue-edit-body)
+    n="${1-}"; shift || true
+    BODY_FILE=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --body-file) BODY_FILE="${2-}"; shift 2 ;;
+        *) echo "github: issue-edit-body: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    [ -n "$n" ] || { echo "github: issue-edit-body needs an issue number" >&2; exit 2; }
+    [ -n "$BODY_FILE" ] && [ -s "$BODY_FILE" ] \
+      || { echo "github: issue-edit-body refuses a missing or empty --body-file. Nothing sent." >&2; exit 2; }
+    gh issue edit "$n" ${KIT_REPO_SLUG:+--repo "$KIT_REPO_SLUG"} --body-file "$BODY_FILE" || exit 1
+    ;;
+
+  issue-add-labels)
+    n="${1-}"; shift || true
+    [ -n "$n" ] || { echo "github: issue-add-labels needs an issue number" >&2; exit 2; }
+    [ $# -gt 0 ] || { echo "github: issue-add-labels needs at least one label" >&2; exit 2; }
+    ARGS=(issue edit "$n")
+    [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
+    for l in "$@"; do ARGS+=(--add-label "$l"); done
+    gh "${ARGS[@]}" || exit 1
+    ;;
+
+  issue-remove-labels)
+    n="${1-}"; shift || true
+    [ -n "$n" ] || { echo "github: issue-remove-labels needs an issue number" >&2; exit 2; }
+    [ $# -gt 0 ] || { echo "github: issue-remove-labels needs at least one label" >&2; exit 2; }
+    ARGS=(issue edit "$n")
+    [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
+    for l in "$@"; do ARGS+=(--remove-label "$l"); done
+    gh "${ARGS[@]}" || exit 1
+    ;;
+
+  issue-reopen)
+    n="${1-}"; shift || true
+    BODY_FILE=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --body-file) BODY_FILE="${2-}"; shift 2 ;;
+        *) echo "github: issue-reopen: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    [ -n "$n" ] || { echo "github: issue-reopen needs an issue number" >&2; exit 2; }
+    [ -n "$BODY_FILE" ] && [ -s "$BODY_FILE" ] \
+      || { echo "github: issue-reopen refuses a missing or empty --body-file. Nothing sent." >&2; exit 2; }
+    # gh's own `issue reopen` has no --body-file (only -c/--comment string) — the file is read
+    # here, at the backend boundary, rather than asking every caller to pass a multi-kilobyte
+    # reopening comment as a command-line argument.
+    gh issue reopen "$n" ${KIT_REPO_SLUG:+--repo "$KIT_REPO_SLUG"} --comment "$(cat "$BODY_FILE")" || exit 1
+    ;;
+
+  issue-comment)
+    n="${1-}"; shift || true
+    BODY_FILE=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --body-file) BODY_FILE="${2-}"; shift 2 ;;
+        *) echo "github: issue-comment: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    [ -n "$n" ] || { echo "github: issue-comment needs an issue number" >&2; exit 2; }
+    [ -n "$BODY_FILE" ] && [ -s "$BODY_FILE" ] \
+      || { echo "github: issue-comment refuses a missing or empty --body-file. Nothing sent." >&2; exit 2; }
+    gh issue comment "$n" ${KIT_REPO_SLUG:+--repo "$KIT_REPO_SLUG"} --body-file "$BODY_FILE" || exit 1
+    ;;
+
+  label-list)
+    ARGS=(label list --json name --limit 100)
+    [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
+    out=$(gh "${ARGS[@]}") || exit 1
+    printf '%s' "$out" | jq -r '.[].name'
+    ;;
+
+  # Not one of the nine filing verbs Task 1 (#506) named, but the SAME migration (Step 7's Sub-area
+  # bullet grows the taxonomy with `gh label create` when no fitting label exists) — added here
+  # rather than left as the one direct `gh label` call AC5 would otherwise still catch.
+  label-create)
+    NAME="${1-}"; shift || true
+    COLOR=""; DESC=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --color)       COLOR="${2-}"; shift 2 ;;
+        --description) DESC="${2-}"; shift 2 ;;
+        *) echo "github: label-create: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    [ -n "$NAME" ] || { echo "github: label-create needs a name" >&2; exit 2; }
+    ARGS=(label create "$NAME")
+    [ -n "$KIT_REPO_SLUG" ] && ARGS+=(--repo "$KIT_REPO_SLUG")
+    [ -n "$COLOR" ] && ARGS+=(--color "$COLOR")
+    [ -n "$DESC" ] && ARGS+=(--description "$DESC")
+    gh "${ARGS[@]}" || exit 1
     ;;
 
   *)

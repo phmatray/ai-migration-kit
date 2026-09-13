@@ -1,14 +1,15 @@
 ## Step 4 — Build the template-compliant body fields
 
 These are the **visible top of the description** (brainstorm/spec/plan come after). They MUST match the
-project's issue form — never invent structure. Read the live template:
+project's issue form — never invent structure. Read the live template from the location the profile's
+*Issue templates* section names (`.claude/skills/repo-profile.md`); when it names none, fall back to
+the kit's own `templates/issue-forms/feature_request.yml`:
 
 ```bash
-ls .github/ISSUE_TEMPLATE/
-cat .github/ISSUE_TEMPLATE/feature_request.yml
+cat <the profile's Issue-templates location>/feature_request.yml
 ```
 
-`gh issue create` doesn't apply a form template, so reconstruct it as markdown:
+Filing an issue doesn't apply a form template, so reconstruct it as markdown:
 
 - Use **feature_request** for ideas/enhancements (common case); `bug_report` only for a clear defect.
 - For each `textarea`/`input` field, emit a `## <label>` heading and fill it. Honor `validations.required`.
