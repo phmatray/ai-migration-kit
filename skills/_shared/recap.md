@@ -38,7 +38,7 @@ A fixed sequence, the same order in every skill, **every block mandatory**:
 **Assumed · skipped · unverified** — every default taken, gate not run, item declined, prerequisite
 missing.
 
-**Next** — the command(s) from the hand-off table below, with the live number substituted.
+**Next** — the command(s) from the hand-off table below, with the live number substituted, **to run in a fresh session**: the next skill needs none of this one's context, and whatever it inherits is re-read on every one of its turns. `deliver-issue` runs the rest of the chain that way, one fresh sub-agent per phase.
 ```
 
 Four rules make it worth having:
