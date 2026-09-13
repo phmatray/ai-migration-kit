@@ -377,4 +377,211 @@ if [ "$re2_gate_has_exit" != "yes" ]; then
 fi
 echo "  [9] ci.yml's own step still fails the build when RE2 fails to load, not just this suite"
 
+# ---------------------------------------------------------------------------
+# 10. The RESOLVED config — the document Renovate actually obeys (#156).
+#
+#     Cases 1-9 hand the validator this repo's renovate.json straight off disk, and section 9 of
+#     tests/xunit-v3/test.sh models Renovate's reach questions in Python. NEITHER resolves
+#     `extends`, so everything the shared preset contributes is invisible to both — hole 4 of #99,
+#     recorded there and never fixed. The consequence is not hypothetical in shape: the preset is
+#     maintained in a DIFFERENT repository, so an edit that switches off this repo's pin-watching is
+#     an edit no CI run here would ever see.
+#
+#     So ask the engine instead of modelling it. `renovate --dry-run=extract --print-config`
+#     resolves the whole preset chain and reports both halves of what this case needs: the config it
+#     actually obeys, and the files each manager extracted from. The two reach questions — "is the
+#     transform watched?" and "is its path ignored?" — are then answered by Renovate rather than by
+#     a second hand-written model of somebody else's grammar.
+#
+#     Measured against renovate@44.75.1 rather than read off the docs:
+#       * `--platform=local` CANNOT answer this. `local>` presets resolve through the platform API,
+#         and this chain NESTS one (renovate-ci -> local>renovate-base), so the local platform fails
+#         with "Preset caused unexpected error" no matter what token is supplied. Hence --platform=github.
+#       * The EXIT CODE IS WORTHLESS. A config-validation failure exits 0, and so does an unhandled
+#         rejection. Every verdict below is read out of the log RECORDS; `$?` is never consulted.
+#         This is the same lesson as case 8 — a failure that lives only in a log line nobody greps.
+#       * Renovate's own `engines` require node ^24.11.0. Below it the process dies with
+#         "RegExp.escape is not a function" — and exits 0. Hence the node floor and its SKIP.
+#       * LOG_FORMAT=json makes every record one line, so the resolved config is parsed as JSON
+#         rather than scraped out of a pretty-printed dump.
+#
+#     THE HONEST LIMIT, stated because the next reader will need it: this reads the config on the
+#     DEFAULT BRANCH as GitHub serves it, not the working tree. A branch's own renovate.json is not
+#     what Renovate obeys until it lands — and the document hole 4 is about is precisely the one
+#     Renovate obeys, so that is the right target here. It also means a renovate.json fix on a
+#     branch turns this case green only once it merges.
+#
+#     Network: like cases 1-2 this needs the network, and SKIPs loudly when it is unavailable. A
+#     preset that cannot be RESOLVED is a different thing and FAILS — it means the config this repo
+#     declares cannot be assembled at all.
+# ---------------------------------------------------------------------------
+TRANSFORM_REL="tests/xunit-v3/apply-transform.py"
+REPO_SLUG="phmatray/ai-migration-kit"
+NODE_FLOOR_MAJOR=24
+NODE_FLOOR_MINOR=11
+
+resolved_skip=""
+if ! command -v node > /dev/null 2>&1; then
+  resolved_skip="node is not on PATH, so renovate proper cannot run"
+else
+  # `node -p` rather than `node --version`, to avoid parsing the leading "v".
+  node_ver=$(node -p 'process.versions.node' 2>/dev/null || true)
+  node_major=${node_ver%%.*}
+  node_rest=${node_ver#*.}
+  node_minor=${node_rest%%.*}
+  # `:*` and `*:` are the EMPTY-field arms, and they are the ones that matter: when `node -p` fails
+  # or prints nothing, both fields are empty and the subject is a bare ":", which matches neither
+  # '' nor either `*[!0-9]*` arm — every one of those needs a character to land on. Without them the
+  # subject fell through to the numeric arm, where `[ "" -lt 24 ]` prints "integer expression
+  # expected" and returns 2, so the `if` read FALSE and the SKIP this block exists to set was never
+  # set: renovate then ran anyway, on the broken node the guard had just failed to notice.
+  case "$node_major:$node_minor" in
+    ''|:*|*:|*[!0-9]*:*|*:*[!0-9]*)
+      resolved_skip="could not read node's version (got '$node_ver')" ;;
+    *)
+      if [ "$node_major" -lt "$NODE_FLOOR_MAJOR" ] ||
+         { [ "$node_major" -eq "$NODE_FLOOR_MAJOR" ] && [ "$node_minor" -lt "$NODE_FLOOR_MINOR" ]; }; then
+        resolved_skip="node $node_ver is below renovate@$PIN's engines floor of ${NODE_FLOOR_MAJOR}.${NODE_FLOOR_MINOR} (below it renovate dies with 'RegExp.escape is not a function' and exits 0)"
+      fi ;;
+  esac
+fi
+
+# Resolving a `local>` preset reads another repository through the platform API, which is
+# rate-limited to almost nothing unauthenticated — measured: "Rate limit exceeded for
+# api.github.com". Any of the three usual sources will do; none is created here.
+resolved_token="${RENOVATE_TOKEN:-${GITHUB_TOKEN:-}}"
+if [ -z "$resolved_token" ] && command -v gh > /dev/null 2>&1; then
+  resolved_token=$(gh auth token 2>/dev/null || true)
+fi
+if [ -z "$resolved_skip" ] && [ -z "$resolved_token" ]; then
+  resolved_skip="no GitHub token in RENOVATE_TOKEN, GITHUB_TOKEN or 'gh auth token' — the preset chain cannot be fetched"
+fi
+
+if [ -n "$resolved_skip" ]; then
+  echo "  [10] SKIPPED — $resolved_skip."
+  echo "        (Nothing was asserted about the RESOLVED config. A skip is not a pass.)"
+else
+  resolved_log="$scratch/resolved.ndjson"
+  # --autodiscover=false with an explicit slug: this must read ONE repository, never wander.
+  # --base-dir keeps renovate's clone inside kit_scratch, which kit_cleanup removes.
+  # The token goes in the environment, not on the command line, so it stays out of any process list.
+  RENOVATE_TOKEN="$resolved_token" \
+  GITHUB_COM_TOKEN="$resolved_token" \
+  LOG_FORMAT=json \
+  LOG_LEVEL=info \
+    npx --yes --package "renovate@$PIN" -- renovate \
+      --platform=github --dry-run=extract --print-config --autodiscover=false \
+      --base-dir "$scratch/renovate-base" "$REPO_SLUG" > "$resolved_log" 2>&1 || true
+
+  # Exit code deliberately discarded above (`|| true`) — see the header. The python below decides,
+  # and it distinguishes three outcomes: 0 pass, 3 skip (could not reach), 1 fail.
+  set +e
+  python3 - "$resolved_log" "$TRANSFORM_REL" "$REPO_SLUG" <<'PY'
+import json, sys
+
+log_path, transform, slug = sys.argv[1], sys.argv[2], sys.argv[3]
+raw = open(log_path, encoding="utf-8", errors="replace").read()
+
+records = []
+for line in raw.splitlines():
+    line = line.strip()
+    if not line.startswith("{"):
+        continue
+    try:
+        records.append(json.loads(line))
+    except ValueError:
+        continue
+
+
+def messages():
+    for r in records:
+        m = r.get("msg")
+        if isinstance(m, str):
+            yield r, m
+
+
+# --- could not reach: SKIP, never a pass. Checked FIRST, because an unreachable API also
+# --- produces a preset error, and reporting that as a failure would make an outage look like a
+# --- broken config (the same trap cases 6 and 7 avoid by asserting the REASON).
+for needle in ("Rate limit exceeded", "ENOTFOUND", "ETIMEDOUT", "EAI_AGAIN",
+               "getaddrinfo", "ECONNREFUSED", "ECONNRESET"):
+    if needle in raw:
+        print("  [10] SKIPPED — renovate could not reach the GitHub API (%s)." % needle)
+        print("        (Nothing was asserted about the RESOLVED config. A skip is not a pass.)")
+        sys.exit(3)
+
+# --- a preset that cannot be RESOLVED is a failure, not a skip: the config this repo declares
+# --- cannot be assembled at all, which is exactly the state nothing here could previously see.
+for marker in ("Preset caused unexpected error", "Cannot find preset"):
+    if marker in raw:
+        detail = next((m for _, m in messages() if marker in m), marker)
+        print("FAIL: the preset chain this repo declares could not be resolved: %s" % detail)
+        print("      renovate.json extends a preset in ANOTHER repository; if it was deleted or")
+        print("      renamed, this repo's whole config stops assembling and Renovate manages nothing.")
+        sys.exit(1)
+
+resolved, extracted = None, None
+for r, m in messages():
+    if m.startswith("Full resolved config"):
+        resolved = r.get("config")
+    elif m == "Extracted dependencies":
+        extracted = r.get("packageFiles")
+
+# Never print the resolved config wholesale: `hostRules` travels in it. Renovate redacts tokens,
+# but a CI log is the wrong place to bet on that. Only the specific keys under test are echoed.
+if resolved is None:
+    print("FAIL: renovate printed no resolved-config record for %s." % slug)
+    print("      --print-config was passed, so its absence means the run never got that far —")
+    print("      and renovate exits 0 regardless, which is why this is asserted on the record.")
+    sys.exit(1)
+
+if extracted is None:
+    print("FAIL: renovate printed no extraction record for %s, so nothing can be said about" % slug)
+    print("      which files its managers actually read.")
+    sys.exit(1)
+
+# --- reach question 1: is the transform WATCHED? Asked of the engine's own extraction result,
+# --- which is the whole point: this is what Renovate read, not what a model predicts it would.
+watched = []
+for manager, files in (extracted or {}).items():
+    for entry in files or []:
+        if entry.get("packageFile") == transform:
+            deps = [d.get("depName") for d in (entry.get("deps") or [])]
+            watched.append((manager, deps))
+
+if not watched:
+    print("FAIL: under the RESOLVED config, Renovate extracts NOTHING from %s." % transform)
+    print("      The two pins that file carries (#36) are therefore unwatched: no update is ever")
+    print("      proposed for them, and the packageRules that hold their majors cannot fire on")
+    print("      dependencies that were never extracted. Nothing in this repo could see this")
+    print("      before, because every other check reads the UNRESOLVED renovate.json.")
+    print("      Resolved ignorePaths: %s" % json.dumps(resolved.get("ignorePaths")))
+    print("      Resolved enabledManagers: %s" % json.dumps(resolved.get("enabledManagers")))
+    print("      Files the managers DID read: %s"
+          % json.dumps(sorted(e.get("packageFile")
+                              for fs in (extracted or {}).values() for e in fs or [])))
+    sys.exit(1)
+
+# --- reach question 2: does anything in the resolved config DISABLE the manager that reads it?
+# --- `enabledManagers`, when set, is an allow-list: a preset setting it without the custom regex
+# --- manager would disable these pins repo-wide while every other assertion here still passed.
+enabled = resolved.get("enabledManagers") or []
+if enabled and not any(m in ("custom.regex", "regex") for m in enabled):
+    print("FAIL: the RESOLVED enabledManagers allow-list omits the custom regex manager: %s"
+          % json.dumps(enabled))
+    print("      It is an ALLOW-LIST, so omission disables the managers that watch %s." % transform)
+    sys.exit(1)
+
+print("  [10] the RESOLVED config watches %s — %s"
+      % (transform,
+         "; ".join("%s: %s" % (mgr, ", ".join(d for d in deps if d)) for mgr, deps in watched)))
+PY
+  resolved_rc=$?
+  set -e
+  # 3 is the suite's SKIP path and must not fail the run; anything else non-zero is a real refusal.
+  if [ "$resolved_rc" -ne 0 ] && [ "$resolved_rc" -ne 3 ]; then
+    exit 1
+  fi
+fi
+
 echo "renovate-config golden test OK"
