@@ -48,6 +48,20 @@ emit_or_todo() {
 
 section() { printf '\n## %s\n' "$1"; }
 
+# The self-managed-GitLab positive probe (Tracker section, below): `glab repo view` talks to that
+# host live, so an unreachable/slow/misconfigured one can hang this call indefinitely — exactly
+# what this command's best-effort contract forbids (same risk, same fix, as the ADR `claude mcp
+# list` probe below: bound it where `timeout`(1) exists, GNU coreutils, not on a stock macOS;
+# elsewhere fall back to the unbounded call rather than fail the whole probe over a missing tool).
+glab_repo_view_ok() {
+  command -v glab >/dev/null 2>&1 || return 1
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 5s glab repo view >/dev/null 2>&1
+  else
+    glab repo view >/dev/null 2>&1
+  fi
+}
+
 case "$CMD" in
   show)
     if [ -f "$PROFILE_REL" ]; then
@@ -182,7 +196,7 @@ case "$CMD" in
       # literal "github.com" string match.
       if [ "$tracker_host" = "github.com" ] || [ -n "${SLUG:-}" ]; then
         printf 'tracker: github (%s)\n' "$tracker_host"
-      elif [ "$tracker_host" = "gitlab.com" ] || { command -v glab >/dev/null 2>&1 && glab repo view >/dev/null 2>&1; }; then
+      elif [ "$tracker_host" = "gitlab.com" ] || glab_repo_view_ok; then
         printf 'tracker: gitlab (%s)\n' "$tracker_host"
       else
         # Azure DevOps: three remote shapes, each carrying <org>/<project> in a different spot.

@@ -113,9 +113,12 @@ launcher_note() {
 
 # requirements.json → one tab-separated line per entry: kind, level, name, test/match, requiredBy,
 # requiresSdk, launcher, hint, tracker. "-" placeholder where a field is empty: an empty field would
-# be swallowed by read (tab = IFS whitespace). Every kind prints the SAME number of columns, including
-# the ones that can never carry the field, so the `read` below binds the same name to the same
-# position on every line. tracker stays LAST because `read` gives the trailing field the remainder.
+# be swallowed by read (tab = IFS whitespace) and shift every field after it left — hint gained a
+# `tracker` neighbour, so it now takes the same "-" placeholder as every other optional field rather
+# than "", the empty string that was harmless only while hint was itself the trailing column. Every
+# kind prints the SAME number of columns, including the ones that can never carry the field, so the
+# `read` below binds the same name to the same position on every line. tracker stays LAST because
+# `read` gives the trailing field the remainder.
 manifest() {
 python3 - "$REQ" <<'PY'
 import json, sys
@@ -123,14 +126,14 @@ req = json.load(open(sys.argv[1]))
 def reqby(e): return ", ".join(e.get("requiredBy", [])) or "-"
 for t in req.get("tools", []):
     print("\t".join(["tool", t["level"], t["name"], t["test"], reqby(t), "-", "-",
-                     t.get("hint", ""), t.get("tracker", "-")]))
+                     t.get("hint") or "-", t.get("tracker") or "-"]))
 for m in req.get("mcps", []):
     print("\t".join(["mcp", m["level"], m["name"], m["match"], reqby(m),
                      str(m.get("requiresSdk") or "-"), str(m.get("launcher") or "-"),
-                     m.get("hint", ""), m.get("tracker", "-")]))
+                     m.get("hint") or "-", m.get("tracker") or "-"]))
 for s in req.get("sessionSkills", []):
     print("\t".join(["skill", s["level"], "skill " + s["name"], "-", reqby(s), "-", "-",
-                     s.get("when", ""), s.get("tracker", "-")]))
+                     s.get("when") or "-", s.get("tracker") or "-"]))
 PY
 }
 

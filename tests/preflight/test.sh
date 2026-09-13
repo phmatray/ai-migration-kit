@@ -255,7 +255,8 @@ cat > "$trk/requirements.json" <<'JSON'
   "description": "synthetic manifest — the tracker-scoped case",
   "tools": [
     { "name": "dotnet SDK >= 8", "level": "required", "test": "sdk_ok", "hint": "install an LTS .NET SDK" },
-    { "name": "gh CLI (authenticated)", "level": "recommended", "test": "gh auth status", "tracker": "github", "hint": "GitHub publishing" }
+    { "name": "gh CLI (authenticated)", "level": "recommended", "test": "gh auth status", "tracker": "github", "hint": "GitHub publishing" },
+    { "name": "bare tool", "level": "recommended", "test": "false" }
   ],
   "mcps": [],
   "sessionSkills": []
@@ -284,6 +285,14 @@ import json, sys
 checks = {c["name"]: c for c in json.loads(sys.argv[1])["checks"]}
 assert "gh CLI (authenticated)" not in checks, \
     f"a gitlab-tracked profile must not be asked for the GitHub-only CLI: {checks}"
+# Regression (code-review, #504): an entry with neither `hint` nor `tracker` must still be
+# reported, not silently swallowed by the column shift an empty (rather than "-") hint field
+# causes once `tracker` sits after it — on ANY host whose profile resolves a tracker, not just
+# a github one.
+bare = checks.get("bare tool")
+assert bare is not None, f"an entry with no hint/tracker must never be dropped: {checks}"
+assert bare["status"] == "absent", f"...and checked normally: {bare}"
+assert bare["hint"] == "-", f"...with the placeholder hint, not a value shifted from 'tracker': {bare}"
 PY
 
 github_fx=$(kit_scratch)
@@ -297,6 +306,10 @@ import json, sys
 checks = {c["name"]: c for c in json.loads(sys.argv[1])["checks"]}
 assert "gh CLI (authenticated)" in checks, \
     f"a github-tracked profile must still be asked for gh CLI, exactly as before: {checks}"
+bare = checks.get("bare tool")
+assert bare is not None, f"an entry with no hint/tracker must never be dropped: {checks}"
+assert bare["status"] == "absent", f"...and checked normally: {bare}"
+assert bare["hint"] == "-", f"...with the placeholder hint, not a value shifted from 'tracker': {bare}"
 PY
 
 echo "preflight golden test OK"
