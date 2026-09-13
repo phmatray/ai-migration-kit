@@ -34,6 +34,13 @@ If invoking a guard at `$GUARDS` is refused:
    cp "$GUARDS/guarded-commit.sh" "$GUARDS/guarded-push.sh" "$GUARDS/guarded-merge.sh" \
       "$GUARDS/_assert-branch.sh" "$WORKTREE/.git-guards/"
    ```
+   **For `guarded-pr-merge.sh` specifically** — it is invoked by its literal path
+   (`<kit>/skills/merge-pr/scripts/guarded-pr-merge.sh`), never through `$GUARDS`, so it is not in
+   the `cp` above. Copy just that one file instead:
+   ```bash
+   cp <kit>/skills/merge-pr/scripts/guarded-pr-merge.sh "$WORKTREE/.git-guards/"
+   ```
+   It sources nothing, so there is no `_assert-branch.sh`-style sibling to bring with it.
 2. **Run them from there** — same arguments, same `-C "$WORKTREE"`, same `$BRANCH` — nothing about
    the guard's behavior changes, only where it was copied from.
 3. **Delete the scratch directory before finishing** — it must never reach the commit or the diff:

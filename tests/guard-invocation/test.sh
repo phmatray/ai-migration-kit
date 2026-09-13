@@ -45,19 +45,29 @@ grep -qi -- 'make-worktree\.sh' "$DOC" \
 grep -qi -- 'guarded-pr-merge\.sh' "$DOC" \
   || note_fail "$DOC does not name guarded-pr-merge.sh — the fallback's scope missed a fourth guard script"
 
-# ------------------------------------------------------------ 2. every GUARDS= site points at it
-#
-# A `GUARDS=` line that defines the variable must be accompanied — within the next few lines — by
-# a pointer to the shared fallback doc, so the next skill that adds a guarded call site cannot
-# forget it silently. This mirrors ci-wiring-check.py's own reasoning: a missing pointer looks
-# exactly like a skill that already covers the case.
+# Naming it in the intro isn't enough — the fallback's own Step 1 recipe (the "## The fallback"
+# section) must actually cp it, or an agent following that recipe hits "No such file or directory".
+if ! awk '/^## The fallback/{f=1} f' "$DOC" | grep -qi -- 'guarded-pr-merge\.sh'; then
+  note_fail "$DOC names guarded-pr-merge.sh only outside '## The fallback' — its Step 1 cp recipe doesn't cover it"
+fi
+
+# A `file:line` site must be accompanied — within the next few lines — by a pointer to the shared
+# fallback doc, so the next skill that adds a guarded call site cannot forget it silently. Shared by
+# sections 2 and 2b below, so a change to the window logic can't silently apply to one and not the
+# other. This mirrors ci-wiring-check.py's own reasoning: a missing pointer looks exactly like a
+# skill that already covers the case.
 CONTEXT_LINES=10
+site_points_at_doc() {
+  local file="$1" line="$2" end=$(( $2 + CONTEXT_LINES )) window
+  window=$(sed -n "${line},${end}p" "$file")
+  grep -q -- 'guard-invocation\.md' <<<"$window"
+}
+
+# ------------------------------------------------------------ 2. every GUARDS= site points at it
 while IFS=: read -r file line _; do
   [ "$file" = "$DOC" ] && continue
-  end=$((line + CONTEXT_LINES))
-  if ! sed -n "${line},${end}p" "$file" | grep -q -- 'guard-invocation\.md'; then
-    note_fail "$file:$line defines \$GUARDS but does not point at $DOC within $CONTEXT_LINES lines"
-  fi
+  site_points_at_doc "$file" "$line" \
+    || note_fail "$file:$line defines \$GUARDS but does not point at $DOC within $CONTEXT_LINES lines"
 done < <(grep -rn '^GUARDS=' skills/)
 
 # ------------------------------------------------------------ 2b. every literal guarded-pr-merge.sh call site points at it
@@ -70,10 +80,8 @@ for site in $PR_MERGE_SITES; do
   file="${site%:*}"
   line="${site#*:}"
   [ -f "$file" ] || { note_fail "$file (a guarded-pr-merge.sh call site) does not exist"; continue; }
-  end=$((line + CONTEXT_LINES))
-  if ! sed -n "${line},${end}p" "$file" | grep -q -- 'guard-invocation\.md'; then
-    note_fail "$file:$line invokes guarded-pr-merge.sh but does not point at $DOC within $CONTEXT_LINES lines"
-  fi
+  site_points_at_doc "$file" "$line" \
+    || note_fail "$file:$line invokes guarded-pr-merge.sh but does not point at $DOC within $CONTEXT_LINES lines"
 done
 
 # ------------------------------------------------------------ 3. fleet workers get the standing clause
