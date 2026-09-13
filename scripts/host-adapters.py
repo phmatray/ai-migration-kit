@@ -38,6 +38,7 @@ Exit codes:
 import argparse
 import json
 import pathlib
+import re
 import sys
 
 FIX = "run python3 scripts/host-adapters.py build"
@@ -75,6 +76,12 @@ class NoVerdict(Exception):
     """A source is unreadable or unparseable: exit 2, never a pass."""
 
 
+# `$1` is a substring of `$10`, `$11`, … (and `$100`+), so the guard and the replacement below share
+# this one regex-defined token boundary — a digit-string `in` check and a bare `.replace("$1", ...)`
+# could (and did, #555) disagree about what counts as "the token $1".
+POSITIONAL = re.compile(r"\$([1-9]\d*)")
+
+
 def read_source(repo, rel):
     try:
         return (repo / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -104,10 +111,11 @@ def toml_command(repo, md_rel):
     # Claude Code fills `$ARGUMENTS` with the whole argument string and `$1` with the first; Gemini
     # has one placeholder, `{{args}}`. Every kit command takes a single argument, so both map to it
     # — and a command reading a second positional argument cannot be expressed at all.
-    for n in "23456789":
-        if f"${n}" in body:
-            raise NoVerdict(f"{md_rel} reads ${n} — Gemini commands take one argument, {{{{args}}}}")
-    prompt = body.lstrip("\n").replace("$ARGUMENTS", "{{args}}").replace("$1", "{{args}}")
+    for match in POSITIONAL.finditer(body):
+        if match.group(1) != "1":
+            raise NoVerdict(f"{md_rel} reads ${match.group(1)} — Gemini commands take one argument, {{{{args}}}}")
+    prompt = POSITIONAL.sub(lambda m: "{{args}}" if m.group(1) == "1" else m.group(0),
+                             body.lstrip("\n").replace("$ARGUMENTS", "{{args}}"))
     # A TOML literal string cannot contain its own closing delimiter, and nothing can escape it.
     if "'''" in prompt:
         raise NoVerdict(f"{md_rel} contains ''' — it cannot be written as a TOML literal string")
