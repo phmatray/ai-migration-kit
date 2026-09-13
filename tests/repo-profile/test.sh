@@ -602,6 +602,7 @@ rc=0; out=$(bash "$NOHELPER/repo-profile.sh" show "$CO_GHE") || rc=$?
   || fail "show without the host helper: expected NO_PROFILE and exit 3, got $rc: $out — show must never load it"
 echo "  ok: detect without its host helper exits 2 naming it, before any gh call; show never needs it"
 
+
 # 13. A GHE FORK checkout (#530): origin still points at github.com (the fork), but `gh repo
 #     view --json url` — which resolves from gh's own default-repo config, not from origin — names
 #     a GitHub Enterprise host. The pre-#530 code derived the host only from origin (matched
@@ -644,5 +645,19 @@ grep -qxF 'GH_HOST=ghe.example.com ARGS: api repos/acme/widgets/branches/main --
   || fail "detect on a GHE fork checkout: the branch-protection read did not run under GH_HOST=ghe.example.com (origin's github.com leaked through):
 $(cat "$GH_CALL_LOG")"
 echo "  ok: detect on a GHE fork checkout (origin github.com, gh repo view --json url naming the GHE host): resolves the GHE host, not origin's"
+
+# 14. Reached through a symlink to the script itself (#531): the pre-loop code computed
+#     $KIT_ROOT from `dirname "$0"` directly, which names the SYMLINK's own directory, not the
+#     real script's — so `_gh-host.sh`, which genuinely exists at the real kit root, could not be
+#     found and `detect` refused instead of degrading to `<!-- TODO -->` as 2.4.0 did.
+symroot=$(kit_scratch)
+ln -s "$KIT/$SCRIPT" "$symroot/repo-profile.sh"
+rc=0; out=$(bash "$symroot/repo-profile.sh" detect "$repo" 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "detect through a symlinked script: expected exit 0 (helper found via the real kit root), got $rc:
+$out"
+grep -qF 'cannot load' <<<"$out" \
+  && fail "detect through a symlinked script: refused to load _gh-host.sh even though it exists at the real kit root:
+$out"
+echo "  ok: detect through a symlinked script resolves the real kit root, not the symlink's own directory"
 
 echo "repo-profile golden test OK"

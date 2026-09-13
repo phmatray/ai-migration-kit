@@ -66,7 +66,10 @@ decide:
 - **zero, or more than one** → you cannot tell where the task's work belongs, and picking one is the
   improvisation this check exists to stop. That task has **no usable plan** — the Autonomy contract's
   genuine blocker. Stop *before* Step 4's worktree and Step 5's scaffold, and report which path could
-  not be re-anchored and what the search returned.
+  not be re-anchored and what the search returned. Check whether an OPEN issue's own plan is the one
+  that creates the missing path (`gh issue list --state open --search "<path> in:body"`); if it is,
+  name that issue's number in the report's `BLOCKED_BY:` field rather than `none` — an `auto-dev`
+  worker's supervisor writes it back as a hold instead of a blind re-dispatch.
 
 A `SKIP <verb> <path>` line is not a finding, whatever verb it names — `create`, or any other verb
 whose item carried a `(new)`/`(new file)` marker (#433, e.g. `SKIP test <path>` for a task's own new
