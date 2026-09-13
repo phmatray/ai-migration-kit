@@ -340,8 +340,8 @@ contend for one path. Keep it small and current:
 ## Needs manual sweep
 - #<n> → PR #<pr> — WORKTREE: <text>
 ## Held on a prerequisite
-- #<n> → blocked by #a[,#b] (wired | unwired: <reason>)
-- #<n> → replan needed (assigned to @<operator>)
+- #<n> ⇐ #a[,#b] (edge ok | fallback — this run only)
+- #<n> replan (assigned <login>)
 ## Off-scope issues filed by workers
 - #<n> — <title> (label) from #<source>
 ## Skipped (ineligible: no-plan / manual-QA)
@@ -792,8 +792,8 @@ expensive issue on its most expensive tier for no reason.
 - **Reported BLOCKED with `DETAIL: pushed <sha>, CI restarted`** → not a block: the phase-2 worker had to push (conflict, re-sync, fix) and stopped instead of waiting (#478). Run `scripts/wait-ci.sh <pr>`, then re-dispatch phase 2 with the finished check table inline. Never tier-escalate it.
 - **Reported BLOCKED with `DETAIL: branch-held guard: …`** → not a block on the issue: the worker woke in a fresh tree while an earlier tree still held its PR branch, so this dispatch skipped (or raced) Step 3's release guard (#510). Run `scripts/release-branch.sh <pr-branch>` and act on its verdict exactly as that guard says: on `FREE`/`RELEASED`, re-dispatch the **same** phase at the **same** tier — never tier-escalate it (a stronger model meets the same held branch) and don't count it against the `PARTIAL ×3` cap (nothing was attempted); on `HELD`, record the line under `## Needs manual sweep` and retire the slot.
 - **Reported BLOCKED with a `BLOCKED_BY:` field naming an issue or `replan`** → write the verdict back as a native hold instead of guessing at a fix, so the next survey honours it rather than a re-dispatched worker re-finding the same block from scratch. **Never tier-escalate a `BLOCKED_BY` report of either shape** — a stronger model reading the same open prerequisite or the same disproven plan changes nothing.
-  - **`BLOCKED_BY: #a[,#b]`** (prerequisite-blocked) — first check each named issue is still OPEN (`gh issue view <n> --json state`); one already closed holds nothing, so drop it from the list. None left open → treat the row as `BLOCKED_BY: none` below instead. For the open ones, call `skills/create-issue/scripts/wire-edges.sh --repo <owner>/<repo> --child <issue>:blocked-by=<open ones>` — its parent-less mode (#511): this issue is being held, not decomposed, so there is no `--parent`. `ok`/`ok (already wired)` → the edge is wired; add a line to the state file's `## Held on a prerequisite` section naming the issue and its blocker(s), and retire the slot. `fallback` → the host's `blocked_by` dependencies API is off (a 404); the block is still real even though nothing got wired, so add the same line to `## Held on a prerequisite` noting it is unwired, and retire the slot regardless. Any other exit (a real failure — a cycle, a cross-repo refusal) → record it under `## Needs manual sweep` instead and retire the slot.
-  - **`BLOCKED_BY: replan`** — the plan itself is disproven (already attempted and failed, assumes work that does not exist, or is otherwise unimplementable as written); only a person re-planning it can unblock it. Run `gh issue edit <issue> --add-assignee @me` so `survey.sh` holds it as `deps=assigned` until a person re-plans and unassigns, add a line to `## Held on a prerequisite`, and retire the slot.
+  - **`BLOCKED_BY: #a[,#b]`** (prerequisite-blocked) — first check each named issue is still OPEN (`gh issue view <n> --json state`); one already closed holds nothing, so drop it from the list. None left open → treat the row as `BLOCKED_BY: none` below instead. For the open ones, call `skills/create-issue/scripts/wire-edges.sh --repo <owner>/<repo> --child <issue>:blocked-by=<open ones>` — its parent-less mode (#511): this issue is being held, not decomposed, so there is no `--parent`. `ok`/`ok (already wired)` → a native edge is wired; add a line to the state file's `## Held on a prerequisite` section naming the issue and its blocker(s). `fallback` → the host's `blocked_by` dependencies API is off (a 404); nothing durable got written (no edge, no `**Blocked by:**` body line — this call never touches the issue body), so add the line anyway but mark it `fallback`, and flag it in the Step 6 recap: this hold is good for **this run only** and will simply re-queue as eligible the next time `survey.sh` runs, whatever the blocker's state. Either way, retire the slot. Any other exit (a real failure — a cycle, a cross-repo refusal) → surface the FAILED line and record/retire exactly as the generic BLOCKED/FAILED bullet already does — do **not** add a `## Held on a prerequisite` entry for a call that never wired anything.
+  - **`BLOCKED_BY: replan`** — the plan itself is disproven (already attempted and failed, assumes work that does not exist, or is otherwise unimplementable as written); only a person re-planning it can unblock it. Run `gh issue edit <issue> --add-assignee @me` so `survey.sh` holds it as `deps=assigned` until a person re-plans and unassigns; on success add a line to `## Held on a prerequisite` and retire the slot; if the assignment itself fails (the operator login can't be assigned), surface that `gh` error and retire the slot exactly as the generic BLOCKED/FAILED bullet does.
 - **Reported BLOCKED/FAILED with `BLOCKED_BY: none`** (or no `BLOCKED_BY:` field at all — an older
   worker's report reads the same way) → first **tier-escalate if it was on a lower model**: if the
   failure looks like the model wasn't strong enough (rather than a genuine hard blocker —
@@ -877,10 +877,11 @@ blocked or skipped (with reasons), what remains (e.g. held L/XL items), a `base 
 N merges` line whenever the board carries one (#479), and any `## Needs manual
 sweep` entries still on the state file — that section has no automated reader anywhere else in this
 skill, so the final summary is the only place a human reliably sees a leftover worktree/branch before
-the state file is discarded. Also name any `## Held on a prerequisite` entries: each one clears
-itself once its blocker lands or a person re-plans and unassigns (`survey.sh` picks it back up as
-`QUEUE` on its own), but the summary is where anyone sees which issues are waiting right now and on
-what.
+the state file is discarded. Also name any `## Held on a prerequisite` entries: an `edge ok` or
+`replan` entry clears itself once its blocker lands or a person re-plans and unassigns (`survey.sh`
+picks it back up as `QUEUE` on its own), but a `fallback` entry wired nothing durable and will
+re-queue as eligible on the very next survey regardless — call those out by name, since this
+summary is the only place anyone sees that before the file is discarded.
 
 **Remove the state file** at its pinned path (Step 2) once the queue has fully drained — `rm -f
 "${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md"`.

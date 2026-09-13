@@ -66,8 +66,8 @@ grep -qF 'each named issue is still OPEN' "$SKILL_MD" \
   || fail "AC5(c): SKILL.md does not check each blocker is OPEN before wiring"
 
 # (d) names the fallback recap line
-grep -qF 'Held on a prerequisite` noting it is unwired' "$SKILL_MD" \
-  || fail "AC5(d): SKILL.md does not name what a wire-edges.sh \`fallback\` verdict records"
+grep -qF 'this hold is good for **this run only**' "$SKILL_MD" \
+  || fail "AC5(d): SKILL.md does not name the fallback recap line (held for this run only)"
 
 # (e) routes replan to --add-assignee @me
 grep -qF -- '--add-assignee @me' "$SKILL_MD" \
