@@ -1,0 +1,7 @@
+{
+  "tracker": "gitlab",
+  "detail": "gitlab.com",
+  "skill": "create-issue",
+  "needs": ["issue-view", "issue-create"],
+  "implements": ["verbs", "issue-view"]
+}

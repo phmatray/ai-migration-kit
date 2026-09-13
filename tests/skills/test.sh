@@ -1223,17 +1223,28 @@ done
 echo "ok   ARCHITECTURE.md and README.md both mention CONTEXT.md"
 
 # ---------------------------------------------------------------------------------------------
-# preconditions.md refuses a non-GitHub tracker in one sentence (#311). Fixture-free: this is a
-# grep against the committed reference itself, not a probe run against a scratch repo — the
+# preconditions.md refuses a tracker this skill cannot run against (#311, #505). Fixture-free: this
+# is a grep against the committed reference itself, not a probe run against a scratch repo — the
 # probe/profile side of the Tracker line is pinned by tests/repo-profile/test.sh.
-echo "== preconditions refuse a non-GitHub tracker (#311) =="
+#
+# #505 MOVED THE MECHANISM, so this pin moved with it. The refusal used to be a sentence the agent
+# applied by hand ("`<host>` is not a supported tracker"); it is now the registered decision
+# `tracker.capable`, which Step 1 asks through `decide.sh` and which answers `capable` for every
+# skill on GitHub. The greps below are deliberately STRICTER than the one sentence they replace:
+# naming a decision without invoking it is prose that decides nothing — precisely the drift
+# `scripts/decision-check.py` R7 refuses — so the invocation is pinned separately from the refusal.
+# Keep both. Dropping the invocation grep would let the refusal go decorative again, which is the
+# failure #311 was filed for in the first place.
+echo "== preconditions refuse a tracker the skill cannot run against (#311, #505) =="
 PRECONDITIONS="$KIT_ROOT/skills/_shared/preconditions.md"
 [ -f "$PRECONDITIONS" ] || { echo "FAIL: $PRECONDITIONS missing"; exit 1; }
 grep -q 'Tracker' "$PRECONDITIONS" \
   || { echo "FAIL: $PRECONDITIONS does not mention the profile's Tracker line"; exit 1; }
-grep -q 'not a supported tracker' "$PRECONDITIONS" \
-  || { echo "FAIL: $PRECONDITIONS does not refuse a non-GitHub tracker in these words"; exit 1; }
-echo "ok   preconditions names Tracker and refuses a non-GitHub tracker"
+grep -q 'decide.sh tracker.capable' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not INVOKE tracker.capable — a named decision that is never run decides nothing"; exit 1; }
+grep -q 'Proceed only on' "$PRECONDITIONS" \
+  || { echo "FAIL: $PRECONDITIONS does not refuse a verdict other than capable"; exit 1; }
+echo "ok   preconditions names Tracker, invokes tracker.capable and refuses a non-capable verdict"
 
 # ---------------------------------------------------------------------------------------------
 # create-issue's Inputs states the flag-position rule (#404): a flag is a standalone token at the

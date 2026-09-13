@@ -526,6 +526,9 @@ jobs:
       - name: Decision engine golden test (every rule driven to red; the precedence pinned)
         run: ./tests/decisions/test.sh
 
+      - name: Tracker contract golden test (a verb routes to a per-host backend; an absent one is named)
+        run: ./tests/tracker/test.sh
+
       - name: Guarded PR-merge golden test (state decides the takeover, never gh's exit code)
         run: ./tests/guarded-pr-merge/test.sh
 

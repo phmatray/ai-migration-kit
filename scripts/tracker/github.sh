@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# github.sh — the GitHub backend of the tracker contract (#505): a verb in, a normalised reply out.
+#
+# usage: github.sh <verb> [args…]        (invoked by scripts/tracker.sh, not by hand)
+#
+# GitHub is the REFERENCE backend. Every other host's backend is written against what this one
+# prints, and this one is deliberately never reduced to a lowest common denominator: a verb prints
+# what GitHub can actually say, and a host that cannot say it answers NOT_IMPLEMENTED rather than
+# everyone answering less.
+#
+# The repository comes from TRACKER_REPO (`tracker.sh --repo <slug>`), empty for "this checkout".
+# The host is resolved through skills/_shared/scripts/_gh-host.sh (#514) rather than left to gh's
+# default: `gh -R OWNER/REPO` takes gh's DEFAULT host even inside a GitHub Enterprise checkout, and
+# `gh api` never infers a host at all, so every kit script addressing a repository by a bare
+# OWNER/REPO used to reach github.com. tests/gh-host/test.sh sweeps for exactly that omission.
+#
+# NORMALISATION, which is the whole point of a verb having a contract:
+#   * `state` is lower-cased — gh answers "OPEN", the contract says "open", and a second backend
+#     must not be free to pick either.
+#   * `labels` are bare names, not gh's label objects.
+#   * `issue-view` declares `"format":"markdown"` explicitly, so a host whose issue bodies are a
+#     different dialect cannot quietly hand them back under the same verb.
+#
+# Exit codes (the dispatcher passes them through):
+#   0  the verb answered
+#   1  the host refused or failed — auth, network, a 404
+#   2  bad invocation: no verb, a missing argument, a malformed slug
+#   3  this backend does not implement the verb
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+VERB="${1-}"
+[ -n "$VERB" ] || { echo "github: no verb given" >&2; exit 2; }
+shift
+
+# `verbs` is answered FIRST, before the helper is loaded or any host is resolved. The dispatcher
+# calls it to decide whether this backend implements a verb at all, and that question must not need
+# gh, a network or a credential — a backend that could only introspect itself when authenticated
+# would report "not implemented" for every verb on a machine that is merely logged out.
+if [ "$VERB" = verbs ]; then
+  printf '%s\n' verbs auth repo issue-view
+  exit 0
+fi
+
+. "$HERE/../../skills/_shared/scripts/_gh-host.sh" || {
+  echo "github: REFUSED — cannot load skills/_shared/scripts/_gh-host.sh; reinstall the kit" >&2
+  exit 2; }
+
+# Sets KIT_REPO_SLUG (empty in, empty out) and exports GH_HOST when a host resolves. Returns 2 on a
+# malformed slug, having called nothing.
+gh_host_resolve "${TRACKER_REPO-}" || exit 2
+
+case "$VERB" in
+  auth)
+    gh api user --jq .login || exit 1
+    ;;
+
+  repo)
+    # `gh repo view` takes the slug POSITIONALLY — `--repo`/`-R` is an `issue`/`pr` flag and is
+    # rejected here. Omitted entirely when there is no slug, so gh reads the checkout itself.
+    out=$(gh repo view ${KIT_REPO_SLUG:+"$KIT_REPO_SLUG"} --json nameWithOwner,defaultBranchRef) \
+      || exit 1
+    printf '%s' "$out" | jq -c --arg host "${GH_HOST:-github.com}" \
+      '{slug: .nameWithOwner, host: $host, defaultBranch: (.defaultBranchRef.name // null)}'
+    ;;
+
+  issue-view)
+    n="${1-}"
+    [ -n "$n" ] || { echo "github: issue-view needs an issue number" >&2; exit 2; }
+    out=$(gh issue view "$n" ${KIT_REPO_SLUG:+--repo "$KIT_REPO_SLUG"} \
+            --json number,title,state,body,labels,url) || exit 1
+    printf '%s' "$out" | jq -c \
+      '{number, title, state: (.state | ascii_downcase), body,
+        labels: [(.labels // [])[].name], url, format: "markdown"}'
+    ;;
+
+  *)
+    echo "github: does not implement '$VERB'" >&2
+    exit 3
+    ;;
+esac

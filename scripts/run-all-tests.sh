@@ -190,6 +190,8 @@ add_gate "./scripts/preflight.sh --json | python3 -m json.tool > /dev/null"
 add_suite "tests/preflight/test.sh"
 add_suite "tests/repo-profile/test.sh"
 add_suite "tests/repo-setup/test.sh"
+# After repo-profile: the tracker dispatcher reads that script's Tracker line to pick a backend.
+add_suite "tests/tracker/test.sh"
 
 # 12: kit scripts run correctly from a foreign working directory (plugin-install simulation).
 add_gate "$(cat <<'EOF'
