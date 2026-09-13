@@ -74,6 +74,17 @@ _issue_db_id() {
   fi
   id=$(gh api -H "Accept: application/vnd.github+json" "repos/$(_repo_slug)/issues/$n" --jq .id 2>&1) \
     || { printf '%s' "$id"; return 1; }
+  # A SUCCESSFUL call can still hand back something that is not an id, because the `2>&1` above
+  # folds stderr into this value and gh writes to stderr on success too: its update notifier, a
+  # deprecation notice, a corporate proxy's banner. Unvalidated, such a value was appended to
+  # TRACKER_ID_CACHE as a MULTI-LINE entry, poisoning every later `awk '$1==n {print $2}'` lookup
+  # for that number, and then POSTed as `-F sub_issue_id=<garbage>` to a MUTATING endpoint with no
+  # refusal. This is the guard wire-edges.sh's own id_of() carried before the code moved here; it
+  # was dropped in the move, which is the regression (#507 review). Restored, not reinvented.
+  case "$id" in
+    ''|*[!0-9]*)
+      printf "#%s resolved to '%s', which is not a database id" "$n" "$id"; return 1 ;;
+  esac
   [ -n "${TRACKER_ID_CACHE:-}" ] && printf '%s %s\n' "$n" "$id" >> "$TRACKER_ID_CACHE"
   printf '%s' "$id"
 }
@@ -107,6 +118,22 @@ _link_post() {
     '') echo "FAILED (no HTTP status in gh's answer: $msg)"; return 1 ;;
     *)  echo "FAILED (HTTP $code: $msg)"; return 1 ;;
   esac
+}
+
+# Both link verbs take the same two private flags plus two positionals, and this loop was
+# duplicated verbatim between them: a third flag would have to be added identically in two places,
+# and a one-line divergence would silently make one verb accept what the other rejects (#507
+# review). Sets DRY, RESOLVE_ONLY and POS for the calling verb.
+_parse_link_args() {
+  DRY=0; RESOLVE_ONLY=0; POS=()
+  local a
+  for a in "$@"; do
+    case "$a" in
+      --dry-run) DRY=1 ;;
+      --resolve-only) RESOLVE_ONLY=1 ;;
+      *) POS+=("$a") ;;
+    esac
+  done
 }
 
 case "$VERB" in
@@ -296,14 +323,7 @@ case "$VERB" in
   # contract: it resolves (and, with TRACKER_ID_CACHE set, caches) both ends without posting, which
   # is how wire-edges.sh proves every id in a whole run resolves before it wires its first edge.
   issue-link-parent)
-    DRY=0; RESOLVE_ONLY=0; POS=()
-    for a in "$@"; do
-      case "$a" in
-        --dry-run) DRY=1 ;;
-        --resolve-only) RESOLVE_ONLY=1 ;;
-        *) POS+=("$a") ;;
-      esac
-    done
+    _parse_link_args "$@"
     P="${POS[0]-}"; C="${POS[1]-}"
     [ -n "$P" ] && [ -n "$C" ] \
       || { echo "github: issue-link-parent needs <parent> <child>" >&2; exit 2; }
@@ -320,14 +340,7 @@ case "$VERB" in
     ;;
 
   issue-link-blocked-by)
-    DRY=0; RESOLVE_ONLY=0; POS=()
-    for a in "$@"; do
-      case "$a" in
-        --dry-run) DRY=1 ;;
-        --resolve-only) RESOLVE_ONLY=1 ;;
-        *) POS+=("$a") ;;
-      esac
-    done
+    _parse_link_args "$@"
     C="${POS[0]-}"; B="${POS[1]-}"
     [ -n "$C" ] && [ -n "$B" ] \
       || { echo "github: issue-link-blocked-by needs <child> <blocker>" >&2; exit 2; }
@@ -361,9 +374,20 @@ case "$VERB" in
   issue-blocked-by-count)
     n="${1-}"
     [ -n "$n" ] || { echo "github: issue-blocked-by-count needs an issue number" >&2; exit 2; }
-    out=$(gh api -H "Accept: application/vnd.github+json" "repos/$(_repo_slug)/issues/$n" \
-            --jq '.issue_dependencies_summary.blocked_by // "n/a"' 2>/dev/null) || out="n/a"
-    printf '%s\n' "$out"
+    if out=$(gh api -H "Accept: application/vnd.github+json" "repos/$(_repo_slug)/issues/$n" \
+               --jq '.issue_dependencies_summary.blocked_by // "n/a"' 2>&1); then
+      printf '%s\n' "$out"
+    elif printf '%s' "$out" | grep -q 'HTTP 404'; then
+      # 404 is the documented "the dependencies feature is off" answer, read the same way
+      # issue-children reads it. Every OTHER failure (401 bad credentials, 403, a network error, a
+      # rate limit) is a REAL failure and must not be laundered into that same `n/a`: Step 7's
+      # readback exists to be "the proof the edges exist where GitHub reads them", and an `n/a` on
+      # an auth error reads as a benign degraded host, so an operator moves on instead of
+      # investigating (#507 review).
+      printf 'n/a\n'
+    else
+      echo "github: issue-blocked-by-count: $out" >&2; exit 1
+    fi
     ;;
 
   *)

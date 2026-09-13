@@ -120,6 +120,11 @@ if [ -n "$endpoint" ]; then
       s="${GH_ISSUE_STATUS:-200}"
       case "$s" in
         2??)
+          # A SUCCESSFUL gh call can still write to stderr: its own update notifier, a deprecation
+          # notice, a corporate proxy's banner. GH_ISSUE_STDERR reproduces that, which is what makes
+          # the "a warning is not a database id" refusal assertable — the backend captures this
+          # lookup with `2>&1`, so without a guard the warning becomes part of the id (#507 review).
+          [ -n "${GH_ISSUE_STDERR:-}" ] && printf '%s\n' "$GH_ISSUE_STDERR" >&2
           n="${endpoint##*/issues/}"
           if [ -n "${GH_BLOCKED_BY:-}" ]; then
             payload=$(printf '{"id":%s,"issue_dependencies_summary":{"blocked_by":%s}}' "$((1000 + n))" "$GH_BLOCKED_BY")
@@ -427,6 +432,24 @@ run_tracker "$PROFILED" --tracker github --repo o/r issue-link-parent 10 11 --dr
   && ok "issue-link-parent --dry-run — prints the POST, calls gh not at all" \
   || note_fail "issue-link-parent --dry-run — got '$OUT' exit $RC, log: $(cat "$GH_CALL_LOG")"
 
+# A SUCCESSFUL id lookup that also wrote to stderr must be REFUSED, and must not reach the POST.
+# github.sh captures the lookup with `2>&1`, so a warning line lands inside the value; unvalidated,
+# that value was appended to TRACKER_ID_CACHE as a multi-line entry (poisoning every later lookup
+# for that number) and sent as `-F sub_issue_id=<garbage>` to a MUTATING endpoint. This is the guard
+# wire-edges.sh's own id_of() carried before the code moved here, dropped in the move (#507 review).
+: > "$GH_CALL_LOG"
+GH_ISSUE_STDERR='gh: A new release of gh is available: 2.60.0' \
+  run_tracker "$PROFILED" --tracker github --repo o/r issue-link-parent 10 11
+if [ "$RC" -eq 0 ]; then
+  note_fail "issue-link-parent stderr-on-success — exited 0, so a non-numeric id was accepted (out '$OUT')"
+elif grep -q -- '--method POST' "$GH_CALL_LOG"; then
+  note_fail "issue-link-parent stderr-on-success — refused, but a POST was still sent: $(cat "$GH_CALL_LOG")"
+elif ! printf '%s' "$ERR" | grep -q 'not a database id'; then
+  note_fail "issue-link-parent stderr-on-success — the refusal does not name the rule: $ERR"
+else
+  ok "issue-link-parent — a warning on a SUCCESSFUL id lookup is refused, and nothing is POSTed"
+fi
+
 # ------------------------------------------------------------------------------------------- AC1
 GH_CHILDREN_JSON='[{"number":11},{"number":12}]' run_tracker "$PROFILED" --tracker github --repo o/r issue-children 10
 [ "$RC" -eq 0 ] && [ "$OUT" = '[11,12]' ] \
@@ -447,6 +470,25 @@ run_tracker "$PROFILED" --tracker github --repo o/r issue-blocked-by-count 9
 [ "$RC" -eq 0 ] && [ "$OUT" = n/a ] \
   && ok "issue-blocked-by-count — n/a when issue_dependencies_summary is absent (dependencies feature off)" \
   || note_fail "issue-blocked-by-count missing-field — expected 'n/a', got '$OUT' exit $RC ($ERR)"
+
+# `n/a` means exactly one thing: the dependencies feature is off. A 404 says that; every OTHER
+# failure (401, 403, a network error, a rate limit) is a REAL failure and must not be laundered into
+# the same word. Step 7's readback exists to be "the proof the edges exist where GitHub reads them",
+# and an `n/a` on a bad token reads as a benign degraded host, so an operator moves on instead of
+# investigating (#507 review).
+GH_ISSUE_STATUS=404 run_tracker "$PROFILED" --tracker github --repo o/r issue-blocked-by-count 9
+[ "$RC" -eq 0 ] && [ "$OUT" = n/a ] \
+  && ok "issue-blocked-by-count — n/a on a 404 (the dependencies feature is off)" \
+  || note_fail "issue-blocked-by-count 404 — expected 'n/a' exit 0, got '$OUT' exit $RC ($ERR)"
+
+GH_ISSUE_STATUS=401 run_tracker "$PROFILED" --tracker github --repo o/r issue-blocked-by-count 9
+if [ "$RC" -eq 0 ]; then
+  note_fail "issue-blocked-by-count 401 — exited 0 with '$OUT'; a real failure read as a degraded host"
+elif [ "$OUT" = n/a ]; then
+  note_fail "issue-blocked-by-count 401 — answered 'n/a' for an auth failure"
+else
+  ok "issue-blocked-by-count — a non-404 failure exits 1 rather than answering n/a"
+fi
 
 echo "== B. the state report, and the tracker.capable verdict"
 
