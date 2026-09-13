@@ -24,8 +24,20 @@ set -uo pipefail
 
 PROFILE_REL=".claude/skills/repo-profile.md"
 # Resolved BEFORE the cd below: $0 can be relative, and cd-ing into the target repo would break it.
-# Kit root = three levels up from skills/profile-repo/scripts.
-KIT_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd -P)"
+# Kit root = three levels up from skills/profile-repo/scripts. $0 through any symlinks first — a
+# plugin install reaches this file by link, and `pwd -P` alone canonicalizes the directory, not the
+# link. No `readlink -f`: macOS's readlink has no -f. Same loop base-run-verdict.sh carries (#514,
+# #531).
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+KIT_ROOT=$(CDPATH= cd -- "$(dirname -- "$SELF")/../../.." && pwd -P) \
+  || KIT_ROOT="$(dirname -- "$SELF")/../../.."
 CMD="${1:-show}"
 # Anchor to the repo root so the profile path resolves from any subdir/worktree.
 # An explicit [dir] arg wins; otherwise use the git top-level, falling back to cwd.
