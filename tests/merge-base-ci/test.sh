@@ -105,7 +105,13 @@ case "$*" in
     esac
     ;;
   *"run list"*)
-    printf '%s' "$RUN_LIST_TRAP"
+    # base-run-followup.sh's one lookup (#561) can also be asked to fail — same ERR: convention
+    # the check-runs branch above uses, so a case can arm "the lookup itself fails" without a
+    # second stub shape.
+    case "$RUN_LIST_TRAP" in
+      ERR:*) printf '%s\n' "${RUN_LIST_TRAP#ERR:}" >&2; exit 1 ;;
+      *)     printf '%s' "$RUN_LIST_TRAP" ;;
+    esac
     ;;
   *actions/runs*)
     # The #479 fallback. Keyed by sha or it is the recency trap again: a query without head_sha=
@@ -485,6 +491,81 @@ out=$("$HELPER" "$SHA" --report-line --timeout 0 --poll-seconds 0)
 [ "$out" = "unverified (no-ci)" ] || { echo "FAIL [report-line-no-ci]: expected 'unverified (no-ci)', got '$out'"; exit 1; }
 echo "  ok: report-line-no-ci — a sha with no check-runs prints exactly 'unverified (no-ci)'"
 
+# ---------------------------------------------------------------- 17b. base-run-followup.sh: the
+# one-shot lookup for a timeout-reasoned unverified base verdict (#561, AC1-AC5)
+#
+# `base-run-verdict.sh` itself never calls `gh run list` (cases 1, 2 and 14 above pin that red).
+# This helper is the one place in the skill that does — invoked by Step 5b only when the verdict's
+# own reason is exactly `timeout` — so it gets its own scripted `gh run list` answers via
+# $RUN_LIST_TRAP and its own fresh call log per case.
+FOLLOWUP="./skills/merge-pr/scripts/base-run-followup.sh"
+[ -x "$FOLLOWUP" ] || { echo "FAIL: $FOLLOWUP missing or not executable"; exit 1; }
+
+followup_of() {   # followup_of <base> <sha> — always exits 0, always prints one report-line
+  local out rc=0
+  out=$("$FOLLOWUP" "$@" 2>"$WORK/followup.err") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "FAIL: base-run-followup.sh exited $rc — a post-merge reader must always answer:" >&2
+    sed 's/^/      /' "$WORK/followup.err" >&2
+    exit 1
+  fi
+  printf '%s' "$out"
+}
+
+reset_case followup-green
+SHA=b1c2b1c2b1c2b1c2b1c2b1c2b1c2b1c2b1c2b1c2
+export RUN_LIST_TRAP='[{"headSha":"'"$SHA"'","conclusion":"success","workflowName":"kit","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(followup_of main "$SHA")
+[ "$out" = "green (base-run)" ] || { echo "FAIL [followup-green]: expected 'green (base-run)', got '$out'"; exit 1; }
+n=$(grep -c 'run list' "$GH_CALL_LOG" || true)
+[ "$n" -eq 1 ] || { echo "FAIL [followup-green]: expected exactly one 'gh run list' call (AC5), got $n:"; cat "$GH_CALL_LOG"; exit 1; }
+echo "  ok: followup-green — a completed, successful run for the sha reports 'green (base-run)' in one call (AC1, AC5)"
+
+reset_case followup-red
+SHA=c2d3c2d3c2d3c2d3c2d3c2d3c2d3c2d3c2d3c2d3
+export RUN_LIST_TRAP='[{"headSha":"'"$SHA"'","conclusion":"failure","workflowName":"kit","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(followup_of main "$SHA")
+[ "$out" = "RED (base-run)" ] || { echo "FAIL [followup-red]: expected 'RED (base-run)', got '$out'"; exit 1; }
+echo "  ok: followup-red — a completed, failed run for the sha reports 'RED (base-run)' (AC2)"
+
+reset_case followup-no-match
+SHA=d3e4d3e4d3e4d3e4d3e4d3e4d3e4d3e4d3e4d3e4
+export RUN_LIST_TRAP='[{"headSha":"'"$SIBLING_SHA"'","conclusion":"success","workflowName":"kit","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(followup_of main "$SHA")
+[ "$out" = "unverified (timeout)" ] || { echo "FAIL [followup-no-match]: expected 'unverified (timeout)', got '$out'"; exit 1; }
+echo "  ok: followup-no-match — nothing in the listing matches the sha: unverified (timeout), unchanged (AC3)"
+
+reset_case followup-still-running
+SHA=e4f5e4f5e4f5e4f5e4f5e4f5e4f5e4f5e4f5e4f5
+export RUN_LIST_TRAP='[{"headSha":"'"$SHA"'","conclusion":null,"workflowName":"kit","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(followup_of main "$SHA")
+[ "$out" = "unverified (timeout)" ] || { echo "FAIL [followup-still-running]: expected 'unverified (timeout)', got '$out'"; exit 1; }
+echo "  ok: followup-still-running — the matched run has no conclusion yet: unverified (timeout), unchanged (AC3)"
+
+reset_case followup-gh-fails
+SHA=f5a6f5a6f5a6f5a6f5a6f5a6f5a6f5a6f5a6f5a6
+export RUN_LIST_TRAP='ERR:this-must-not-be-read-as-a-verdict'
+rc=0
+out=$("$FOLLOWUP" main "$SHA" 2>/dev/null) || rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL [followup-gh-fails]: expected exit 0, got $rc"; exit 1; }
+[ "$out" = "unverified (timeout)" ] || { echo "FAIL [followup-gh-fails]: expected 'unverified (timeout)', got '$out'"; exit 1; }
+echo "  ok: followup-gh-fails — the lookup itself failing is not evidence about the base: unverified (timeout), exit 0 (AC3)"
+
+reset_case followup-multi-newest-wins
+SHA=a6b7a6b7a6b7a6b7a6b7a6b7a6b7a6b7a6b7a6b7
+export RUN_LIST_TRAP='[{"headSha":"'"$SHA"'","conclusion":"failure","workflowName":"kit","createdAt":"2026-09-12T09:00:00Z"},{"headSha":"'"$SHA"'","conclusion":"success","workflowName":"kit","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(followup_of main "$SHA")
+[ "$out" = "green (base-run)" ] || { echo "FAIL [followup-multi-newest-wins]: expected 'green (base-run)', got '$out'"; exit 1; }
+echo "  ok: followup-multi-newest-wins — several runs for the sha resolve to the newest createdAt, mirroring base-run-verdict.sh's own reduction"
+
+reset_case followup-usage
+rc=0; out=$("$FOLLOWUP" 2>&1) || rc=$?
+[ "$rc" -eq 64 ] || { echo "FAIL [followup-usage]: expected exit 64 with no args, got $rc"; echo "$out"; exit 1; }
+echo "  ok: followup-usage — no base branch/sha refuses with exit 64 rather than printing a non-verdict"
+
+# Restore the red trap the merge-train cases above (and any re-run of this file top to bottom) rely on.
+export RUN_LIST_TRAP='[{"databaseId":33346395704,"headSha":"'"$SIBLING_SHA"'","conclusion":"failure","status":"completed","name":"kit","url":"https://github.invalid/run/33346395704"}]'
+
 # ---------------------------------------------------------------- 18. Step 5b quotes the literal
 # line and names the forbidden shortcuts (#455 Task 3, AC3)
 #
@@ -503,6 +584,19 @@ grep -q 'pages-build-deployment' "$MERGE_PROSE" || {
   echo "FAIL: skills/merge-pr/SKILL.md does not name the pages-build-deployment trap (#429/#449)"
   exit 1; }
 echo "  ok: merge-pr-skill-prose — Step 5b quotes --report-line and names the forbidden shortcuts"
+
+# ---------------------------------------------------------------- 18b. Step 5b's timeout follow-up
+# is gated behind the literal reason string, never a broader match (#561, AC4)
+grep -qF 'base-run-followup.sh' "$MERGE_PROSE" || {
+  echo "FAIL: skills/merge-pr/SKILL.md's prose never mentions base-run-followup.sh — Step 5b must"
+  echo "      call it on a timeout verdict, not compose its own ad hoc gh run list question"
+  exit 1; }
+grep -qF '"unverified (timeout)")' "$MERGE_PROSE" || {
+  echo "FAIL: Step 5b's follow-up call is not gated behind the literal case arm"
+  echo "      '\"unverified (timeout)\")' — every other verdict/reason must stay byte-for-byte"
+  echo "      unchanged (AC4)"
+  exit 1; }
+echo "  ok: merge-pr-skill-prose-followup — the timeout follow-up is gated behind the literal reason string, not a broader match"
 
 # ---------------------------------------------------------------- 19. auto-dev grammar-checks
 # BASE: before trusting it (#455 Task 4, AC4)
