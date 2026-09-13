@@ -10,8 +10,8 @@
 # plan it just executed described a different tree.
 #
 # So the question gets asked ONCE, up front, mechanically, before the draft PR exists. Every path
-# a plan says it will `modify`, `test` or `delete` is resolved against a base ref; a path that does
-# not resolve is named, and the exit status says so.
+# a plan says it will `modify`, `test`, `delete` or `rename` is resolved against a base ref; a path
+# that does not resolve is named, and the exit status says so.
 #
 # Ported alongside the two-axis review in ../references/spec-review.md from mattpocock/skills
 # (MIT) — `engineering/code-review` and `in-progress/implement-spec`.
@@ -35,38 +35,58 @@
 #   SKIP    create <path> (Task N)     a path the plan is about to CREATE; absence is correct
 #   SKIP    test   <path> (Task N)     ditto, marked `(new)`/`(new file)` on a verb other than
 #                                      `create` (#433) — same reading, original verb word kept
+#   SKIP    rename <path> (Task N)     the NEW name of a `rename` pair (#441) — same reading as
+#                                      `create`, the OLD name is checked like `modify` instead
 #
-# `(Task N)` is on ALL THREE lines, not only on MISSING: the task number is what Step 2 needs to
-# find the `**Interfaces:**` line to re-anchor through, and a reader diffing two runs wants the OK
-# lines attributable too. It is the wider of the two shapes #322 described and satisfies both.
+# `(Task N)` is on ALL lines, not only on MISSING: the task number is what Step 2 needs to find the
+# `**Interfaces:**` line to re-anchor through, and a reader diffing two runs wants the OK lines
+# attributable too. It is the wider of the two shapes #322 described and satisfies both.
 #
-# Verbs are `create|modify|test|delete`; only `modify`, `test` and `delete` are resolved, and a
-# verb carries across the items after it, so `modify a, b; create c` checks a and b and skips c.
-# A `**Files:**` line that names no verb at all is read as `modify` — the checked reading, because
-# the alternative silently un-gates the line.
+# THE GRAMMAR (decided at triage, #441 — also documented in
+# [plan-shape.md](../../_shared/plan-shape.md)'s own `**Files:**` section):
+# a path is a BACKTICK-QUOTED span; nothing else on the `**Files:**` line is a path. Four false-
+# STALE parses in one day (#403, #419, #433) plus a fourth found the same day, and four more found
+# afterwards (#512, #514, #537, #552) all trace to the previous parser answering "where does a path
+# end?" by splitting on `, `/`; ` and stripping parens — a question a backtick-quoted span never has
+# to ask. So the field is read span-by-span instead of item-by-item:
 #
-# An item's own trailing `(new)`/`(new file)` marker reads the same way regardless of its verb
-# word (#433). `create-issue`'s own template writes a task's own new test file as
-# `test \`path\` (new)`, not `create \`path\`` — the item is "the test for this task", not "a file
-# this task modifies" — and a bare `test`/`modify`/`delete` verb otherwise means "resolve this
-# against <ref>", which is wrong for a path the plan itself says does not exist yet. So that one
-# marker is read BEFORE the generic aside-strip below discards it as ordinary noise (the same way
-# `(DI registration)` is noise): it downgrades the item's OK/MISSING check to the `create` verb's
-# SKIP, printed with the ORIGINAL verb word so the reader still sees what the plan actually wrote.
-# Exact phrases only, case-insensitive, isolated (not substring) — `(new in v2)` is not this marker,
-# matching the same closed-list discipline the `none expected.` idiom below already uses.
+#   - Verbs are `create|modify|test|delete|rename`, a whole word (case-insensitive), carrying
+#     forward to every span after it until the next verb word — same as before, but the carry now
+#     reads prose between spans rather than a comma-split item.
+#   - A backtick-quoted span is a PATH only if it contains `/` or `.` — `guard_hint()`, `t7`,
+#     `<kit>`, `CLAUDE_PLUGIN_ROOT` name no file and are silently ignored, not reported and not
+#     counted; a span shaped like a real path (has a slash or a dot) is the only kind ever checked.
+#     Known, accepted ceiling: an extension-less root file named in backticks with no directory
+#     (`Makefile`, `LICENSE`) has neither and is misread as a symbol, same as an unevidenced dotted
+#     symbol name would be misread as a path — neither has been observed in a real plan.
+#   - A trailing `:NN`, `:NN-MM` or `:NN–MM` (en dash) on a path is a line anchor, stripped before
+#     resolving and before it is printed — the kit's own `plan-shape.md` template writes this shape.
+#   - `rename` takes the NEXT TWO path-shaped spans as a pair: the first is the existing name,
+#     checked like `modify`; the second is the new name, `SKIP`ped like `create` — whatever sits
+#     between them (an arrow, in every observed plan).
+#   - Everything else on the line — asides in parens, "and", em-dashes, a prose sentence, a bulleted
+#     `- Modify: …` line (no longer a legal shape — `plan-shape.md` says so — but still read
+#     correctly if an already-filed plan carries one) — is just prose around the paths, never split
+#     into items of its own.
 #
-# Every task still needs a `**Files:**` line even when it touches no file at all (a
-# verification-only task) — `create-issue` has been OBSERVED writing `none expected.` for exactly
-# that case (#396's Task 4, #397's Task 4). `plan-shape.md` does not itself codify that wording, so
-# this is a closed list of what has actually been seen, not a contract the two skills share; if
-# `create-issue` ever phrases a no-file task differently, the same silent-STALE failure this fix
-# closes can recur, and `plan-shape.md` is where the canonical wording belongs once that happens.
-# That phrase names no path, so after an item is fully trimmed (verb prefix, backticks, trailing
-# punctuation) it is matched against the list and, on a match, yields no OK/MISSING/SKIP line at
-# all — the same "nothing to check" verdict as an empty item, never a path to resolve. Anything
-# else — including a genuine typo like `none-such.md` — still falls through to the real check below
-# and can still MISSING; "none" is not a magic word.
+# The `(new)`/`(new file)` marker (#433) still works the same way: `create-issue`'s own template
+# phrases a task's own new test file as `test \`path\` (new)`, not `create \`path\`` — the item is
+# "the test for this task", not "a file this task modifies" — and a bare `test`/`modify`/`delete`
+# verb otherwise means "resolve this against <ref>", wrong for a path the plan says does not exist
+# yet. The marker is read from the prose IMMEDIATELY after a span, and only an EXACT, closed match —
+# `(new)` or `(new file)`, nothing else inside — counts; `(new in v2)` is a different aside that
+# happens to contain the word "new", and any nested backtick code inside the parenthetical (an aside
+# describing where in the file the change goes, e.g. `` `a.sh` (new `guard_hint()` beside `deny()`) ``)
+# breaks the match the same way, on purpose — it is prose about the path, not the marker.
+#
+# The no-file idiom (#403) still applies: `create-issue` has been OBSERVED writing `**Files:** none
+# expected.` for a verification-only task (#396's Task 4, #397's Task 4). A field with NO
+# backtick-quoted span at all is read this way: if what remains after stripping one leading verb
+# word and one trailing aside is exactly `none expected`/`none expected.`, nothing is reported; any
+# other text — including a genuine typo like `none-such.md` with no backticks — is still named
+# MISSING. This is the regression guard #403 added (a field naming a bare, non-backticked path must
+# never silently pass) re-expressed for a grammar where paths are backtick-quoted: a governing verb
+# with no backtick-quoted path at all is exactly as suspicious as before.
 #
 # Exit codes:
 #   0  every checked path resolves — the plan still matches the tree
@@ -94,6 +114,142 @@ trim() {
   while :; do case "$s" in ' '*|$'\t'*|$'\r'*) s=${s#?} ;; *) break ;; esac; done
   while :; do case "$s" in *' '|*$'\t'|*$'\r') s=${s%?} ;; *) break ;; esac; done
   printf '%s' "$s"
+}
+
+# A whole word — case-insensitive, closed list — updates $CURRENT_VERB and carries forward to every
+# span after it until the next verb word (same carry-forward rule the old comma-split reader had,
+# read here from the prose between backtick-quoted spans instead of from a split item).
+scan_verb() {
+  local s="$1" w wl
+  while [ -n "$s" ]; do
+    case "$s" in
+      *' '*) w=${s%% *}; s=${s#* } ;;
+      *) w="$s"; s="" ;;
+    esac
+    case "$w" in *[:,.\;]) w=${w%?} ;; esac
+    wl=$(printf '%s' "$w" | tr '[:upper:]' '[:lower:]')
+    case "$wl" in
+      create|modify|test|delete|rename) CURRENT_VERB="$wl" ;;
+    esac
+  done
+}
+
+# Strip a single leading verb WORD from $1, if present — the no-backtick-span fallback's own tiny
+# version of scan_verb's carry-forward, needed there only to build the printed MISSING text.
+strip_leading_verb() {
+  local s="$1" w rest wl
+  case "$s" in
+    *' '*) w=${s%% *}; rest=${s#* } ;;
+    *) w="$s"; rest="" ;;
+  esac
+  case "$w" in *[:,.\;]) w=${w%?} ;; esac
+  wl=$(printf '%s' "$w" | tr '[:upper:]' '[:lower:]')
+  case "$wl" in
+    create|modify|test|delete|rename) printf '%s' "$rest" ;;
+    *) printf '%s' "$s" ;;
+  esac
+}
+
+# A backtick-quoted span is a path only if it looks like one: a slash or a dot somewhere in it. A
+# symbol/region name (`t7`, `guard_hint()`, `<kit>`, `CLAUDE_PLUGIN_ROOT`) has neither and is not a
+# path — see the grammar note above the shebang header for the accepted ceiling this leaves.
+looks_like_path() {
+  case "$1" in
+    */*|*.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_digits() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# A trailing `:NN`, `:NN-MM` or `:NN–MM` (en dash) is a line anchor — plan-shape.md's own task-block
+# example writes `exact/path/to/existing.py:123-145` — stripped before the path resolves or prints.
+strip_anchor() {
+  local s="$1" body anchor pre post
+  case "$s" in
+    *:*)
+      body="${s%:*}"
+      anchor="${s##*:}"
+      if is_digits "$anchor"; then printf '%s' "$body"; return; fi
+      case "$anchor" in
+        *-*)
+          pre="${anchor%%-*}"; post="${anchor#*-}"
+          if is_digits "$pre" && is_digits "$post"; then printf '%s' "$body"; return; fi
+          ;;
+        *'–'*)
+          pre="${anchor%%'–'*}"; post="${anchor#*'–'}"
+          if is_digits "$pre" && is_digits "$post"; then printf '%s' "$body"; return; fi
+          ;;
+      esac
+      printf '%s' "$s"
+      ;;
+    *) printf '%s' "$s" ;;
+  esac
+}
+
+# $1 = the prose immediately following a span, already trimmed. Exact, closed match only — `(new)`
+# or `(new file)`, nothing else inside (#433) — so a genuine aside that merely starts with the word
+# "new" (`(new in v2)`, or one carrying nested backtick code) never matches.
+is_new_marker() {
+  local lc
+  lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$lc" in
+    '(new)'|'(new file)') return 0 ;;
+    '(new)'[!a-z0-9]*|'(new file)'[!a-z0-9]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# check_span <verb> <span> — resolve against $BASE (after stripping a line anchor), print OK/MISSING.
+check_span() {
+  local verb path
+  verb="$1"; path=$(strip_anchor "$2")
+  if git -C "$DIR" cat-file -e "$BASE:$path" 2>/dev/null; then
+    printf 'OK %s %s (Task %s)\n' "$verb" "$path" "$TASK"
+  else
+    printf 'MISSING %s %s (Task %s)\n' "$verb" "$path" "$TASK"
+    MISSING=$((MISSING + 1))
+  fi
+}
+
+# handle_span <span> <following-prose> — dispatch one backtick-quoted span by $CURRENT_VERB.
+# $PEND_SRC (global, reset per field) holds a `rename` verb's first span until its pair's second
+# span arrives — see the grammar note above.
+handle_span() {
+  local span following
+  span="$1"; following="$2"
+
+  if [ -n "$PEND_SRC" ]; then
+    check_span rename "$PEND_SRC"
+    printf 'SKIP rename %s (Task %s)\n' "$(strip_anchor "$span")" "$TASK"
+    PEND_SRC=""
+    return
+  fi
+
+  if [ "$CURRENT_VERB" = rename ] && looks_like_path "$span"; then
+    PEND_SRC="$span"
+    return
+  fi
+
+  looks_like_path "$span" || return 0
+
+  case "$CURRENT_VERB" in
+    create)
+      printf 'SKIP create %s (Task %s)\n' "$(strip_anchor "$span")" "$TASK"
+      ;;
+    *)
+      if is_new_marker "$following"; then
+        printf 'SKIP %s %s (Task %s)\n' "$CURRENT_VERB" "$(strip_anchor "$span")" "$TASK"
+      else
+        check_span "$CURRENT_VERB" "$span"
+      fi
+      ;;
+  esac
 }
 
 DIR="."
@@ -126,135 +282,93 @@ git -C "$DIR" rev-parse --git-dir > /dev/null 2>&1 || die2 "'$DIR' is not a git 
 git -C "$DIR" rev-parse --verify --quiet "$BASE^{commit}" > /dev/null 2>&1 \
   || die2 "base ref '$BASE' does not resolve in '$DIR' — fetch it rather than reading this as fresh"
 
-SEP=$'\001'
-# A control byte, distinct from SEP, planted in place of a `(new)`/`(new file)` aside so the marker
-# rides along with the ONE item it was attached to, through the split on `; `/`, ` below — the aside
-# itself is gone by the time an item is inspected (see the #433 note above `flush_files_field`).
-NEWMARK=$'\002'
 TASK=""
 SEEN_TASK=0
 MISSING=0
 IN_FIELD=0
 PAYLOAD=""
+CURRENT_VERB="modify"
+PEND_SRC=""
+SPANS_FOUND=0
 
 # A **Files:** field is prose meant to be soft-wrapped (`create-issue`'s own template writes it that
 # way, and issue #412's own plan wrapped mid-parenthetical). Reading one physical line at a time made
-# the verdict depend on where the source happened to wrap: the first line's now-unbalanced aside
-# corrupted the comma-split into bogus fragments (a false MISSING), and the continuation line —
-# starting with neither `### Task` nor `**Files:**` — matched no case at all and vanished with NO
-# verdict at all (#419). So the field is ACCUMULATED across physical lines first, terminated by a
-# blank line, a new `### Task`, a new `**Files:**`/`**Files**:` line, or end of file, and only then
-# handed to the same parsing logic that always ran on a single line.
+# the verdict depend on where the source happened to wrap — so the field is ACCUMULATED across
+# physical lines first, terminated by a blank line, a new `### Task`, a new `**Files:**`/
+# `**Files**:` line, or end of file, and only then handed to the grammar below (#419).
 flush_files_field() {
-  local payload item verb new_marker aside aside_lc head rest
+  local payload orig prose span rest following item
   payload=$(trim "$1")
   # A `**Files:**` line above the first `### Task` belongs to no task, so there is nothing to
   # report it against and nothing for Step 2 to re-anchor through. Skipping it is deliberate.
   [ "$SEEN_TASK" -eq 1 ] || return 0
   [ -n "$payload" ] || return 0
 
-  # Parenthetical asides come out BEFORE the split, not after. `create-issue`'s own template writes
-  # them — `modify \`Program.cs\` (DI registration)` — and an aside containing a comma would
-  # otherwise be split down the middle into two paths that exist nowhere, reporting `MISSING` twice
-  # and exit 5 on a plan that is perfectly fresh. That is not a cosmetic miscount: exit 5 routes
-  # Step 2 into re-anchoring, and a path invented by the splitter re-anchors to nothing, which is
-  # the "no usable plan" stop. A false stale costs the whole run.
-  #
-  # Asides come out INNERMOST-FIRST: on every pass, pair the FIRST `)` with the LAST `(` before it
-  # (or, when no `(` precedes that `)`, drop the stray `)` alone). #519: the old first-`(`-to-first-
-  # `)` cut pairs the WRONG parens whenever a `)` precedes a later `(` — e.g. an empty-parens call
-  # inside an aside, `(see \`f()\`)` — and then re-inserts the text between them, doubling part of
-  # the line on every pass instead of shrinking it, so the loop never terminated. Pairing innermost
-  # removes exactly one `)` per pass and inserts none, so the loop ends within as many passes as the
-  # field holds `)`.
+  orig="$payload"
+  CURRENT_VERB="modify"
+  PEND_SRC=""
+  SPANS_FOUND=0
+
   while :; do
     case "$payload" in
-      *')'*)
-        head=${payload%%)*}                  # text before the FIRST `)`
-        rest=${payload#*)}                    # text after it
-        case "$head" in
-          *'('*)                              # the innermost pair: the LAST `(` before that `)`
-            aside=$(trim "${head##*(}")
-            aside_lc=$(printf '%s' "$aside" | tr '[:upper:]' '[:lower:]')
-            case "$aside_lc" in
-              new|'new file') payload="${head%(*}${NEWMARK}${rest}" ;;
-              *)              payload="${head%(*}${rest}" ;;
-            esac
+      *'`'*)
+        prose="${payload%%\`*}"
+        rest="${payload#*\`}"
+        case "$rest" in
+          *'`'*)
+            span="${rest%%\`*}"
+            payload="${rest#*\`}"
             ;;
-          *) payload="${head}${rest}" ;;      # a stray `)` with no `(` before it: drop the `)` alone
+          *)
+            # An unbalanced backtick — no closing tick anywhere in the rest of the field. Read
+            # everything left as trailing prose (it can carry a late verb word) and stop; there is
+            # no well-formed span left to extract.
+            scan_verb "$prose$rest"
+            payload=""
+            break
+            ;;
         esac
-        ;;
-      *) break ;;
-    esac
-  done
-
-  payload=${payload//"; "/"$SEP"}
-  payload=${payload//", "/"$SEP"}
-
-  verb="modify"
-  while [ -n "$payload" ]; do
-    case "$payload" in
-      *"$SEP"*) item=${payload%%"$SEP"*}; payload=${payload#*"$SEP"} ;;
-      *) item="$payload"; payload="" ;;
-    esac
-
-    item=$(trim "$item")
-    # Trailing sentence punctuation only. No `)` survives the payload-level loop above — it pairs
-    # off every `)` (innermost-first) or drops a stray one alone — so no item ever reaches here
-    # still carrying a paren, and the item-level aside strip this comment used to describe is gone.
-    case "$item" in *.|*,|*';') item=${item%?} ;; esac
-
-    case "$item" in
-      'create '*) verb=create; item=${item#create } ;;
-      'modify '*) verb=modify; item=${item#modify } ;;
-      'test '*)   verb=test;   item=${item#test } ;;
-      'delete '*) verb=delete; item=${item#delete } ;;
-    esac
-
-    # Backticks are markup around the path, never part of it; a path is otherwise passed LITERALLY,
-    # spaces and brackets included, because the split above is on `; ` and `, ` only.
-    item=${item//'`'/}
-    item=$(trim "$item")
-    item=${item#./}
-
-    # The marker planted above, if this item carried a `(new)`/`(new file)` aside. It rides on the
-    # END of the item (the aside always followed the path), possibly after a trailing-punctuation
-    # strip already removed a `.`/`,`/`;` that sat between the marker and the split point.
-    new_marker=0
-    case "$item" in
-      *"$NEWMARK") item=${item%"$NEWMARK"}; item=$(trim "$item"); new_marker=1 ;;
-    esac
-
-    [ -n "$item" ] || continue
-
-    # The closed no-file list — a task saying it touches nothing is not a path to resolve, in any
-    # verb position. Exact spellings only: a case-insensitive or fuzzy match would risk swallowing a
-    # real filename that happens to start with "none".
-    case "$item" in
-      'none expected'|'none expected.') continue ;;
-    esac
-
-    case "$verb" in
-      create)
-        printf 'SKIP create %s (Task %s)\n' "$item" "$TASK"
+        scan_verb "$prose"
+        SPANS_FOUND=$((SPANS_FOUND + 1))
+        case "$payload" in
+          *'`'*) following=$(trim "${payload%%\`*}") ;;
+          *) following=$(trim "$payload") ;;
+        esac
+        handle_span "$span" "$following"
         ;;
       *)
-        if [ "$new_marker" -eq 1 ]; then
-          # A `(new)`/`(new file)` marker on any other verb reads exactly like `create`: the path
-          # is EXPECTED absent, so existence is never checked — same as `create` never checking it,
-          # including when the marker turns out to be stale (a path that already exists but is
-          # still marked `(new)`). Printed with the item's own verb word, not "create", so the
-          # reader still sees what the plan actually wrote (#433).
-          printf 'SKIP %s %s (Task %s)\n' "$verb" "$item" "$TASK"
-        elif git -C "$DIR" cat-file -e "$BASE:$item" 2>/dev/null; then
-          printf 'OK %s %s (Task %s)\n' "$verb" "$item" "$TASK"
-        else
-          printf 'MISSING %s %s (Task %s)\n' "$verb" "$item" "$TASK"
-          MISSING=$((MISSING + 1))
-        fi
+        scan_verb "$payload"
+        payload=""
+        break
         ;;
     esac
   done
+
+  # A `rename` whose plan named only one span (malformed) — check it rather than drop it silently.
+  if [ -n "$PEND_SRC" ]; then
+    check_span rename "$PEND_SRC"
+    PEND_SRC=""
+  fi
+
+  if [ "$SPANS_FOUND" -eq 0 ]; then
+    # No backtick-quoted span anywhere in the field — #403's regression guard, re-expressed: a
+    # governing verb with nothing backtick-quoted to check is exactly as suspicious as a bare,
+    # un-backticked path used to be. Strip one trailing aside, one leading verb word, then compare
+    # to the closed no-file idiom; anything else is named MISSING using the raw remaining text.
+    item="$orig"
+    while :; do case "$item" in *.|*,|*';') item=${item%?} ;; *) break ;; esac; done
+    case "$item" in *'('*')') item="${item%(*}" ;; esac
+    item=$(trim "$item")
+    item=$(trim "$(strip_leading_verb "$item")")
+    while :; do case "$item" in *.|*,|*';') item=${item%?} ;; *) break ;; esac; done
+    case "$(printf '%s' "$item" | tr '[:upper:]' '[:lower:]')" in
+      ''|'none expected') : ;;
+      *)
+        printf 'MISSING %s %s (Task %s)\n' "$CURRENT_VERB" "$item" "$TASK"
+        MISSING=$((MISSING + 1))
+        ;;
+    esac
+  fi
 }
 
 while IFS= read -r line || [ -n "$line" ]; do
@@ -301,7 +415,10 @@ while IFS= read -r line || [ -n "$line" ]; do
       ;;
     *)
       # A continuation line of the field currently accumulating; joined with a single space, trimmed
-      # like every other line. Outside a field, an ordinary prose line — ignored, as before.
+      # like every other line. Outside a field, an ordinary prose line — ignored, as before. A
+      # bulleted `- Modify: …` line under `**Files:**` lands here too (plan-shape.md forbids writing
+      # that shape now, but an already-filed plan can still carry one) — its `- ` marker is harmless
+      # prose to the grammar above, which finds its backtick-quoted paths regardless.
       [ "$IN_FIELD" -eq 1 ] && PAYLOAD="$PAYLOAD $line"
       continue
       ;;
