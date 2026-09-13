@@ -22,8 +22,8 @@
       "suites":  ["tests/merge-gate/test.sh", "tests/decisions/test.sh"],
       "stdin": true,
       "verdict": { "source": "stdout-json",
-                   "vocabulary": ["no-ci","pending","failed","clear"],
-                   "nonTerminal": ["pending"] }
+                   "vocabulary": ["no-ci","pending","needs-approval","failed","clear"],
+                   "nonTerminal": ["pending","needs-approval"] }
     }
   ],
   "not_decisions": {
