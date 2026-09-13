@@ -22,6 +22,7 @@
 #   M. a TOML command edited by hand            -> exit 1, naming it AND the .md it is built from
 #   N. a server added to .mcp.json alone        -> exit 1, naming gemini-extension.json
 #   O. the live TOML commands parse, carry description + prompt, and spell {{args}}
+#  O2. a command body reading $10+ is refused as no verdict, never silently mangled into {{args}}0
 #   P. gemini-extension.json, against the shape Gemini CLI documents
 #   Q. package.json declares the skills for pi and stays private
 #   R. README.md missing a plugin host's install line -> exit 1, naming README.md and the host
@@ -205,7 +206,7 @@ names "gemini-extension.json" && ok "names gemini-extension.json on stdout" || b
 
 echo "== O. the live TOML commands are what Gemini CLI reads =="
 if python3 - "$REPO" > "$WORK/o.out" 2>&1 <<'PY'
-import pathlib, sys, tomllib
+import pathlib, re, sys, tomllib
 repo = pathlib.Path(sys.argv[1])
 mds = sorted((repo / "commands").glob("*.md"))
 assert mds, "no commands/*.md"
@@ -214,7 +215,11 @@ for md in mds:
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert set(data) == {"description", "prompt"}, f"{toml.name}: keys {sorted(data)}"
     assert "$ARGUMENTS" not in data["prompt"], f"{toml.name}: $ARGUMENTS survived"
-    assert "$1" not in data["prompt"], f"{toml.name}: a positional $1 survived — Gemini fills only {{args}}"
+    # A bare $<digit> that survived, or a digit trailing {{args}} (what an un-refused "$1N" leaves
+    # behind once ".replace(\"$1\", \"{{args}}\")" eats the "$1" and strands the "N" — #555) — either
+    # shape means a positional token was mangled instead of refused.
+    assert not re.search(r"\$\d|\{\{args\}\}\d", data["prompt"]), \
+        f"{toml.name}: a positional token survived or was mangled — Gemini fills only {{args}}"
 m = tomllib.loads((repo / "commands" / "migrate.toml").read_text(encoding="utf-8"))
 want = "Run the full seven-phase legacy upgrade pipeline (assess → verified production) powered by RoselineMCP"
 assert m["description"] == want, m["description"]
@@ -222,6 +227,15 @@ assert "{{args}}" in m["prompt"], "migrate.toml: no {{args}} in the prompt"
 PY
 then ok "every commands/*.md has a TOML twin with description and prompt, and {{args}} for \$ARGUMENTS"
 else bad "the TOML commands: $(cat "$WORK/o.out")"; fi
+
+echo "== O2. a command body reading \$10+ is refused as no verdict, not silently mangled =="
+T="$WORK/o2"; scratch_tree "$T"
+printf -- '---\ndescription: scratch fixture for the $10 guard\n---\n\nSet a timer for $10 minutes.\n' \
+  > "$T/commands/tenplus.md"
+run_check "$T"
+[ "$RC" -eq 2 ] && ok "exit 2, no verdict" || bad "exit $RC with a \$10 command body, want 2: $OUT $ERR"
+case "$ERR" in *'$10'*) ok "names the token, \$10, on stderr" ;; *) bad "stderr does not name \$10: $ERR" ;; esac
+no_traceback "a \$10 command body"
 
 echo "== P. gemini-extension.json, as Gemini CLI documents it =="
 if python3 - "$REPO" > "$WORK/p.out" 2>&1 <<'PY'
