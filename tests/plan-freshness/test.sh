@@ -408,6 +408,117 @@ run_case "C63 a genuinely nested aside: 0      " 0 "$WORK/nested-plain.md"
 want_line "C64 …the first path is OK           " "OK modify a.sh (Task 1)"
 want_line "C65 …the second path is OK          " "OK modify dir with space/b.sh (Task 1)"
 
+echo "== a path is a BACKTICK-QUOTED span; nothing else on the line is a path (decided at #441) =="
+
+echo "== …a bulleted **Files:** field still resolves every backticked path (#441 shape 4) =="
+#
+# `create-issue` is no longer supposed to WRITE this shape (plan-shape.md now forbids it), but an
+# already-filed plan can still carry one, and the parser must not turn its bullets into bogus
+# MISSING items the way the pre-#441 comma-splitter did. Verbatim shape from the #441 discussion,
+# with this suite's own fixture paths swapped in; also exercises `rename` + its arrow together.
+cat > "$WORK/bulleted.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a bulleted Files field
+
+**Files:**
+- Rename: `a.sh` → `renamed.sh`
+- Modify: `dir with space/b.sh` (step name), `gone.sh` (the gate)
+PLAN
+run_case "C66 a bulleted Files field: exit 5   " 5 "$WORK/bulleted.md"
+want_line "C67 …rename source is OK             " "OK rename a.sh (Task 1)"
+want_line "C68 …rename target is SKIPped        " "SKIP rename renamed.sh (Task 1)"
+want_line "C69 …a bulleted modify path is OK    " "OK modify dir with space/b.sh (Task 1)"
+want_line "C70 …a bulleted stale path is MISSING" "MISSING modify gone.sh (Task 1)"
+
+echo "== …and a stale rename SOURCE is still caught, not waved through (#441, #537 follow-up) =="
+cat > "$WORK/rename-stale.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: renaming a path that is already gone
+
+**Files:** rename `gone.sh` → `also-gone.sh`.
+PLAN
+run_case "C71 a stale rename: exit 5           " 5 "$WORK/rename-stale.md"
+want_line "C72 …the missing source is MISSING   " "MISSING rename gone.sh (Task 1)"
+want_line "C73 …the new target is still SKIPped " "SKIP rename also-gone.sh (Task 1)"
+
+echo "== …two backticked paths joined by 'and' are two paths, not one glued string (#441, #514) =="
+cat > "$WORK/and-joined.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: two paths joined by 'and'
+
+**Files:** modify `a.sh` and `dir with space/b.sh` (wire the suite).
+PLAN
+run_case "C74 'and'-joined paths: exit 0        " 0 "$WORK/and-joined.md"
+want_line "C75 …the first path is OK            " "OK modify a.sh (Task 1)"
+want_line "C76 …the second path is OK           " "OK modify dir with space/b.sh (Task 1)"
+
+echo "== …a trailing ':NN' or ':NN-MM'/':NN–MM' line anchor is stripped, not part of the path (#441, #512 shape 5) =="
+#
+# plan-shape.md's own task-block example writes `exact/path/to/existing.py:123-145` — the kit's own
+# template produces this shape, so the reader has to accept it, not just the writer.
+cat > "$WORK/anchored.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: anchored paths
+
+**Files:** modify `a.sh:69`; test `dir with space/b.sh:65–100`.
+PLAN
+run_case "C77 anchored paths: exit 0            " 0 "$WORK/anchored.md"
+want_line "C78 …a single ':NN' anchor is stripped" "OK modify a.sh (Task 1)"
+want_line "C79 …an en-dash range anchor strips too" "OK test dir with space/b.sh (Task 1)"
+
+cat > "$WORK/anchored-missing.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: an anchored path that does not exist
+
+**Files:** modify `gone.sh:12-20`.
+PLAN
+run_case "C80 a stale anchored path: exit 5     " 5 "$WORK/anchored-missing.md"
+want_line "C81 …named MISSING without the anchor " "MISSING modify gone.sh (Task 1)"
+
+echo "== …an em-dash tail describing REGIONS of the one named path is prose, not more paths (#441, #552) =="
+cat > "$WORK/em-dash-regions.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: one file, several backticked region names
+
+**Files:** modify `dir with space/b.sh` — the fixture-writer helpers (~line 27-42), the `t7` block
+(88-99), and the two stale comments (102-103, 191). No other file changes.
+PLAN
+run_case "C82 one path + region names: exit 0   " 0 "$WORK/em-dash-regions.md"
+want_line "C83 …the one real path is OK          " "OK modify dir with space/b.sh (Task 1)"
+if [ "$(wc -l < "$OUT" | tr -d ' ')" = 1 ]; then
+  note_ok "C84 …and nothing else is printed      "
+else
+  note_fail "C84 …and nothing else is printed      — got:"
+  sed 's/^/      /' "$OUT"
+fi
+
+echo "== …a prose sentence between paths, with capitalised verbs, is not split into fake items (#441, shape 6) =="
+cat > "$WORK/prose-sentence.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: prose carrying capitalised verbs mid-field
+
+**Files:** modify `a.sh:678`. Under the block, add one sentence: `<kit>` is the kit root, printed at
+session start. Modify `dir with space/b.sh:44` with the same sentence. Test `dir with space/b.sh`
+for the printed value.
+PLAN
+run_case "C85 a prose sentence mid-field: exit 0" 0 "$WORK/prose-sentence.md"
+want_line "C86 …the first anchored path is OK    " "OK modify a.sh (Task 1)"
+want_line "C87 …a capitalised 'Modify' is read    " "OK modify dir with space/b.sh (Task 1)"
+want_line "C88 …a capitalised 'Test' is read      " "OK test dir with space/b.sh (Task 1)"
+if grep -q 'MISSING' "$OUT"; then
+  note_fail "C89 …and the prose itself is never MISSING — got:"
+  sed 's/^/      /' "$OUT"
+else
+  note_ok "C89 …and the prose itself is never MISSING"
+fi
+
 echo "== …and a field with NO blank line before **Interfaces:** is not swallowed (#419 review) =="
 #
 # plan-shape.md's own template always puts a blank line between `**Files:**` and `**Interfaces:**`
