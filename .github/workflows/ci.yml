@@ -274,7 +274,7 @@ jobs:
       # module-name form) cannot find it.
       - name: Plugin manifests and requirements are valid JSON
         run: |
-          python3 -c "
+          PYTHONDONTWRITEBYTECODE=1 python3 -c "
           import importlib.util, json, sys
           spec = importlib.util.spec_from_file_location('host_adapters', 'scripts/host-adapters.py')
           h = importlib.util.module_from_spec(spec)
