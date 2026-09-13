@@ -563,6 +563,36 @@ rc=0; out=$("$FOLLOWUP" 2>&1) || rc=$?
 [ "$rc" -eq 64 ] || { echo "FAIL [followup-usage]: expected exit 64 with no args, got $rc"; echo "$out"; exit 1; }
 echo "  ok: followup-usage — no base branch/sha refuses with exit 64 rather than printing a non-verdict"
 
+reset_case followup-wrong-workflow-does-not-launder
+# The exact #429/#449-shaped trap, one level down: this push triggered TWO workflows on the same
+# sha (this repo's own `ci` and `release-please` both fire on a push to main) — release-please
+# finished fast and green, `ci` itself is still running (no conclusion yet). Taking the single
+# newest entry overall would read release-please's `success` as the verdict; grouping by workflow
+# first must keep `ci`'s own non-answer from being laundered into a green.
+SHA=b7c8b7c8b7c8b7c8b7c8b7c8b7c8b7c8b7c8b7c8
+export RUN_LIST_TRAP='[{"headSha":"'"$SHA"'","conclusion":"success","workflowName":"release-please","createdAt":"2026-09-12T09:05:05Z"},{"headSha":"'"$SHA"'","conclusion":null,"workflowName":"ci","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(followup_of main "$SHA")
+[ "$out" = "unverified (timeout)" ] || { echo "FAIL [followup-wrong-workflow-does-not-launder]: expected 'unverified (timeout)', got '$out' — a fast, unrelated workflow's success must not stand in for the CI run that is still going"; exit 1; }
+echo "  ok: followup-wrong-workflow-does-not-launder — release-please's fast green does not launder ci's own still-running run into a verdict"
+
+reset_case followup-red-wins-over-unrelated-green
+# The mirror, in the direction that matters more: `ci` itself genuinely failed on this sha while
+# release-please succeeded. RED must win — a real failure is never masked by an unrelated pass.
+SHA=c8d9c8d9c8d9c8d9c8d9c8d9c8d9c8d9c8d9c8d9
+export RUN_LIST_TRAP='[{"headSha":"'"$SHA"'","conclusion":"success","workflowName":"release-please","createdAt":"2026-09-12T09:05:05Z"},{"headSha":"'"$SHA"'","conclusion":"failure","workflowName":"ci","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(followup_of main "$SHA")
+[ "$out" = "RED (base-run)" ] || { echo "FAIL [followup-red-wins-over-unrelated-green]: expected 'RED (base-run)', got '$out'"; exit 1; }
+echo "  ok: followup-red-wins-over-unrelated-green — ci's real failure reports red even though release-please succeeded on the same sha"
+
+reset_case followup-all-workflows-green
+# The clean multi-workflow case: every workflow that ran on this sha succeeded — green is correct
+# once every group, not just the newest overall, has been checked.
+SHA=d9e0d9e0d9e0d9e0d9e0d9e0d9e0d9e0d9e0d9e0
+export RUN_LIST_TRAP='[{"headSha":"'"$SHA"'","conclusion":"success","workflowName":"release-please","createdAt":"2026-09-12T09:05:05Z"},{"headSha":"'"$SHA"'","conclusion":"success","workflowName":"ci","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(followup_of main "$SHA")
+[ "$out" = "green (base-run)" ] || { echo "FAIL [followup-all-workflows-green]: expected 'green (base-run)', got '$out'"; exit 1; }
+echo "  ok: followup-all-workflows-green — green only once every workflow on the sha has succeeded"
+
 # Restore the red trap the merge-train cases above (and any re-run of this file top to bottom) rely on.
 export RUN_LIST_TRAP='[{"databaseId":33346395704,"headSha":"'"$SIBLING_SHA"'","conclusion":"failure","status":"completed","name":"kit","url":"https://github.invalid/run/33346395704"}]'
 
@@ -675,6 +705,18 @@ arm_ghe() {   # check-runs 404s and the sha's workflow run failed: the fallback 
 CO_GHE="$WORK/co-ghe"
 git init -q "$CO_GHE"
 git -C "$CO_GHE" remote add origin git@ghe.example.com:acme/widgets.git
+
+reset_case followup-ghe
+# The #514 host bug, one script over (#561): with an explicit -R (no host prefix), the follow-up's
+# one `gh run list` lookup must run under the ORIGIN's host, never gh's default — the same
+# origin-checkout case the ghe-origin/ghe-repo cases below pin for check-runs and workflow-runs.
+SHA=e0f1e0f1e0f1e0f1e0f1e0f1e0f1e0f1e0f1e0f1
+export RUN_LIST_TRAP='[{"headSha":"'"$SHA"'","conclusion":"success","workflowName":"ci","createdAt":"2026-09-12T09:05:00Z"}]'
+out=$(cd "$CO_GHE" && GH_STUB_HOSTS=ghe.example.com "$KIT_ROOT/skills/merge-pr/scripts/base-run-followup.sh" -R acme/widgets main "$SHA")
+[ "$out" = "green (base-run)" ] || { echo "FAIL [followup-ghe]: expected 'green (base-run)', got '$out'"; cat "$GH_CALL_LOG"; exit 1; }
+grep -qF "GH_HOST=ghe.example.com ARGS: -R acme/widgets run list" "$GH_CALL_LOG" || {
+  echo "FAIL [followup-ghe]: the lookup did not run under GH_HOST=ghe.example.com:"; sed 's/^/      /' "$GH_CALL_LOG"; exit 1; }
+echo "  ok: followup-ghe — the follow-up's one gh run list call resolves the repository's own host (#514), like every sibling gh call in this skill"
 
 reset_case ghe-origin
 SHA=1a2b1a2b1a2b1a2b1a2b1a2b1a2b1a2b1a2b1a2b

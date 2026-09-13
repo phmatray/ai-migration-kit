@@ -31,6 +31,19 @@
 # otherwise inconclusive run is not evidence the base broke, so it stays a non-verdict rather than
 # a fabricated red (the same doctrine `base-run-verdict.sh`'s own cancelled-run handling states).
 #
+# ACROSS EVERY WORKFLOW ON THE SHA, NEVER JUST THE NEWEST OVERALL. `gh run list --branch` lists
+# every workflow that ran on that branch, and a push to it commonly triggers more than one
+# (this repo's own `ci` and `release-please` both fire on a push to `main`, at the same sha).
+# Taking the single newest entry regardless of which workflow it belongs to would let a fast,
+# unrelated workflow's `success` (release-please, GitHub Pages) stand in for the actual CI run —
+# exactly the `pages-build-deployment`/`release-please` trap `05b-base-run.md` already forbids one
+# paragraph above this script's own call site. So matches are grouped BY WORKFLOW NAME first (the
+# newest per group, mirroring `base-run-verdict.sh`'s own per-job `.latest` reduction, extended to
+# workflow granularity since `gh run list` cannot see individual jobs); the verdict is `green` only
+# when EVERY workflow's latest run for the sha succeeded, `RED` the instant any one of them failed,
+# and `unverified (timeout)` when any is inconclusive (still running, or no run at all) — so a
+# quick, unrelated workflow's `success` never launders a genuinely slow or broken one.
+#
 # `merge-pr` Step 5b calls this ONLY when `base-run-verdict.sh --report-line`'s own reason was
 # exactly `timeout`; every other verdict/reason is unaffected and this script is never invoked for
 # them. It invents no CI rule of its own — decisions/registry.json's `not_decisions` records why,
@@ -42,12 +55,29 @@
 # ALWAYS prints exactly one report-line and exits 0 — a non-verdict is a valid answer, not a
 # failure, for the same reason `base-run-verdict.sh` documents: a post-merge read must never give
 # an autonomous fleet a new way to get stuck on a merge that already landed. The one refusal,
-# exit 64, is a usage error before any `gh` call: no base branch, no sha, or an unparseable option.
+# exit 64, is a usage error before any `gh` call: no base branch, no sha, an unparseable option, or
+# (mirroring `base-run-verdict.sh`) a kit whose host helper will not load (#514).
 set -euo pipefail
 
 TOOL="base-run-followup"
 usage() { echo "usage: $TOOL.sh [-R <owner/repo>] <base-branch> <sha>" >&2; }
 refuse() { echo "$TOOL: $1" >&2; usage; exit 64; }
+
+# ------------------------------------------------------------------------------ self-location
+#
+# $0 through any symlinks first — a plugin install reaches this file by link, and `pwd -P` alone
+# canonicalizes the directory, not the link. No `readlink -f`: macOS's readlink has no -f. The same
+# loop `base-run-verdict.sh` (and, before it, guarded-commit.sh) already carries.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  _link=$(readlink -- "$SELF") || break
+  case "$_link" in
+    /*) SELF="$_link" ;;
+    *)  SELF="$(dirname -- "$SELF")/$_link" ;;
+  esac
+done
+KIT_ROOT=$(CDPATH= cd -- "$(dirname -- "$SELF")/../../.." && pwd -P) \
+  || KIT_ROOT="$(dirname -- "$SELF")/../../.."
 
 REPO=""
 BASE=""
@@ -76,10 +106,21 @@ esac
 command -v jq > /dev/null 2>&1 || refuse "jq is missing — it is a \`required\` prerequisite in requirements.json"
 command -v gh > /dev/null 2>&1 || refuse "gh is missing — there is no other way to read run list"
 
+# The repository's own host (#514): `gh run list -R OWNER/REPO` takes gh's DEFAULT host even
+# inside a GitHub Enterprise checkout — the exact failure `base-run-verdict.sh`'s own header cites
+# — so this resolves it the same one way every sibling script in this skill does, once, before the
+# call. With no -R it keeps `KIT_REPO_SLUG` empty and `gh run list` (no -R) reads the ambient
+# checkout's own remote directly, which already names the right host on its own.
+GH_HOST_LIB="$KIT_ROOT/skills/_shared/scripts/_gh-host.sh"
+if [ -r "$GH_HOST_LIB" ]; then . "$GH_HOST_LIB" || true; fi
+command -v gh_host_resolve > /dev/null 2>&1 \
+  || { echo "$TOOL: REFUSED — cannot load $GH_HOST_LIB; reinstall the kit" >&2; exit 64; }
+gh_host_resolve "$REPO" || exit 64
+
 answer() { printf '%s\n' "$1"; exit 0; }
 
 GH_ARGS=(run list --branch "$BASE" --json headSha,conclusion,workflowName,createdAt --limit 100)
-[ -n "$REPO" ] && GH_ARGS=(-R "$REPO" "${GH_ARGS[@]}")
+[ -n "$KIT_REPO_SLUG" ] && GH_ARGS=(-R "$KIT_REPO_SLUG" "${GH_ARGS[@]}")
 
 # A failed or empty lookup is not evidence about the base — it is the same "nothing to act on"
 # non-verdict as no match at all. `set +e` around it: this is a deliberate single try, not a poll
@@ -92,18 +133,24 @@ rc=$?
 set -e
 [ "$rc" -eq 0 ] && [ -n "$raw" ] || answer "unverified (timeout)"
 
-# The newest match for this exact sha — never the newest ON THE BRANCH (that would be the
-# recency trap `base-run-verdict.sh`'s own suite pins red; a sibling merge's run could otherwise
-# donate its verdict here). An unparseable response is the same non-verdict as no response.
-match=$(printf '%s' "$raw" | jq -c --arg sha "$SHA" \
-  '[ .[]? | select(.headSha == $sha) ] | sort_by(.createdAt) | last // empty' 2>/dev/null) || match=""
-[ -n "$match" ] || answer "unverified (timeout)"
+# Grouped by workflow, newest per group, ALL groups must have succeeded for green — see the
+# ACROSS EVERY WORKFLOW comment above. An unparseable response is the same non-verdict as no
+# response; `group_by` on an empty match list yields an empty array, and `all(empty[]; …)` is
+# vacuously true in jq, so the empty case is named explicitly rather than falling into that trap.
+word=$(printf '%s' "$raw" | jq -r --arg sha "$SHA" '
+  [ .[]? | select(.headSha == $sha) ]
+  | group_by(.workflowName)
+  | map(sort_by(.createdAt) | last)
+  | if length == 0 then "unverified"
+    elif any(.[]; .conclusion == "failure") then "RED"
+    elif all(.[]; .conclusion == "success") then "green"
+    else "unverified"
+    end
+' 2>/dev/null) || word=""
 
-conclusion=$(printf '%s' "$match" | jq -r '.conclusion // ""' 2>/dev/null || echo "")
-case "$conclusion" in
-  success) answer "green (base-run)" ;;
-  failure) answer "RED (base-run)" ;;
-  *)       answer "unverified (timeout)" ;;   # no conclusion yet (still running), or an
-                                               # inconclusive one (cancelled/skipped/…) — neither
-                                               # is evidence the base broke
+case "$word" in
+  green) answer "green (base-run)" ;;
+  RED)   answer "RED (base-run)" ;;
+  *)     answer "unverified (timeout)" ;;   # no match, still running, or the response/lookup
+                                             # itself was unparseable/empty
 esac
