@@ -81,6 +81,13 @@ case "$repo" in */*) exit 0 ;; esac
 # is what sits after an optional `scheme://` and an optional `user@`, up to the first `:` or `/`
 # — the same three remote shapes as above. Lowercased, because DNS names are case-insensitive and
 # a path segment is not. No host derivable → fail open, like an underivable owner/repo.
+#
+# When a credential contains an unescaped `@` inside the userinfo (e.g., a password with a literal
+# `@` character), the userinfo parsing becomes ambiguous — per RFC 3986 such characters must be
+# percent-encoded, but if they aren't, we have no unambiguous way to extract the host. Fail open
+# (treat the host as underivable) rather than derive a garbled one.
+authority=$(printf '%s' "$remote_url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#/.*$##')
+case "$authority" in *@*@*) exit 0 ;; esac
 host=$(printf '%s' "$remote_url" | sed -E -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#[:/].*$##' | tr '[:upper:]' '[:lower:]')
 [ -n "$host" ] || exit 0
 case "$host" in */*) exit 0 ;; esac

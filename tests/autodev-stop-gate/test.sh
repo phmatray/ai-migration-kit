@@ -209,7 +209,39 @@ HOST_UPPER=$(repo_with_remote "https://GitHub.COM/acme/widgets.git")
 verdict "host case-folds (GitHub.COM == github.com)" 2 "$(pay "$HOST_UPPER" false)" "$SDIR" "" "acme/widgets"
 verdict "collision B (foo/bar-baz) allows — no file of its own, unaffected by A" 0 "$(pay "$COLL_B" false)" "$SDIR"
 
-# ------------------------------------------------- 9g. credentialed origin — the userinfo-strip
+# -------------------------------------------- 9g. multi-@ in userinfo (credential with literal '@' in password)
+# When a credential URL contains an unescaped @ inside the password portion, the host derivation
+# needs to fail open rather than derive a garbled host. Seed state files at multiple plausible
+# derived paths to catch the wrong host regardless of which mis-derivation the code takes.
+MULTI_AT=$(repo_with_remote "https://user:p@ssword@host/owner/repo")
+# State file paths for plausible mis-derivations of the multi-@ URL
+WRONG_HOST_PATH_1=$(state_path "$SDIR" "ssword@host" owner repo)  # mis-derived host
+WRONG_HOST_PATH_2=$(state_path "$SDIR" "user" owner repo)          # other possible mis-derivation
+RIGHT_HOST_PATH=$(state_path "$SDIR" host owner repo)              # the correct host
+mkdir -p "$(dirname "$WRONG_HOST_PATH_1")" "$(dirname "$WRONG_HOST_PATH_2")"
+# Seed state files at the wrong derivations to force a refusal if the old code hits them
+cat > "$WRONG_HOST_PATH_1" <<'EOF'
+# auto-dev state — wrong-host-1, N=1
+## In flight
+- Slot A → #1 (auto-dev) — implementing
+## Queue
+## Completed
+EOF
+cat > "$WRONG_HOST_PATH_2" <<'EOF'
+# auto-dev state — wrong-host-2, N=1
+## In flight
+- Slot A → #1 (auto-dev) — implementing
+## Queue
+## Completed
+EOF
+# The correct path should have no state file (so no refusal from it)
+rm -f "$RIGHT_HOST_PATH"
+# Verdict: multi-@ credentials should fail open (exit 0) regardless of which host derives
+verdict "multi-@ in credential (user:p@ssword@host) fails open" 0 "$(pay "$MULTI_AT" false)" "$SDIR"
+# Clean up for what follows
+rm -f "$WRONG_HOST_PATH_1" "$WRONG_HOST_PATH_2"
+
+# ------------------------------------------------- 9h. credentialed origin — the userinfo-strip
 # clause must cross a `:` (#532): on `https://user:token@host/…` the middle sed clause used to stop
 # at the FIRST `:` (inside `user:token@`) rather than crossing it, so `$host` resolved to the
 # credential's username instead of the real host. Pin the real host's state file and expect the
@@ -229,7 +261,7 @@ verdict "credentialed origin (user:token@) resolves the real host, not the useri
   "$(pay "$CRED" false)" "$SDIR" "" "acme/widgets"
 rm -f "$CRED_PATH"
 
-# ------------------------------------------------- 9h. plain userinfo, no token (Spec AC2 / edge
+# ------------------------------------------------- 9i. plain userinfo, no token (Spec AC2 / edge
 # case) — `https://user@host/owner/repo` has no `:` before its `@`, so both the old and the fixed
 # clause already stripped it the same way; pinned explicitly since the Spec names this exact shape
 # as a required regression check, not just the SSH forms above that happen to share it.
