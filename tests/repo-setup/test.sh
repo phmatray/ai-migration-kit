@@ -1488,4 +1488,18 @@ esac
 [ ! -s "$GH_CALL_LOG" ] || fail "without its host helper: gh was called before the refusal — $(cat "$GH_CALL_LOG")"
 echo "  ok: host — without its host helper: exit 2, the missing file named, no gh call past auth status and repo view"
 
+# Reached through a symlink to the script itself (#531): the pre-loop code computed $KIT_ROOT from
+# `dirname "$0"` directly, which names the SYMLINK's own directory, not the real script's — so
+# `_gh-host.sh`, which genuinely exists at the real kit root, could not be found and `plan` refused
+# instead of reading it.
+SYMROOT="$WORK/symlinked-repo-setup"
+mkdir -p "$SYMROOT"
+ln -s "$SCRIPT" "$SYMROOT/repo-setup.sh"
+rc=0; out=$(GH_STUB_HOSTS=ghe.example.com bash "$SYMROOT/repo-setup.sh" plan "$repo16g" --manifest "$META_FIXTURE" 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "plan through a symlinked script: expected exit 1 (drift, same as a direct run), got $rc — $out"
+case "$out" in
+  *"cannot load"*) fail "plan through a symlinked script: refused to load _gh-host.sh even though it exists at the real kit root — $out" ;;
+esac
+echo "  ok: plan through a symlinked script resolves the real kit root, not the symlink's own directory"
+
 echo "PASS: tests/repo-setup"
