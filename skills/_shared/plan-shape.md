@@ -79,6 +79,36 @@ it and watch it fail — write the minimal code — run it and watch it pass —
 - [ ] **Step 5:** Commit: `<type>(<scope>): <subject>`.
 ````
 
+### The `**Files:**` field grammar
+
+Decided at triage on #441, after four false-STALE parses of shapes this section did not used to
+rule out: **a path is a backtick-quoted span, and nothing else on the line is a path.**
+
+- **One `**Files:**` line per task**, soft-wrapped prose if it runs long (`implement-issue`'s
+  `plan-freshness.sh` joins the wrap before reading it) — never the bulleted `- Modify: …` form.
+  Every path on it is backtick-quoted, as in the task block above; a bare, un-backticked word is
+  never read as a path, however path-shaped it looks.
+- **Verbs:** `create`, `modify`, `test`, `delete`, `rename`. A verb is a whole word (`Modify` and
+  `modify:` both count) and carries forward to every path after it until the next verb word, so
+  `modify \`a.py\`, \`b.py\`; create \`c.py\`` checks `a.py`/`b.py` and skips `c.py`. `rename` takes
+  **two** backtick-quoted spans — the existing source, then the new target (arrow or prose between
+  them, either way): `rename \`old/name.py\` → \`new/name.py\``; the source is checked like `modify`,
+  the target is treated like `create` (its absence is correct).
+- **A trailing `:NN`, `:NN-MM` or `:NN–MM`** on a backtick-quoted path is a line anchor (the task
+  block's own example writes `exact/path/to/existing.py:123-145`) — stripped before the path is
+  resolved, never part of it.
+- **A backtick-quoted span that names no file** — a symbol, a region, a placeholder like `<kit>` —
+  is prose, not a path: it has no `/` and no `.`, or it carries a space, a paren, or an angle
+  bracket (`guard_hint()`, `<kit>`, `` `t7` block``). Only a span shaped like a real path is ever
+  checked or counted.
+- **A task with nothing to touch** writes `**Files:** none expected.` (`create-issue`'s own idiom) —
+  not an empty line, not `n/a`.
+- Anything else on the line — asides in parentheses, "and", em-dashes, sub-region descriptions — is
+  ordinary prose around the backtick-quoted paths, never split into items of its own.
+
+`skills/implement-issue/scripts/plan-freshness.sh` reads exactly this grammar before
+`implement-issue` executes a task, so a plan that follows it never reads stale by construction.
+
 - **Files** and **Interfaces** are exact. A task's implementer sees only their own task; the
   Interfaces line is how they learn the names and types neighbouring tasks use.
 - **Every step is its own `- [ ]` checkbox.** `implement-issue` ticks them on the live issue as the
@@ -138,4 +168,5 @@ Fix inline; no second pass.
 - `docs/methodology.md` — cites this shape describing what create-issue's Step 6 writes
 - `skills/_shared/brainstorm-and-spec.md` — cites this shape as where the written Spec ends up
 - `skills/implement-issue/references/steps/02-read-the-plan.md` — Step 2 of implement-issue, split out of its SKILL.md for progressive disclosure (#499)
+- `skills/implement-issue/scripts/plan-freshness.sh` — reads every `**Files:**` field by the grammar above (#441)
 - `skills/create-issue/references/steps/06-implementation-plan.md` — Step 6 of create-issue, split out of its SKILL.md for progressive disclosure (#499)
