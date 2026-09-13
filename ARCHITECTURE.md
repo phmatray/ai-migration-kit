@@ -142,6 +142,7 @@ graph LR
     subgraph ext ["External skills / plugins"]
         CR["code-review skill"]
         FD["frontend-design · dataviz ·<br>artifact-design (session skills)"]
+        ARCHIFY["archify (session skill)<br>architecture diagrams"]
     end
 
     subgraph tools ["CLI tools"]
@@ -161,6 +162,7 @@ graph LR
     ML -.-> GH
     ML -.-> NODE
     ML --> FD
+    ML -.-> ARCHIFY
 
     RF --> PY
     RF --> GIT

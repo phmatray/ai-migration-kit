@@ -312,4 +312,43 @@ assert bare["status"] == "absent", f"...and checked normally: {bare}"
 assert bare["hint"] == "-", f"...with the placeholder hint, not a value shifted from 'tracker': {bare}"
 PY
 
+# 9. Archify (#476) is declared the way the other session skills are: a `sessionSkills` entry at
+#    level `recommended`, carrying its `when` text and NOTHING else — no `requiredBy`, no `token`.
+#    Those two are what tests/skills/check-frontmatter.py cross-checks against a skill's
+#    `compatibility` frontmatter, so adding them would misdeclare a recommended capability as some
+#    skill's hard precondition and force a token into a compatibility line already near its ceiling.
+#
+#    The LEVEL is asserted against the MANIFEST and the STATUS against the REPORT — the same split
+#    case 7 makes for AdrMcp, and here it is forced: preflight emits {status, name, hint,
+#    requiredBy?} and never a `level` field, so "level recommended" is simply not readable back out
+#    of --json. Nor is the run's exit code an assertion this case can make: `preflight.sh` exits 1
+#    on any host whose REQUIRED roseline entry is unobservable, which is why case 1 above tolerates
+#    either code. What proves a diagram can never hard-fail phase 0 is the status being `unknown` —
+#    only `level: required` ever reaches `missing`, and the `skill)` branch cannot emit it at all.
+real_out=$(./scripts/preflight.sh --json || true)
+python3 - "$real_out" <<'PY'
+import json, sys
+out = json.loads(sys.argv[1])
+req = json.load(open("requirements.json"))
+arch = [s for s in req["sessionSkills"] if s.get("name") == "archify"]
+assert len(arch) == 1, \
+    f"requirements.json must declare exactly one `archify` sessionSkills entry, got {len(arch)}"
+arch = arch[0]
+assert arch["level"] == "recommended", \
+    f"archify degrades to the mermaid fence the phase already writes, so it is recommended, not {arch['level']!r}"
+assert "requiredBy" not in arch, \
+    "archify is hard-required at no preconditions step — a requiredBy would demand a compatibility token"
+assert "token" not in arch, \
+    "no requiredBy means no compatibility token to cross-check (tests/skills/check-frontmatter.py)"
+assert "mermaid" in arch["when"], \
+    f"the when text must name the degradation its consumers fall back to: {arch['when']!r}"
+seen = {c["name"]: c for c in out["checks"]}
+assert "skill archify" in seen, f"preflight must report the manifest entry: {sorted(seen)}"
+status = seen["skill archify"]["status"]
+assert status == "unknown", \
+    f"a session capability is unobservable from bash, so it is unknown, got {status!r}"
+assert arch["when"] in seen["skill archify"]["hint"], \
+    f"the hint must carry the when text a reader acts on: {seen['skill archify']['hint']!r}"
+PY
+
 echo "preflight golden test OK"

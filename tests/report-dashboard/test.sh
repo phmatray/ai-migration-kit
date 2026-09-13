@@ -802,4 +802,110 @@ case "$err" in
   *) echo "ÉCHEC : l'erreur ne nomme pas l'absence d'extension : $err"; exit 1 ;;
 esac
 
+# ---------------------------------------------------------------------------
+# Le bloc `architecture` (#476) est OPTIONNEL et reflète le bloc `screenshot` : même résolution
+# relative au report.json, même embarquement en data URI, même refus nommé pour une extension hors
+# SCREENSHOT_MIME. Absent, la sortie est celle d'avant — c'est le verrou de non-régression.
+#
+# L'égalité octet par octet avec le générateur d'AVANT ne peut pas vivre dans cette suite : à
+# l'heure du test, l'ancien générateur n'existe plus dans l'arbre. Elle est mesurée hors bande
+# (`git show HEAD:scripts/report-dashboard.py` + `cmp`) et rapportée dans la PR ; ce que la suite
+# verrouille, c'est le négatif — aucun marqueur d'architecture quand la clé est absente.
+# ---------------------------------------------------------------------------
+noarch_dir="$(cd "$(kit_scratch)" && pwd -P)"   # cf. la note sur pwd -P plus haut
+mkdir -p "$noarch_dir/migration"
+cp tests/report-dashboard/fixture-cobertura.xml "$noarch_dir/migration/"
+python3 - "$noarch_dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura.xml", "exclude": ["Fixture.Web"]}
+# La fixture principale ne déclare AUCUN bloc architecture : c'est ce qui fait d'elle le cas
+# « clé absente ». Le jour où quelqu'un l'y ajoute, ce cas cesserait de mesurer le négatif.
+assert "architecture" not in r, "la fixture principale ne doit déclarer aucun bloc architecture"
+(d / "migration" / "report.json").write_text(json.dumps(r))
+PY
+python3 scripts/report-dashboard.py "$noarch_dir/migration/report.json" \
+  -o "$noarch_dir/migration/report.html" 2>/dev/null
+noarch_html=$(cat "$noarch_dir/migration/report.html")
+if grep -q 'architecture\.html' <<<"$noarch_html"; then
+  echo "ÉCHEC : sans bloc architecture, le rendu ne doit porter aucun lien architecture.html"; exit 1
+fi
+if grep -q 'data:image/svg+xml' <<<"$noarch_html"; then
+  echo "ÉCHEC : sans bloc architecture, le rendu ne doit embarquer aucun SVG"; exit 1
+fi
+
+# Déclaré mais absent : même phrase et même base nommée que la capture (#102), jamais une trace.
+arch_dir="$(cd "$(kit_scratch)" && pwd -P)"
+mkdir -p "$arch_dir/migration"
+cp tests/report-dashboard/fixture-cobertura.xml "$arch_dir/migration/"
+python3 - "$arch_dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura.xml", "exclude": ["Fixture.Web"]}
+# Libellés sans apostrophe : `esc()` échappe `'` en `&#x27;` (cf. la note du bloc capture).
+r["architecture"] = {"path": "architecture.svg", "href": "architecture.html",
+                     "caption": "Les projets et leurs dependances"}
+(d / "migration" / "report.json").write_text(json.dumps(r))
+PY
+if err=$(python3 scripts/report-dashboard.py "$arch_dir/migration/report.json" \
+           -o "$arch_dir/migration/report.html" 2>&1); then
+  echo "ÉCHEC : un diagramme déclaré mais absent doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *Traceback*) echo "ÉCHEC : un diagramme absent crache une trace Python : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"$arch_dir/migration/architecture.svg"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le diagramme résolu : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"chemin relatif résolu depuis $arch_dir/migration, le répertoire du report.json"*) : ;;
+  *) echo "ÉCHEC : l'erreur du diagramme ne nomme pas la base de résolution : $err"; exit 1 ;;
+esac
+
+# Le cas passant : le SVG est embarqué en data URI ET le lien vers l'artefact explorable est rendu.
+# Le HTML explorable n'est JAMAIS inliné — report.html reste autonome, double-cliquable, envoyable.
+printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>' \
+  > "$arch_dir/migration/architecture.svg"
+python3 scripts/report-dashboard.py "$arch_dir/migration/report.json" \
+  -o "$arch_dir/migration/report.html" 2>/dev/null
+assert_in "$arch_dir/migration/report.html" 'src="data:image/svg+xml;base64,'
+assert_in "$arch_dir/migration/report.html" 'href="architecture.html"'
+assert_in "$arch_dir/migration/report.html" 'Les projets et leurs dependances'
+
+# Une extension non supportée sort la phrase nommée de #142, pas un KeyError — et rien n'est rendu.
+arch_bad_dir="$(cd "$(kit_scratch)" && pwd -P)"
+mkdir -p "$arch_bad_dir/migration"
+cp tests/report-dashboard/fixture-cobertura.xml "$arch_bad_dir/migration/"
+python3 - "$arch_bad_dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+r = json.loads(pathlib.Path("tests/report-dashboard/fixture-report.json").read_text(encoding="utf-8"))
+r["coverage"] = {"cobertura": "fixture-cobertura.xml", "exclude": ["Fixture.Web"]}
+r["architecture"] = {"path": "architecture.bmp", "href": "architecture.html",
+                     "caption": "Les projets et leurs dependances"}
+(d / "migration" / "report.json").write_text(json.dumps(r))
+PY
+: > "$arch_bad_dir/migration/architecture.bmp"
+if err=$(python3 scripts/report-dashboard.py "$arch_bad_dir/migration/report.json" \
+           -o "$arch_bad_dir/migration/report.html" 2>&1); then
+  echo "ÉCHEC : une extension de diagramme non supportée doit faire échouer la génération"; exit 1
+fi
+case "$err" in
+  *Traceback*) echo "ÉCHEC : une extension non supportée crache une trace Python : $err"; exit 1 ;;
+esac
+case "$err" in
+  *'format « .bmp » non supporté'*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le format comme non supporté : $err"; exit 1 ;;
+esac
+case "$err" in
+  *"$arch_bad_dir/migration/architecture.bmp"*) : ;;
+  *) echo "ÉCHEC : l'erreur ne nomme pas le diagramme résolu : $err"; exit 1 ;;
+esac
+if [ -e "$arch_bad_dir/migration/report.html" ]; then
+  echo "ÉCHEC : un report.json invalide a quand même produit un report.html"; exit 1
+fi
+
 echo "OK test golden report-dashboard"
