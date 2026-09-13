@@ -51,8 +51,8 @@ Step 7 itself.
 
 **Use when** a standing instruction that belongs in an automated check or the repo profile instead
 is sitting in prose a worker has to re-read every run — Matt's original category is *Global
-AGENTS.md*, renamed here since the kit ships no `AGENTS.md`; the concern is any standing instruction
-file, `CLAUDE.md` included. *Use when* a steering file has grown large enough that its token cost is
+AGENTS.md*, renamed here because the concern is any standing instruction file, not one in particular
+— `CLAUDE.md` included, and `AGENTS.md` itself since #525 made it the routing table's one home. *Use when* a steering file has grown large enough that its token cost is
 measurable — the kit's own `CLAUDE.md` at 44 KB costing 52M tokens across a run (Token economics) is
 the case this category exists to catch, and it was found by hand, after the fact, because no retro
 step existed to surface it during the run.
