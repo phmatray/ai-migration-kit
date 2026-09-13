@@ -1,0 +1,8 @@
+[
+  {
+    "total_count": 1,
+    "check_runs": [
+      { "id": 34386269400, "name": "kit", "status": "completed", "conclusion": "success", "started_at": "2026-09-09T10:00:05Z" }
+    ]
+  }
+]
