@@ -19,7 +19,7 @@ do not re-derive it here. `$DECIDE` is Step 2's variable; the recipe in §3 is t
 `gh api` half spelled out:
 
 ```bash
-ci=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --paginate --slurp \
+ci=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" --hostname <host> --paginate --slurp \
        | "$DECIDE" ci.verdict --json)
 [ -n "$ci" ] || { echo "check-runs query returned nothing — no verdict; do not merge"; exit 1; }
 ```

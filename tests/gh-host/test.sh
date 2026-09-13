@@ -312,4 +312,55 @@ done < "$WORK/gh-host-loaders.list"
 [ "$loaders" -ge 8 ] || { echo "FAIL: expected at least 8 _gh-host.sh-loading scripts, found $loaders"; exit 1; }
 echo "  ok: all $loaders _gh-host.sh-loading scripts resolve \$SELF through the identical loop"
 
+# ------------------------------------------------------------------- prose sweep (#530)
+#
+# A `gh api … repos/` line in skill/command prose is a worked EXAMPLE, not a live call — nothing
+# here resolves a host for it — so skills/_shared/preconditions.md's own rule applies instead:
+# "spell --hostname <host> on that call". Checked on the SAME line or the line immediately before
+# it, matching both shapes already in this tree (an inline flag vs. a preceding comment/⚠️ note)
+# rather than forcing every call site into one spelling.
+prose_violations() {
+  find "$1/skills" "$1/commands" -name '*.md' -print0 2>/dev/null \
+    | xargs -0 awk '
+        FNR == 1 { prev = "" }
+        /gh api/ && /repos\// {
+          if ($0 !~ /--hostname/ && prev !~ /--hostname/) { print FILENAME ":" FNR ": " $0 }
+        }
+        { prev = $0 }
+      '
+}
+
+# Prove the refusal path before trusting the happy one (#530) — same reasoning as sweep-fixture
+# above: a suite nobody runs red looks exactly like a suite that passes, and the awk's `prev`
+# tracking and `FNR == 1` reset have never fired against a real violation without this. Three
+# fixtures, one file each: a bare call (reported), --hostname on the line before (spared), and
+# --hostname inline on the call's own line (spared) — the two shapes already in this tree.
+PROSE_FIX="$WORK/prose-fixture"
+mkdir -p "$PROSE_FIX/skills/x" "$PROSE_FIX/commands"
+printf '%s\n' 'gh api "repos/{owner}/{repo}/issues/1"' > "$PROSE_FIX/skills/x/bare.md"
+printf '%s\n' '# On a GitHub Enterprise host add --hostname <host>.' \
+  'gh api "repos/{owner}/{repo}/issues/1"' > "$PROSE_FIX/skills/x/before.md"
+printf '%s\n' 'gh api "repos/{owner}/{repo}/issues/1" --hostname <host>' > "$PROSE_FIX/commands/inline.md"
+
+prose_fixture_out="$(prose_violations "$PROSE_FIX")"
+case "$prose_fixture_out" in
+  *bare.md*) : ;;
+  *) echo "FAIL: prose-fixture — the bare call in skills/x/bare.md was not reported:
+$prose_fixture_out"; exit 1 ;;
+esac
+case "$prose_fixture_out" in
+  *before.md*|*inline.md*) echo "FAIL: prose-fixture — a spared file was reported:
+$prose_fixture_out"; exit 1 ;;
+esac
+echo "  ok: prose-fixture — the bare call is reported, --hostname on its own line or the line before spares it"
+
+violations="$(prose_violations "$KIT_ROOT")"
+if [ -n "$violations" ]; then
+  echo "FAIL: gh api … repos/ worked example(s) under skills/**/*.md or commands/*.md carry no"
+  echo "      --hostname on their own line or the line before it (skills/_shared/preconditions.md):"
+  printf '%s\n' "$violations" | sed 's/^/  /'
+  exit 1
+fi
+echo "  ok: prose — every gh api … repos/ worked example under skills/**/*.md and commands/*.md carries --hostname on its own line or the line before it"
+
 echo "gh-host golden test OK"

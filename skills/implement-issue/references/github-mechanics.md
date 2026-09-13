@@ -47,7 +47,7 @@ the comment trail for issues filed by older versions.
 ```bash
 # Preferred: the plan is in the description. Fetch to a PRISTINE copy, check it, then work on a
 # duplicate — §4 needs the untouched original both to validate the write and to restore from.
-gh api "repos/{owner}/{repo}/issues/$ISSUE" --jq .body > /tmp/plan-$ISSUE.orig.md
+gh api "repos/{owner}/{repo}/issues/$ISSUE" --hostname <host> --jq .body > /tmp/plan-$ISSUE.orig.md
 [ -s /tmp/plan-$ISSUE.orig.md ] || { echo "empty fetch for #$ISSUE — do NOT write anything back"; exit 1; }
 cp /tmp/plan-$ISSUE.orig.md /tmp/plan-$ISSUE.md
 
@@ -74,7 +74,7 @@ if [ "$PLAN_SRC" = comment ]; then
   # array into one list before `last` picks the actual latest match — `--paginate --jq` alone runs
   # the filter independently per page and concatenates the results, so `last` only sees whichever
   # page happens to print after the others.
-  PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate --slurp \
+  PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --hostname <host> --paginate --slurp \
     | jq -r '
       # >>> plan-locate marker-comment guard
       # `.body // ""` is a defensive guard, not a confirmed crash fix: GitHub's REST schema types
@@ -94,7 +94,7 @@ if [ "$PLAN_SRC" = comment ]; then
 
   # Fallback if no marker (older/hand-written plan): latest comment that has checkbox lines.
   if [ -z "$PLAN_COMMENT_ID" ]; then
-    PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate --slurp \
+    PLAN_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE/comments" --hostname <host> --paginate --slurp \
       | jq -r '
         # >>> plan-locate checkbox-fallback guard
         # Same defensive null-body guard as the marker-comment scan above, applied to the
@@ -109,7 +109,7 @@ if [ "$PLAN_SRC" = comment ]; then
   [ -z "$PLAN_COMMENT_ID" ] && { echo "No implementation plan on #$ISSUE"; exit 1; }
 
   # Pull the comment body to the same working files (pristine original + working copy).
-  gh api "repos/{owner}/{repo}/issues/comments/$PLAN_COMMENT_ID" --jq .body > /tmp/plan-$ISSUE.orig.md
+  gh api "repos/{owner}/{repo}/issues/comments/$PLAN_COMMENT_ID" --hostname <host> --jq .body > /tmp/plan-$ISSUE.orig.md
   [ -s /tmp/plan-$ISSUE.orig.md ] || { echo "empty fetch for comment $PLAN_COMMENT_ID — write nothing back"; exit 1; }
   cp /tmp/plan-$ISSUE.orig.md /tmp/plan-$ISSUE.md
 fi
