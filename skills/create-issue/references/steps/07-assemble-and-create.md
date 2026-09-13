@@ -81,7 +81,7 @@ or flag it. Move on only once the readback is clean.
 
 ### The decomposed variant — parent first, children in dependency order, then wire the edges
 
-When Step 6 took the decompose branch, one `gh issue create` becomes **1 + N** of them plus one
+When Step 6 took the decompose branch, one `issue-create` call becomes **1 + N** of them plus one
 wiring call. The labels are the parent's on every issue **except effort**: the parent carries the
 largest size (it is the whole job), each child its own small or medium.
 
@@ -92,8 +92,9 @@ largest size (it is the whole job), each child its own small or medium.
   || { echo "REFUSED — the parent body carries a plan token"; exit 1; }
 [ "$(grep -c '^## Destination' /tmp/issue-<slug>.md || true)" -eq 1 ] \
   || { echo "REFUSED — the parent body has no ## Destination"; exit 1; }
-P=$(gh issue create --title "<parent title>" --label "<type>" --label "<priority>" \
-      --label "effort: large" --label "<area>" --body-file /tmp/issue-<slug>.md | grep -oE '[0-9]+$')
+OUT=$("<kit>/scripts/tracker.sh" issue-create --title "<parent title>" --label "<type>" --label "<priority>" \
+        --label "effort: large" --label "<area>" --body-file /tmp/issue-<slug>.md)
+P=$(printf '%s' "$OUT" | jq -r .number)
 
 # 2. The children, BLOCKERS FIRST — every child with no blockers, then every child whose blockers
 #    are all filed — so each body's `Part of #P` and `**Blocked by:**` line names real numbers.
@@ -103,8 +104,9 @@ sed "s/#<parent>/#$P/g" /tmp/issue-<slug>-child-1.tmpl > /tmp/issue-<slug>-child
   || { echo "REFUSED — child 1's plan has no checkboxes"; exit 1; }
 [ "$(grep -c '^### Acceptance criteria' /tmp/issue-<slug>-child-1.md || true)" -eq 1 ] \
   || { echo "REFUSED — child 1's Spec contract did not survive"; exit 1; }
-C1=$(gh issue create --title "<child 1 title>" --label "<type>" --label "<priority>" \
-      --label "effort: small" --label "<area>" --body-file /tmp/issue-<slug>-child-1.md | grep -oE '[0-9]+$')
+OUT=$("<kit>/scripts/tracker.sh" issue-create --title "<child 1 title>" --label "<type>" --label "<priority>" \
+        --label "effort: small" --label "<area>" --body-file /tmp/issue-<slug>-child-1.md)
+C1=$(printf '%s' "$OUT" | jq -r .number)
 # … C2, C3 in the same order; a child blocked by C1 is filed after C1 so it can name #$C1.
 
 # 3. The second pass — sub-issue links and native blocked_by edges, one call for the whole set.
@@ -116,28 +118,31 @@ skills/create-issue/scripts/wire-edges.sh --repo {owner}/{repo} --parent "$P" \
 rc=$?; cat /tmp/issue-<slug>-edges.txt; echo "wire-edges exit $rc"     # 0 = ok/fallback; 1 = a real API failure
 ```
 
-`wire-edges.sh` resolves database ids itself (`gh api repos/o/r/issues/<n> --jq .id --hostname <host>` — never the
-number, never the node id), is idempotent (an edge that already exists is `ok`), and takes `--dry-run`
-to print the POSTs without sending them. Its contract and exit codes are in its header
-(`--help`) and pinned by `tests/wire-edges/test.sh`.
+`wire-edges.sh` asks the tracker's `issue-link-parent`/`issue-link-blocked-by` verbs for each edge
+(#507) — never a number, never the node id, the verbs resolve the database id themselves — is
+idempotent (an edge that already exists is `ok`), and takes `--dry-run` to print the POSTs without
+sending them. Its contract and exit codes are in its header (`--help`) and pinned by
+`tests/wire-edges/test.sh`.
 
 **Read it all back.** The parent's checkbox count is the invariant, the children's the proof each
 plan round-tripped, the summary the proof the edges exist where GitHub reads them:
 
 ```bash
-live=$(gh issue view "$P" --json body --jq .body | grep -cE 'Implementation plan|### Task|- \[ \]' || true)
+live=$("<kit>/scripts/tracker.sh" issue-view "$P" | jq -r .body | grep -cE 'Implementation plan|### Task|- \[ \]' || true)
 [ "$live" -eq 0 ] || { echo "PARENT #$P carries a plan token — repair before anything else"; exit 1; }
 for c in "$C1" "$C2" "$C3"; do
-  n=$(gh issue view "$c" --json body --jq .body | grep -c '^- \[ \]' || true)
-  head=$(gh issue view "$c" --json body --jq .body | head -2 | grep -cE "^Part of #$P|^\*\*Blocked by:\*\*" || true)
-  blocked=$(gh api "repos/{owner}/{repo}/issues/$c" --hostname <host> --jq '.issue_dependencies_summary.blocked_by // "n/a"')
+  body=$("<kit>/scripts/tracker.sh" issue-view "$c" | jq -r .body)
+  n=$(printf '%s' "$body" | grep -c '^- \[ \]' || true)
+  head=$(printf '%s' "$body" | head -2 | grep -cE "^Part of #$P|^\*\*Blocked by:\*\*" || true)
+  blocked=$("<kit>/scripts/tracker.sh" issue-blocked-by-count "$c")
   echo "#$c checkboxes=$n header-lines=$head blocked_by=$blocked"    # n > 0, head = 2, blocked_by = its open-blocker count
 done
 ```
 
-A parent whose `live` is not `0` is repaired the way any body is (`gh issue edit "$P" --body-file …`,
-guarded by `[ -s ]`), and nothing else proceeds until it reads `0`. A `blocked_by` of `n/a` on every
-child with the edges file saying `fallback` is the documented degraded state, not a failure.
+A parent whose `live` is not `0` is repaired the way any body is
+(`"<kit>/scripts/tracker.sh" issue-edit-body "$P" --body-file …`, guarded by `[ -s ]`), and nothing
+else proceeds until it reads `0`. A `blocked_by` of `n/a` on every child with the edges file saying
+`fallback` is the documented degraded state, not a failure.
 
 ### The `--seed #N` variant — edit in place, never create
 

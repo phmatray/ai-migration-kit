@@ -140,5 +140,6 @@ rides inside so the link still works. The one place the bare number is the point
 
 There is no tracking label. A parent is the issue whose body carries a `## Destination` heading and
 whose children carry `Part of #<its number>` at the top of theirs.
-`gh api repos/o/r/issues/P/sub_issues --hostname <host>` (GHE only — see preconditions.md)
-lists them when the sub-issue API is on; the `Part of` line is the fallback that always exists.
+`"<kit>/scripts/tracker.sh" issue-children P` lists them when the sub-issue feature is on
+(#507); a `fallback` reply means it is off on this host, and the `Part of` line is the
+representation that always exists.

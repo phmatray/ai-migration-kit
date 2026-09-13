@@ -575,6 +575,36 @@ else
   ok "AC4 real tree — every tracker.sh verb create-issue's prose invokes is on the verb table and skills.create-issue"
 fi
 
+echo "== D. no direct gh call under skills/create-issue (#507)"
+
+# AC3's own grep, run verbatim rather than paraphrased: a fixture that reintroduces a `gh api` line
+# must fail it (named, by file), and the real tree — now that Task 3 moved the last prose off direct
+# calls — must pass it clean.
+GUARD_PATTERN='\bgh (api|issue|label|repo|pr)\b'
+
+FIXTURE_GH="$WORK/create-issue-gh-fixture"
+mkdir -p "$FIXTURE_GH"
+cp "$KIT_ROOT/skills/create-issue/scripts/wire-edges.sh" "$FIXTURE_GH/"
+printf '\n# regression: a direct call reintroduced\nid=$(gh api repos/o/r/issues/9 --jq .id)\n' >> "$FIXTURE_GH/wire-edges.sh"
+
+fixture_gh_out=$(grep -rnE "$GUARD_PATTERN" "$FIXTURE_GH" || true)
+if [ -z "$fixture_gh_out" ]; then
+  note_fail "AC3 fixture — a reintroduced 'gh api' line should have failed the guard, nothing was reported"
+elif ! printf '%s\n' "$fixture_gh_out" | grep -Fq 'wire-edges.sh'; then
+  note_fail "AC3 fixture — the guard did not name the file:
+      $fixture_gh_out"
+else
+  ok "AC3 fixture — a direct gh call reintroduced into wire-edges.sh fails the guard, file (and line) named"
+fi
+
+real_gh_out=$(grep -rnE "$GUARD_PATTERN" "$KIT_ROOT/skills/create-issue" || true)
+if [ -n "$real_gh_out" ]; then
+  note_fail "AC3 real tree — a direct gh call survives under skills/create-issue:
+      $real_gh_out"
+else
+  ok "AC3 real tree — no gh api|issue|label|repo|pr spelling anywhere under skills/create-issue"
+fi
+
 if [ "$FAILED" -ne 0 ]; then
   echo
   echo "tracker: FAILED"
