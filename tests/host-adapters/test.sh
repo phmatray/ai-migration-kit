@@ -189,6 +189,18 @@ run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a manifest outside extra-files, want 1: $OUT $ERR"
 names ".github/plugin/plugin.json" && ok "names .github/plugin/plugin.json on stdout" || bad "stdout does not name the unbumped manifest: $OUT"
 
+echo "== L2. UNVERSIONED_JSON names the two un-versioned marketplace manifests =="
+# host-adapters.py's own filename has a hyphen, so `import host_adapters` (the module-name form)
+# cannot find it — load it by path instead, same module object either way.
+COUNT=$(python3 -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('host_adapters', '$CHECK')
+h = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(h)
+print(len(h.UNVERSIONED_JSON))
+" 2>&1)
+[ "$COUNT" = "2" ] && ok "UNVERSIONED_JSON has 2 entries" || bad "UNVERSIONED_JSON: got '$COUNT', want 2"
+
 echo "== M. a TOML command edited by hand is refused, naming its source =="
 T="$WORK/m"; scratch_tree "$T"
 printf '\n# edited by hand\n' >> "$T/commands/migrate.toml"
