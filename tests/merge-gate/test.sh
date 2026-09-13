@@ -196,6 +196,44 @@ verdict pending-status.json 2 - legacy-status-check \
 verdict waiting-blocks-other-success.json 2 - deploy \
   'a waiting run blocks the gate even when a different job has already succeeded'
 
+# A completed run whose conclusion is `action_required` (#495) is neither a failure nor unstarted —
+# it is a third, non-terminal state: awaiting a maintainer's approval. `verdict()` above pins the
+# reduced *sets*; this pins the *word* the caller branches on, since a run stuck in `needs_approval`
+# must not silently fall through to `failed` (it would today, before this fix — approving a
+# release-please run is not the same remedy as fixing a build) nor to `clear` (it has not run yet).
+verdict_word() {
+  local fixture="$1" want="$2" what="$3"
+  local path="$FIXTURES/$fixture" out got
+  if [ ! -r "$path" ]; then
+    note_fail "$fixture — fixture missing ($what)"
+    return 0
+  fi
+  if ! out=$(jq -f "$PROG" < "$path" 2>"$WORK/run.err"); then
+    note_fail "$fixture — the verdict program errored ($what):
+$(sed 's/^/      /' "$WORK/run.err")"
+    return 0
+  fi
+  got=$(printf '%s' "$out" | jq -r .verdict)
+  if [ "$got" != "$want" ]; then
+    note_fail "$fixture — $what
+      want: verdict=$want
+      got:  verdict=$got"
+    return 0
+  fi
+  echo "ok: $fixture — $what"
+}
+
+# Measured on PR #475 (release-please[bot]): the `release-title` run sat completed/action_required
+# beside an unrelated green `kit` run. The flat-failed gate entered the corrections loop hunting for
+# a fix that does not exist — nothing a push can change clears it, only an approval.
+verdict_word needs-approval.json needs-approval \
+  'a run awaiting approval is needs-approval, not failed'
+# Same shape, the action_required run gone (approved and re-run as the green it becomes) — the
+# remaining set is a plain success, so the verdict must fall all the way through to clear, not get
+# stuck non-terminal.
+verdict_word needs-approval-cleared.json clear \
+  'once nothing needs approval any more, the verdict is clear'
+
 # ---------------------------------------------------------------------------------------- verdict
 if [ "$FAILED" -ne 0 ]; then
   echo
