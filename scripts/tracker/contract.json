@@ -16,7 +16,49 @@
     "issue-view": {
       "args": "<number>",
       "stdout": "{\"number\",\"title\",\"state\",\"body\",\"labels\",\"url\",\"format\"} — state lower-cased, labels as bare names"
+    },
+    "issue-search": {
+      "args": "[--query <q>] [--state all|open] [--label <l>]… [--limit <n>]",
+      "stdout": "[{\"number\",\"title\",\"state\"}] — state lower-cased. A search with --label and no --query is valid."
+    },
+    "issue-comments": {
+      "args": "<number>",
+      "stdout": "a JSON array of comment bodies"
+    },
+    "issue-create": {
+      "args": "--title <t> [--label <l>]… --body-file <f>",
+      "stdout": "{\"number\",\"url\"} — a label not in the live set is passed through; the host decides"
+    },
+    "issue-edit-body": {
+      "args": "<number> --body-file <f>",
+      "stdout": "nothing — refuses a missing or empty --body-file (exit 2) and sends nothing"
+    },
+    "issue-add-labels": {
+      "args": "<number> <label>…",
+      "stdout": "nothing"
+    },
+    "issue-remove-labels": {
+      "args": "<number> <label>…",
+      "stdout": "nothing"
+    },
+    "issue-reopen": {
+      "args": "<number> --body-file <f>",
+      "stdout": "nothing — the file is the reopening comment"
+    },
+    "issue-comment": {
+      "args": "<number> --body-file <f>",
+      "stdout": "nothing"
+    },
+    "label-list": {
+      "args": "",
+      "stdout": "one label name per line"
     }
   },
-  "skills": {}
+  "skills": {
+    "create-issue": [
+      "auth", "repo", "issue-view", "issue-search", "issue-comments", "issue-create",
+      "issue-edit-body", "issue-add-labels", "issue-remove-labels", "issue-reopen",
+      "issue-comment", "label-list"
+    ]
+  }
 }

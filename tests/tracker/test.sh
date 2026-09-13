@@ -40,6 +40,13 @@ WORK=$(kit_scratch)
 KIT_DECISION_LOG="$WORK/decision-events.jsonl"
 export KIT_DECISION_LOG
 
+# Every gh call the stub answers is appended here when set — AC2's recorded argv, and AC3's proof
+# that a refused verb never reaches the stub at all. Cleared with `: > "$GH_CALL_LOG"` before each
+# check that reads it, so one check's calls cannot leak into the next.
+GH_CALL_LOG="$WORK/gh-calls.log"
+export GH_CALL_LOG
+: > "$GH_CALL_LOG"
+
 FAILED=0
 note_fail() { echo "FAIL: $1"; FAILED=1; }
 ok() { echo "  ok: $1"; }
@@ -58,12 +65,23 @@ cat > "$WORK/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 set -uo pipefail
 
+# Every call this stub answers is also logged, one line per call, when GH_CALL_LOG is set — that
+# is how AC2 (recorded argv) and AC3 (an empty log = no call was made) are checked without a fake
+# that has to re-derive gh's own flag grammar.
+if [ -n "${GH_CALL_LOG:-}" ]; then printf '%s\n' "$*" >> "$GH_CALL_LOG"; fi
+
 payload=""
 case "${1-} ${2-}" in
   "api user")     payload='{"login":"octocat"}' ;;
   "auth token")   echo "gho_stubtoken"; exit 0 ;;
   "repo view")    payload='{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;
-  "issue view")   payload='{"number":7,"title":"A stub issue","state":"OPEN","body":"body text","labels":[{"name":"bug"},{"name":"area: skills"}],"url":"https://example.invalid/o/r/issues/7"}' ;;
+  "issue view")   payload='{"number":7,"title":"A stub issue","state":"OPEN","body":"body text","comments":[{"body":"first comment"},{"body":"second comment"}],"labels":[{"name":"bug"},{"name":"area: skills"}],"url":"https://example.invalid/o/r/issues/7"}' ;;
+  "issue list")   payload='[{"number":12,"title":"A stub closed issue","state":"CLOSED"}]' ;;
+  "issue create") echo "https://example.invalid/o/r/issues/42"; exit 0 ;;
+  "issue edit")   exit 0 ;;
+  "issue reopen") exit 0 ;;
+  "issue comment") exit 0 ;;
+  "label list")   payload='[{"name":"bug"},{"name":"area: skills"}]' ;;
   *)              echo "gh stub: unsupported call: $*" >&2; exit 1 ;;
 esac
 
@@ -203,6 +221,98 @@ run_tracker "$BARE" --repo other/repo repo
   && ok "--repo — accepted and forwarded to the backend" \
   || note_fail "--repo — expected exit 0, got $RC ($ERR)"
 
+echo "== A2. the nine filing verbs (#506)"
+
+# ------------------------------------------------------------------------------------------- AC1
+#
+# A search with --label and no --query is a valid call (Step 3's open-refactor scan) — not
+# exercised by number here, but nothing below requires --query either.
+run_tracker "$PROFILED" --tracker github issue-search --query "csv export" --state all --limit 10
+if [ "$RC" -ne 0 ]; then
+  note_fail "AC1 issue-search — exited $RC ($ERR)"
+elif [ "$OUT" != '[{"number":12,"title":"A stub closed issue","state":"closed"}]' ]; then
+  note_fail "AC1 issue-search — wrong stdout
+      want: [{\"number\":12,\"title\":\"A stub closed issue\",\"state\":\"closed\"}]
+      got:  $OUT"
+else
+  ok "AC1 issue-search — state lower-cased over a list, exit 0"
+fi
+
+# ------------------------------------------------------------------------------------------- AC2
+#
+# The recorded argv is the proof the title, both labels and the body file all reached `gh issue
+# create` — printed stdout alone could not tell a dropped label from one that was merely
+# unasserted.
+: > "$GH_CALL_LOG"
+BODY_F="$WORK/issue-body.md"
+printf 'a body\n' > "$BODY_F"
+run_tracker "$PROFILED" --tracker github issue-create --title T --label a --label b --body-file "$BODY_F"
+if [ "$RC" -ne 0 ]; then
+  note_fail "AC2 issue-create — exited $RC ($ERR)"
+elif [ "$OUT" != '{"number":42,"url":"https://example.invalid/o/r/issues/42"}' ]; then
+  note_fail "AC2 issue-create — wrong stdout
+      want: {\"number\":42,\"url\":\"https://example.invalid/o/r/issues/42\"}
+      got:  $OUT"
+elif ! grep -Fq -- "issue create --title T --body-file $BODY_F --label a --label b" "$GH_CALL_LOG"; then
+  note_fail "AC2 issue-create — gh was not called with the title, both labels and the body file:
+      $(cat "$GH_CALL_LOG")"
+else
+  ok "AC2 issue-create — gh recorded title+labels+body-file, printed {number,url}"
+fi
+
+# ------------------------------------------------------------------------------------------- AC3
+#
+# The refusal happens BEFORE any gh call — the empty log is the proof, not just the exit code.
+: > "$GH_CALL_LOG"
+EMPTY_F="$WORK/empty-body.md"
+: > "$EMPTY_F"
+run_tracker "$PROFILED" --tracker github issue-edit-body 5 --body-file "$EMPTY_F"
+if [ "$RC" -ne 2 ]; then
+  note_fail "AC3 issue-edit-body — expected exit 2 on an empty --body-file, got $RC ('$OUT')"
+elif [ -s "$GH_CALL_LOG" ]; then
+  note_fail "AC3 issue-edit-body — refused, but gh was still called:
+      $(cat "$GH_CALL_LOG")"
+else
+  ok "AC3 issue-edit-body — refuses an empty --body-file, exit 2, no gh call"
+fi
+
+# The rest of the nine, one seam each: normalised stdout or (for a pure write) the recorded argv.
+run_tracker "$PROFILED" --tracker github issue-comments 7
+[ "$RC" -eq 0 ] && [ "$OUT" = '["first comment","second comment"]' ] \
+  && ok "issue-comments — a JSON array of comment bodies" \
+  || note_fail "issue-comments — expected the two stub comments, got '$OUT' exit $RC ($ERR)"
+
+: > "$GH_CALL_LOG"
+run_tracker "$PROFILED" --tracker github issue-add-labels 9 x y
+[ "$RC" -eq 0 ] && grep -Fq -- "issue edit 9 --add-label x --add-label y" "$GH_CALL_LOG" \
+  && ok "issue-add-labels — both labels reached gh issue edit" \
+  || note_fail "issue-add-labels — exit $RC, log: $(cat "$GH_CALL_LOG")"
+
+: > "$GH_CALL_LOG"
+run_tracker "$PROFILED" --tracker github issue-remove-labels 9 x
+[ "$RC" -eq 0 ] && grep -Fq -- "issue edit 9 --remove-label x" "$GH_CALL_LOG" \
+  && ok "issue-remove-labels — the label reached gh issue edit --remove-label" \
+  || note_fail "issue-remove-labels — exit $RC, log: $(cat "$GH_CALL_LOG")"
+
+: > "$GH_CALL_LOG"
+COMMENT_F="$WORK/comment-body.md"
+printf 'still failing\n' > "$COMMENT_F"
+run_tracker "$PROFILED" --tracker github issue-reopen 9 --body-file "$COMMENT_F"
+[ "$RC" -eq 0 ] && grep -Fq -- "issue reopen 9 --comment still failing" "$GH_CALL_LOG" \
+  && ok "issue-reopen — the file's text reached gh issue reopen --comment" \
+  || note_fail "issue-reopen — exit $RC, log: $(cat "$GH_CALL_LOG")"
+
+: > "$GH_CALL_LOG"
+run_tracker "$PROFILED" --tracker github issue-comment 9 --body-file "$COMMENT_F"
+[ "$RC" -eq 0 ] && grep -Fq -- "issue comment 9 --body-file $COMMENT_F" "$GH_CALL_LOG" \
+  && ok "issue-comment — the body file reached gh issue comment --body-file" \
+  || note_fail "issue-comment — exit $RC, log: $(cat "$GH_CALL_LOG")"
+
+run_tracker "$PROFILED" --tracker github label-list
+[ "$RC" -eq 0 ] && [ "$OUT" = $'bug\narea: skills' ] \
+  && ok "label-list — one name per line" \
+  || note_fail "label-list — expected 'bug\\narea: skills', got '$OUT' exit $RC ($ERR)"
+
 echo "== B. the state report, and the tracker.capable verdict"
 
 # The report itself: five facts, judging none of them. `needs` is null because no skill is on the
@@ -214,9 +324,9 @@ if [ "$RC" -ne 0 ]; then
 else
   got=$(printf '%s' "$OUT" | jq -r '[.tracker, .skill, (.needs|tostring), (.implements|length|tostring)] | join("|")' 2>/dev/null) \
     || got="<unparseable: $OUT>"
-  if [ "$got" != 'github|merge-pr|null|4' ]; then
+  if [ "$got" != 'github|merge-pr|null|13' ]; then
     note_fail "state — wrong report
-      want: github|merge-pr|null|4
+      want: github|merge-pr|null|13
       got:  $got"
   else
     ok "state — reports {tracker, skill, needs, implements} and judges nothing"
