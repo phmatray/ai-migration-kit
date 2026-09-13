@@ -348,7 +348,10 @@ case "$VERB" in
     [ -n "$n" ] || { echo "github: issue-children needs a parent issue number" >&2; exit 2; }
     if out=$(gh api -H "Accept: application/vnd.github+json" "repos/$(_repo_slug)/issues/$n/sub_issues" 2>&1); then
       printf '%s' "$out" | jq -c '[.[].number]'
-    elif printf '%s' "$out" | grep -q '(HTTP 404)'; then
+    elif printf '%s' "$out" | grep -q 'HTTP 404'; then
+      # Two spellings, same as the link verbs' own classifier: `gh: <message> (HTTP 404)` and the
+      # bare `gh: HTTP 404` a GHES proxy's non-JSON error body produces — both must read as
+      # "the feature is off", not as "no status" (#507 review).
       echo "fallback"
     else
       echo "github: issue-children: $out" >&2; exit 1
