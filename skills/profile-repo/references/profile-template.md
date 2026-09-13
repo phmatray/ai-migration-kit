@@ -54,8 +54,9 @@ them exactly as the repo uses them.
 - **Default for ideas:** <feature_request> · **for defects:** <bug_report>
 
 ## Tracker
-- **Tracker:** <github (<host>) | other: <host> | TODO: no origin remote> — the lifecycle skills
-  drive GitHub semantics through `gh`; any other value is refused at preconditions.
+- **Tracker:** <github (<host>) | gitlab (<host>) | azure-devops (dev.azure.com/<org>/<project>) |
+  other: <host> | TODO: no origin remote> — the lifecycle skills drive GitHub semantics through
+  `gh`; any other value is refused at preconditions.
 
 ## Domain language
 - <path of CONTEXT.md / CONTEXT-MAP.md / docs/CONTEXT.md, or "none"> — `create-issue` /

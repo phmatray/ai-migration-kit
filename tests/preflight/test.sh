@@ -241,4 +241,75 @@ assert status in ("ok", "absent", "unknown"), \
     f"a recommended entry degrades in a documented way; 'missing' would be a phase-0 hard fail, got {status!r}"
 PY
 
+# 8. Tracker-scoped prerequisites (#504): an entry naming `tracker` is asked for only when the
+#    profile's own Tracker line names that same tracker — never when it names a different one.
+#    Same synthetic-kit pattern as case 5: a copy of preflight.sh beside a copy of repo-profile.sh
+#    (unmodified — the real script, so this proves the two actually agree) and a synthetic
+#    manifest, run against two fixture repos that differ only in their committed Tracker line.
+trk=$(kit_scratch)
+mkdir -p "$trk/scripts" "$trk/skills/profile-repo/scripts" "$trk/bin"
+cp ./scripts/preflight.sh "$trk/scripts/preflight.sh"
+cp ./skills/profile-repo/scripts/repo-profile.sh "$trk/skills/profile-repo/scripts/repo-profile.sh"
+cat > "$trk/requirements.json" <<'JSON'
+{
+  "description": "synthetic manifest — the tracker-scoped case",
+  "tools": [
+    { "name": "dotnet SDK >= 8", "level": "required", "test": "sdk_ok", "hint": "install an LTS .NET SDK" },
+    { "name": "gh CLI (authenticated)", "level": "recommended", "test": "gh auth status", "tracker": "github", "hint": "GitHub publishing" },
+    { "name": "bare tool", "level": "recommended", "test": "false" }
+  ],
+  "mcps": [],
+  "sessionSkills": []
+}
+JSON
+for c in bash python3 dirname awk grep sed git head cat cut wc find basename tr sort; do
+  ln -sf "$(command -v "$c")" "$trk/bin/$c"
+done
+cat > "$trk/bin/dotnet" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = "--list-sdks" ] && echo "9.0.100 [/stub/sdk]"
+exit 0
+SH
+chmod +x "$trk/bin/dotnet"
+# No `gh` anywhere on this PATH — the case this proves is that a gitlab-tracked repo is never
+# asked for it at all, not that a missing `gh` degrades gracefully (case 4 already covers that).
+
+gitlab_fx=$(kit_scratch)
+git -C "$gitlab_fx" init -q -b main
+mkdir -p "$gitlab_fx/.claude/skills"
+printf -- '# Repo profile\n\n## Tracker\n- **Tracker:** gitlab (gitlab.com) — fixture.\n' \
+  > "$gitlab_fx/.claude/skills/repo-profile.md"
+out=$(cd "$gitlab_fx" && PATH="$trk/bin" bash "$trk/scripts/preflight.sh" --json 2>/dev/null || true)
+python3 - "$out" <<'PY'
+import json, sys
+checks = {c["name"]: c for c in json.loads(sys.argv[1])["checks"]}
+assert "gh CLI (authenticated)" not in checks, \
+    f"a gitlab-tracked profile must not be asked for the GitHub-only CLI: {checks}"
+# Regression (code-review, #504): an entry with neither `hint` nor `tracker` must still be
+# reported, not silently swallowed by the column shift an empty (rather than "-") hint field
+# causes once `tracker` sits after it — on ANY host whose profile resolves a tracker, not just
+# a github one.
+bare = checks.get("bare tool")
+assert bare is not None, f"an entry with no hint/tracker must never be dropped: {checks}"
+assert bare["status"] == "absent", f"...and checked normally: {bare}"
+assert bare["hint"] == "-", f"...with the placeholder hint, not a value shifted from 'tracker': {bare}"
+PY
+
+github_fx=$(kit_scratch)
+git -C "$github_fx" init -q -b main
+mkdir -p "$github_fx/.claude/skills"
+printf -- '# Repo profile\n\n## Tracker\n- **Tracker:** github (github.com) — fixture.\n' \
+  > "$github_fx/.claude/skills/repo-profile.md"
+out=$(cd "$github_fx" && PATH="$trk/bin" bash "$trk/scripts/preflight.sh" --json 2>/dev/null || true)
+python3 - "$out" <<'PY'
+import json, sys
+checks = {c["name"]: c for c in json.loads(sys.argv[1])["checks"]}
+assert "gh CLI (authenticated)" in checks, \
+    f"a github-tracked profile must still be asked for gh CLI, exactly as before: {checks}"
+bare = checks.get("bare tool")
+assert bare is not None, f"an entry with no hint/tracker must never be dropped: {checks}"
+assert bare["status"] == "absent", f"...and checked normally: {bare}"
+assert bare["hint"] == "-", f"...with the placeholder hint, not a value shifted from 'tracker': {bare}"
+PY
+
 echo "preflight golden test OK"

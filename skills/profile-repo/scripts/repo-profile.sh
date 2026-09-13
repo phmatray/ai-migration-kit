@@ -48,12 +48,40 @@ emit_or_todo() {
 
 section() { printf '\n## %s\n' "$1"; }
 
+# The self-managed-GitLab positive probe (Tracker section, below): `glab repo view` talks to that
+# host live, so an unreachable/slow/misconfigured one can hang this call indefinitely — exactly
+# what this command's best-effort contract forbids (same risk, same fix, as the ADR `claude mcp
+# list` probe below: bound it where `timeout`(1) exists, GNU coreutils, not on a stock macOS;
+# elsewhere fall back to the unbounded call rather than fail the whole probe over a missing tool).
+glab_repo_view_ok() {
+  command -v glab >/dev/null 2>&1 || return 1
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 5s glab repo view >/dev/null 2>&1
+  else
+    glab repo view >/dev/null 2>&1
+  fi
+}
+
 case "$CMD" in
   show)
     if [ -f "$PROFILE_REL" ]; then
       cat "$PROFILE_REL"
     else
       echo "NO_PROFILE"
+      exit 3
+    fi
+    ;;
+
+  tracker)
+    # Reads the committed profile's Tracker line back as `<name> <detail>` (`github github.com`,
+    # `azure-devops dev.azure.com/acme/Shop`, `other bitbucket.org`) — preflight's one consumer,
+    # so its prerequisites can skip a CLI the profile's own tracker doesn't need.
+    out=""
+    [ -f "$PROFILE_REL" ] && out="$(sed -n \
+      's/^- \*\*Tracker:\*\* \([a-z-]*\):\{0,1\} (\{0,1\}\([^) ]*\).*/\1 \2/p' "$PROFILE_REL")"
+    if [ -n "$out" ]; then
+      printf '%s\n' "$out"
+    else
       exit 3
     fi
     ;;
@@ -168,8 +196,27 @@ case "$CMD" in
       # literal "github.com" string match.
       if [ "$tracker_host" = "github.com" ] || [ -n "${SLUG:-}" ]; then
         printf 'tracker: github (%s)\n' "$tracker_host"
+      elif [ "$tracker_host" = "gitlab.com" ] || glab_repo_view_ok; then
+        printf 'tracker: gitlab (%s)\n' "$tracker_host"
       else
-        printf 'tracker: other: %s\n' "$tracker_host"
+        # Azure DevOps: three remote shapes, each carrying <org>/<project> in a different spot.
+        # The legacy `<org>.visualstudio.com` host serves the same organisation as
+        # dev.azure.com/<org>, so it's normalised to the same canonical form.
+        case "$tracker_host" in
+          dev.azure.com|ssh.dev.azure.com)
+            org_project="$(printf '%s\n' "$origin_url" | sed -E \
+              -e 's#^https?://([^@/]+@)?dev\.azure\.com/([^/]+)/([^/]+)/_git/.*#\2/\3#' \
+              -e 's#^git@ssh\.dev\.azure\.com:v3/([^/]+)/([^/]+)/.*#\1/\2#')" ;;
+          *.visualstudio.com)
+            org_project="$(printf '%s\n' "$origin_url" | sed -E \
+              's#^https?://([^.]+)\.visualstudio\.com/([^/]+)/_git/.*#\1/\2#')" ;;
+          *) org_project="$origin_url" ;;
+        esac
+        if [ "$org_project" != "$origin_url" ]; then
+          printf 'tracker: azure-devops (dev.azure.com/%s)\n' "$org_project"
+        else
+          printf 'tracker: other: %s\n' "$tracker_host"
+        fi
       fi
     fi
 

@@ -82,6 +82,17 @@ SDIR=$(mktemp -d "$WORK/state.XXXXXX")
 SPATH=$(state_path "$SDIR" github.com acme widgets)
 mkdir -p "$(dirname "$SPATH")"
 
+# `date -r <epoch>` (BSD/macOS) falling back to `date -d @<epoch>` (GNU/Linux) is the portable way
+# to render an arbitrary past epoch into `touch -t`'s [[CC]YY]MMDDhhmm[.ss] form — there is no
+# single `date` flag both platforms share for this (issue #548).
+epoch_touch() { # $1 path  $2 epoch seconds
+  local ts
+  ts=$(date -r "$2" +%Y%m%d%H%M 2>/dev/null) || ts=$(date -d "@$2" +%Y%m%d%H%M 2>/dev/null) \
+    || { echo "FAIL: epoch_touch could not render epoch $2 on this platform's date(1)"; exit 1; }
+  touch -t "$ts" "$1"
+}
+age_past_window() { epoch_touch "$1" "$(( $(date +%s) - 3600 ))"; } # 60min: > SUPERVISED WINDOW, < 24h
+
 write_state() { # $1 in-flight body  $2 queue body
   cat > "$SPATH" <<EOF
 # auto-dev state — acme/widgets, N=3 · merges: 1
@@ -91,6 +102,12 @@ $1
 $2
 ## Completed
 EOF
+  # Every OTHER case in this suite is about owner/repo derivation, counting, or the off-switches —
+  # not about issue #548's new recency check — so a state file this helper writes must land PAST
+  # the new SUPERVISED WINDOW by default, or every existing "-> REFUSE" case below would flip to
+  # ALLOW purely because `cat >` just gave it a fresh mtime. The dedicated 6b/6c cases override this
+  # explicitly to test the window itself.
+  age_past_window "$SPATH"
 }
 
 # --------------------------------------------------------------- 1. no state file at all (AC1)
@@ -130,6 +147,24 @@ verdict "AC5 stop_hook_active true allows" 0 "$(pay "$REPO" true)" "$SDIR"
 touch -t 202001010000 "$SPATH"
 verdict "AC6 stale state file allows"  0 "$(pay "$REPO" false)" "$SDIR"
 write_state "- Slot A → #123 (auto-dev) — implementing" ""  # restore a fresh copy for what follows
+
+# --------------------------------------- 6b/6c. issue #548 — the SUPERVISED WINDOW recency check.
+# A state file freshly touched (the supervisor is actively cycling) allows the stop even with
+# undrained work; one older than the window but still within the existing 24h bound still refuses,
+# unchanged (write_state's own default via age_past_window, defined above).
+
+# 6b (AC1). Freshly touched (now) — well inside any plausible SUPERVISED WINDOW (30 min). Overrides
+# write_state's default backdating on purpose: this is the one case that tests the fresh path.
+write_state "- Slot A → #123 (auto-dev) — implementing" ""
+touch "$SPATH"
+verdict "issue-548 AC1 fresh mtime within the supervised window allows" 0 "$(pay "$REPO" false)" "$SDIR"
+
+# 6c (AC2). 60 minutes old (write_state's default) — past the 30-minute window, comfortably inside
+# the 24h (1440-minute) staleness bound. Must still refuse and still name the undrained counts,
+# exactly as case 3 does.
+write_state "- Slot A → #123 (auto-dev) — implementing" ""
+verdict "issue-548 AC2 mtime past the window but within 24h still refuses" 2 "$(pay "$REPO" false)" "$SDIR" "" \
+  "acme/widgets" "1" "AUTODEV_GATE=off"
 
 # --------------------------------------------------- 7. malformed payload / no jq -> allow (AC7)
 verdict "AC7 payload is not JSON"      0 "not json at all" "$SDIR"
@@ -191,6 +226,7 @@ cat > "$COLL_A_PATH" <<'EOF'
 ## Queue
 ## Completed
 EOF
+age_past_window "$COLL_A_PATH"  # written fresh above; age it past issue #548's SUPERVISED WINDOW
 rm -f "$COLL_B_PATH"
 verdict "collision A (foo-bar/baz) refuses on its own file" 2 "$(pay "$COLL_A" false)" "$SDIR" "" "foo-bar/baz"
 
@@ -227,6 +263,7 @@ cat > "$WRONG_HOST_PATH_1" <<'EOF'
 ## Queue
 ## Completed
 EOF
+age_past_window "$WRONG_HOST_PATH_1"  # so a mis-derivation bug would still refuse, not fail-open
 cat > "$WRONG_HOST_PATH_2" <<'EOF'
 # auto-dev state — wrong-host-2, N=1
 ## In flight
@@ -234,6 +271,7 @@ cat > "$WRONG_HOST_PATH_2" <<'EOF'
 ## Queue
 ## Completed
 EOF
+age_past_window "$WRONG_HOST_PATH_2"
 # The correct path should have no state file (so no refusal from it)
 rm -f "$RIGHT_HOST_PATH"
 # Verdict: multi-@ credentials should fail open (exit 0) regardless of which host derives
@@ -257,6 +295,7 @@ cat > "$CRED_PATH" <<'EOF'
 ## Queue
 ## Completed
 EOF
+age_past_window "$CRED_PATH"  # written fresh above; age it past the SUPERVISED WINDOW
 verdict "credentialed origin (user:token@) resolves the real host, not the userinfo" 2 \
   "$(pay "$CRED" false)" "$SDIR" "" "acme/widgets"
 rm -f "$CRED_PATH"
