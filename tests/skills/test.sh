@@ -849,6 +849,19 @@ else
   fails=$((fails + 1))
 fi
 
+# #523 (Task 2): one context holds every task of a plan only when there is a single one to hold —
+# implement-issue Step 3 stops calling a plan of up to three tasks "small, localized" and keeps
+# inline for a single-task plan only; everything else runs subagent-per-task, which already
+# explores once (the pointer-note recipe just above this bullet in the same step).
+IMPLEMENT_PROSE=$(kit_skill_prose "$KIT_ROOT" implement-issue)
+INLINE_LINE=$(grep -m1 -- '^- \*\*Inline' "$IMPLEMENT_PROSE" 2>/dev/null || true)
+if [ -n "$INLINE_LINE" ] && grep -qF 'single-task' <<<"$INLINE_LINE" && ! grep -qF '≤3 tasks' <<<"$INLINE_LINE"; then
+  echo "ok   [DR5 implement-issue Step 3 keeps inline only for a single-task plan (#523)]"
+else
+  echo "FAIL: [DR5 implement-issue Step 3 keeps inline only for a single-task plan (#523)] Step 3 still keeps a plan of up to three tasks inline"
+  fails=$((fails + 1))
+fi
+
 # tdd-loop.md carries two ports: the loop from obra/superpowers (checked above) and the good-test
 # and mock-at-boundaries guidance from mattpocock/skills, which earns its own credit line.
 if grep -qF 'mattpocock/skills' "$KIT_ROOT/skills/_shared/tdd-loop.md" 2>/dev/null; then
