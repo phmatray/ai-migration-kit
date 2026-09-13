@@ -168,6 +168,8 @@ case "$CMD" in
       # literal "github.com" string match.
       if [ "$tracker_host" = "github.com" ] || [ -n "${SLUG:-}" ]; then
         printf 'tracker: github (%s)\n' "$tracker_host"
+      elif [ "$tracker_host" = "gitlab.com" ] || { command -v glab >/dev/null 2>&1 && glab repo view >/dev/null 2>&1; }; then
+        printf 'tracker: gitlab (%s)\n' "$tracker_host"
       else
         printf 'tracker: other: %s\n' "$tracker_host"
       fi
