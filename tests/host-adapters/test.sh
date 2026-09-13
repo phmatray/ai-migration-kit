@@ -49,7 +49,7 @@ fails=0
 ok()  { printf '  ok    %s\n' "$1"; }
 bad() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
-COPIES=".cursor/rules/ai-migration-kit.mdc .windsurf/rules/ai-migration-kit.md .clinerules/ai-migration-kit.md .kiro/steering/ai-migration-kit.md .github/copilot-instructions.md .agents/rules/ai-migration-kit.md"
+COPIES=".cursor/rules/ai-migration-kit.mdc .windsurf/rules/ai-migration-kit.md .clinerules/ai-migration-kit.md .kiro/steering/ai-migration-kit.md .github/copilot-instructions.md"
 # What the invariants read, beside the copies: the manifests, the files their paths name,
 # release-please's two files, the host table and the README it is checked against. `skills/` only
 # has to exist for a manifest's `skills` path to resolve.
@@ -156,7 +156,7 @@ grep -qx 'trigger: always_on' "$REPO/.windsurf/rules/ai-migration-kit.md" \
   && ok "Windsurf: trigger always_on" || bad "Windsurf rule lacks 'trigger: always_on'"
 grep -qx 'inclusion: always' "$REPO/.kiro/steering/ai-migration-kit.md" \
   && ok "Kiro: inclusion always" || bad "Kiro steering lacks 'inclusion: always'"
-for f in .clinerules/ai-migration-kit.md .github/copilot-instructions.md .agents/rules/ai-migration-kit.md; do
+for f in .clinerules/ai-migration-kit.md .github/copilot-instructions.md; do
   [ "$(head -1 "$REPO/$f")" = "# AI Migration Kit" ] \
     && ok "$f: no front matter, opens on the heading" || bad "$f does not open on '# AI Migration Kit'"
 done
@@ -312,6 +312,13 @@ jedit "$T/package.json" 'd["pi"]["skills"] = ["./nope"]'
 run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a missing pi skills folder, want 1: $OUT $ERR"
 names "./nope" && ok "names the missing folder on stdout" || bad "stdout does not name ./nope: $OUT"
+
+echo "== W. a RULE_COPIES entry with no host adapter =="
+T="$WORK/w"; scratch_tree "$T"
+sed '/^- id: cline$/,/^$/d' "$REPO/docs/_data/hosts.yml" > "$T/docs/_data/hosts.yml"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a dangling RULE_COPIES entry, want 1: $OUT $ERR"
+names ".clinerules/ai-migration-kit.md" && ok "names the dangling adapter on stdout" || bad "stdout does not name .clinerules/ai-migration-kit.md: $OUT"
 
 if [ "$fails" -eq 0 ]; then
   echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi, host table, manifest paths, orphans"
