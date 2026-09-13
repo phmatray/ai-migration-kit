@@ -297,6 +297,30 @@ prose_violations() {
       '
 }
 
+# Prove the refusal path before trusting the happy one (#530) — same reasoning as sweep-fixture
+# above: a suite nobody runs red looks exactly like a suite that passes, and the awk's `prev`
+# tracking and `FNR == 1` reset have never fired against a real violation without this. Three
+# fixtures, one file each: a bare call (reported), --hostname on the line before (spared), and
+# --hostname inline on the call's own line (spared) — the two shapes already in this tree.
+PROSE_FIX="$WORK/prose-fixture"
+mkdir -p "$PROSE_FIX/skills/x" "$PROSE_FIX/commands"
+printf '%s\n' 'gh api "repos/{owner}/{repo}/issues/1"' > "$PROSE_FIX/skills/x/bare.md"
+printf '%s\n' '# On a GitHub Enterprise host add --hostname <host>.' \
+  'gh api "repos/{owner}/{repo}/issues/1"' > "$PROSE_FIX/skills/x/before.md"
+printf '%s\n' 'gh api "repos/{owner}/{repo}/issues/1" --hostname <host>' > "$PROSE_FIX/commands/inline.md"
+
+prose_fixture_out="$(prose_violations "$PROSE_FIX")"
+case "$prose_fixture_out" in
+  *bare.md*) : ;;
+  *) echo "FAIL: prose-fixture — the bare call in skills/x/bare.md was not reported:
+$prose_fixture_out"; exit 1 ;;
+esac
+case "$prose_fixture_out" in
+  *before.md*|*inline.md*) echo "FAIL: prose-fixture — a spared file was reported:
+$prose_fixture_out"; exit 1 ;;
+esac
+echo "  ok: prose-fixture — the bare call is reported, --hostname on its own line or the line before spares it"
+
 violations="$(prose_violations "$KIT_ROOT")"
 if [ -n "$violations" ]; then
   echo "FAIL: gh api … repos/ worked example(s) under skills/**/*.md or commands/*.md carry no"
