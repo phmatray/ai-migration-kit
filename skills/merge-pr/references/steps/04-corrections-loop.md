@@ -3,23 +3,24 @@
 The heart of the skill. Re-read the merge state, run the decision, apply the correction it names,
 push, re-wait — until it answers `merge`.
 
-**First, is Step 3's own `$ci_verdict` `needs-approval`?** Handle it here, before building any
-`merge.step4` state (#495). `ci.verdict`'s three widened sets — `failed`, `needs_approval`,
-`pending` — do not all reach the state block below: §4's shape only ever forwards `.failed` and
-`.pending` by name, because `merge.step4`'s own vocabulary has no word for "awaiting approval" and
-never needs one. A run that has moved out of `.failed` and into `.needs_approval` would otherwise
-vanish from the precedence entirely and read as mergeable the moment `mergeStateStatus` says
-`CLEAN` — which is exactly what it says, since GitHub does not block a merge on an approval-pending
-run. Nothing a push can fix here; only an approval can, and only for this repository's own release
-bot.
+**First, is Step 3's own `$ci` verdict (`.verdict`, read as `$ci_verdict` below) `needs-approval`?**
+Handle it here, before building any `merge.step4` state (#495). `ci.verdict`'s three widened sets —
+`failed`, `needs_approval`, `pending` — do not all reach the state block below: §4's shape only ever
+forwards `.failed` and `.pending` by name, because `merge.step4`'s own vocabulary has no word for
+"awaiting approval" and never needs one. A run that has moved out of `.failed` and into
+`.needs_approval` would otherwise vanish from the precedence entirely and read as mergeable the
+moment `mergeStateStatus` says `CLEAN` — which is exactly what it says, since GitHub does not block
+a merge on an approval-pending run. Nothing a push can fix here; only an approval can, and only for
+this repository's own release bot.
 
 | `$ci_verdict` | What to do |
 |---|---|
-| `needs-approval` | Run `skills/merge-pr/scripts/approve-runs.sh -R "$OWNER_REPO" "$PR"` (below), then act on its exit code. |
+| `needs-approval` | Run `skills/merge-pr/scripts/approve-runs.sh "$PR"` (below), then act on its exit code. |
 
 ```bash
+ci_verdict=$(printf '%s' "$ci" | jq -r .verdict)
 if [ "$ci_verdict" = "needs-approval" ]; then
-  out=$(skills/merge-pr/scripts/approve-runs.sh -R "$OWNER_REPO" "$PR"); rc=$?
+  out=$(skills/merge-pr/scripts/approve-runs.sh "$PR"); rc=$?
   case "$rc" in
     0) echo "$out" ;;   # `approved <id>` per run, or `approved 0 run(s)` — either way, re-wait
     2) echo "$out" >&2; exit 1 ;;   # REFUSED — not the release bot; ids + manual remedy printed
@@ -27,6 +28,11 @@ if [ "$ci_verdict" = "needs-approval" ]; then
   esac
 fi
 ```
+
+**No `-R`.** Run from the PR's own worktree, exactly like every other `gh` call in this skill — the
+script resolves the repository itself (`skills/_shared/scripts/_gh-host.sh`, the same helper
+`base-run-verdict.sh` uses); passing `{owner}/{repo}` as a literal `-R` value would only break it,
+since `gh` expands that placeholder in a REST *path*, never in the `-R` flag itself.
 
 - **Exit 0** — approved (or there was nothing left to approve): push nothing, loop back to Step 3
   and re-wait. If Step 3 reads `needs-approval` **again on the same head sha**, stop —

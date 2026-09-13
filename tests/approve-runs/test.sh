@@ -152,6 +152,27 @@ if run happy 0 'the release bot`s two action_required runs are both approved, th
   echo "ok: happy — release-please[bot]'s action_required runs (111, 222) are approved; the success run (333) is not"
 fi
 
+# ------------------------------------------------------------------ 2b. no `-R` — the normal call
+#
+# `merge-pr` never passes `-R`: it calls this script from the PR's own checkout and lets `gh`
+# resolve the repository itself, the same way every other read in the skill does. `REPO_FLAG=()`
+# is then an EMPTY array expanded under `set -u` — bash <4.4 (this repo's own parse-sweep target,
+# and macOS's shipped /bin/bash) raises "unbound variable" on a bare `"${arr[@]}"` when the array
+# is empty, unless the expansion uses the `${arr[@]+"${arr[@]}"}` guard. This case is the one that
+# would have caught it: every other case above always passes `-R`, so it never exercises the empty
+# array at all.
+reset_case
+set_pr "$(pr_json 'release-please[bot]')"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 release-title action_required)")"
+out=$(PATH="$STUBS:$PATH" "$SCRIPT" 42 2>&1); rc=$?
+if [ "$rc" -ne 0 ]; then
+  note_fail "no-repo-flag — expected exit 0 with no -R, got $rc: $out"
+elif [ "$out" != "approved 111" ]; then
+  note_fail "no-repo-flag — expected 'approved 111' with no -R, got: $out"
+else
+  echo "ok: no-repo-flag — an empty REPO_FLAG array does not trip 'unbound variable' under set -u"
+fi
+
 # -------------------------------------------------------------- 3. the bot, but nothing to approve
 #
 # `ci.verdict` only ever calls this after seeing needs-approval, but the script must still answer

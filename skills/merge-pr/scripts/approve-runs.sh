@@ -103,7 +103,7 @@ REPO_FLAG=()
 # One read, before anything else is asked — a caller that fails this check learns nothing about
 # which runs exist. `gh pr view` and `gh api` both take `-R`/`{owner}/{repo}` the same way, and
 # GH_HOST (exported by gh_host_resolve above) reaches both.
-pr_json=$(gh pr view "${REPO_FLAG[@]}" "$PR" --json author,headRefOid 2>&1) || {
+pr_json=$(gh pr view ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} "$PR" --json author,headRefOid 2>&1) || {
   echo "$TOOL: could not read PR #$PR: $pr_json" >&2
   exit 1
 }
@@ -115,7 +115,7 @@ case "$author" in
   "$RELEASE_BOT"|"app/release-please") : ;;
   *)
     # Find the runs so the refusal names them, but approve nothing — the point of refusing.
-    runs_json=$(gh api "${REPO_FLAG[@]}" "repos/$OWNER_REPO/actions/runs?head_sha=$sha&per_page=100" 2>/dev/null) || runs_json=""
+    runs_json=$(gh api ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} "repos/$OWNER_REPO/actions/runs?head_sha=$sha&per_page=100" 2>/dev/null) || runs_json=""
     ids=$(printf '%s' "$runs_json" | jq -r '[ .workflow_runs[]? | select(.conclusion == "action_required") | .id ] | join(", ")' 2>/dev/null || true)
     [ -n "$ids" ] || ids="(could not list them)"
     echo "$TOOL: REFUSED — PR #$PR's author is '$author', not the release bot ('$RELEASE_BOT')." >&2
@@ -130,7 +130,7 @@ esac
 # Keyed on the sha, exactly like base-run-verdict.sh's own workflow-runs fallback (#479) — never
 # `gh run list --branch`, which answers by recency and would name a sibling PR's run under a merge
 # train sharing the same base branch.
-runs_json=$(gh api "${REPO_FLAG[@]}" "repos/$OWNER_REPO/actions/runs?head_sha=$sha&per_page=100" 2>&1) || {
+runs_json=$(gh api ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} "repos/$OWNER_REPO/actions/runs?head_sha=$sha&per_page=100" 2>&1) || {
   echo "$TOOL: could not list workflow runs for $sha: $runs_json" >&2
   exit 1
 }
@@ -143,7 +143,7 @@ fi
 
 while IFS= read -r id; do
   [ -n "$id" ] || continue
-  out=$(gh api "${REPO_FLAG[@]}" -X POST "repos/$OWNER_REPO/actions/runs/$id/approve" 2>&1) || {
+  out=$(gh api ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} -X POST "repos/$OWNER_REPO/actions/runs/$id/approve" 2>&1) || {
     echo "$TOOL: could not approve run $id: $out" >&2
     exit 1
   }
