@@ -42,4 +42,54 @@ grep -qE 'BLOCKED_BY.*none|none.*BLOCKED_BY' "$WORKER_MD" \
 grep -qE 'missing.{0,40}reads as `?none`?|a missing field reads as `?none`?' "$WORKER_MD" \
   || fail "commands/auto-dev-worker.md does not say a missing BLOCKED_BY field reads as none"
 
+# ------------------------------------------- Task 3: the supervisor writes the verdict back (AC5)
+
+BLOCKED_BY_LINE=$(grep -n 'Reported BLOCKED with a `BLOCKED_BY:`' "$SKILL_MD" | head -1 | cut -d: -f1) || true
+[ -n "$BLOCKED_BY_LINE" ] \
+  || fail "SKILL.md Step 4 has no 'Reported BLOCKED with a \`BLOCKED_BY:\`' bullet"
+
+GENERIC_LINE=$(grep -n 'Reported BLOCKED/FAILED' "$SKILL_MD" | head -1 | cut -d: -f1) || true
+[ -n "$GENERIC_LINE" ] || fail "SKILL.md's generic 'Reported BLOCKED/FAILED' bullet is missing"
+
+# (a) forbids tier escalation for it
+grep -qF 'Never tier-escalate a `BLOCKED_BY` report' "$SKILL_MD" \
+  || fail "AC5(a): SKILL.md does not forbid tier-escalating a BLOCKED_BY report"
+
+# (b) names the parent-less wire-edges.sh call
+grep -qF 'wire-edges.sh --repo' "$SKILL_MD" \
+  || fail "AC5(b): SKILL.md does not name the wire-edges.sh call"
+grep -qF 'parent-less mode' "$SKILL_MD" \
+  || fail "AC5(b): SKILL.md does not say the wire-edges.sh call runs in parent-less mode"
+
+# (c) checks each blocker is OPEN first
+grep -qF 'each named issue is still OPEN' "$SKILL_MD" \
+  || fail "AC5(c): SKILL.md does not check each blocker is OPEN before wiring"
+
+# (d) names the fallback recap line
+grep -qF 'Held on a prerequisite` noting it is unwired' "$SKILL_MD" \
+  || fail "AC5(d): SKILL.md does not name what a wire-edges.sh \`fallback\` verdict records"
+
+# (e) routes replan to --add-assignee @me
+grep -qF -- '--add-assignee @me' "$SKILL_MD" \
+  || fail "AC5(e): SKILL.md does not route BLOCKED_BY: replan to --add-assignee @me"
+
+# All five invariants sit in the BLOCKED_BY bullet, ordered before the generic bullet.
+[ "$BLOCKED_BY_LINE" -lt "$GENERIC_LINE" ] \
+  || fail "SKILL.md's BLOCKED_BY bullet is not ordered before the generic BLOCKED/FAILED bullet"
+
+# The generic bullet now handles only BLOCKED_BY: none.
+grep -qF 'BLOCKED_BY: none' "$SKILL_MD" \
+  || fail "SKILL.md's generic bullet does not say it handles BLOCKED_BY: none"
+
+# --------------------------------------------------------- Task 3: the state file section (AC6)
+
+grep -qF '## Held on a prerequisite' "$SKILL_MD" \
+  || fail "AC6: SKILL.md's state-file template is missing '## Held on a prerequisite'"
+
+STEP6=$(grep -n '^## Step 6' "$SKILL_MD" | head -1 | cut -d: -f1) || true
+[ -n "$STEP6" ] || fail "SKILL.md is missing a '## Step 6' heading"
+if ! tail -n "+$STEP6" "$SKILL_MD" | grep -qF '## Held on a prerequisite'; then
+  fail "AC6: Step 6's final summary does not mention '## Held on a prerequisite'"
+fi
+
 echo "PASS: auto-dev-blocked-hold"
