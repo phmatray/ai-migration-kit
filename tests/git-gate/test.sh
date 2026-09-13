@@ -376,6 +376,18 @@ verdict "L27 nice -n 10 git push, unprofiled cwd" pass "" \
   "$(pay Bash 'nice -n 10 git push' "$PLAIN")"
 verdict "L28 env FOO=1 nice -n 10 timeout 60 git commit -m x (three chained launchers)" deny "guarded-commit.sh" \
   "$(pay Bash 'env FOO=1 nice -n 10 timeout 60 git commit -m x' "$PROF")"
+# A $(...)/backtick substitution nested inside a double-quoted argument (#559): real shell still
+# expands it there, but the quote-collapsing pass used to swallow it whole into the opaque @Q@
+# placeholder instead of extracting it for the recursive gate_subs relay.
+verdict "L29 \$(...) hidden inside a double-quoted argument" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'echo "$(gh pr merge 12)"' "$PROF")"
+verdict "L30 a backtick sub hidden inside a double-quoted argument" deny "guarded-pr-merge.sh" \
+  "$(pay Bash 'echo "`gh pr merge 12`"' "$PROF")"
+# Outer verb is `echo`, not `git commit` (the issue's own illustrative example) — a bare `git
+# commit` denies unconditionally regardless of its message content (D-series above), so it cannot
+# isolate this specific "$5 is not a substitution opener" question, empirically confirmed pre-fix.
+verdict "L31 a bare \$ that never opens a substitution stays inert" pass "" \
+  "$(pay Bash 'echo "cost is $5, ask gh pr merge team"' "$PROF")"
 
 # --------------------------------------------------------- 1g. the allowlist is per-segment (#533)
 # The old allowlist matched `guarded-commit.sh` as a substring ANYWHERE on the line, so a line that
