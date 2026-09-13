@@ -189,6 +189,17 @@ run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a manifest outside extra-files, want 1: $OUT $ERR"
 names ".github/plugin/plugin.json" && ok "names .github/plugin/plugin.json on stdout" || bad "stdout does not name the unbumped manifest: $OUT"
 
+echo "== L2. UNVERSIONED_JSON names the two un-versioned marketplace manifests =="
+# Routed through py_module (tests/_lib/py.sh) — the kit's ONE importlib loader (#51) — rather
+# than a second hand-rolled by-path module load, which the loader's own golden test
+# (tests/xunit-v3/test.sh section 8) refuses by name.
+kit_source "$REPO/tests/_lib/py.sh"
+COUNT=$(py_module "$CHECK" <<'PY'
+print(len(mod.UNVERSIONED_JSON))
+PY
+)
+[ "$COUNT" = "2" ] && ok "UNVERSIONED_JSON has 2 entries" || bad "UNVERSIONED_JSON: got '$COUNT', want 2"
+
 echo "== M. a TOML command edited by hand is refused, naming its source =="
 T="$WORK/m"; scratch_tree "$T"
 printf '\n# edited by hand\n' >> "$T/commands/migrate.toml"

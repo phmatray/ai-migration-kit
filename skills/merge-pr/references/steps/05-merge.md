@@ -9,6 +9,10 @@ land; for squash-merge (the `(#NNN)` commits on `main`):
   # --subject is optional; omit it (drop the whole -- line down to --delete-branch) to accept gh's default
 ```
 
+If that call to `guarded-pr-merge.sh` is refused (an agent confined to its worktree, the path
+resolving outside it), see the fallback in
+[`../../../_shared/guard-invocation.md`](../../../_shared/guard-invocation.md).
+
 `<kit>` is the kit root (the placeholder `references/merge-mechanics.md` defines). When the plugin's
 hooks run, it is printed at session start as `Kit root:` and spelled out in every write-gate denial
 that names a guard; either way, a guard you cannot find is a reason to resolve `<kit>`, never to run
