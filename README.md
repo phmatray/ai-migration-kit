@@ -108,10 +108,10 @@ measured WCAG AA, offline proven with the network cut, and a permanent post-depl
 
 | App (2013–2016) | Live | Audit estimate | Measured pipeline time |
 |---|---|---|---|
-| Sokoban (WinRT 8.1) | [phmatray.github.io/winrt-sokoban](https://phmatray.github.io/winrt-sokoban/) | 13 j | vague 1 |
+| Sokoban (WinRT 8.1) | [phmatray.github.io/sokoban](https://phmatray.github.io/sokoban/) | 13 j | vague 1 |
 | Chords (Windows Phone) | [phmatray.github.io/chords](https://phmatray.github.io/chords/) | 13 j | **18 min** |
-| Les Fleurs du Mal (WinRT 8.1) | [phmatray.github.io/fleurs-du-mal-winrt](https://phmatray.github.io/fleurs-du-mal-winrt/) | 18 j | **~30 min** |
-| Pokédex G (UWP + SQLite 49 MB) | [phmatray.github.io/pokedexg](https://phmatray.github.io/pokedexg/) | 29 j | **~1 h** |
+| Les Fleurs du Mal (WinRT 8.1) | [phmatray.github.io/fleurs-du-mal](https://phmatray.github.io/fleurs-du-mal/) | 18 j | **~30 min** |
+| Pokédex G (UWP + SQLite 49 MB) | [phmatray.github.io/pokedex](https://phmatray.github.io/pokedex/) | 29 j | **~1 h** |
 
 Full portfolio audit, per-app reports and the lessons each wave fed back into the kit:
 [docs/case-studies/winrt-portfolio/](docs/case-studies/winrt-portfolio/) and [CHANGELOG.md](CHANGELOG.md).
@@ -492,7 +492,7 @@ follows: a guard script under `skills/<skill>/scripts/`, a golden test that exer
 path and not just its happy one, and a CI step that runs that test. Adding a call that can destroy
 something? Follow that shape rather than calling the raw command.
 
-**Live proof:** [play the wave-1 migrated game](https://phmatray.github.io/winrt-sokoban/) — a 2014 WinRT app, dead since Windows 8.x, now a Blazor WASM PWA.
+**Live proof:** [play the wave-1 migrated game](https://phmatray.github.io/sokoban/) — a 2014 WinRT app, dead since Windows 8.x, now a Blazor WASM PWA.
 
 ## Proof it works
 
