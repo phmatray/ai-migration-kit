@@ -208,7 +208,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 0;
-  align-items: baseline;
+  align-items: end;
 }
 
 .kit-hasp-times dt {
@@ -306,12 +306,9 @@
   line-height: 1.3;
 }
 
-.kit-hasp.is-released .kit-lock .shackle {
-  transform: translateY(-9px) rotate(-28deg);
-}
-
+.kit-hasp.is-released .kit-lock .shackle,
 .kit-lock.is-open .shackle {
-  transform: translateY(-9px) rotate(-28deg);
+  transform: rotate(-32deg);
 }
 
 @media (prefers-reduced-motion: reduce) {
