@@ -1,0 +1,376 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-14T10:18:31Z",
+  "title": "Design System: AI Migration Kit",
+  "extensions": {
+    "colorMeta": {
+      "tag-red": {
+        "role": "primary",
+        "displayName": "Tag Red",
+        "canonical": "#d1202f",
+        "tonalRamp": [
+          "#a8161f",
+          "#d1202f",
+          "#f38c93",
+          "#f7a9ae"
+        ],
+        "note": "Shipped steps only: deep, band, dark link, dark link hover. No other reds are rendered."
+      },
+      "safety-yellow": {
+        "role": "secondary",
+        "displayName": "Safety Yellow",
+        "canonical": "#ffd100",
+        "tonalRamp": [
+          "#ffd100"
+        ],
+        "note": "One shipped step. --yellow-deep #e0b400 is defined and never used."
+      },
+      "brass": {
+        "role": "tertiary",
+        "displayName": "Brass",
+        "canonical": "#b08d57",
+        "tonalRamp": [
+          "#7f6337",
+          "#b08d57"
+        ],
+        "note": "Grommet ring and its drop edge; never text or fill."
+      },
+      "g10": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#111111",
+        "tonalRamp": [
+          "#111111",
+          "#1f1f1d",
+          "#33332f",
+          "#4d4d49",
+          "#6b6b66",
+          "#8c8c87",
+          "#b3b3ae",
+          "#cfcfcb",
+          "#e4e4e1",
+          "#f2f2f0",
+          "#ffffff"
+        ],
+        "note": "The eleven-step grey ramp g10..g0; every neutral alias binds to one of these steps."
+      },
+      "bench": {
+        "role": "neutral",
+        "displayName": "Bench",
+        "canonical": "#0c0c0b",
+        "tonalRamp": [
+          "#060606",
+          "#0c0c0b"
+        ],
+        "note": "Dark-scheme grounds below the ramp: code ground and page ground."
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The hero tag band; Big Shoulders 900 caps. The same face steps down for section titles, the install band, the hasp, the wordmark and lock names."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Article titles on Read pages; Big Shoulders 800 mixed case under a 6px red rule."
+      },
+      "section-title": {
+        "displayName": "Section title",
+        "purpose": "Home-page section heads over a 1.5px ink rule."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Measured minutes in the lock-out record; tabular numerals."
+      },
+      "stamp": {
+        "displayName": "Stamp",
+        "purpose": "The ADR status word, rotated and masked."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Article h2 in Archivo 700."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running text at 1rem/1.6 on a 44rem measure; root 17px, 16px under 40rem."
+      },
+      "type": {
+        "displayName": "Typewritten",
+        "purpose": "Values typed onto the tag: fields, dates, the record's from column."
+      },
+      "label": {
+        "displayName": "Field label",
+        "purpose": "Uppercase Courier Prime above a field, a table column or a list; never above a heading."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Red Hat Mono in blocks on the ink ground and inline on field grey."
+      }
+    },
+    "schemes": {
+      "light": {
+        "--ground": "var(--g1)",
+        "--card": "var(--g0)",
+        "--ink": "var(--g10)",
+        "--ink-soft": "var(--g7)",
+        "--ink-faint": "var(--g6)",
+        "--rule": "var(--g3)",
+        "--rule-strong": "var(--g10)",
+        "--field": "var(--g1)",
+        "--code-bg": "var(--g10)",
+        "--code-ink": "var(--g1)",
+        "--link": "var(--red)",
+        "--link-hover": "var(--red-deep)",
+        "--band-ink": "var(--g0)",
+        "--selection": "var(--yellow)",
+        "--selection-ink": "var(--g10)"
+      },
+      "dark": {
+        "--ground": "#0c0c0b",
+        "--card": "var(--g9)",
+        "--ink": "var(--g1)",
+        "--ink-soft": "var(--g4)",
+        "--ink-faint": "var(--g5)",
+        "--rule": "var(--g8)",
+        "--rule-strong": "var(--g1)",
+        "--field": "var(--g8)",
+        "--code-bg": "#060606",
+        "--code-ink": "var(--g2)",
+        "--link": "#f38c93",
+        "--link-hover": "#f7a9ae",
+        "--band-ink": "var(--g0)",
+        "--selection": "var(--yellow)",
+        "--selection-ink": "var(--g10)"
+      },
+      "darkTagRescope": {
+        "selector": ".kit-tag",
+        "--card": "var(--g0)",
+        "--ink": "var(--g10)",
+        "--ink-soft": "var(--g7)",
+        "--ink-faint": "var(--g6)",
+        "--rule": "var(--g3)",
+        "--rule-strong": "var(--g10)",
+        "--field": "var(--g1)",
+        "--link": "var(--red)",
+        "--link-hover": "var(--red-deep)",
+        "--band-ink": "var(--g0)"
+      },
+      "selection": "prefers-color-scheme: dark applies the dark set unless html[data-kit-scheme=light]; html[data-kit-scheme=dark] forces it; the choice is stored as kit-scheme in localStorage and applied before first paint."
+    },
+    "shadows": [
+      {
+        "name": "shadow",
+        "value": "0 8px 24px -12px rgba(17, 17, 17, 0.35)",
+        "dark": "0 8px 24px -12px rgba(0, 0, 0, 0.8)",
+        "purpose": "Every .kit-tag and the hasp at rest; the only lift off the ground."
+      },
+      {
+        "name": "shadow-lift",
+        "value": "0 16px 32px -14px rgba(17, 17, 17, 0.45)",
+        "dark": "0 16px 32px -14px rgba(0, 0, 0, 0.9)",
+        "purpose": "A journal tag on hover, with translateY(-3px) over 220ms."
+      },
+      {
+        "name": "grommet",
+        "value": "inset 0 1px 2px rgba(17, 17, 17, 0.35), 0 1px 0 var(--brass-deep)",
+        "purpose": "The punched hole: an inset and a 1px brass-deep edge."
+      },
+      {
+        "name": "focus",
+        "value": "outline: 3px solid var(--yellow); outline-offset: 2px; box-shadow: 0 0 0 5px var(--ink)",
+        "purpose": "Every :focus-visible, and the chip whose hidden radio is focused."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The only easing on the site."
+      },
+      {
+        "name": "settle",
+        "value": "160ms var(--ease-out)",
+        "purpose": "Chips, links, chevrons, anchors, the toggle dot, and the picker panel (kit-settle: opacity 0 to 1, translateY(2px) to none)."
+      },
+      {
+        "name": "lift",
+        "value": "220ms var(--ease-out)",
+        "purpose": "Journal tag hover: transform and box-shadow."
+      },
+      {
+        "name": "shackle-release",
+        "value": "transform 700ms var(--ease-out)",
+        "purpose": "Each padlock shackle to translateY(-9px) rotate(-28deg) from its bottom-left; transform-box fill-box."
+      },
+      {
+        "name": "release-stagger",
+        "value": "350ms + 140ms per lock",
+        "purpose": "site.js adds .is-open lock by lock once 15% of the hasp is in view; with prefers-reduced-motion the hasp gets .is-released and the shackle transition is none."
+      },
+      {
+        "name": "copied",
+        "value": "1600ms",
+        "purpose": "How long the copy chip stays yellow and reads Copied."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "fields-stack",
+        "value": "30rem",
+        "purpose": "Field lists to one column; hasp locks in twos."
+      },
+      {
+        "name": "root-16",
+        "value": "40rem",
+        "purpose": "Root 16px; record rows collapse; prev/next and ADR meta stack; command column wraps."
+      },
+      {
+        "name": "topnav-fold",
+        "value": "48rem",
+        "purpose": "Top nav reduces to Docs and GitHub; section heads go two-column above it."
+      },
+      {
+        "name": "sidenav",
+        "value": "60rem",
+        "purpose": "Read grid gains the 15rem side navigation; below it the list folds under a button."
+      },
+      {
+        "name": "hero-stack",
+        "value": "64rem",
+        "purpose": "Hero stacks; hasp label spans the row and locks wrap in fours."
+      },
+      {
+        "name": "wide",
+        "value": "84rem",
+        "purpose": "Page max width; on-page contents column appears."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Tag",
+      "kind": "card",
+      "refersTo": "tag",
+      "description": "The site's one object: card, grommet, red band, typewritten fields. Stays white in the dark scheme.",
+      "html": "<article class=\"ds-tag\"><span class=\"ds-grommet\" aria-hidden=\"true\"></span><div class=\"ds-tag-band\"><h2 class=\"ds-tag-band-title\">Every step runs behind a gate</h2></div><div class=\"ds-tag-body\"><dl class=\"ds-fields\"><dt>Locked by</dt><dd><code>roseline-gate.sh</code></dd><dt>On</dt><dd><code>Read</code> of <code>Program.cs</code></dd><dt>Use instead</dt><dd><code>mcp__roseline__search_symbols</code></dd></dl></div></article>",
+      "css": ".ds-tag { position: relative; background: var(--g0, #ffffff); color: var(--g10, #111111); border: 1.5px solid var(--g10, #111111); border-radius: 2px; box-shadow: 0 8px 24px -12px rgba(17,17,17,0.35); font-family: Archivo, system-ui, sans-serif; } .ds-grommet { position: absolute; top: 12px; left: 12px; width: 16px; height: 16px; border-radius: 50%; background: var(--g1, #f2f2f0); border: 3px solid var(--brass, #b08d57); box-shadow: inset 0 1px 2px rgba(17,17,17,0.35), 0 1px 0 var(--brass-deep, #7f6337); z-index: 2; } .ds-tag-band { background: var(--red, #d1202f); color: #ffffff; padding: 16px 24px 16px 48px; border-bottom: 1.5px solid var(--g10, #111111); } .ds-tag-band-title { margin: 0; color: #ffffff; font-family: 'Big Shoulders Display', 'Archivo Narrow', 'Arial Narrow', sans-serif; font-weight: 900; font-size: 2rem; text-transform: uppercase; line-height: 0.92; letter-spacing: 0.005em; } .ds-tag-body { padding: 24px; } .ds-fields { margin: 0; display: grid; grid-template-columns: max-content minmax(0,1fr); column-gap: 16px; font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.9375rem; line-height: 1.45; } .ds-fields dt { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.75rem; color: var(--g7, #4d4d49); padding: 10px 0; border-bottom: 1px dotted var(--g4, #b3b3ae); } .ds-fields dd { margin: 0; padding: 10px 0; border-bottom: 1px dotted var(--g4, #b3b3ae); overflow-wrap: anywhere; } .ds-fields code { font-family: 'Red Hat Mono', ui-monospace, Menlo, monospace; font-size: 0.875em; background: var(--g1, #f2f2f0); border: 1px solid var(--g3, #cfcfcb); border-radius: 2px; padding: 0.05em 0.35em; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "A small tag used as a control. Dashed is unchosen, solid is chosen; host tabs and the copy button.",
+      "html": "<div style=\"display:flex;gap:8px;flex-wrap:wrap\"><button class=\"ds-chip ds-chip--solid\" type=\"button\">Claude Code</button><button class=\"ds-chip\" type=\"button\">Codex</button><button class=\"ds-chip\" type=\"button\">Gemini CLI</button></div>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 6px; font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.8125rem; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1.2; padding: 6px 10px; border: 1.5px dashed var(--g5, #8c8c87); border-radius: 2px; color: var(--g7, #4d4d49); background: transparent; cursor: pointer; transition: border-color 160ms cubic-bezier(0.16,1,0.3,1), background 160ms cubic-bezier(0.16,1,0.3,1), color 160ms cubic-bezier(0.16,1,0.3,1); } .ds-chip:hover { border-color: var(--g10, #111111); color: var(--g10, #111111); } .ds-chip--solid, .ds-chip:active { border-style: solid; border-color: var(--g10, #111111); background: var(--g10, #111111); color: #ffffff; } .ds-chip:focus-visible { outline: 3px solid var(--yellow, #ffd100); outline-offset: 2px; box-shadow: 0 0 0 5px var(--g10, #111111); }"
+    },
+    {
+      "name": "Stamp",
+      "kind": "custom",
+      "refersTo": "stamp",
+      "description": "ADR status as a mark: accepted ink, rejected red, superseded faded, proposed dashed.",
+      "html": "<div style=\"display:flex;gap:24px;flex-wrap:wrap;align-items:center\"><span class=\"ds-stamp\">accepted</span><span class=\"ds-stamp ds-stamp--rejected\">rejected</span><span class=\"ds-stamp ds-stamp--superseded\">superseded</span><span class=\"ds-stamp ds-stamp--proposed\">proposed</span></div>",
+      "css": ".ds-stamp { display: inline-block; font-family: 'Big Shoulders Display', 'Archivo Narrow', 'Arial Narrow', sans-serif; font-weight: 900; font-size: 0.9375rem; text-transform: uppercase; letter-spacing: 0.12em; line-height: 1; padding: 6px 8px 4px; border: 2.5px solid currentColor; border-radius: 3px; color: var(--g10, #111111); transform: rotate(-4deg); transform-origin: left bottom; mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='40'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 1.9'/></filter><rect width='120' height='40' fill='white' filter='url(%23n)'/></svg>\"); -webkit-mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='40'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 1.9'/></filter><rect width='120' height='40' fill='white' filter='url(%23n)'/></svg>\"); mask-size: 120px 40px; -webkit-mask-size: 120px 40px; } .ds-stamp--rejected { color: var(--red, #d1202f); } .ds-stamp--superseded { color: var(--g6, #6b6b66); } .ds-stamp--proposed { border-style: dashed; color: var(--g7, #4d4d49); mask-image: none; -webkit-mask-image: none; }"
+    },
+    {
+      "name": "Hasp lock",
+      "kind": "custom",
+      "refersTo": "hasp",
+      "description": "One padlock on the safety-yellow group hasp; add .is-open to release the shackle (700ms ease-out).",
+      "html": "<div class=\"ds-hasp\"><div class=\"ds-lock is-open\"><svg viewBox=\"0 0 44 56\" aria-hidden=\"true\" focusable=\"false\"><path class=\"shackle\" d=\"M12 26V16a10 10 0 0 1 20 0v10\"/><rect class=\"body\" x=\"4\" y=\"26\" width=\"36\" height=\"28\" rx=\"2\"/><circle class=\"keyway\" cx=\"22\" cy=\"38\" r=\"3.2\"/><rect class=\"keyway\" x=\"20.6\" y=\"39\" width=\"2.8\" height=\"7\" rx=\"1\"/></svg><span class=\"ds-lock-name\">assess</span><span class=\"ds-lock-gate\">read-only audit</span></div><div class=\"ds-lock\"><svg viewBox=\"0 0 44 56\" aria-hidden=\"true\" focusable=\"false\"><path class=\"shackle\" d=\"M12 26V16a10 10 0 0 1 20 0v10\"/><rect class=\"body\" x=\"4\" y=\"26\" width=\"36\" height=\"28\" rx=\"2\"/><circle class=\"keyway\" cx=\"22\" cy=\"38\" r=\"3.2\"/><rect class=\"keyway\" x=\"20.6\" y=\"39\" width=\"2.8\" height=\"7\" rx=\"1\"/></svg><span class=\"ds-lock-name\">baseline</span><span class=\"ds-lock-gate\">tests and diagnostics recorded</span></div></div>",
+      "css": ".ds-hasp { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); border: 1.5px solid var(--g10, #111111); border-radius: 2px; background: var(--yellow, #ffd100); color: var(--g10, #111111); box-shadow: 0 8px 24px -12px rgba(17,17,17,0.35); overflow: hidden; max-width: 20rem; } .ds-lock { position: relative; display: grid; grid-template-rows: 56px auto 1fr; justify-items: center; row-gap: 6px; padding: 16px 8px 12px; border-right: 1.5px solid rgba(17,17,17,0.25); } .ds-lock:last-child { border-right: 0; } .ds-lock::before { content: ''; position: absolute; left: 0; right: 0; top: 36px; height: 6px; background: var(--g10, #111111); opacity: 0.85; } .ds-lock svg { width: 44px; height: 56px; position: relative; z-index: 1; overflow: visible; } .ds-lock .shackle { fill: none; stroke: var(--g10, #111111); stroke-width: 5; stroke-linecap: round; transform-box: fill-box; transform-origin: 20% 100%; transition: transform 700ms cubic-bezier(0.16,1,0.3,1); } .ds-lock .body { fill: var(--g10, #111111); } .ds-lock .keyway { fill: var(--yellow, #ffd100); } .ds-lock.is-open .shackle { transform: translateY(-9px) rotate(-28deg); } .ds-lock-name { font-family: 'Big Shoulders Display', 'Archivo Narrow', 'Arial Narrow', sans-serif; font-weight: 900; font-size: 1.0625rem; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1; } .ds-lock-gate { font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--g8, #33332f); text-align: center; line-height: 1.3; } @media (prefers-reduced-motion: reduce) { .ds-lock .shackle { transition: none; } }"
+    },
+    {
+      "name": "Scheme toggle",
+      "kind": "button",
+      "refersTo": "scheme-toggle",
+      "description": "A tiny white tag with a ring that fills safety yellow when pressed (the locked state).",
+      "html": "<button class=\"ds-scheme-toggle\" type=\"button\" aria-pressed=\"false\"><span class=\"ds-scheme-off\">Dark scheme</span><span class=\"ds-scheme-on\">Light scheme</span></button> <button class=\"ds-scheme-toggle\" type=\"button\" aria-pressed=\"true\"><span class=\"ds-scheme-off\">Dark scheme</span><span class=\"ds-scheme-on\">Light scheme</span></button>",
+      "css": ".ds-scheme-toggle { appearance: none; border: 1.5px solid var(--g10, #111111); border-radius: 2px; background: var(--g0, #ffffff); color: var(--g10, #111111); font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 8px 4px 22px; position: relative; cursor: pointer; line-height: 1.4; } .ds-scheme-toggle::before { content: ''; position: absolute; left: 8px; top: 50%; width: 9px; height: 9px; margin-top: -4.5px; border-radius: 50%; border: 1.5px solid var(--g10, #111111); background: transparent; transition: background 160ms cubic-bezier(0.16,1,0.3,1); } .ds-scheme-toggle[aria-pressed=true]::before { background: var(--yellow, #ffd100); } .ds-scheme-toggle .ds-scheme-on, .ds-scheme-toggle[aria-pressed=true] .ds-scheme-off { display: none; } .ds-scheme-toggle[aria-pressed=true] .ds-scheme-on { display: inline; } .ds-scheme-toggle:focus-visible { outline: 3px solid var(--yellow, #ffd100); outline-offset: 2px; box-shadow: 0 0 0 5px var(--g10, #111111); }"
+    },
+    {
+      "name": "Code block with copy chip",
+      "kind": "custom",
+      "refersTo": "code-block",
+      "description": "Code on the ink ground with a dashed copy chip in the corner; the chip turns solid yellow once copied.",
+      "html": "<div class=\"ds-code\"><pre><code>claude plugin marketplace add phmatray/ai-migration-kit\nclaude plugin install ai-migration-kit@ai-migration-kit-marketplace</code></pre><button class=\"ds-chip ds-copy\" type=\"button\">Copy</button></div>",
+      "css": ".ds-code { position: relative; } .ds-code pre { margin: 0; padding: 16px 72px 16px 20px; background: var(--g10, #111111); color: var(--g1, #f2f2f0); border: 1.5px solid var(--g10, #111111); border-radius: 2px; font-family: 'Red Hat Mono', ui-monospace, Menlo, monospace; font-size: 0.875rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; } .ds-code code { font: inherit; color: inherit; } .ds-copy { position: absolute; top: 8px; right: 8px; display: inline-flex; font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.8125rem; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1.2; padding: 6px 10px; border: 1.5px dashed var(--g5, #8c8c87); border-radius: 2px; color: var(--g2, #e4e4e1); background: var(--g10, #111111); cursor: pointer; transition: border-color 160ms cubic-bezier(0.16,1,0.3,1), background 160ms cubic-bezier(0.16,1,0.3,1), color 160ms cubic-bezier(0.16,1,0.3,1); } .ds-copy:hover { border-color: var(--g1, #f2f2f0); color: #ffffff; } .ds-copy.is-done { border-style: solid; border-color: var(--yellow, #ffd100); background: var(--yellow, #ffd100); color: var(--g10, #111111); }"
+    },
+    {
+      "name": "Side navigation",
+      "kind": "nav",
+      "refersTo": "link",
+      "description": "Ruled entries with a 6px dot that turns tag red on the current page; sections are native details with a rotated chevron.",
+      "html": "<nav class=\"ds-sidenav\" aria-label=\"Documentation\"><div class=\"ds-nav-item\"><a href=\"#\">Home</a></div><div class=\"ds-nav-item\"><a href=\"#\" aria-current=\"page\">Install</a></div><details open><summary><span>Architectural Decision Records</span><span class=\"ds-nav-count\">15</span></summary><ul><li><a href=\"#\">Overview</a></li><li><a href=\"#\">The roseline gate fails open, always</a></li></ul></details></nav>",
+      "css": ".ds-sidenav { font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; color: var(--g10, #111111); background: var(--g1, #f2f2f0); max-width: 15rem; } .ds-sidenav > details, .ds-sidenav > .ds-nav-item { border-top: 1px solid var(--g3, #cfcfcb); } .ds-sidenav > :last-child { border-bottom: 1px solid var(--g3, #cfcfcb); } .ds-sidenav a { display: block; color: var(--g10, #111111); text-decoration: none; padding: 10px 8px 10px 20px; position: relative; } .ds-sidenav a::before { content: ''; position: absolute; left: 8px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: transparent; border: 1.5px solid transparent; } .ds-sidenav a:hover { background: var(--g0, #ffffff); } .ds-sidenav a[aria-current=page] { background: var(--g0, #ffffff); font-weight: 700; } .ds-sidenav a[aria-current=page]::before { background: var(--red, #d1202f); border-color: var(--red, #d1202f); } .ds-sidenav summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 8px; font-weight: 600; } .ds-sidenav summary::-webkit-details-marker { display: none; } .ds-sidenav summary::after { content: ''; width: 8px; height: 8px; border-right: 1.5px solid var(--g7, #4d4d49); border-bottom: 1.5px solid var(--g7, #4d4d49); transform: rotate(-45deg); transition: transform 160ms cubic-bezier(0.16,1,0.3,1); margin-right: 4px; } .ds-sidenav details[open] > summary::after { transform: rotate(45deg); } .ds-sidenav ul { list-style: none; margin: 0 0 8px; padding: 0; } .ds-sidenav li a { padding-left: 32px; font-size: 0.875rem; color: var(--g7, #4d4d49); } .ds-sidenav li a::before { left: 20px; } .ds-nav-count { font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.75rem; color: var(--g6, #6b6b66); margin-left: auto; margin-right: 8px; } .ds-sidenav a:focus-visible { outline: 3px solid var(--yellow, #ffd100); outline-offset: 2px; box-shadow: 0 0 0 5px var(--g10, #111111); }"
+    },
+    {
+      "name": "Record row",
+      "kind": "custom",
+      "refersTo": "record-time",
+      "description": "The ruled table: Courier Prime heads over a 1px ink rule, dotted row lines, the measured minutes at Figure size.",
+      "html": "<table class=\"ds-record\"><thead><tr><th scope=\"col\">App, live</th><th scope=\"col\">Locked on</th><th scope=\"col\">Cleared in</th></tr></thead><tbody><tr><td class=\"ds-record-app\"><a href=\"#\">Chords</a></td><td class=\"ds-record-from\">Windows Phone</td><td class=\"ds-record-time\">18 min<small>pipeline, measured</small></td></tr><tr><td class=\"ds-record-app\"><a href=\"#\">Pokédex G</a></td><td class=\"ds-record-from\">UWP, SQLite 49 MB</td><td class=\"ds-record-time\">~1 h<small>pipeline, measured</small></td></tr></tbody></table>",
+      "css": ".ds-record { width: 100%; border-collapse: collapse; font-family: Archivo, system-ui, sans-serif; font-size: 1rem; color: var(--g10, #111111); } .ds-record th { text-align: left; font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--g7, #4d4d49); font-weight: 400; padding: 0 16px 8px 0; border-bottom: 1px solid var(--g10, #111111); } .ds-record td { vertical-align: baseline; padding: 16px 16px 16px 0; border-bottom: 1px dotted var(--g4, #b3b3ae); } .ds-record tr:last-child td { border-bottom: 0; } .ds-record-app a { color: var(--red, #d1202f); font-weight: 700; font-size: 1.125rem; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.18em; text-decoration-color: rgba(209,32,47,0.45); transition: color 160ms cubic-bezier(0.16,1,0.3,1), text-decoration-color 160ms cubic-bezier(0.16,1,0.3,1); } .ds-record-app a:hover { color: var(--red-deep, #a8161f); text-decoration-color: currentColor; } .ds-record-from { font-family: 'Courier Prime', 'Courier New', monospace; color: var(--g7, #4d4d49); } .ds-record-time { font-family: 'Big Shoulders Display', 'Archivo Narrow', 'Arial Narrow', sans-serif; font-weight: 900; font-size: clamp(2rem, 4.5vw, 3.5rem); line-height: 0.9; text-transform: uppercase; white-space: nowrap; text-align: right; padding-right: 0; font-variant-numeric: tabular-nums; } .ds-record-time small { display: block; font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.75rem; font-weight: 400; letter-spacing: 0.06em; color: var(--g7, #4d4d49); margin-top: 4px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Lock-out Tag",
+    "overview": "A gate that refuses by name is a lock-out / tag-out tag hung on a machine: who locked it, why, and what clears it. The site is built from that one object. A white card with a 1.5px ink rule, a brass grommet punched top-left, a red header band, and typewritten fields filled in below; the home page hangs the tag at monumental scale next to a punched install window, and under both a safety-yellow group hasp with seven padlocks, one per pipeline phase. Every inner page carries the same object smaller: a short red rule over the title, Courier Prime meta fields, an ADR status stamp, and a journal of release tags stapled one over the next.\n\nThe surface is a workshop, not a brochure. The ground is concrete grey (a black bench in the dark scheme) and everything on it is card stock, ink, and printed colour. Neutrals come from one eleven-step grey ramp; the only chroma is tag red, safety yellow, and the brass of the grommet, and each appears only where it means something. Density is that of a filled-in form: ruled rows, dotted field lines, tabular numerals, and measured minutes set as the largest type after the band. Seams are drawn (1px and 1.5px rules), never hidden behind gradients, glass, or shadows doing structural work.\n\nThe build is Pages-native Jekyll with libsass: one stylesheet, custom properties for every token, radio inputs for the host picker, and JavaScript only as enhancement. The dark scheme is the same token set re-bound; the tag itself refuses to go dark, because card stock is white in any light.",
+    "keyCharacteristics": [
+      "One object, the tag, reused at every scale: hero, install window, ADR header, journal entry, chip, toggle.",
+      "One grey ramp (g0 white to g10 ink) for every neutral; red, yellow, and brass each have one job.",
+      "Four faces with four jobs: Big Shoulders Display for what is printed on the tag, Archivo for reading, Courier Prime for what is typed onto it, Red Hat Mono for code.",
+      "State is a mark, not a hue: chosen is solid, unchosen dashed; accepted is ink, rejected red, superseded faded, proposed dashed.",
+      "Sections are ruled, not boxed; tables are ruled, not gridded; the tag is the only thing with a border and a shadow.",
+      "One authored motion moment (the locks release) and 160ms settles everywhere else."
+    ],
+    "rules": [
+      {
+        "name": "The One Ramp Rule",
+        "body": "Every neutral is a step of g0..g10 bound through an alias (--ground, --card, --ink, --ink-soft, --ink-faint, --rule, --rule-strong, --field). New surfaces pick a step; they do not mix a new grey.",
+        "section": "colors"
+      },
+      {
+        "name": "The Colour Means Something Rule",
+        "body": "Brass is the grommet. No other use, and no other hue, on the page; the Rouge syntax set on the ink code ground is the one shipped exception.",
+        "section": "colors"
+      },
+      {
+        "name": "The Card Stock Rule",
+        "body": "In the dark scheme the bench, rules, and reading surfaces go dark; .kit-tag re-scopes card, ink, rule, field, and link back to their daylight values and stays white.",
+        "section": "colors"
+      },
+      {
+        "name": "The Printed / Typed Rule",
+        "body": "What the tag was printed with is Big Shoulders in caps (bands, section titles, stamps, lock names, minutes). What was typed onto it afterwards is Courier Prime (labels, fields, dates, meta). Archivo is for the reader, not the tag. Nothing on the page is set in a system face.",
+        "section": "typography"
+      },
+      {
+        "name": "The Field Label Rule",
+        "body": "A Courier Prime uppercase label at 0.75rem sits above a value, a table column, or a list; it never sits above a heading.",
+        "section": "typography"
+      },
+      {
+        "name": "The Drawn Seam Rule",
+        "body": "Where two things meet, a rule is drawn: 1px g3 between page regions, 1.5px ink around and inside a tag, 1px dotted g4 under a field. No seam is implied by tone alone.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do build any new surface from the tag: 1.5px ink border, 2px radius, tag shadow, grommet at 12px, band with a 48px left inset.",
+      "Do pick every neutral from g0..g10 through its alias, and rebind aliases (not the ramp) for the dark scheme; keep .kit-tag white.",
+      "Do set what the tag says in Big Shoulders caps, what was typed on it in Courier Prime, and the reading text in Archivo at 1rem/1.6 on a 44rem measure.",
+      "Do draw every seam: 1px g3 between regions, 1.5px ink on and inside tags, 1px dotted g4 under rows.",
+      "Do show state as a mark: solid versus dashed for chosen, ink / red / faded / dashed for stamps, a red dot or rule for the current item.",
+      "Do keep motion to 160ms ease-out settles; the lock release (700ms, 140ms stagger) is the page's one authored moment and renders released under reduced motion.",
+      "Do keep the whole site legible with no script, no image, and no colour: radios for the picker, media query for the scheme, text for every state."
+    ],
+    "donts": [
+      "Don't put a kicker or eyebrow above an h1 or h2; the Courier Prime label belongs above fields, columns, and lists.",
+      "Don't use the tag or any bordered card as page structure; sections are separated by rules and 80px of air.",
+      "Don't box tables or zebra rows; a 1px ink head rule and dotted row lines are the whole grid.",
+      "Don't add a gradient, glass, backdrop filter, hard offset shadow (beyond the grommet's 1px brass edge), or raster image; the tag shadow and the grommet inset are the only depth.",
+      "Don't use red, yellow, or brass for decoration, and don't introduce a fifth colour beyond the shipped Rouge syntax set on the code ground; red is band, link, current marker, or refusal; yellow is locked, selected, or focused; brass is the grommet only.",
+      "Don't set any text in a system face or an icon font; padlocks, the wordmark mark, and chevrons are inline SVG or CSS."
+    ]
+  }
+}

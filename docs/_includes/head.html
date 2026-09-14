@@ -1,0 +1,21 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{% seo %}
+<link rel="icon" type="image/svg+xml" href="{{ '/assets/favicon.svg' | relative_url }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@700;800;900&family=Courier+Prime:wght@400&family=Red+Hat+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="{{ '/assets/css/site.css' | relative_url }}">
+<!-- The scheme, applied before first paint. A stored choice wins; without one the stylesheet follows
+     prefers-color-scheme on its own, so this runs only to restore a choice. Without JavaScript the
+     media query still gives a dark system the dark tokens. Block comments only inside inline
+     scripts (tests/skills/test.sh keeps that rule so a folded page can never swallow a script). -->
+<script>
+  (function () {
+    var stored = null;
+    try { stored = localStorage.getItem('kit-scheme'); } catch (e) { /* private mode: nothing stored */ }
+    if (stored === 'dark' || stored === 'light') {
+      document.documentElement.setAttribute('data-kit-scheme', stored);
+    }
+  })();
+</script>

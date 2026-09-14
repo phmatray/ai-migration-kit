@@ -1,0 +1,30 @@
+---
+layout: default
+kind: journal
+---
+{%- assign articles = site.pages | where: "parent", "Journal" | sort: "nav_order" | reverse -%}
+<div class="kit-page">
+  {% include sidenav.html %}
+  <main id="main" class="kit-article">
+    <article class="kit-body">
+{{ content | split: "<h2" | first }}
+      <ol class="kit-journal-stack" reversed aria-label="Releases, newest first">
+        {%- for a in articles %}
+          {%- assign parts = a.title | split: ": " -%}
+          {%- assign released = a.content | split: "*Released " | last | split: "*" | first | split: "," | first | split: "." | first -%}
+        <li style="--step: {{ forloop.index0 | modulo: 3 }}; z-index: {{ articles.size | minus: forloop.index0 }}">
+          <div class="kit-tag">
+            <span class="kit-grommet" aria-hidden="true"></span>
+            <span class="kit-journal-version">{{ parts[0] }}</span>
+            <span class="kit-journal-title"><a href="{{ a.url | relative_url }}">{{ parts | shift | join: ": " }}</a></span>
+            {%- if a.content contains "*Released " %}<span class="kit-journal-date">{{ released | strip }}</span>{% endif %}
+          </div>
+        </li>
+        {%- endfor %}
+      </ol>
+      {%- assign rest = content | split: "<h2" -%}
+      {%- if rest.size > 1 %}<h2{{ rest | shift | join: "<h2" }}{% endif %}
+    </article>
+  </main>
+  <aside class="kit-toc" aria-label="On this page"></aside>
+</div>

@@ -1,0 +1,103 @@
+// Tokens for the AI Migration Kit site. The world is the lock-out tag: white card stock on a
+// concrete ground, tag red owning every header band, safety yellow for the locked state, a brass
+// grommet, ink black. Neutrals come from ONE eleven-step grey ramp (g0..g10) and nothing else.
+// Every colour pair below was measured with scripts/contrast-check.py at WCAG AA or better.
+:root {
+  --g0: #ffffff;
+  --g1: #f2f2f0;
+  --g2: #e4e4e1;
+  --g3: #cfcfcb;
+  --g4: #b3b3ae;
+  --g5: #8c8c87;
+  --g6: #6b6b66;
+  --g7: #4d4d49;
+  --g8: #33332f;
+  --g9: #1f1f1d;
+  --g10: #111111;
+
+  --red: #d1202f;
+  --red-deep: #a8161f;
+  --yellow: #ffd100;
+  --yellow-deep: #e0b400;
+  --brass: #b08d57;
+  --brass-deep: #7f6337;
+
+  --ground: var(--g1);
+  --card: var(--g0);
+  --ink: var(--g10);
+  --ink-soft: var(--g7);
+  --ink-faint: var(--g6);
+  --rule: var(--g3);
+  --rule-strong: var(--g10);
+  --field: var(--g1);
+  --code-bg: var(--g10);
+  --code-ink: var(--g1);
+  --link: var(--red);
+  --link-hover: var(--red-deep);
+  --band-ink: var(--g0);
+  --selection: var(--yellow);
+  --selection-ink: var(--g10);
+  --shadow: 0 8px 24px -12px rgba(17, 17, 17, 0.35);
+  --shadow-lift: 0 16px 32px -14px rgba(17, 17, 17, 0.45);
+
+  --font-display: "Big Shoulders Display", "Archivo Narrow", "Arial Narrow", sans-serif;
+  --font-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-type: "Courier Prime", "Courier New", Courier, monospace;
+  --font-mono: "Red Hat Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --unit: 8px;
+  --measure: 44rem;
+  --content: 60rem;
+  --wide: 84rem;
+  --radius: 2px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color-scheme: light;
+}
+
+@mixin dark-tokens {
+  --ground: #0c0c0b;
+  --card: var(--g9);
+  --ink: var(--g1);
+  --ink-soft: var(--g4);
+  --ink-faint: var(--g5);
+  --rule: var(--g8);
+  --rule-strong: var(--g1);
+  --field: var(--g8);
+  --code-bg: #060606;
+  --code-ink: var(--g2);
+  --link: #f38c93;
+  --link-hover: #f7a9ae;
+  --band-ink: var(--g0);
+  --selection: var(--yellow);
+  --selection-ink: var(--g10);
+  --shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.8);
+  --shadow-lift: 0 16px 32px -14px rgba(0, 0, 0, 0.9);
+  color-scheme: dark;
+
+  // The tag is card stock: it stays white on the black bench, and everything printed on it
+  // keeps its daylight ink. Only the bench, the rules and the reading surfaces go dark.
+  .kit-tag {
+    --card: var(--g0);
+    --ink: var(--g10);
+    --ink-soft: var(--g7);
+    --ink-faint: var(--g6);
+    --rule: var(--g3);
+    --rule-strong: var(--g10);
+    --field: var(--g1);
+    --link: var(--red);
+    --link-hover: var(--red-deep);
+    --band-ink: var(--g0);
+    color: var(--ink);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-kit-scheme="light"]) {
+    @include dark-tokens;
+  }
+}
+
+:root[data-kit-scheme="dark"] {
+  @include dark-tokens;
+}
