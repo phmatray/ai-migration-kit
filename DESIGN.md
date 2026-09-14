@@ -316,7 +316,7 @@ Status as a mark, never a hue.
 - **State:** accepted is ink; rejected is tag red; superseded is ink-faint; proposed is a dashed ink-soft outline with the mask off.
 
 ### Hasp
-The group lockout: a safety-yellow bar, 1.5px ink border, tag shadow, seven padlocks hung on a 6px ink rail at 85% opacity.
+The group lockout: a safety-yellow bar, 1.5px ink border, tag shadow, seven padlocks, one per cell, separated by 1.5px rules at 25% ink; no rail is drawn (a line through the shackles read as an artifact and was removed 2026-09-14).
 - **Label column:** Display 1.75rem, a Courier Prime 0.8125rem g8 line, and the measured minutes (`dl.kit-hasp-times`, minutes in Display 1.75rem tabular over 1px 35% ink rules).
 - **Lock:** a 44x56 SVG on a `56px auto 1fr` row grid with 6px gaps, 16px 8px 12px padding, 1.5px 25% ink rules between locks; name in Display 1.0625rem, gate line in Courier Prime 0.6875rem g8.
 - **Motion:** the one authored moment. Each shackle transitions `transform 700ms cubic-bezier(0.16, 1, 0.3, 1)` to `translateY(-9px) rotate(-28deg)` from its bottom-left; the script adds `.is-open` lock by lock at 350ms + 140ms per lock once 15% of the hasp is in view; under `prefers-reduced-motion` the hasp renders `.is-released` with no transition.
