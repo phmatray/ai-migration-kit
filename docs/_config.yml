@@ -5,7 +5,7 @@
 title: AI Migration Kit
 description: A Claude Code plugin — a gate-verified methodology for legacy .NET migrations and a hands-off GitHub issue → PR lifecycle.
 url: https://phmatray.github.io
-baseurl: /ai-migration-kit
+baseurl: /tagout
 lang: en
 
 plugins:
