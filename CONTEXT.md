@@ -1,4 +1,4 @@
-# ai-migration-kit
+# tagout
 
 The kit's own domain glossary: the terms its skills coin for the issue-queue lifecycle
 (`create-issue` → `implement-issue` → `merge-pr` → `triage-backlog`) and the machinery those

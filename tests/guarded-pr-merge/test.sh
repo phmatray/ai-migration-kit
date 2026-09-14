@@ -149,7 +149,7 @@ run_case clean-merge 0 "MERGED cafef00d" \
 # Both are the exact stderr text the issue quotes: a non-zero merge exit from LOCAL cleanup gh
 # could not finish, on a merge that landed on GitHub regardless. This is the defect the takeover
 # branch shipped with — state must win over the exit code in both directions.
-GH_MERGE_RC=1 GH_MERGE_STDERR="failed to run git: fatal: 'main' is already used by worktree at '/x/ai-migration-kit'" \
+GH_MERGE_RC=1 GH_MERGE_STDERR="failed to run git: fatal: 'main' is already used by worktree at '/x/tagout'" \
 GH_VIEW_MODE=ok GH_VIEW_FAIL_FIRST_N=0 GH_VIEW_STATE=MERGED GH_VIEW_MERGED_AT=2026-08-20T00:00:00Z GH_VIEW_SHA=deadbeef \
 run_case collision-main-checked-out 0 "MERGED deadbeef" \
   "gh pr merge exits non-zero on 'main is already used by worktree', but state is MERGED -> MERGED, exit 0 (not the non-zero exit code)"

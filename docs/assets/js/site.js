@@ -1,4 +1,4 @@
-/* AI Migration Kit site script: scheme toggle, copy buttons, on-page contents, the hasp release,
+/* Tagout site script: scheme toggle, copy buttons, on-page contents, the hasp release,
    the mobile navigation. Everything here is an enhancement: the page reads and installs without it. */
 (function () {
   'use strict';

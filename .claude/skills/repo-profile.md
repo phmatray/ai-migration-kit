@@ -9,9 +9,9 @@
 > linked worktree measures a different repository state than the one this file describes (#125).
 
 ## Identity
-- **Repo:** phmatray/ai-migration-kit
+- **Repo:** phmatray/tagout
 - **Default branch:** main
-- **Homepage:** https://phmatray.github.io/ai-migration-kit/ — the docs/ site (#401), the
+- **Homepage:** https://phmatray.github.io/tagout/ — the docs/ site (#401), the
   methodology guide as its home page.
 - **Topics:** claude-code, claude-code-plugin, agent-skills, ai-agents, dotnet, csharp, roslyn,
   legacy-migration, github-issues, developer-workflow, methodology, mcp.
@@ -291,7 +291,7 @@ hand-copying it further.
   `chmod +x`'d suite still absent from the index — with a distinct "not staged in the index at
   all" message and a `git add` remedy, not the mode/`chmod` one.
 - Use `git -C <path>`, not `cd`, when driving this repo from another working directory.
-- `gh` needs `--repo phmatray/ai-migration-kit` when invoked from outside the clone; note the flag is
+- `gh` needs `--repo phmatray/tagout` when invoked from outside the clone; note the flag is
   `--repo`/`-R` on `issue`/`pr` but **not** on `gh repo view`, which takes the slug positionally.
 - Raw `git fetch`/`push` can be sandbox-blocked while `gh` works (`port 443` refused) — re-run those
   with the sandbox disabled; local git needs no network.

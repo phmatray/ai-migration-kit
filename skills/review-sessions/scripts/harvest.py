@@ -17,7 +17,7 @@ Usage:
   --since       keep only records stamped on or after that date (UTC date of the transcript line).
   --json        one JSON object per line (the record shape below). --markdown: the tally (default).
                 The two are exclusive.
-  --kit-name    the plugin's name as it appears in skill ids and cache paths (default: ai-migration-kit).
+  --kit-name    the plugin's name as it appears in skill ids and cache paths (default: tagout).
 
 The never-wait phrase list is READ from the kit's own tests/auto-dev-never-wait/test.sh (three
 directories above this file), never copied here: when that file is not there, no forbidden-wait
@@ -201,17 +201,19 @@ def excerpt_of(text, needle=None, width=160):
     return " ".join(text.split())[:width]
 
 
-def names_kit_path(s, in_kit_repo, kit_name):
+def names_kit_path(s, in_kit_repo, kit_names):
     if not s:
         return False
-    if kit_name:
-        # kit_name counts only as a PATH SEGMENT — not immediately preceded or followed by another
-        # identifier character. Bounded by adjacency, not by "/" or line-start: "~/.ai-migration-kit"
-        # (the kit's documented non-plugin clone path, AGENTS.md) and a mid-body mention on a line
-        # of its own both count; a dash-encoded cwd directory ("-Users-x-ai-migration-kit") does
-        # not, because the char right before the name there is "-", not a boundary; neither does a
-        # same-prefixed sibling ("ai-migration-kit.bak", "ai-migration-kit-archive").
-        if re.search(r"(?<![\w-])" + re.escape(kit_name) + r"(?![\w.-])", s):
+    for kit_name in kit_names:
+        # A kit name counts only as a PATH SEGMENT or a skill-id prefix: not preceded by another
+        # identifier character, and followed by "/", ":" or the end of its line. "~/.tagout" (the
+        # documented clone path, AGENTS.md), "/tagout/2.7.0/skills/…" (the plugin cache) and a
+        # mention on a line of its own all count; a dash-encoded cwd directory ("-Users-x-tagout")
+        # does not, because the char before the name is "-"; neither does a same-prefixed sibling
+        # ("tagout.bak", "tagout-archive") — nor, since the rename, the ordinary word in
+        # "docs/tagout procedure.md": "tagout" is an industrial-safety term, and a bare-word match
+        # would harvest a consumer's own files as kit failures (#611's review).
+        if re.search(r"(?<![\w-])" + re.escape(kit_name) + r"(?=[/:]|$)", s, re.M):
             return True
     for d in KIT_DIRS_ANYWHERE:
         if d in s:
@@ -223,7 +225,7 @@ def names_kit_path(s, in_kit_repo, kit_name):
     return any(name in s for name in KIT_SCRIPTS)
 
 
-def skill_from_tool_use(block, kit_name):
+def skill_from_tool_use(block, kit_names):
     """The kit skill a Skill tool_use names, or None."""
     if block.get("name") != "Skill":
         return None
@@ -233,14 +235,14 @@ def skill_from_tool_use(block, kit_name):
         return None
     bare = skill.split(":")[-1]
     prefix = skill.split(":")[0] if ":" in skill else None
-    if prefix and prefix != kit_name:
+    if prefix and prefix not in kit_names:
         return None
     if bare in KIT_SKILLS:
         return bare
     return COMMAND_SKILL.get(bare)
 
 
-def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
+def harvest_file(path, session, in_kit_repo, kit_names, phrases, since):
     records = []
     skipped = 0
     active = None
@@ -277,7 +279,7 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
                     if not isinstance(b, dict):
                         continue
                     if b.get("type") == "tool_use":
-                        sk = skill_from_tool_use(b, kit_name)
+                        sk = skill_from_tool_use(b, kit_names)
                         if sk:
                             active = sk
                         inp = b.get("input") if isinstance(b.get("input"), dict) else {}
@@ -333,10 +335,10 @@ def harvest_file(path, session, in_kit_repo, kit_name, phrases, since):
                         emit("guard-refusal", excerpt_of(body, g.group(0)), tool, g.group(1))
                         continue
                     sf = SUITE_FAIL_RE.search(body)
-                    if sf and names_kit_path(body, in_kit_repo, kit_name):
+                    if sf and names_kit_path(body, in_kit_repo, kit_names):
                         emit("suite-fail", excerpt_of(sf.group(0)), tool, "FAIL")
                         continue
-                    if is_error and names_kit_path(touched, in_kit_repo, kit_name):
+                    if is_error and names_kit_path(touched, in_kit_repo, kit_names):
                         emit("tool-error", excerpt_of(body), tool, excerpt_of(touched, width=100))
     # Collapse a polled command into one record with a count.
     collapsed = {}
@@ -382,7 +384,11 @@ def main(argv):
     ap.add_argument("--since")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--markdown", action="store_true")
-    ap.add_argument("--kit-name", default="ai-migration-kit")
+    # Comma-separated, current name first. The old name rides along by default so transcripts
+    # recorded before the rename — "ai-migration-kit:<skill>" ids, a checkout still under
+    # …/ai-migration-kit — keep counting (#611's review measured 138 records vs 101 without it);
+    # drop it once they have aged out.
+    ap.add_argument("--kit-name", default="tagout,ai-migration-kit")
     try:
         args = ap.parse_args(argv)
     except SystemExit as e:
@@ -401,7 +407,8 @@ def main(argv):
         except ValueError:
             print(f"usage: --since takes YYYY-MM-DD, got {args.since!r}", file=sys.stderr)
             return 2
-    dirs = args.project_dirs or default_project_dirs(args.kit_name)
+    kit_names = tuple(n.strip() for n in args.kit_name.split(",") if n.strip())
+    dirs = args.project_dirs or default_project_dirs(kit_names[0])
     if not dirs:
         print("usage: no PROJECT_DIR given and none detected for this cwd under ~/.claude/projects", file=sys.stderr)
         return 2
@@ -414,10 +421,13 @@ def main(argv):
     phrases, source = never_wait_phrases(kit_root)
     records, skipped, sessions = [], 0, 0
     for d in dirs:
-        in_kit_repo = args.kit_name in os.path.basename(os.path.abspath(d))
+        # A dash-encoded project dir ("-Users-x-repo-tagout") names the kit as a whole segment,
+        # never as a substring: "-Users-x-tagout-procedures" is not the kit's own checkout.
+        base = os.path.basename(os.path.abspath(d))
+        in_kit_repo = any(re.search(r"(^|-)" + re.escape(n) + r"(-|$)", base) for n in kit_names)
         for path, session in discover_transcripts(d):
             sessions += 1
-            rs, sk = harvest_file(path, session, in_kit_repo, args.kit_name, phrases, args.since)
+            rs, sk = harvest_file(path, session, in_kit_repo, kit_names, phrases, args.since)
             records.extend(rs)
             skipped += sk
     records.sort(key=lambda r: (r["skill"], r["kind"], r["ts"]))

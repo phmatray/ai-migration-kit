@@ -107,35 +107,35 @@ PY
 echo "== a version key must be rejected, however it is spelled =="
 run_case "P1 plain           metadata.version" fail "$(meta_mutator 'metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
   version: 1.8.0
 ')"
 run_case "P2 double-quoted   metadata.version" fail "$(meta_mutator 'metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
   "version": 1.8.0
 ')"
 run_case "P3 single-quoted   metadata.version" fail "$(meta_mutator "metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
   'version': 1.8.0
 ")"
 run_case "P4 space-before-colon             " fail "$(meta_mutator 'metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
   version : 1.8.0
 ')"
-run_case "P5 flow mapping    metadata.version" fail "$(meta_mutator 'metadata: {author: Philippe Matray, suite: ai-migration-kit, version: 1.8.0}
+run_case "P5 flow mapping    metadata.version" fail "$(meta_mutator 'metadata: {author: Philippe Matray, suite: tagout, version: 1.8.0}
 ')"
 run_case "P6 top-level       version         " fail "$(meta_mutator 'version: 2.0.0
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ')"
 
 echo "== the other frontmatter facts stay enforced =="
 run_case "P7 metadata.author missing        " fail "$(meta_mutator 'metadata:
-  suite: ai-migration-kit
+  suite: tagout
 ')"
 run_case "P8 metadata.suite missing         " fail "$(meta_mutator 'metadata:
   author: Philippe Matray
@@ -1441,6 +1441,15 @@ if cfg.get("remote_theme") or cfg.get("theme"):
     print("FAIL: docs/_config.yml names a theme (" + str(cfg.get("remote_theme") or cfg.get("theme")) + ") — the site ships its own layouts under docs/_layouts since the redesign"); sys.exit(1)
 if not (isinstance(cfg.get("mermaid"), dict) and cfg["mermaid"].get("version")):
     print("FAIL: docs/_config.yml does not pin mermaid.version"); sys.exit(1)
+# baseurl is spelled once more, independently, as the homepage in .github/repo-setup.yml: a Pages
+# site whose baseurl disagrees with its published URL 404s every stylesheet and internal link with
+# nothing red (#611's verification review) — pin the two together on the one literal
+# tests/repo-setup/test.sh already reads.
+manifest = root / ".github" / "repo-setup.yml"   # the fixture worlds below carry no manifest: only the real root is pinned
+home = (yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}).get("settings", {}).get("homepage", "") if manifest.exists() else ""
+want = "/" + home.rstrip("/").rsplit("/", 1)[-1]
+if home and cfg.get("baseurl") != want:
+    print("FAIL: docs/_config.yml baseurl is " + repr(cfg.get("baseurl")) + " but .github/repo-setup.yml homepage " + repr(home) + " implies " + repr(want)); sys.exit(1)
 # The layouts the defaults assign must exist, and the base layout must include the head, the top bar,
 # the footer and the scripts — the four includes every page stands on.
 layouts = docs / "_layouts"
@@ -1595,7 +1604,7 @@ _red_docs theme
 sed "s/localStorage.getItem('kit-scheme')/localStorage.getItem('kit-theme')/" "$KIT_ROOT/docs/_includes/head.html" > "$_pscratch/theme/docs/_includes/head.html"
 _red_refused theme "kit-theme" "a scheme restore reading a storage key the toggle never writes"
 _red_docs typed
-printf '%s\n' 'git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit' >> "$_pscratch/typed/docs/install.md"
+printf '%s\n' 'git clone https://github.com/phmatray/tagout ~/.tagout' >> "$_pscratch/typed/docs/install.md"
 _red_refused typed "docs/install.md types" "an install command typed into a page"
 _red_docs gets
 sed 's/, hooks: "yes"//' "$KIT_ROOT/docs/_data/hosts.yml" > "$_pscratch/gets/docs/_data/hosts.yml"

@@ -26,7 +26,7 @@
 #
 # Environment:
 #   KIT_RETRO_DAYS  lookback window in days (default 7)
-#   KIT_RETRO_DIR   where reports land (default $XDG_STATE_HOME/ai-migration-kit/retro)
+#   KIT_RETRO_DIR   where reports land (default $XDG_STATE_HOME/tagout/retro)
 #
 # Exit codes: 0 ran (with or without signals) · 1 harvest failed · 2 bad usage
 
@@ -34,7 +34,7 @@ set -euo pipefail
 
 KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DAYS="${KIT_RETRO_DAYS:-7}"
-STATE="${KIT_RETRO_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ai-migration-kit/retro}"
+STATE="${KIT_RETRO_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/tagout/retro}"
 UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT=kit-session-retro
 
@@ -92,7 +92,7 @@ cmd_install() {
   mkdir -p "$UNITS"
   cat >"$UNITS/$UNIT.service" <<EOF
 [Unit]
-Description=ai-migration-kit — harvest the kit's own failure signals from past transcripts
+Description=tagout — harvest the kit's own failure signals from past transcripts
 
 [Service]
 Type=oneshot

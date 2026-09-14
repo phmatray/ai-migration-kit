@@ -1,14 +1,14 @@
 {
-  "name": "ai-migration-kit-marketplace",
+  "name": "tagout-marketplace",
   "interface": {
-    "displayName": "AI Migration Kit"
+    "displayName": "Tagout"
   },
   "plugins": [
     {
-      "name": "ai-migration-kit",
+      "name": "tagout",
       "source": {
         "source": "url",
-        "url": "https://github.com/phmatray/ai-migration-kit.git",
+        "url": "https://github.com/phmatray/tagout.git",
         "ref": "main"
       },
       "policy": {

@@ -64,13 +64,13 @@ source_guard() {
   eval "$outvar=\$out"
 }
 
-PROJ=$(kit_scratch)/-Users-me-repo-ai-migration-kit    # the dir name carries the kit name → in-kit paths count
+PROJ=$(kit_scratch)/-Users-me-repo-tagout    # the dir name carries the kit name → in-kit paths count
 mkdir -p "$PROJ"
 T="$PROJ/sess-1.jsonl"
 D="2026-08-20T10:00:00.000Z"
 
 # The skill that owns everything below.
-write_line "$T" assistant "$D" "$(tool_use t0 Skill '{"skill":"ai-migration-kit:implement-issue","args":"47"}')"
+write_line "$T" assistant "$D" "$(tool_use t0 Skill '{"skill":"tagout:implement-issue","args":"47"}')"
 # 1. tool-error: an is_error on a kit script.
 write_line "$T" assistant "$D" "$(tool_use t1 Bash '{"command":"./skills/implement-issue/scripts/tick-plan.sh --issue 47"}')"
 write_line "$T" user "$D" "$(tool_result t1 'tick-plan: gh api timed out' true)"
@@ -213,13 +213,13 @@ write_line "$T" assistant "$D" "$(tool_use t19 Bash '{"command":"ls -la","descri
 write_line "$T" user "$D" "$(tool_result t19 "$GOUT" true)"
 # AC8 (#496): kit_name counts only as a standalone identifier — never as a substring of a
 # dash-encoded scratchpad directory that happens to spell the kit's name.
-write_line "$T" assistant "$D" "$(tool_use t17 Bash '{"command":"cd /private/tmp/claude-501/-Users-x-ai-migration-kit/scratchpad && ls"}')"  # tmp-lint:allow — a fixture COMMAND string under test, not a path this suite writes
+write_line "$T" assistant "$D" "$(tool_use t17 Bash '{"command":"cd /private/tmp/claude-501/-Users-x-tagout/scratchpad && ls"}')"  # tmp-lint:allow — a fixture COMMAND string under test, not a path this suite writes
 write_line "$T" user "$D" "$(tool_result t17 'ls: cannot access '"'"'foo'"'"': No such file or directory' true)"
-write_line "$T" assistant "$D" "$(tool_use t18 Bash '{"command":"cd /Users/x/ai-migration-kit && scripts/preflight.sh"}')"
+write_line "$T" assistant "$D" "$(tool_use t18 Bash '{"command":"cd /Users/x/tagout && scripts/preflight.sh"}')"
 write_line "$T" user "$D" "$(tool_result t18 'preflight: PyYAML missing' true)"
-# decoy: kit_name's trailing boundary — a same-PREFIXED sibling directory ("ai-migration-kit.bak")
+# decoy: kit_name's trailing boundary — a same-PREFIXED sibling directory ("tagout.bak")
 # is not the kit's own path segment, even though it starts with the kit's name.
-write_line "$T" assistant "$D" "$(tool_use t22 Bash '{"command":"ls /x/ai-migration-kit.bak/notes.txt"}')"
+write_line "$T" assistant "$D" "$(tool_use t22 Bash '{"command":"ls /x/tagout.bak/notes.txt"}')"
 write_line "$T" user "$D" "$(tool_result t22 "ls: cannot access notes.txt: No such file or directory" true)"
 # 7. harness-nudge (a plain user string).
 python3 - "$T" "$D" <<'PY'
@@ -287,7 +287,7 @@ rc=0; python3 "$SCRIPT" "$PROJ" --json --markdown > "$OUT.both" 2>&1 || rc=$?
 # An EXISTING directory that cannot be listed is not "no signals": glob() would swallow the
 # PermissionError and the run would answer clean with exit 0. Skipped as root, who can read anything.
 if [ "$(id -u)" -ne 0 ]; then
-  LOCKED=$(kit_scratch)/-Users-me-repo-ai-migration-kit-locked; mkdir -p "$LOCKED"; chmod 000 "$LOCKED"
+  LOCKED=$(kit_scratch)/-Users-me-repo-tagout-locked; mkdir -p "$LOCKED"; chmod 000 "$LOCKED"
   rc=0; python3 "$SCRIPT" "$LOCKED" --json > "$OUT.locked" 2>&1 || rc=$?
   chmod 755 "$LOCKED"
   [ "$rc" -eq 2 ] || { echo "FAIL: an unreadable (chmod 000) project dir must exit 2, got $rc"; cat "$OUT.locked"; exit 1; }
@@ -299,6 +299,33 @@ grep -q '^no signals' "$OUT.empty" || { echo "FAIL: an empty project dir must pr
 echo "ok   refusals: missing or unreadable dir → 2 without a traceback, bad --since → 2, --json --markdown → 2, empty dir → 0 and 'no signals'"
 
 # ------------------------------------------------------------------------- the never-wait phrases are READ from the kit's suite
+# ---------------------------------------------------------------- the rename's two edges (#611)
+# (a) a transcript recorded BEFORE the rename — the old skill-id prefix, a checkout still under
+#     …/ai-migration-kit — keeps counting under the DEFAULT --kit-name (the old name rides along);
+# (b) "tagout" is an ordinary word since the rename: a consumer's own "docs/tagout procedure.md"
+#     erroring in a non-kit project is NOT a kit tool-error.
+echo "== the old kit name still counts by default; the bare word 'tagout' does not =="
+OLDP=$(kit_scratch)/-Users-me-repo-ai-migration-kit; mkdir -p "$OLDP"; OT="$OLDP/sess-old.jsonl"
+write_line "$OT" assistant "$D" "$(tool_use o0 Skill '{"skill":"ai-migration-kit:implement-issue","args":"47"}')"
+write_line "$OT" assistant "$D" "$(tool_use o1 Bash '{"command":"./skills/implement-issue/scripts/tick-plan.sh --issue 47"}')"
+write_line "$OT" user "$D" "$(tool_result o1 'tick-plan: gh api timed out' true)"
+WORDP=$(kit_scratch)/-Users-x-tagout-procedures; mkdir -p "$WORDP"; WT="$WORDP/sess-word.jsonl"
+write_line "$WT" assistant "$D" "$(tool_use w1 Bash '{"command":"cat \"docs/tagout procedure.md\""}')"
+write_line "$WT" user "$D" "$(tool_result w1 'cat: docs/tagout procedure.md: No such file or directory' true)"
+OUT2=$(kit_scratch)/records-rename.jsonl
+python3 "$SCRIPT" "$OLDP" "$WORDP" --json --since 2026-08-15 > "$OUT2" 2>"$OUT2.err" || {
+  echo "FAIL: harvest.py exited non-zero on the rename fixtures"; cat "$OUT2.err"; exit 1; }
+python3 - "$OUT2" <<'PY'
+import json, sys
+recs = [json.loads(l) for l in open(sys.argv[1], encoding="utf-8") if l.strip()]
+got = sorted((r["kind"], r["skill"], r["detail"]) for r in recs)
+if len(recs) != 1 or got[0][:2] != ("tool-error", "implement-issue") or "tick-plan.sh" not in got[0][2]:
+    print("FAIL: expected exactly one tool-error, attributed through the OLD skill-id prefix; got", got); sys.exit(1)
+if any("procedure" in r["detail"] for r in recs):
+    print("FAIL: the bare word 'tagout' in a consumer's file was harvested as a kit path"); sys.exit(1)
+PY
+echo "ok   old-name transcripts count by default; the bare word 'tagout' does not"
+
 grep -q 'auto-dev-never-wait' "$SCRIPT" || { echo "FAIL: harvest.py does not read the never-wait phrases from tests/auto-dev-never-wait/test.sh"; exit 1; }
 grep -q 'never-wait phrases: kit' "$MD" || { echo "FAIL: the tally does not say the never-wait phrases came from the kit's suite"; tail -1 "$MD"; exit 1; }
 echo "ok   the never-wait phrase list has one home, and the tally names its source"

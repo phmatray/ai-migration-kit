@@ -21,7 +21,7 @@ The host's own plugin command installs the kit from this repository.
 
 ## Rule-file hosts
 
-A clone at `~/.ai-migration-kit` plus a rule file the host reads, which routes each request to a
+A clone at `~/.tagout` plus a rule file the host reads, which routes each request to a
 skill in the clone.
 
 | Host | Skills | Commands | MCP servers | Gates | Sub-agents |

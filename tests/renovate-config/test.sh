@@ -416,7 +416,7 @@ echo "  [9] ci.yml's own step still fails the build when RE2 fails to load, not 
 #     declares cannot be assembled at all.
 # ---------------------------------------------------------------------------
 TRANSFORM_REL="tests/xunit-v3/apply-transform.py"
-REPO_SLUG="phmatray/ai-migration-kit"
+REPO_SLUG="phmatray/tagout"
 NODE_FLOOR_MAJOR=24
 NODE_FLOOR_MINOR=11
 

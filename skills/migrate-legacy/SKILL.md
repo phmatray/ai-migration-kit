@@ -14,7 +14,7 @@ compatibility: >-
   requirements.json at the kit root, verified by scripts/preflight.sh (phase 0).
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Migrate a legacy application — the seven-phase pipeline

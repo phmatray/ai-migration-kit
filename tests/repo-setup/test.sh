@@ -1439,7 +1439,7 @@ done
 echo "  ok: shipped default — templates/repo-setup.yml documents topics: and pages: and declares neither"
 
 has_line "^S${META_TAB}description${META_TAB}." "$repo_parsed" || fail "this repo's manifest declares no description (#400)"
-has_line "^S${META_TAB}homepage${META_TAB}https://phmatray.github.io/ai-migration-kit/" "$repo_parsed" \
+has_line "^S${META_TAB}homepage${META_TAB}https://phmatray.github.io/tagout/" "$repo_parsed" \
   || fail "this repo's manifest does not declare the Pages URL as its homepage (#400)"
 has_line "^G${META_TAB}source.branch${META_TAB}main" "$repo_parsed" || fail "this repo's manifest declares no Pages source branch (#400)"
 has_line "^G${META_TAB}source.path${META_TAB}/docs" "$repo_parsed" || fail "this repo's manifest does not publish docs/ (#400, #401)"

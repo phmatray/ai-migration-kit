@@ -45,9 +45,9 @@ repo_no_remote() {
 # joined into one filename with a separator (a dash-joined `auto-dev-<owner>-<repo>.md` collided:
 # `-` is legal inside both a GitHub owner and repo name, so `foo-bar/baz` and `foo/bar-baz` both
 # flattened to the same `auto-dev-foo-bar-baz.md`):
-# ${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md
+# ${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/tagout/auto-dev/<host>/<owner>/<repo>.md
 state_path() { # $1 AUTODEV_STATE_DIR base  $2 host  $3 owner  $4 repo
-  printf '%s/ai-migration-kit/auto-dev/%s/%s/%s.md' "$1" "$2" "$3" "$4"
+  printf '%s/tagout/auto-dev/%s/%s/%s.md' "$1" "$2" "$3" "$4"
 }
 
 pay() { # $1 cwd  $2 stop_hook_active (true|false)  $3 optional session_id

@@ -100,7 +100,7 @@ def read_skill_description(project_root: Path, skill_name: str) -> str:
 
     Reads this repo's own `skills/<name>/SKILL.md` — the source of truth. It
     deliberately does NOT read the installed plugin cache: that path carries the
-    version (`…/ai-migration-kit/1.9.0/skills/…`) and would break on every
+    version (`…/tagout/1.9.0/skills/…`) and would break on every
     `/plugin update`, and it would measure whatever was last installed rather
     than what this working tree actually says.
     """

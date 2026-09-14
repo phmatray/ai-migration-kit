@@ -32,7 +32,7 @@ switches to the base branch, the primary checkout already holds it, and git refu
 
 ```
 $ gh pr merge 176 --squash --delete-branch
-failed to run git: fatal: 'main' is already used by worktree at '<path>/ai-migration-kit'
+failed to run git: fatal: 'main' is already used by worktree at '<path>/tagout'
 ```
 
 That merge **landed** — only gh's post-merge `git checkout` failed. Run from the primary checkout

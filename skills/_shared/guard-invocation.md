@@ -3,7 +3,7 @@
 `$GUARDS` points at the kit's own `skills/implement-issue/scripts/` directory — deliberately, so
 there is exactly one copy of `guarded-commit.sh`, `guarded-push.sh` and `guarded-merge.sh` rather
 than a copy per consumer that drifts. When the kit runs as an **installed plugin**, that directory
-is the plugin cache (`~/.claude/plugins/cache/<marketplace>/ai-migration-kit/<version>/…`), which
+is the plugin cache (`~/.claude/plugins/cache/<marketplace>/tagout/<version>/…`), which
 sits outside the repo entirely — and therefore outside the worktree an `auto-dev` or
 `implement-issue` worker is confined to. A host or sandbox that pins an agent to one worktree can
 then refuse to invoke a script that lives outside it, at the exact moment a commit needs to go

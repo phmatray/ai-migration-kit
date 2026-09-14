@@ -6,7 +6,7 @@
   {"query": "de l'idée à la PR mergée : ajoute un flag --json à survey.sh", "should_trigger": true},
   {"query": "implement and merge issue 88 in one go, fresh context for the merge like auto-dev does", "should_trigger": true},
   {"query": "deliver #61 but stop at ready, I want to read the diff before it lands", "should_trigger": true, "note": "--stop-at ready is still this skill"},
-  {"query": "https://github.com/phmatray/ai-migration-kit/issues/343 — go build it and land it", "should_trigger": true},
+  {"query": "https://github.com/phmatray/tagout/issues/343 — go build it and land it", "should_trigger": true},
   {"query": "plan, build and ship a single issue for me: the profile's Domain language line should read CONTEXT.md when one exists", "should_trigger": true},
   {"query": "burn down the backlog with 3 agents, small issues first", "should_trigger": false, "note": "many issues → auto-dev"},
   {"query": "merge PR 279 once CI is green", "should_trigger": false, "note": "a PR already open → merge-pr"},

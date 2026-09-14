@@ -435,7 +435,7 @@ def main():
     ap.add_argument('--profile-todos', nargs='*', default=[],
                      help='profils de repo dont les marqueurs <!-- TODO: --> deviennent des questions')
     ap.add_argument('--to', default='the repository owner')
-    ap.add_argument('--from', dest='frm', default='ai-migration-kit followups')
+    ap.add_argument('--from', dest='frm', default='tagout followups')
     ap.add_argument('--deadline', default=None)
     ap.add_argument('--ingest', help='fichier de réponses à appliquer à la source')
     ap.add_argument('--dry-run', action='store_true')

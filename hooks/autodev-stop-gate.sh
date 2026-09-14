@@ -99,7 +99,7 @@ case "$host" in */*) exit 0 ;; esac
 # "$repo" in */*) above already refuses a `repo` containing it; `owner` cannot contain it either,
 # being the first `[^/:]+` capture group), so the filesystem is the separator instead of a string.
 state_base="${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}"
-state_file="$state_base/ai-migration-kit/auto-dev/$host/$owner/$repo.md"
+state_file="$state_base/tagout/auto-dev/$host/$owner/$repo.md"
 [ -r "$state_file" ] || exit 0
 
 # ---------------------------------------------------------- supervised window (#548)

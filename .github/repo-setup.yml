@@ -2,7 +2,7 @@
 #
 # `skills/setup-repo/scripts/repo-setup.sh` prefers this file over the kit's shipped
 # `templates/repo-setup.yml` (see repo-setup.sh:103), so what follows governs
-# phmatray/ai-migration-kit and nothing else.
+# phmatray/tagout and nothing else.
 #
 # WHY THIS FILE EXISTS RATHER THAN AN EDIT TO THE SHIPPED DEFAULT. The `area:` axis names code,
 # and this repo's code is the kit itself — `area: merge-pr` and `area: implement-issue` are
@@ -141,8 +141,8 @@ settings:
   allow_rebase_merge: false
   # The repository's public face (#400): what GitHub shows above the file list, and the site
   # docs/ publishes (#401). Converged here, never edited in the GitHub UI.
-  description: "A Claude Code plugin with two loops: a gate-verified pipeline that migrates legacy .NET applications with RoselineMCP, and a hands-off GitHub issue → PR lifecycle (create-issue, implement-issue, merge-pr, auto-dev) that runs on any repository through one committed profile."
-  homepage: "https://phmatray.github.io/ai-migration-kit/"
+  description: "Tagout — the gate-verified issue → PR lifecycle for coding agents (create-issue, implement-issue, merge-pr, auto-dev), with a .NET migration add-on powered by RoselineMCP."
+  homepage: "https://phmatray.github.io/tagout/"
 
 # Topics (#400): how the repository is found. `apply` writes the union of these and whatever is
 # live; only `--prune` drops one this list does not name.

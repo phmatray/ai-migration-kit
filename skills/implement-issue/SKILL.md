@@ -16,7 +16,7 @@ compatibility: >-
   worktree recipe is its own scripts/, the plan shape and TDD loop ship under skills/_shared/.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Implement an issue from its plan

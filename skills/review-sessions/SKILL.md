@@ -18,7 +18,7 @@ compatibility: >-
   never closes an issue.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Review the sessions — the kit's own failures, out of the transcripts

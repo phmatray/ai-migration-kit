@@ -495,7 +495,7 @@ echo "  [5g] several covering manifests -> the nearest one, named, and stable ac
 #    `vendoredAssets` has skipped nested checkouts since #64; every other key still walked them,
 #    because the script carried two encodings of "directories we never walk" (`EXCLUDE`, used by
 #    files(); `PRUNE`/prune(), used by the vendored scan only). Measured before this was fixed:
-#      - ai-migration-kit reported testStack = 6 for ONE test project — five were copies of
+#      - tagout reported testStack = 6 for ONE test project — five were copies of
 #        samples/LegacyShop inside its own agent worktrees, each contributing the same xunit pin;
 #      - Koine 1825 csFiles, NetImpex 1116, repo-audit 348, all inflated by worktree copies.
 #    Wrong numbers with no symptom, in a document phase 1 copies into an assessment.

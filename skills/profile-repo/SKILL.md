@@ -15,7 +15,7 @@ compatibility: >-
   identity probes — without it the profile is generated with flagged TODOs instead.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Resolve the repo profile (config for the issue/PR lifecycle skills)

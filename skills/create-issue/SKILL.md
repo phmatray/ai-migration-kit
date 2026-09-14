@@ -15,7 +15,7 @@ compatibility: >-
   spec and plan doctrines it follows ship under skills/_shared/, no third-party plugin needed.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Create a GitHub issue (template-compliant, auto-seeded)
