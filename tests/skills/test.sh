@@ -1441,6 +1441,15 @@ if cfg.get("remote_theme") or cfg.get("theme"):
     print("FAIL: docs/_config.yml names a theme (" + str(cfg.get("remote_theme") or cfg.get("theme")) + ") — the site ships its own layouts under docs/_layouts since the redesign"); sys.exit(1)
 if not (isinstance(cfg.get("mermaid"), dict) and cfg["mermaid"].get("version")):
     print("FAIL: docs/_config.yml does not pin mermaid.version"); sys.exit(1)
+# baseurl is spelled once more, independently, as the homepage in .github/repo-setup.yml: a Pages
+# site whose baseurl disagrees with its published URL 404s every stylesheet and internal link with
+# nothing red (#611's verification review) — pin the two together on the one literal
+# tests/repo-setup/test.sh already reads.
+manifest = root / ".github" / "repo-setup.yml"   # the fixture worlds below carry no manifest: only the real root is pinned
+home = (yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}).get("settings", {}).get("homepage", "") if manifest.exists() else ""
+want = "/" + home.rstrip("/").rsplit("/", 1)[-1]
+if home and cfg.get("baseurl") != want:
+    print("FAIL: docs/_config.yml baseurl is " + repr(cfg.get("baseurl")) + " but .github/repo-setup.yml homepage " + repr(home) + " implies " + repr(want)); sys.exit(1)
 # The layouts the defaults assign must exist, and the base layout must include the head, the top bar,
 # the footer and the scripts — the four includes every page stands on.
 layouts = docs / "_layouts"
