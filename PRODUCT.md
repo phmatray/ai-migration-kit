@@ -64,7 +64,9 @@ claim measured, gate-enforced verification.
   preference and a stored toggle (`kit-scheme` in localStorage, `data-kit-scheme` on the root).
 - Token cost is an existential concern for the owner: docs changes must not bloat pages the skills
   or agents read, and the site carries no client-side framework.
-- No decision yet on imagery beyond the favicon; the site ships no raster.
+- No decision yet on imagery beyond the favicon; the only raster the site ships is the case-study
+  captures under `docs/case-studies/winrt-portfolio/captures/` (published since 2026-09-14 so
+  the Sokoban report's screenshot resolves).
 
 ## Brand Commitments
 

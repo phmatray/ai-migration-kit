@@ -135,8 +135,9 @@
   opacity: 1;
 }
 
-.kit-body ul,
-.kit-body ol {
+// Only prose lists indent; a classed list (the journal stack, a child list) sets its own box.
+.kit-body ul:not([class]),
+.kit-body ol:not([class]) {
   padding-left: 1.4em;
 }
 
@@ -181,13 +182,29 @@
   background: var(--card);
 }
 
-// Tables: ruled, never boxed.
+// Tables: ruled, never boxed. Without script a table is its own scroll box; site.js wraps each
+// one in .kit-table so the table can fill the column and the wrapper does the scrolling.
 .kit-body table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9375rem;
   display: block;
   overflow-x: auto;
+}
+
+.kit-table {
+  overflow-x: auto;
+  margin: 0 0 calc(var(--unit) * 2);
+}
+
+.kit-table > table {
+  display: table;
+  overflow: visible;
+  margin: 0;
+}
+
+.kit-body > .kit-table {
+  max-width: none;
 }
 
 .kit-body thead th {
@@ -205,12 +222,20 @@
 
 .kit-body tbody td {
   padding: calc(var(--unit) * 1.25) calc(var(--unit) * 2) calc(var(--unit) * 1.25) 0;
-  border-bottom: 1px dotted var(--g4);
   vertical-align: top;
 }
 
-.kit-body tbody tr:last-child td {
+.kit-body tbody tr {
+  border-bottom: 1px dotted var(--g4);
+}
+
+.kit-body tbody tr:last-child {
   border-bottom: 0;
+}
+
+// A chip in a table cell keeps its word whole; the wrapper scrolls instead.
+.kit-body td code {
+  overflow-wrap: normal;
 }
 
 // Code: inline in the field grey, blocks on ink with a copy chip in the corner.
@@ -225,6 +250,7 @@
   border-radius: var(--radius);
   padding: 0.05em 0.35em;
   overflow-wrap: anywhere;
+  line-height: 1;
 }
 
 .kit-body a code {
@@ -264,6 +290,7 @@ div.highlighter-rouge pre code,
   border: 0;
   padding: 0;
   font-size: inherit;
+  line-height: inherit;
   color: inherit;
 }
 
@@ -299,8 +326,7 @@ div.highlighter-rouge pre code,
 .highlight .k,
 .highlight .kd,
 .highlight .kn,
-.highlight .kr,
-.highlight .nb {
+.highlight .kr {
   color: var(--yellow);
 }
 .highlight .s,
@@ -332,6 +358,14 @@ pre.mermaid,
   padding: calc(var(--unit) * 2);
   overflow-x: auto;
   text-align: center;
+}
+
+// Mermaid shrinks a diagram to the column and its labels with it; a floor on the width keeps
+// them legible and the box scrolls instead.
+.mermaid svg {
+  min-width: 56rem;
+  max-width: none !important;
+  height: auto;
 }
 
 // Child lists on section pages.
@@ -389,6 +423,7 @@ pre.mermaid,
   .kit-adr-stamp {
     justify-self: start;
     padding-top: 0;
+    order: -1;
   }
 }
 
@@ -468,7 +503,8 @@ pre.mermaid,
   font-size: 1.5rem;
   line-height: 1;
   color: var(--red);
-  min-width: 4.5ch;
+  min-width: 7ch;
+  font-variant-numeric: tabular-nums;
 }
 
 .kit-journal-title {
@@ -501,10 +537,16 @@ pre.mermaid,
 
 @media (max-width: 40rem) {
   .kit-journal-stack .kit-tag {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    gap: calc(var(--unit) * 0.75);
+    margin-left: 0;
+    padding-left: calc(var(--unit) * 5);
+  }
+  .kit-journal-version {
+    min-width: 0;
   }
   .kit-journal-date {
-    grid-column: 2;
+    grid-column: 1;
   }
 }
 

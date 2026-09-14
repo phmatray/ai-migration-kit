@@ -84,7 +84,7 @@ nav_order: 1
 <tr><td class="kit-record-app"><a href="https://phmatray.github.io/chords/">Chords</a></td><td class="kit-record-from">Windows Phone</td><td class="kit-record-time">18 min<small>pipeline, measured</small></td></tr>
 <tr><td class="kit-record-app"><a href="https://phmatray.github.io/fleurs-du-mal-winrt/">Les Fleurs du Mal</a></td><td class="kit-record-from">WinRT 8.1</td><td class="kit-record-time">~30 min<small>pipeline, measured</small></td></tr>
 <tr><td class="kit-record-app"><a href="https://phmatray.github.io/pokedexg/">Pokédex G</a></td><td class="kit-record-from">UWP, SQLite 49 MB</td><td class="kit-record-time">~1 h<small>pipeline, measured</small></td></tr>
-<tr><td class="kit-record-app"><a href="https://phmatray.github.io/winrt-sokoban/">Sokoban</a></td><td class="kit-record-from">WinRT 8.1</td><td class="kit-record-time is-untimed">first wave, not timed</td></tr>
+<tr><td class="kit-record-app"><a href="https://phmatray.github.io/winrt-sokoban/">Sokoban</a></td><td class="kit-record-from">WinRT 8.1</td><td class="kit-record-time is-untimed">First wave<small>not timed</small></td></tr>
 </tbody>
 </table>
 <p class="kit-record-note" markdown="span">The audit, the per-app reports and what each wave taught the kit: [the case study](case-studies/winrt-portfolio/portfolio.md).</p>
@@ -135,5 +135,4 @@ nav_order: 1
 <li markdown="span">[Journal](journal/index.md)<span>One article per release: why it happened, what got cut, what bit us.</span></li>
 <li markdown="span">[Platforms](platforms.md)<span>What each host gets: skills, commands, MCP servers, gates, sub-agents.</span></li>
 </ul>
-<p class="kit-home-onsite">On GitHub: <a href="https://github.com/phmatray/ai-migration-kit#readme">README</a>, <a href="https://github.com/phmatray/ai-migration-kit/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a>, <a href="https://github.com/phmatray/ai-migration-kit/blob/main/CONTEXT.md">CONTEXT.md</a> and the <a href="https://github.com/phmatray/ai-migration-kit/blob/main/CHANGELOG.md">CHANGELOG</a>.</p>
 </section>

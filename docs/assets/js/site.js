@@ -109,6 +109,28 @@
     }
   }
 
+  /* Heading anchors: every h2 and h3 with an id gets a link to itself, shown on hover. */
+  if (article) {
+    var anchored = article.querySelectorAll('h2[id], h3[id]');
+    for (var n = 0; n < anchored.length; n++) {
+      var link = document.createElement('a');
+      link.className = 'anchor-heading';
+      link.href = '#' + anchored[n].id;
+      link.textContent = '#';
+      link.setAttribute('aria-label', 'Link to this section');
+      anchored[n].appendChild(link);
+    }
+  }
+
+  /* Tables: wrapped so the table fills the column and the wrapper scrolls when it is wider. */
+  var tables = document.querySelectorAll('.kit-body > table');
+  for (var t = 0; t < tables.length; t++) {
+    var wrap = document.createElement('div');
+    wrap.className = 'kit-table';
+    tables[t].parentNode.insertBefore(wrap, tables[t]);
+    wrap.appendChild(tables[t]);
+  }
+
   /* The hasp: the seven locks release once, left to right, on the home page. */
   var hasp = document.querySelector('.kit-hasp');
   if (hasp) {
