@@ -1,0 +1,552 @@
+// Read pages: the article, its typography, tables, code, callouts, child lists; the ADR meta block;
+// the journal stack and its prev/next.
+.kit-article {
+  min-width: 0;
+}
+
+.kit-article-head {
+  margin-bottom: calc(var(--unit) * 4);
+  padding-bottom: calc(var(--unit) * 3);
+  border-bottom: 1.5px solid var(--rule-strong);
+  position: relative;
+}
+
+.kit-article-head::before {
+  content: "";
+  display: block;
+  height: 6px;
+  background: var(--red);
+  margin-bottom: calc(var(--unit) * 3);
+  width: calc(var(--unit) * 12);
+}
+
+.kit-article-head h1,
+.kit-article > h1:first-child,
+.kit-body > h1:first-child {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 0.98;
+  letter-spacing: 0.002em;
+  text-transform: none;
+  max-width: 22ch;
+}
+
+.kit-article-meta {
+  margin: calc(var(--unit) * 2) 0 0;
+  font-family: var(--font-type);
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--unit) calc(var(--unit) * 3);
+  align-items: center;
+}
+
+.kit-article-meta a {
+  color: var(--ink);
+}
+
+// The body: a 44rem measure for running text, tables and code may take the column.
+.kit-body {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.kit-body > * {
+  max-width: var(--measure);
+}
+
+.kit-body > table,
+.kit-body > .table-wrapper,
+.kit-body > div.highlighter-rouge,
+.kit-body > pre,
+.kit-body > figure,
+.kit-body > .kit-tag,
+.kit-body > .mermaid,
+.kit-body > pre.mermaid {
+  max-width: none;
+}
+
+.kit-body > h1:first-child {
+  margin-bottom: calc(var(--unit) * 3);
+}
+
+.kit-body > h1:first-child::before {
+  content: "";
+  display: block;
+  height: 6px;
+  width: calc(var(--unit) * 12);
+  background: var(--red);
+  margin-bottom: calc(var(--unit) * 3);
+}
+
+.kit-body--adr > h2:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.kit-body h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-top: calc(var(--unit) * 7);
+  margin-bottom: calc(var(--unit) * 2);
+  padding-top: calc(var(--unit) * 2);
+  border-top: 1px solid var(--rule);
+}
+
+.kit-body h3 {
+  font-size: 1.1875rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: calc(var(--unit) * 5);
+  margin-bottom: calc(var(--unit) * 1.5);
+}
+
+.kit-body h4 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-top: calc(var(--unit) * 4);
+  margin-bottom: var(--unit);
+}
+
+.kit-body h5,
+.kit-body h6 {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  margin-top: calc(var(--unit) * 3);
+  margin-bottom: var(--unit);
+}
+
+.kit-body h2 .anchor-heading,
+.kit-body h3 .anchor-heading {
+  margin-left: 0.35em;
+  text-decoration: none;
+  color: var(--ink-faint);
+  opacity: 0;
+  transition: opacity 160ms var(--ease-out);
+}
+
+.kit-body h2:hover .anchor-heading,
+.kit-body h3:hover .anchor-heading,
+.kit-body .anchor-heading:focus {
+  opacity: 1;
+}
+
+.kit-body ul,
+.kit-body ol {
+  padding-left: 1.4em;
+}
+
+.kit-body li {
+  margin-bottom: calc(var(--unit) * 0.75);
+}
+
+.kit-body li > ul,
+.kit-body li > ol {
+  margin-top: calc(var(--unit) * 0.75);
+}
+
+.kit-body li::marker {
+  color: var(--ink-soft);
+}
+
+.kit-body hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: calc(var(--unit) * 5) 0;
+}
+
+.kit-body strong {
+  font-weight: 700;
+}
+
+.kit-body blockquote {
+  margin: calc(var(--unit) * 3) 0;
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+
+.kit-body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.kit-body img {
+  border: 1px solid var(--rule);
+  background: var(--card);
+}
+
+// Tables: ruled, never boxed.
+.kit-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  display: block;
+  overflow-x: auto;
+}
+
+.kit-body thead th {
+  text-align: left;
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 400;
+  color: var(--ink-soft);
+  padding: 0 calc(var(--unit) * 2) var(--unit) 0;
+  border-bottom: 1px solid var(--rule-strong);
+  white-space: nowrap;
+}
+
+.kit-body tbody td {
+  padding: calc(var(--unit) * 1.25) calc(var(--unit) * 2) calc(var(--unit) * 1.25) 0;
+  border-bottom: 1px dotted var(--g4);
+  vertical-align: top;
+}
+
+.kit-body tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+// Code: inline in the field grey, blocks on ink with a copy chip in the corner.
+.kit-body code,
+.kit-fields code,
+.kit-commands code,
+.kit-refusals code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--field);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.05em 0.35em;
+  overflow-wrap: anywhere;
+}
+
+.kit-body a code {
+  color: inherit;
+}
+
+div.highlighter-rouge,
+pre.highlight,
+.kit-body > pre {
+  position: relative;
+  margin: calc(var(--unit) * 2) 0 calc(var(--unit) * 3);
+}
+
+div.highlighter-rouge pre,
+.kit-body > pre,
+.kit-picker-panel pre {
+  margin: 0;
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 2.5);
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1.5px solid var(--rule-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-right: calc(var(--unit) * 9);
+  tab-size: 2;
+}
+
+div.highlighter-rouge pre code,
+.kit-body > pre code,
+.kit-picker-panel pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.kit-copy {
+  position: absolute;
+  top: var(--unit);
+  right: var(--unit);
+  z-index: 2;
+  border-color: var(--g5);
+  color: var(--g2);
+  background: var(--code-bg);
+}
+
+.kit-copy:hover {
+  border-color: var(--g1);
+  color: var(--g0);
+}
+
+.kit-copy.is-done {
+  border-style: solid;
+  border-color: var(--yellow);
+  background: var(--yellow);
+  color: var(--g10);
+}
+
+// Rouge tokens on the ink ground: a small, measured set.
+.highlight .c,
+.highlight .c1,
+.highlight .cm {
+  color: var(--g4);
+  font-style: italic;
+}
+.highlight .k,
+.highlight .kd,
+.highlight .kn,
+.highlight .kr,
+.highlight .nb {
+  color: var(--yellow);
+}
+.highlight .s,
+.highlight .s1,
+.highlight .s2,
+.highlight .sb {
+  color: #9be29b;
+}
+.highlight .nt,
+.highlight .nf,
+.highlight .na {
+  color: #9ecbff;
+}
+.highlight .mi,
+.highlight .m,
+.highlight .mf {
+  color: #f0b27a;
+}
+.highlight .nv,
+.highlight .vg,
+.highlight .p {
+  color: var(--g2);
+}
+
+pre.mermaid,
+.mermaid {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  padding: calc(var(--unit) * 2);
+  overflow-x: auto;
+  text-align: center;
+}
+
+// Child lists on section pages.
+.kit-children {
+  list-style: none;
+  margin: calc(var(--unit) * 3) 0;
+  padding: 0;
+}
+
+.kit-children li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: calc(var(--unit) * 2);
+  padding: calc(var(--unit) * 1.5) 0;
+  border-bottom: 1px dotted var(--g4);
+  align-items: baseline;
+}
+
+.kit-children li:first-child {
+  border-top: 1px solid var(--rule-strong);
+}
+
+.kit-children a {
+  font-weight: 700;
+}
+
+.kit-children .kit-children-meta {
+  font-family: var(--font-type);
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+// ADR: the decision record filled in as a tag.
+.kit-adr-meta {
+  margin: calc(var(--unit) * 3) 0 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: calc(var(--unit) * 2) calc(var(--unit) * 4);
+  align-items: start;
+}
+
+.kit-adr-meta .kit-fields {
+  font-size: 0.875rem;
+}
+
+.kit-adr-stamp {
+  justify-self: end;
+  padding-top: calc(var(--unit) * 1.5);
+}
+
+@media (max-width: 40rem) {
+  .kit-adr-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kit-adr-stamp {
+    justify-self: start;
+    padding-top: 0;
+  }
+}
+
+.kit-adr-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 0.75);
+}
+
+.kit-adr-tags span {
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--g4);
+  padding: 1px 6px;
+  border-radius: var(--radius);
+}
+
+.kit-adr-refs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+// ADR index: status column renders a stamp word.
+.kit-adr-index td:nth-child(3) {
+  font-family: var(--font-type);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.8125rem;
+}
+
+// The journal stack: one tag per release, newest on top, older ones stapled beneath and still
+// legible. Each tag steps down and offsets; hovering lifts it.
+.kit-journal-stack {
+  list-style: none;
+  margin: calc(var(--unit) * 4) 0;
+  padding: 0 0 calc(var(--unit) * 2) 0;
+  max-width: none;
+}
+
+.kit-journal-stack li {
+  margin: 0;
+  position: relative;
+}
+
+.kit-journal-stack li + li {
+  margin-top: calc(var(--unit) * -1.5);
+}
+
+.kit-journal-stack .kit-tag {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  align-items: baseline;
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3) calc(var(--unit) * 2) calc(var(--unit) * 6);
+  margin-left: calc(var(--unit) * var(--step, 0));
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+
+.kit-journal-stack .kit-tag:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lift);
+  z-index: 3;
+}
+
+.kit-journal-stack .kit-grommet {
+  top: calc(var(--unit) * 2);
+}
+
+.kit-journal-version {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--red);
+  min-width: 4.5ch;
+}
+
+.kit-journal-title {
+  font-weight: 700;
+  font-size: 1.0625rem;
+  line-height: 1.3;
+}
+
+.kit-journal-title a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.kit-journal-title a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.kit-journal-title a:hover {
+  color: var(--red);
+}
+
+.kit-journal-date {
+  font-family: var(--font-type);
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .kit-journal-stack .kit-tag {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .kit-journal-date {
+    grid-column: 2;
+  }
+}
+
+.kit-prevnext {
+  margin-top: calc(var(--unit) * 8);
+  padding-top: calc(var(--unit) * 3);
+  border-top: 1.5px solid var(--rule-strong);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: calc(var(--unit) * 3);
+  font-size: 0.9375rem;
+}
+
+.kit-prevnext a {
+  display: block;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.kit-prevnext a:hover {
+  color: var(--red);
+}
+
+.kit-prevnext small {
+  display: block;
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  margin-bottom: calc(var(--unit) * 0.5);
+}
+
+.kit-prevnext .kit-next {
+  text-align: right;
+}
+
+@media (max-width: 40rem) {
+  .kit-prevnext {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kit-prevnext .kit-next {
+    text-align: left;
+  }
+}

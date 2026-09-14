@@ -6,9 +6,9 @@ has_children: true
 
 # Journal
 
-One article per published release, oldest first. `CHANGELOG.md` answers *what changed if I update?*;
-this answers *why did we do that, and what did we learn?* Walk it front to back and the kit's
-evolution reads as a story rather than a diff.
+One article per published release, newest on top, the earlier ones stapled beneath it. `CHANGELOG.md`
+answers *what changed if I update?*; this answers *why did we do that, and what did we learn?* Read it
+from the bottom up and the kit's evolution reads as a story rather than a diff.
 
 Two prose rules, enforced by `tests/skills/test.sh` rather than by review: every article is in
 English, and no article contains an em dash. Use commas, colons, parentheses or separate sentences

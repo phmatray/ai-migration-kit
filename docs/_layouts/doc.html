@@ -1,0 +1,23 @@
+---
+layout: default
+kind: doc
+---
+<div class="kit-page">
+  {% include sidenav.html %}
+  <main id="main" class="kit-article">
+    <article class="kit-body">
+{{ content }}
+      {%- if page.has_children and page.children_list != false %}
+        {%- assign kids = site.pages | where: "parent", page.title | sort: "nav_order" %}
+        {%- if kids.size > 0 %}
+      <ul class="kit-children">
+        {%- for k in kids %}
+        <li><a href="{{ k.url | relative_url }}">{{ k.title }}</a>{% if k.date %}<span class="kit-children-meta">{{ k.date | date: "%Y-%m-%d" }}</span>{% endif %}</li>
+        {%- endfor %}
+      </ul>
+        {%- endif %}
+      {%- endif %}
+    </article>
+  </main>
+  <aside class="kit-toc" aria-label="On this page"></aside>
+</div>

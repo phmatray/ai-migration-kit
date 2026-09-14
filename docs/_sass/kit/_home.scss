@@ -1,0 +1,517 @@
+// The home page: the tag and the install window side by side, the hasp under them, then the
+// lock-out record, the refusals, the command table and the rest of the site.
+.kit-home {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: calc(var(--unit) * 3) calc(var(--unit) * 3) calc(var(--unit) * 8);
+}
+
+.kit-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(20rem, 1fr);
+  gap: calc(var(--unit) * 3);
+  align-items: start;
+}
+
+@media (max-width: 64rem) {
+  .kit-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+// The tag at monumental scale.
+.kit-hero-tag {
+  display: flex;
+  flex-direction: column;
+}
+
+.kit-hero-tag .kit-tag-band {
+  padding: calc(var(--unit) * 3) calc(var(--unit) * 4) calc(var(--unit) * 2.5) calc(var(--unit) * 7);
+}
+
+.kit-hero-title {
+  font-size: clamp(2.5rem, 4.3vw, 3.875rem);
+  max-width: 15ch;
+}
+
+.kit-hero-tag .kit-tag-body {
+  padding: calc(var(--unit) * 3) calc(var(--unit) * 4) calc(var(--unit) * 3);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2.5);
+  flex: 1;
+}
+
+.kit-hero-lead {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  max-width: 58ch;
+  color: var(--ink);
+}
+
+.kit-hero-lead strong {
+  font-weight: 700;
+}
+
+.kit-denial {
+  border: 1px solid var(--rule);
+  background: var(--field);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 2.5);
+}
+
+.kit-denial-title {
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  margin: 0 0 var(--unit);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--unit);
+  flex-wrap: wrap;
+}
+
+.kit-denial-title span:last-child {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.kit-denial .kit-fields {
+  font-size: 0.875rem;
+}
+
+.kit-denial .kit-fields dt,
+.kit-denial .kit-fields dd {
+  padding-top: calc(var(--unit) * 0.875);
+  padding-bottom: calc(var(--unit) * 0.875);
+}
+
+.kit-denial .kit-fields dt,
+.kit-denial .kit-fields dd {
+  border-bottom-color: var(--g3);
+}
+
+.kit-denial .kit-fields > :nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.kit-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--unit) calc(var(--unit) * 2);
+  align-items: center;
+  margin-top: auto;
+  font-size: 0.9375rem;
+}
+
+.kit-hero-actions a {
+  font-weight: 600;
+}
+
+// The install window: the primary action. A punched card with the host tabs and the command.
+.kit-install {
+  display: flex;
+  flex-direction: column;
+}
+
+.kit-install .kit-tag-band {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3) calc(var(--unit) * 1.75) calc(var(--unit) * 6);
+  background: var(--ink);
+  color: var(--card);
+  border-bottom-color: var(--rule-strong);
+}
+
+.kit-install .kit-tag-band-title {
+  color: var(--card);
+  font-size: 1.5rem;
+}
+
+.kit-install .kit-tag-body {
+  padding: calc(var(--unit) * 2.5) calc(var(--unit) * 3) calc(var(--unit) * 3);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+  flex: 1;
+}
+
+.kit-install-hint {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--ink-soft);
+}
+
+// The picker: radio inputs styled as chips; the chosen host renders solid, the rest dashed.
+.kit-picker {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+
+.kit-picker-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--unit);
+}
+
+.kit-picker input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  pointer-events: none;
+}
+
+.kit-picker label.kit-chip {
+  user-select: none;
+}
+
+.kit-picker input:focus-visible + label.kit-chip {
+  outline: 3px solid var(--yellow);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--ink);
+}
+
+.kit-picker-panels {
+  position: relative;
+  min-width: 0;
+}
+
+.kit-tag-body > *,
+.kit-picker-panel,
+.kit-picker {
+  min-width: 0;
+}
+
+.kit-picker-panel {
+  display: none;
+}
+
+@for $i from 1 through 12 {
+  .kit-picker input:nth-of-type(#{$i}):checked ~ .kit-picker-tabs label:nth-child(#{$i}) {
+    border-style: solid;
+    border-color: var(--ink);
+    background: var(--ink);
+    color: var(--card);
+  }
+  .kit-picker input:nth-of-type(#{$i}):checked ~ .kit-picker-panels .kit-picker-panel:nth-child(#{$i}) {
+    display: block;
+    animation: kit-settle 160ms var(--ease-out);
+  }
+}
+
+@keyframes kit-settle {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kit-picker-panel {
+    animation: none !important;
+  }
+}
+
+.kit-picker-panel .highlight {
+  margin: 0;
+}
+
+.kit-picker-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-right: calc(var(--unit) * 9);
+}
+
+.kit-picker-then {
+  margin: calc(var(--unit) * 1.5) 0 0;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+.kit-picker-then p {
+  margin: 0;
+}
+
+.kit-install-more {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  padding-top: calc(var(--unit) * 1.5);
+  border-top: 1px dotted var(--g4);
+}
+
+// Sections below the hero share one rhythm: a display heading, then the content, 8 units apart.
+.kit-section {
+  margin-top: calc(var(--unit) * 10);
+}
+
+.kit-section-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--unit) calc(var(--unit) * 4);
+  align-items: end;
+  margin-bottom: calc(var(--unit) * 3);
+  padding-bottom: calc(var(--unit) * 2);
+  border-bottom: 1.5px solid var(--rule-strong);
+}
+
+@media (min-width: 48rem) {
+  .kit-section-head {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  }
+}
+
+.kit-section-title {
+  font-family: var(--font-display);
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  line-height: 0.95;
+  letter-spacing: 0.005em;
+}
+
+.kit-section-head p {
+  margin: 0;
+  color: var(--ink-soft);
+  max-width: 60ch;
+}
+
+// The lock-out record: the four apps, from where, cleared in how long. The minutes are the
+// largest type on the page after the tag band, stamped inside their rows.
+.kit-record {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1rem;
+}
+
+.kit-record th {
+  text-align: left;
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  font-weight: 400;
+  padding: 0 calc(var(--unit) * 2) var(--unit) 0;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.kit-record td {
+  vertical-align: baseline;
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 2) calc(var(--unit) * 2) 0;
+  border-bottom: 1px dotted var(--g4);
+}
+
+.kit-record tr:last-child td {
+  border-bottom: 0;
+}
+
+.kit-record .kit-record-app a {
+  font-weight: 700;
+  font-size: 1.125rem;
+}
+
+.kit-record .kit-record-from {
+  font-family: var(--font-type);
+  color: var(--ink-soft);
+}
+
+.kit-record .kit-record-time {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(2rem, 4.5vw, 3.5rem);
+  line-height: 0.9;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-align: right;
+  padding-right: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.kit-record .kit-record-time small {
+  display: block;
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  margin-top: calc(var(--unit) * 0.5);
+}
+
+.kit-record .kit-record-time.is-untimed {
+  font-size: 1rem;
+  font-family: var(--font-type);
+  font-weight: 400;
+  text-transform: none;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 40rem) {
+  .kit-record thead {
+    display: none;
+  }
+  .kit-record tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 calc(var(--unit) * 2);
+    padding: calc(var(--unit) * 2) 0;
+    border-bottom: 1px dotted var(--g4);
+  }
+  .kit-record td {
+    padding: 0;
+    border: 0;
+  }
+  .kit-record .kit-record-time {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    align-self: center;
+  }
+}
+
+.kit-record-note {
+  margin: calc(var(--unit) * 2) 0 0;
+  font-size: 0.9375rem;
+  color: var(--ink-soft);
+}
+
+// The refusals: ruled rows, a mark per row, no cards.
+.kit-refusals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kit-refusals li {
+  display: grid;
+  grid-template-columns: calc(var(--unit) * 5) minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: calc(var(--unit) * 2);
+  padding: calc(var(--unit) * 2.5) 0;
+  border-bottom: 1px dotted var(--g4);
+  align-items: start;
+}
+
+.kit-refusals li:last-child {
+  border-bottom: 0;
+}
+
+.kit-refusals .kit-refusal-mark {
+  width: calc(var(--unit) * 4);
+  height: calc(var(--unit) * 4);
+  border: 2px solid var(--red);
+  border-radius: 50%;
+  position: relative;
+  margin-top: 2px;
+}
+
+.kit-refusals .kit-refusal-mark::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 60%;
+  height: 2px;
+  background: var(--red);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.kit-refusals .kit-refusal-without {
+  margin: 0;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.kit-refusals .kit-refusal-stop {
+  margin: 0;
+}
+
+.kit-refusals .kit-refusal-stop code {
+  font-size: 0.875em;
+}
+
+@media (max-width: 40rem) {
+  .kit-refusals li {
+    grid-template-columns: calc(var(--unit) * 4) minmax(0, 1fr);
+  }
+  .kit-refusals .kit-refusal-stop {
+    grid-column: 2;
+  }
+}
+
+// Which command: a ruled table where the command column is typed.
+.kit-commands {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.kit-commands th {
+  text-align: left;
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  font-weight: 400;
+  padding: 0 calc(var(--unit) * 2) var(--unit) 0;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.kit-commands td {
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2) calc(var(--unit) * 1.5) 0;
+  border-bottom: 1px dotted var(--g4);
+  vertical-align: baseline;
+}
+
+.kit-commands tr:last-child td {
+  border-bottom: 0;
+}
+
+.kit-commands td:last-child {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .kit-commands td:last-child {
+    white-space: normal;
+  }
+}
+
+// The rest of the site: a two-column link list.
+.kit-siteindex {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0 calc(var(--unit) * 4);
+}
+
+.kit-siteindex li {
+  padding: calc(var(--unit) * 1.5) 0;
+  border-bottom: 1px dotted var(--g4);
+}
+
+.kit-siteindex a {
+  font-weight: 700;
+}
+
+.kit-siteindex span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 0.9375rem;
+}
+
+.kit-home-onsite {
+  margin: calc(var(--unit) * 3) 0 0;
+  font-family: var(--font-type);
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}

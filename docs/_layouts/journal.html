@@ -1,0 +1,27 @@
+---
+layout: default
+kind: journal
+---
+{%- assign articles = site.pages | where: "parent", "Journal" | sort: "nav_order" -%}
+{%- assign prev = nil -%}{%- assign next = nil -%}
+{%- for a in articles -%}
+  {%- if a.url == page.url -%}
+    {%- assign idx = forloop.index0 -%}
+  {%- endif -%}
+{%- endfor -%}
+{%- if idx > 0 %}{% assign pidx = idx | minus: 1 %}{% assign prev = articles[pidx] %}{% endif -%}
+{%- assign nidx = idx | plus: 1 -%}
+{%- if nidx < articles.size %}{% assign next = articles[nidx] %}{% endif -%}
+<div class="kit-page">
+  {% include sidenav.html %}
+  <main id="main" class="kit-article">
+    <article class="kit-body">
+{{ content }}
+    </article>
+    <nav class="kit-prevnext" aria-label="Journal">
+      <div>{% if prev %}<a href="{{ prev.url | relative_url }}"><small>Earlier release</small>{{ prev.title }}</a>{% endif %}</div>
+      <div class="kit-next">{% if next %}<a href="{{ next.url | relative_url }}"><small>Later release</small>{{ next.title }}</a>{% else %}<a href="{{ '/journal/' | relative_url }}"><small>Newest</small>Back to the journal</a>{% endif %}</div>
+    </nav>
+  </main>
+  <aside class="kit-toc" aria-label="On this page"></aside>
+</div>

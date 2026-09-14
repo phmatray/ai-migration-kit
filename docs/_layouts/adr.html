@@ -1,0 +1,39 @@
+---
+layout: default
+kind: adr
+---
+{%- assign status = page.status | default: "accepted" -%}
+{%- assign adrs = site.pages | where: "parent", "Architectural Decision Records" -%}
+<div class="kit-page">
+  {% include sidenav.html %}
+  <main id="main" class="kit-article">
+    <header class="kit-article-head">
+      <h1>{{ page.title }}</h1>
+      <div class="kit-adr-meta">
+        <dl class="kit-fields">
+          <dt>ADR</dt><dd>{{ page.id | default: 0 | prepend: "0000" | slice: -4, 4 }}</dd>
+          <dt>Date</dt><dd>{{ page.date | date: "%Y-%m-%d" }}</dd>
+          {%- if page.tags %}
+          <dt>Tags</dt><dd><span class="kit-adr-tags">{% for t in page.tags %}<span>{{ t }}</span>{% endfor %}</span></dd>
+          {%- endif %}
+          {%- if page.links %}
+          <dt>Links</dt><dd>
+            {%- for l in page.links %}
+              {%- assign target = adrs | where: "id", l.target | first %}
+              {{ l.type | replace: "-", " " }} {% if target %}<a href="{{ target.url | relative_url }}">ADR {{ l.target }}: {{ target.title }}</a>{% else %}ADR {{ l.target }}{% endif %}{% unless forloop.last %}<br>{% endunless %}
+            {%- endfor %}
+          </dd>
+          {%- endif %}
+          {%- if page.code_refs %}
+          <dt>Code</dt><dd><ul class="kit-adr-refs">{% for c in page.code_refs %}<li><a href="https://github.com/phmatray/ai-migration-kit/blob/main/{{ c.path }}">{{ c.path }}</a></li>{% endfor %}</ul></dd>
+          {%- endif %}
+        </dl>
+        <div class="kit-adr-stamp"><span class="kit-stamp kit-stamp--{{ status }}">{{ status }}</span></div>
+      </div>
+    </header>
+    <article class="kit-body kit-body--adr">
+{{ content | replace_first: "<h1", "<h1 hidden" }}
+    </article>
+  </main>
+  <aside class="kit-toc" aria-label="On this page"></aside>
+</div>

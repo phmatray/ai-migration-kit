@@ -1,0 +1,30 @@
+{%- comment -%}
+The site navigation, built from every titled page's front matter: top-level pages sorted by
+nav_order, sections (has_children) listing their children by nav_order then title. The current
+page's section opens; the current page is marked aria-current.
+{%- endcomment -%}
+{%- assign titled = site.pages | where_exp: "p", "p.title" -%}
+{%- assign tops = titled | where_exp: "p", "p.parent == nil" | where_exp: "p", "p.nav_order" | sort: "nav_order" -%}
+<nav class="kit-sidenav" id="site-nav" aria-label="Documentation">
+  <button type="button" class="kit-sidenav-toggle" aria-expanded="false" aria-controls="site-nav-list">Documentation<span class="kit-sidenav-chevron" aria-hidden="true"></span></button>
+  <div class="kit-sidenav-list" id="site-nav-list">
+  {%- for p in tops %}
+    {%- if p.has_children %}
+      {%- assign kids = titled | where: "parent", p.title | sort: "nav_order" -%}
+      {%- assign is_open = false -%}
+      {%- if page.url == p.url or page.parent == p.title %}{% assign is_open = true %}{% endif %}
+    <details{% if is_open %} open{% endif %}>
+      <summary><span>{{ p.title }}</span><span class="kit-nav-count">{{ kids.size }}</span></summary>
+      <ul>
+        <li><a href="{{ p.url | relative_url }}"{% if page.url == p.url %} aria-current="page"{% endif %}>Overview</a></li>
+        {%- for k in kids %}
+        <li><a href="{{ k.url | relative_url }}"{% if page.url == k.url %} aria-current="page"{% endif %}>{{ k.title }}</a></li>
+        {%- endfor %}
+      </ul>
+    </details>
+    {%- else %}
+    <div class="kit-nav-item"><a href="{{ p.url | relative_url }}"{% if page.url == p.url %} aria-current="page"{% endif %}>{{ p.title }}</a></div>
+    {%- endif %}
+  {%- endfor %}
+  </div>
+</nav>

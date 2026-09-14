@@ -1421,14 +1421,14 @@ grep -q 'skills/zz-fake' "$_gscratch/guide-red.out" \
 echo "ok   a skill folder the guide does not name is refused, by name"
 
 # ------------------------------------------------------------------------------------------------
-# docs/ is the GitHub Pages site (#401): the Jekyll config parses and names the theme and the
-# mermaid version, the landing page exists and links the guide, and every page the config does not
-# exclude carries a `title:` — a page without one drops out of the sidebar silently. Driven to red
-# on a scratch copy with one page's title removed, so the check cannot pass vacuously.
-echo "== docs/ is a Pages site: config parses, index links the guide, every page is titled (#401) =="
-# ONE check, written to a file and run twice — on the real tree (must pass) and on a scratch tree
-# with an untitled page (must fail, and must NAME the page). Links are `.md`, the form that works
-# on GitHub's renderer and on Pages alike (jekyll-relative-links rewrites them at build time).
+# docs/ is the GitHub Pages site (#401), built by Pages' native Jekyll from the site's OWN layouts
+# under docs/_layouts (the just-the-docs remote theme was dropped with the redesign): the config
+# parses and names no remote theme, pins the mermaid version the scripts include reads, keeps a
+# path-only exclude list; the landing page exists and links the guide, the Install page and the
+# journal; every page the config does not exclude carries a `title:` — a page without one drops out
+# of the navigation silently. Driven to red on scratch copies, one file broken the way its check
+# exists to catch, refused by name, so no check can pass vacuously.
+echo "== docs/ is a Pages site: config parses, layouts exist, index links the guide, every page is titled (#401) =="
 _pscratch=$(kit_scratch)
 cat > "$_pscratch/pages-check.py" <<'PY'
 import html, pathlib, re, sys, yaml
@@ -1437,10 +1437,29 @@ cfg_path = docs / "_config.yml"
 if not cfg_path.exists():
     print("FAIL: docs/_config.yml is missing"); sys.exit(1)
 cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-if cfg.get("remote_theme") != "just-the-docs/just-the-docs":
-    print("FAIL: docs/_config.yml does not name remote_theme: just-the-docs/just-the-docs"); sys.exit(1)
+if cfg.get("remote_theme") or cfg.get("theme"):
+    print("FAIL: docs/_config.yml names a theme (" + str(cfg.get("remote_theme") or cfg.get("theme")) + ") — the site ships its own layouts under docs/_layouts since the redesign"); sys.exit(1)
 if not (isinstance(cfg.get("mermaid"), dict) and cfg["mermaid"].get("version")):
     print("FAIL: docs/_config.yml does not pin mermaid.version"); sys.exit(1)
+# The layouts the defaults assign must exist, and the base layout must include the head, the top bar,
+# the footer and the scripts — the four includes every page stands on.
+layouts = docs / "_layouts"
+for name in ("default", "home", "doc", "adr", "journal", "journal-index"):
+    if not (layouts / (name + ".html")).exists():
+        print("FAIL: docs/_layouts/" + name + ".html is missing"); sys.exit(1)
+assigned = {v.get("values", {}).get("layout") for v in cfg.get("defaults", []) if isinstance(v, dict)}
+for lay in sorted(l for l in assigned if l):
+    if not (layouts / (lay + ".html")).exists():
+        print("FAIL: docs/_config.yml assigns layout '" + lay + "' but docs/_layouts/" + lay + ".html does not exist — the Pages build would fail"); sys.exit(1)
+base = (layouts / "default.html").read_text(encoding="utf-8")
+for inc in ("head.html", "topbar.html", "footer.html", "scripts.html"):
+    if ("include " + inc) not in base:
+        print("FAIL: docs/_layouts/default.html does not include " + inc); sys.exit(1)
+    if not (docs / "_includes" / inc).exists():
+        print("FAIL: docs/_includes/" + inc + " is missing"); sys.exit(1)
+scripts = (docs / "_includes" / "scripts.html").read_text(encoding="utf-8")
+if "site.mermaid.version" not in scripts or "language-mermaid" not in scripts:
+    print("FAIL: docs/_includes/scripts.html must load mermaid at site.mermaid.version and lift language-mermaid fences"); sys.exit(1)
 index = docs / "index.md"
 if not index.exists():
     print("FAIL: docs/index.md is missing"); sys.exit(1)
@@ -1451,10 +1470,7 @@ if re.search(r"\]\([^)]*\.html\)", itext):
     print("FAIL: docs/index.md links .html pages — link the .md source, which renders on GitHub and on Pages"); sys.exit(1)
 globs = [e for e in cfg.get("exclude", []) if any(ch in e for ch in "*?[")]
 if globs:
-    print("FAIL: docs/_config.yml excludes by glob (" + ", ".join(globs) + ") — Jekyll 3 applies exclude to the theme's layouts too, so a bare glob unpublishes every layout; name the file by path"); sys.exit(1)
-scheme = cfg.get("color_scheme")
-if scheme and scheme not in ("light", "dark") and not (docs / "_sass" / "color_schemes" / (scheme + ".scss")).exists():
-    print("FAIL: docs/_config.yml names color_scheme: " + scheme + " but docs/_sass/color_schemes/" + scheme + ".scss does not exist — the Pages build would fail"); sys.exit(1)
+    print("FAIL: docs/_config.yml excludes by glob (" + ", ".join(globs) + ") — Jekyll 3 applies exclude to the layouts too, so a bare glob unpublishes every layout; name the file by path"); sys.exit(1)
 excluded = [e.rstrip("/") for e in cfg.get("exclude", [])]
 untitled = []
 for p in sorted(docs.rglob("*.md")):
@@ -1467,49 +1483,50 @@ for p in sorted(docs.rglob("*.md")):
         untitled.append(rel)
 if untitled:
     print("FAIL: docs/ pages without a title: in their front matter: " + ", ".join(untitled)); sys.exit(1)
-# Switchable schemes (#527): docs/assets/css/just-the-docs-<name>.scss is the stylesheet
-# jtd.setTheme("<name>") swaps in, so it must build the scheme it is named for, and that scheme's
-# file must exist — or the toggle loads a stylesheet the Pages build never produced.
-for css in sorted((docs / "assets" / "css").glob("just-the-docs-*.scss")):
-    name = css.stem[len("just-the-docs-"):]
-    if 'color_scheme="' + name + '"' not in css.read_text(encoding="utf-8"):
-        print("FAIL: docs/assets/css/" + css.name + " does not build color_scheme=\"" + name + "\""); sys.exit(1)
-    if name not in ("light", "dark") and not (docs / "_sass" / "color_schemes" / (name + ".scss")).exists():
-        print("FAIL: docs/assets/css/" + css.name + " switches to a scheme with no docs/_sass/color_schemes/" + name + ".scss"); sys.exit(1)
-# ...and the kit's own dark scheme is wired end to end: restored before first paint, built, toggled.
-head = (docs / "_includes" / "head_custom.html").read_text(encoding="utf-8")
-header = docs / "_includes" / "header_custom.html"
-if "jtd.setTheme('kit-dark')" not in head or not (docs / "assets" / "css" / "just-the-docs-kit-dark.scss").exists():
-    print("FAIL: the dark scheme is not wired — head_custom.html must restore jtd.setTheme('kit-dark'), and docs/assets/css/just-the-docs-kit-dark.scss must exist"); sys.exit(1)
-if not header.exists() or 'class="kit-scheme-toggle"' not in header.read_text(encoding="utf-8"):
-    print("FAIL: docs/_includes/header_custom.html carries no kit-scheme-toggle button"); sys.exit(1)
-# The restore and the toggle name stylesheets and share state by string, in two files: every scheme
-# jtd.setTheme or a <link> loads must be one the build produces, and both must read and write the
-# same storage key and attribute. A typo in either breaks the toggle and fails nothing else.
-incs = {p.name: p.read_text(encoding="utf-8") for p in sorted((docs / "_includes").glob("*.html"))}
-built = {"default", "light", "dark"} | {c.stem[len("just-the-docs-"):] for c in (docs / "assets" / "css").glob("just-the-docs-*.scss")}
-for name, text in incs.items():
-    loaded = [s for arg in re.findall(r"jtd\.setTheme\(([^)]*)\)", text) for s in re.findall(r"'([^']*)'", arg)]
-    for s in loaded + re.findall(r"just-the-docs-([\w-]+)\.css", text):
-        if s not in built:
-            print("FAIL: docs/_includes/" + name + " loads the scheme '" + s + "', which no docs/assets/css/just-the-docs-" + s + ".scss builds"); sys.exit(1)
-for what, pattern in (("storage key", r"localStorage\.\w+Item\('([^']+)'"), ("attribute", r"Attribute\('(data-[\w-]+)'")):
-    found = sorted({v for t in incs.values() for v in re.findall(pattern, t)})
+# The stylesheet the head links is the one Pages builds from docs/_sass/kit/: every partial the
+# entry imports must exist, or the Sass step fails and the whole site ships unstyled.
+entry = docs / "assets" / "css" / "site.scss"
+if not entry.exists():
+    print("FAIL: docs/assets/css/site.scss is missing"); sys.exit(1)
+for part in re.findall(r'@import\s+"([^"]+)"', entry.read_text(encoding="utf-8")):
+    d, _, n = part.rpartition("/")
+    if not (docs / "_sass" / d / ("_" + n + ".scss")).exists():
+        print("FAIL: docs/assets/css/site.scss imports " + part + " but docs/_sass/" + d + "/_" + n + ".scss does not exist — the Pages build would fail"); sys.exit(1)
+head = (docs / "_includes" / "head.html").read_text(encoding="utf-8")
+if "assets/css/site.css" not in head:
+    print("FAIL: docs/_includes/head.html does not link assets/css/site.css"); sys.exit(1)
+# The dark scheme (#527, kept through the redesign) is switchable end to end: the head restores the
+# stored choice before first paint, the top bar carries the toggle, the script flips it, and the
+# stylesheet answers both the attribute and prefers-color-scheme (the no-JavaScript path).
+topbar = (docs / "_includes" / "topbar.html").read_text(encoding="utf-8")
+sitejs = docs / "assets" / "js" / "site.js"
+if "data-kit-scheme" not in head or "kit-scheme" not in head:
+    print("FAIL: docs/_includes/head.html does not restore the stored scheme onto data-kit-scheme before first paint"); sys.exit(1)
+if 'class="kit-scheme-toggle"' not in topbar:
+    print("FAIL: docs/_includes/topbar.html carries no kit-scheme-toggle button"); sys.exit(1)
+if not sitejs.exists() or "kit-scheme-toggle" not in sitejs.read_text(encoding="utf-8"):
+    print("FAIL: docs/assets/js/site.js does not wire the kit-scheme-toggle"); sys.exit(1)
+tokens = (docs / "_sass" / "kit" / "_tokens.scss").read_text(encoding="utf-8")
+if 'data-kit-scheme="dark"' not in tokens or "prefers-color-scheme: dark" not in tokens:
+    print("FAIL: docs/_sass/kit/_tokens.scss must answer both [data-kit-scheme=\"dark\"] and prefers-color-scheme: dark"); sys.exit(1)
+# The restore and the toggle share state by string across two files: one storage key, one attribute.
+texts = {p.name: p.read_text(encoding="utf-8") for p in sorted((docs / "_includes").glob("*.html"))}
+texts["site.js"] = sitejs.read_text(encoding="utf-8")
+for what, pattern in (("storage key", r"localStorage\.\w+Item\('([^']+)'"), ("attribute", r"Attribute\('(data-kit-[\w-]+)'")):
+    found = sorted({v for t in texts.values() for v in re.findall(pattern, t)})
     if len(found) > 1:
-        print("FAIL: docs/_includes/ uses more than one scheme " + what + " (" + ", ".join(found) + ") — the restore and the toggle must agree"); sys.exit(1)
-# The theme serves every page through a compress layout that folds the HTML onto one line, so a `//`
-# line comment inside an inline <script> swallows the rest of that script: it runs as nothing and
-# throws nothing (measured on #527 — the scheme restore and the toggle both went silently dead).
-# Block comments only, in every script an include writes.
+        print("FAIL: the scheme restore and toggle use more than one " + what + " (" + ", ".join(found) + ") — the head and site.js must agree"); sys.exit(1)
+# Inline scripts in includes take block comments only: a folded page would swallow the rest of a
+# script after a // (measured on #527), and the rule costs nothing to keep.
 for inc in sorted((docs / "_includes").glob("*.html")):
     for body in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", inc.read_text(encoding="utf-8"), re.S):
         for line in body.splitlines():
             if re.search(r"(^|[\s;{}])//", line):
-                print("FAIL: docs/_includes/" + inc.name + " has a // comment inside an inline <script> — the compressed page folds it onto one line and the rest of the script becomes comment; use /* */: " + line.strip()); sys.exit(1)
-# Install and Platforms (#527): every fenced command carries the theme's copy button, and both
-# pages render the host table rather than restating it — docs/_data/hosts.yml is its one home.
-if cfg.get("enable_copy_code_button") is not True:
-    print("FAIL: docs/_config.yml does not set enable_copy_code_button: true — the install commands would carry no copy button"); sys.exit(1)
+                print("FAIL: docs/_includes/" + inc.name + " has a // comment inside an inline <script> — use /* */: " + line.strip()); sys.exit(1)
+# Every fenced command carries a copy button (the site's own, added by site.js), and Install and
+# Platforms render the host table rather than restating it — docs/_data/hosts.yml is its one home.
+if "kit-copy" not in texts["site.js"]:
+    print("FAIL: docs/assets/js/site.js adds no kit-copy button to code blocks — the install commands would carry none"); sys.exit(1)
 for page in ("install.md", "platforms.md"):
     p = docs / page
     if not p.exists():
@@ -1535,7 +1552,7 @@ for host in rules:
     if len(host.get("install") or []) != 2 or host["install"][0] != rules[0]["install"][0]:
         print("FAIL: docs/_data/hosts.yml " + host["id"] + " — a rule-file host installs with the shared clone line, then one more; docs/install.md shows the clone once"); sys.exit(1)
 if len([h for h in hosts if h.get("tier") == "plugin"]) > 11:
-    print("FAIL: docs/_data/hosts.yml has more than 11 plugin hosts — the picker's CSS in docs/_sass/custom/custom.scss shows 12 panels, one of them Other hosts; raise its @for bound"); sys.exit(1)
+    print("FAIL: docs/_data/hosts.yml has more than 11 plugin hosts — the picker's CSS in docs/_sass/kit/_home.scss shows 12 panels, one of them Other hosts; raise its @for bound"); sys.exit(1)
 # The capability columns are the strings yes, partial and no, one per capability. YAML reads a bare
 # yes/no as a boolean, and the Platforms table then printed true/false (measured on #527's first
 # build); a missing key renders a blank cell.
@@ -1546,45 +1563,11 @@ for host in hosts:
     for key, value in host["gets"].items():
         if value not in ("yes", "partial", "no"):
             print("FAIL: docs/_data/hosts.yml " + str(host.get("id")) + " gets." + key + " is " + repr(value) + " — quote it: \"yes\", \"partial\" or \"no\""); sys.exit(1)
-print("ok   docs/_config.yml parses (no glob in exclude, the colour scheme exists), docs/index.md links the guide, every non-excluded page is titled, the dark scheme is switchable")
+print("ok   docs/_config.yml parses (no theme, no glob in exclude, every assigned layout exists), docs/index.md links the guide, every non-excluded page is titled, the dark scheme is switchable")
 PY
 python3 "$_pscratch/pages-check.py" "$KIT_ROOT" || exit 1
-mkdir -p "$_pscratch/tree/docs/_sass/color_schemes"
-cp "$KIT_ROOT/docs/_config.yml" "$KIT_ROOT/docs/index.md" "$_pscratch/tree/docs/"
-cp "$KIT_ROOT"/docs/_sass/color_schemes/*.scss "$_pscratch/tree/docs/_sass/color_schemes/"
-printf -- '---\nnav_order: 9\n---\n\n# untitled\n' > "$_pscratch/tree/docs/untitled.md"
-if python3 "$_pscratch/pages-check.py" "$_pscratch/tree" > "$_pscratch/pages-red.out" 2>&1; then
-  echo "FAIL: the titled-pages check accepted a page with no title:"; exit 1
-fi
-grep -q 'untitled.md' "$_pscratch/pages-red.out" \
-  || { echo "FAIL: the titled-pages check refused the scratch tree without naming untitled.md"; cat "$_pscratch/pages-red.out"; exit 1; }
-echo "ok   a docs/ page without a title is refused, by name"
-# The red half for switchable schemes (#527): a stylesheet naming a scheme with no file of its own is
-# refused, by name — the toggle would otherwise swap in a stylesheet Pages never built.
-mkdir -p "$_pscratch/ghost/docs/_sass/color_schemes" "$_pscratch/ghost/docs/assets/css"
-cp "$KIT_ROOT/docs/_config.yml" "$KIT_ROOT/docs/index.md" "$_pscratch/ghost/docs/"
-cp "$KIT_ROOT"/docs/_sass/color_schemes/*.scss "$_pscratch/ghost/docs/_sass/color_schemes/"
-printf -- '---\n---\n{%% include css/just-the-docs.scss.liquid color_scheme="ghost" %%}\n' > "$_pscratch/ghost/docs/assets/css/just-the-docs-ghost.scss"
-if python3 "$_pscratch/pages-check.py" "$_pscratch/ghost" > "$_pscratch/ghost.out" 2>&1; then
-  echo "FAIL: the switchable-scheme check accepted a stylesheet whose scheme does not exist"; exit 1
-fi
-grep -q 'just-the-docs-ghost.scss' "$_pscratch/ghost.out" \
-  || { echo "FAIL: the switchable-scheme check refused without naming the stylesheet"; cat "$_pscratch/ghost.out"; exit 1; }
-echo "ok   a switchable stylesheet naming a scheme with no file is refused, by name"
-# The red half for the glob rule: the config that shipped in #407 — `"*.html"` in exclude — must
-# be refused now, naming the glob. One check file, third run.
-mkdir -p "$_pscratch/globtree/docs/_sass/color_schemes"
-cp "$KIT_ROOT/docs/index.md" "$_pscratch/globtree/docs/"
-cp "$KIT_ROOT"/docs/_sass/color_schemes/*.scss "$_pscratch/globtree/docs/_sass/color_schemes/"
-sed 's|^  - case-studies/winrt-portfolio/dashboard.html$|  - "*.html"|' "$KIT_ROOT/docs/_config.yml" > "$_pscratch/globtree/docs/_config.yml"
-if python3 "$_pscratch/pages-check.py" "$_pscratch/globtree" > "$_pscratch/pages-glob.out" 2>&1; then
-  echo "FAIL: the Pages check accepted a bare glob in exclude — the one that unpublished every layout"; exit 1
-fi
-grep -q '\*\.html' "$_pscratch/pages-glob.out" \
-  || { echo "FAIL: the Pages check refused the glob tree without naming the glob"; cat "$_pscratch/pages-glob.out"; exit 1; }
-echo "ok   a glob in docs/_config.yml's exclude is refused, by name"
-# The red halves for #527's review: a full copy of docs/ per case, one file broken the way its
-# check exists to catch, refused by name.
+# The red halves: a full copy of docs/ per case, one file broken the way its check exists to catch,
+# refused by name. ONE check file, run on each.
 _red_docs() {  # <case> — a fresh copy of docs/ under $_pscratch/<case>
   rm -rf "${_pscratch:?}/$1"; mkdir -p "$_pscratch/$1"; cp -R "$KIT_ROOT/docs" "$_pscratch/$1/docs"
 }
@@ -1596,9 +1579,21 @@ _red_refused() {  # <case> <text the refusal must name> <what was broken>
     || { echo "FAIL: the Pages check refused $3 without naming $2"; cat "$_pscratch/$1.out"; exit 1; }
   echo "ok   $3 is refused, by name"
 }
+_red_docs untitled
+printf -- '---\nnav_order: 9\n---\n\n# untitled\n' > "$_pscratch/untitled/docs/untitled.md"
+_red_refused untitled "untitled.md" "a docs/ page without a title"
+_red_docs globtree
+sed 's|^  - case-studies/winrt-portfolio/dashboard.html$|  - "*.html"|' "$KIT_ROOT/docs/_config.yml" > "$_pscratch/globtree/docs/_config.yml"
+_red_refused globtree '*.html' "a glob in docs/_config.yml's exclude (the one that unpublished every layout)"
+_red_docs ghostlayout
+printf '\n  - scope:\n      path: decisions.md\n    values:\n      layout: ghost\n' >> "$_pscratch/ghostlayout/docs/_config.yml"
+_red_refused ghostlayout "ghost" "a default assigning a layout with no file under docs/_layouts"
+_red_docs ghostpartial
+printf '@import "kit/ghost";\n' >> "$_pscratch/ghostpartial/docs/assets/css/site.scss"
+_red_refused ghostpartial "kit/ghost" "a stylesheet importing a Sass partial that does not exist"
 _red_docs theme
-sed "s/'default')/'ghost')/" "$KIT_ROOT/docs/_includes/header_custom.html" > "$_pscratch/theme/docs/_includes/header_custom.html"
-_red_refused theme "'ghost'" "a scheme toggle that swaps in a stylesheet the build never produces"
+sed "s/localStorage.getItem('kit-scheme')/localStorage.getItem('kit-theme')/" "$KIT_ROOT/docs/_includes/head.html" > "$_pscratch/theme/docs/_includes/head.html"
+_red_refused theme "kit-theme" "a scheme restore reading a storage key the toggle never writes"
 _red_docs typed
 printf '%s\n' 'git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit' >> "$_pscratch/typed/docs/install.md"
 _red_refused typed "docs/install.md types" "an install command typed into a page"

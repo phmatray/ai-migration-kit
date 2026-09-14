@@ -1,0 +1,347 @@
+// The tag: the site's one object. A card with a 1.5px ink rule, a brass grommet punched top-left,
+// an optional red header band, and typewritten fields. Stamps mark status; the hasp holds locks.
+.kit-tag {
+  position: relative;
+  background: var(--card);
+  border: 1.5px solid var(--rule-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.kit-grommet {
+  position: absolute;
+  top: calc(var(--unit) * 1.5);
+  left: calc(var(--unit) * 1.5);
+  width: calc(var(--unit) * 2);
+  height: calc(var(--unit) * 2);
+  border-radius: 50%;
+  background: var(--ground);
+  border: 3px solid var(--brass);
+  box-shadow: inset 0 1px 2px rgba(17, 17, 17, 0.35), 0 1px 0 var(--brass-deep);
+  z-index: 2;
+}
+
+.kit-tag-band {
+  background: var(--red);
+  color: var(--band-ink);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3) calc(var(--unit) * 2) calc(var(--unit) * 6);
+  border-bottom: 1.5px solid var(--rule-strong);
+}
+
+.kit-tag-band-title {
+  color: var(--band-ink);
+  font-family: var(--font-display);
+  font-weight: 900;
+  text-transform: uppercase;
+  line-height: 0.92;
+  letter-spacing: 0.005em;
+}
+
+.kit-tag-body {
+  padding: calc(var(--unit) * 3);
+}
+
+// Typewritten fields: LABEL and value on one ruled line, the way a tag is filled in by hand.
+.kit-fields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: calc(var(--unit) * 2);
+  font-family: var(--font-type);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.kit-fields dt {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  padding: calc(var(--unit) * 1.25) 0;
+  border-bottom: 1px dotted var(--g4);
+  align-self: stretch;
+}
+
+.kit-fields dd {
+  margin: 0;
+  padding: calc(var(--unit) * 1.25) 0;
+  border-bottom: 1px dotted var(--g4);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.kit-fields dd code,
+.kit-fields dd .kit-mono {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+@media (max-width: 30rem) {
+  .kit-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kit-fields dt {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .kit-fields dd {
+    padding-top: calc(var(--unit) * 0.5);
+  }
+}
+
+// Stamps: status as a mark, never a hue. Accepted is ink, rejected is red, superseded is faded,
+// proposed is a dashed outline still waiting for its ink.
+.kit-stamp {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 0.9375rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  padding: calc(var(--unit) * 0.75) var(--unit) calc(var(--unit) * 0.5);
+  border: 2.5px solid currentColor;
+  border-radius: 3px;
+  color: var(--ink);
+  transform: rotate(-4deg);
+  transform-origin: left bottom;
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='40'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 1.9'/></filter><rect width='120' height='40' fill='white' filter='url(%23n)'/></svg>");
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='40'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 1.9'/></filter><rect width='120' height='40' fill='white' filter='url(%23n)'/></svg>");
+  mask-size: 120px 40px;
+  -webkit-mask-size: 120px 40px;
+}
+
+.kit-stamp--rejected {
+  color: var(--red);
+}
+
+.kit-stamp--superseded {
+  color: var(--ink-faint);
+}
+
+.kit-stamp--proposed {
+  border-style: dashed;
+  color: var(--ink-soft);
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+// A small tag used as a control: host tabs, the copy button, the toggle.
+.kit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 0.75);
+  font-family: var(--font-type);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  padding: calc(var(--unit) * 0.75) calc(var(--unit) * 1.25);
+  border: 1.5px dashed var(--g5);
+  border-radius: var(--radius);
+  color: var(--ink-soft);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 160ms var(--ease-out), background 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+
+.kit-chip:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.kit-chip.is-solid,
+.kit-chip:active {
+  border-style: solid;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--card);
+}
+
+// The group hasp: a yellow bar, seven locks hung on it. Motion: the locks release once, in order.
+.kit-hasp {
+  position: relative;
+  margin-top: calc(var(--unit) * 3);
+  border: 1.5px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--yellow);
+  color: var(--g10);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.kit-hasp-bar {
+  display: grid;
+  grid-template-columns: minmax(17rem, 1.5fr) repeat(7, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 0;
+}
+
+.kit-hasp-label {
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 3) calc(var(--unit) * 1.5);
+  border-right: 1.5px solid var(--g10);
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--unit);
+}
+
+.kit-hasp-label .kit-display {
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  color: var(--g10);
+  white-space: nowrap;
+}
+
+.kit-hasp-label p {
+  margin: 0;
+  font-family: var(--font-type);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--g8);
+}
+
+// The minutes, stamped in the hasp's own column: the largest type after the tag band.
+.kit-hasp-times {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: calc(var(--unit) * 2);
+  align-items: baseline;
+}
+
+.kit-hasp-times dt {
+  font-family: var(--font-type);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: var(--g8);
+  padding: calc(var(--unit) * 0.375) 0;
+  border-bottom: 1px solid rgba(17, 17, 17, 0.35);
+}
+
+.kit-hasp-times dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.625rem;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--g10);
+  padding: calc(var(--unit) * 0.375) 0;
+  border-bottom: 1px solid rgba(17, 17, 17, 0.35);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.kit-lock {
+  position: relative;
+  display: grid;
+  grid-template-rows: 56px auto 1fr;
+  align-content: start;
+  justify-items: center;
+  row-gap: calc(var(--unit) * 0.75);
+  padding: calc(var(--unit) * 2) var(--unit) calc(var(--unit) * 1.5);
+  border-right: 1.5px solid rgba(17, 17, 17, 0.25);
+}
+
+.kit-lock:last-child {
+  border-right: 0;
+}
+
+.kit-lock::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--unit) * 2 + 20px);
+  height: 6px;
+  background: var(--g10);
+  opacity: 0.85;
+}
+
+.kit-lock svg {
+  width: 44px;
+  height: 56px;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+.kit-lock .shackle {
+  fill: none;
+  stroke: var(--g10);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: 20% 100%;
+  transition: transform 700ms var(--ease-out);
+}
+
+.kit-lock .body {
+  fill: var(--g10);
+}
+
+.kit-lock .keyway {
+  fill: var(--yellow);
+}
+
+.kit-lock-name {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.0625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: var(--g10);
+}
+
+.kit-lock-gate {
+  font-family: var(--font-type);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--g8);
+  text-align: center;
+  line-height: 1.3;
+}
+
+.kit-hasp.is-released .kit-lock .shackle {
+  transform: translateY(-9px) rotate(-28deg);
+}
+
+.kit-lock.is-open .shackle {
+  transform: translateY(-9px) rotate(-28deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kit-lock .shackle {
+    transition: none;
+  }
+}
+
+@media (max-width: 64rem) {
+  .kit-hasp-bar {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .kit-hasp-label {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-bottom: 1.5px solid var(--g10);
+  }
+  .kit-lock:nth-child(5) {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 30rem) {
+  .kit-hasp-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kit-lock:nth-child(odd) {
+    border-right: 0;
+  }
+  .kit-lock:nth-child(even) {
+    border-right: 1.5px solid rgba(17, 17, 17, 0.25);
+  }
+}

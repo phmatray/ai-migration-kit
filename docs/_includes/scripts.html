@@ -1,0 +1,26 @@
+{%- comment -%}
+The site's script: scheme toggle, copy buttons, on-page contents, the hasp release, the mobile
+navigation. Mermaid loads only on a page that carries a mermaid fence, pinned to the version in
+_config.yml, and the shim lifts kramdown's <code class="language-mermaid"> into <pre class="mermaid">.
+{%- endcomment -%}
+<script src="{{ '/assets/js/site.js' | relative_url }}" defer></script>
+{%- if content contains 'language-mermaid' %}
+<script src="https://cdn.jsdelivr.net/npm/mermaid@{{ site.mermaid.version }}/dist/mermaid.min.js"></script>
+<script>
+  (function () {
+    var dark = document.documentElement.getAttribute('data-kit-scheme') === 'dark' ||
+      (!document.documentElement.getAttribute('data-kit-scheme') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var blocks = document.querySelectorAll('pre > code.language-mermaid');
+    for (var i = 0; i < blocks.length; i++) {
+      var pre = blocks[i].parentNode;
+      var out = document.createElement('pre');
+      out.className = 'mermaid';
+      out.textContent = blocks[i].textContent;
+      pre.parentNode.replaceChild(out, pre);
+    }
+    if (window.mermaid) {
+      window.mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'neutral', securityLevel: 'loose' });
+    }
+  })();
+</script>
+{%- endif %}
