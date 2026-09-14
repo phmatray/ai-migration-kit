@@ -48,6 +48,10 @@ if PATH="$tmp" bash ./scripts/preflight.sh --json > "$tmp/out.json" 2>/dev/null;
   echo "the preflight should have failed without the required tooling"; exit 1
 fi
 grep -q '"status": "missing"' "$tmp/out.json"
+# The .NET SDK is hard-required by ONE skill, and the report says which (#607): a lifecycle-only
+# consumer reads `[hard-required by: migrate-legacy]` on that line instead of a bare failure.
+jq -e '.checks[] | select(.name == "dotnet SDK >= 8") | .requiredBy == ["migrate-legacy"]' "$tmp/out.json" > /dev/null \
+  || { echo "the dotnet SDK check does not name migrate-legacy as the skill that hard-requires it"; exit 1; }
 
 # 5. An `mcps` entry may declare its OWN SDK floor (`requiresSdk`) — a server whose launcher needs a
 #    newer SDK than the pipeline does. roseline is exactly that: `.mcp.json` starts it with `dnx`,
