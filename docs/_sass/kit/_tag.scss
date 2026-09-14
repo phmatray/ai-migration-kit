@@ -249,17 +249,6 @@
   border-right: 0;
 }
 
-.kit-lock::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(var(--unit) * 2 + 20px);
-  height: 6px;
-  background: var(--g10);
-  opacity: 0.85;
-}
-
 .kit-lock svg {
   width: 44px;
   height: 56px;
