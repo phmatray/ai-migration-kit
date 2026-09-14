@@ -1,5 +1,5 @@
 ---
-name: AI Migration Kit
+name: Tagout
 description: A gate that refuses by name is a lock-out tag hung on the machine; the docs site is that tag.
 colors:
   g0: "#ffffff"
@@ -188,7 +188,7 @@ components:
     padding: "16px 20px"
 ---
 
-# Design System: AI Migration Kit
+# Design System: Tagout
 
 ## Overview
 

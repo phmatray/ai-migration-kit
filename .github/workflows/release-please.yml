@@ -6,7 +6,7 @@ name: release-please
 #
 # Unlike the other repos in the portfolio, there is no publish job here and that is deliberate:
 # the plugin is consumed straight from this repository through .claude-plugin/marketplace.json
-# (`/plugin marketplace add phmatray/ai-migration-kit`), so the tag and the version stamped into
+# (`/plugin marketplace add phmatray/tagout`), so the tag and the version stamped into
 # plugin.json ARE the artifact — there is nothing to pack, sign or upload.
 #
 # PRs land squash-merged, so the PR title becomes the commit message on main: it is the PR title,

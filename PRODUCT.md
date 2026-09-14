@@ -2,7 +2,7 @@
 
 <!-- impeccable:product-schema 1 -->
 
-Scope: the docs site under `docs/`, published at https://phmatray.github.io/ai-migration-kit/.
+Scope: the docs site under `docs/`, published at https://phmatray.github.io/tagout/.
 By the owner's decision (2026-09-14) the generated migration dashboard
 (`scripts/report-dashboard.py` → `migration/report.html`) and the README banner are out of scope.
 
@@ -22,7 +22,7 @@ too, but were not chosen as an audience to design for.
 
 ## Product Purpose
 
-AI Migration Kit is an MIT-licensed Claude Code plugin. It ships agent skills for two loops:
+Tagout is an MIT-licensed Claude Code plugin. It ships agent skills for two loops:
 a seven-phase, gate-verified pipeline that takes a legacy .NET application to verified production
 (assess → baseline → retarget → remediate → modernize → verify → deliver), and a hands-off GitHub
 issue → pull request lifecycle (create-issue → implement-issue → merge-pr, with auto-dev,
@@ -70,7 +70,7 @@ claim measured, gate-enforced verification.
 
 ## Brand Commitments
 
-- Name: **AI Migration Kit**, repository `phmatray/ai-migration-kit`, author Philippe Matray.
+- Name: **Tagout**, repository `phmatray/tagout`, author Philippe Matray.
 - Existing assets: `.github/banner.png` (README, still the old mark), `docs/assets/favicon.svg` (the red tag).
 - The visual world was replaced on 2026-09-14 by the lock-out tag direction (`DESIGN.md` records the
   system; `.impeccable/surfaces/docs-index-md.md` holds the direction contract). The earlier

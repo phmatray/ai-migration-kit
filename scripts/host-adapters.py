@@ -47,14 +47,14 @@ FIX = "run python3 scripts/host-adapters.py build"
 # Cursor's .mdc `alwaysApply`, Windsurf's `trigger`, Kiro's steering `inclusion`. The other three
 # hosts read a plain Markdown file.
 RULE_COPIES = (
-    (".cursor/rules/ai-migration-kit.mdc",
+    (".cursor/rules/tagout.mdc",
      "---\n"
-     "description: AI Migration Kit — which kit skill to use, how to load it, and its MCP servers\n"
+     "description: Tagout — which kit skill to use, how to load it, and its MCP servers\n"
      "alwaysApply: true\n"
      "---\n\n"),
-    (".windsurf/rules/ai-migration-kit.md", "---\ntrigger: always_on\n---\n\n"),
-    (".clinerules/ai-migration-kit.md", ""),
-    (".kiro/steering/ai-migration-kit.md", "---\ninclusion: always\n---\n\n"),
+    (".windsurf/rules/tagout.md", "---\ntrigger: always_on\n---\n\n"),
+    (".clinerules/tagout.md", ""),
+    (".kiro/steering/tagout.md", "---\ninclusion: always\n---\n\n"),
     (".github/copilot-instructions.md", ""),
 )
 

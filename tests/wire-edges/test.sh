@@ -228,7 +228,7 @@ expect_rc 1 && expect_line '^DEP 12⇐11 FAILED.*HTTP 500' \
 
 # ------------------------------------------------- 5. 422 "already exists" → ok (idempotent re-run)
 # The two messages are the ones github.com actually returned on a second run (measured 2026-08-31
-# against phmatray/ai-migration-kit, throwaway issues #346–#348): the sub-issue one says
+# against phmatray/tagout, throwaway issues #346–#348): the sub-issue one says
 # "duplicate", the dependency one says "already been taken". Neither says "exists".
 GH_SUB_STATUS=422 GH_DEP_STATUS=422 \
   GH_422_MESSAGE="An error occurred while adding the sub-issue to the parent issue. Issue may not contain duplicate sub-issues and Sub issue may only have one parent" \

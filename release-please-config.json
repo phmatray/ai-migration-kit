@@ -6,7 +6,7 @@
     ".": {
       "$comment": "Decision: squash-only merges with the PR title as the release commit. See docs/adr/0004-squash-only-merges-the-pr-title-is-the-release-commit.md.",
       "release-type": "simple",
-      "package-name": "ai-migration-kit",
+      "package-name": "tagout",
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
       "extra-files": [

@@ -3,8 +3,8 @@
 One plugin, two cooperating suites — the **migration pipeline** (migrate-legacy, review-followups)
 and the **issue/PR lifecycle** (create-issue, implement-issue, merge-pr, profile-repo, setup-repo,
 and the `auto-dev` fleet supervisor above them) — bridged where a migration's deferred work becomes
-tracked GitHub issues. Every skill carries `metadata.suite: ai-migration-kit` in its frontmatter; in
-Claude Code the plugin namespaces them as `ai-migration-kit:<skill>`. The graphs below are the map;
+tracked GitHub issues. Every skill carries `metadata.suite: tagout` in its frontmatter; in
+Claude Code the plugin namespaces them as `tagout:<skill>`. The graphs below are the map;
 the narrative that reads them in order — the two loops, when to call which skill, the machinery, where
 each MCP server is used — is [`docs/methodology.md`](docs/methodology.md).
 

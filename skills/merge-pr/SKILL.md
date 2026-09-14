@@ -16,7 +16,7 @@ compatibility: >-
   by profile-repo.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Merge a pull request

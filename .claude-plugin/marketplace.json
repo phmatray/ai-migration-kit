@@ -1,9 +1,9 @@
 {
-  "name": "ai-migration-kit-marketplace",
+  "name": "tagout-marketplace",
   "owner": { "name": "phmatray", "email": "phmatray@gmail.com" },
   "plugins": [
     {
-      "name": "ai-migration-kit",
+      "name": "tagout",
       "source": "./",
       "description": "Complete, verified, easy and fast upgrades of legacy .NET applications, powered by RoselineMCP (Roslyn) — plus generic GitHub issue/PR lifecycle skills (create-issue, implement-issue, merge-pr) parameterized by a per-repo profile."
     }

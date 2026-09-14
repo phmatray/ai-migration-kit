@@ -210,7 +210,7 @@ the filing bar and the prior-rejection lookup; Step 7 files each surviving clust
 
 Nothing used to run it. `scripts/session-retro.sh install` puts the **deterministic half** on a
 weekly systemd user timer: `harvest.py` alone, which writes a dated report under
-`$XDG_STATE_HOME/ai-migration-kit/retro/` and notifies **only when it found records**. The judging
+`$XDG_STATE_HOME/tagout/retro/` and notifies **only when it found records**. The judging
 half stays manual — harvest cannot file, close or edit anything, an unattended `claude -p` holding
 Bash can reach `gh issue create`, and an inlet that files on a timer is exactly what the filing bar
 exists to keep a human in front of. The notification is the hand-off: read the report, then run the

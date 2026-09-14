@@ -108,7 +108,7 @@ markdown summary:
 ```markdown
 # Migration report — <app> (<source> → <target>)
 
-**Date:** <yyyy-mm-dd> · **Pipeline:** ai-migration-kit <command> · **Branch:** migration/<date>
+**Date:** <yyyy-mm-dd> · **Pipeline:** tagout <command> · **Branch:** migration/<date>
 
 ## Before / after
 | | Before | After |

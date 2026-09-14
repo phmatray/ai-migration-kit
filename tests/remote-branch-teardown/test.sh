@@ -92,7 +92,7 @@ STUBEOF
 chmod +x "$STUBS/gh"
 
 BRANCH="fix/185-remote-branch-teardown"
-REPO="phmatray/ai-migration-kit"
+REPO="phmatray/tagout"
 
 # set_git <ls-remote stdout+stderr> <exit code>
 set_git() { printf '%s' "$1" > "$GIT_OUT"; printf '%s' "$2" > "$GIT_RC"; }

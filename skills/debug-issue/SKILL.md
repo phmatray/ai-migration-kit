@@ -17,7 +17,7 @@ compatibility: >-
   decoupled from that suite's other skills.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Debug an issue — the root cause before any fix

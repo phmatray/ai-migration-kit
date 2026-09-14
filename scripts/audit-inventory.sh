@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # audit-inventory.sh <repo-dir>
 # Read-only structural inventory of a .NET repo, as JSON on stdout.
-# Every number in an ai-migration-kit audit report must come from here.
+# Every number in an tagout audit report must come from here.
 set -euo pipefail
 
 REPO="${1:?usage: audit-inventory.sh <repo-dir>}"
@@ -56,7 +56,7 @@ from pathlib import Path
 # divergé, et tout ce que ce script émet est lu comme une mesure — la phase 1 recopie `testStack[]`
 # et `vendoredAssets[]` dans l'évaluation. Deux règles = un document incohérent avec lui-même, sans
 # le moindre symptôme. Mesuré avant la correction (#65) :
-#   - `ai-migration-kit` annonçait testStack = 6 pour UN seul projet de test : les cinq autres
+#   - `tagout` annonçait testStack = 6 pour UN seul projet de test : les cinq autres
 #     étaient des copies de samples/LegacyShop dans ses propres worktrees d'agent ;
 #   - Koine 1825 csFiles, NetImpex 1116, repo-audit 348 — tous gonflés par des copies ;
 #   - `openjam-monorepo` annonçait csFiles = 0, locTotal = 0, testStack = 0. Pas « petit » :

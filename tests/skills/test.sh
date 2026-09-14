@@ -107,35 +107,35 @@ PY
 echo "== a version key must be rejected, however it is spelled =="
 run_case "P1 plain           metadata.version" fail "$(meta_mutator 'metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
   version: 1.8.0
 ')"
 run_case "P2 double-quoted   metadata.version" fail "$(meta_mutator 'metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
   "version": 1.8.0
 ')"
 run_case "P3 single-quoted   metadata.version" fail "$(meta_mutator "metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
   'version': 1.8.0
 ")"
 run_case "P4 space-before-colon             " fail "$(meta_mutator 'metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
   version : 1.8.0
 ')"
-run_case "P5 flow mapping    metadata.version" fail "$(meta_mutator 'metadata: {author: Philippe Matray, suite: ai-migration-kit, version: 1.8.0}
+run_case "P5 flow mapping    metadata.version" fail "$(meta_mutator 'metadata: {author: Philippe Matray, suite: tagout, version: 1.8.0}
 ')"
 run_case "P6 top-level       version         " fail "$(meta_mutator 'version: 2.0.0
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ')"
 
 echo "== the other frontmatter facts stay enforced =="
 run_case "P7 metadata.author missing        " fail "$(meta_mutator 'metadata:
-  suite: ai-migration-kit
+  suite: tagout
 ')"
 run_case "P8 metadata.suite missing         " fail "$(meta_mutator 'metadata:
   author: Philippe Matray
@@ -1595,7 +1595,7 @@ _red_docs theme
 sed "s/localStorage.getItem('kit-scheme')/localStorage.getItem('kit-theme')/" "$KIT_ROOT/docs/_includes/head.html" > "$_pscratch/theme/docs/_includes/head.html"
 _red_refused theme "kit-theme" "a scheme restore reading a storage key the toggle never writes"
 _red_docs typed
-printf '%s\n' 'git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit' >> "$_pscratch/typed/docs/install.md"
+printf '%s\n' 'git clone https://github.com/phmatray/tagout ~/.tagout' >> "$_pscratch/typed/docs/install.md"
 _red_refused typed "docs/install.md types" "an install command typed into a page"
 _red_docs gets
 sed 's/, hooks: "yes"//' "$KIT_ROOT/docs/_data/hosts.yml" > "$_pscratch/gets/docs/_data/hosts.yml"

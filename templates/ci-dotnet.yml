@@ -1,4 +1,4 @@
-# Template CI ai-migration-kit — à déposer dans le repo migré (.github/workflows/ci.yml), phase 6.
+# Template CI tagout — à déposer dans le repo migré (.github/workflows/ci.yml), phase 6.
 # La migration ne livre pas que du code : elle livre le garde-fou.
 # ⚠ Renseignez SOLUTION si le repo contient plusieurs .sln (l'ancienne solution legacy reste
 #   souvent à la racine) : `dotnet test` nu échoue alors avec MSB1011.

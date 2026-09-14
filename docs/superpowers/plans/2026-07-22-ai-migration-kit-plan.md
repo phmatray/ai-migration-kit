@@ -1,8 +1,8 @@
-# AI Migration Kit Implementation Plan
+# Tagout Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the ai-migration-kit Claude Code plugin — a six-phase legacy-app upgrade pipeline powered by RoselineMCP — with a legacy .NET sample and a real, captured demo run proving it works.
+**Goal:** Ship the tagout Claude Code plugin — a six-phase legacy-app upgrade pipeline powered by RoselineMCP — with a legacy .NET sample and a real, captured demo run proving it works.
 
 **Architecture:** A Claude Code plugin (skills + commands, all markdown) encoding the pipeline; RoselineMCP is the mandatory engine for C# analysis/transformation. A deliberately-legacy sample solution (`samples/LegacyShop`, net6.0) is the demo fixture; the pipeline is executed for real against a scratch copy and the evidence captured in `docs/demo-walkthrough.md`.
 
@@ -26,14 +26,14 @@
 - Create: `README.md`
 
 **Interfaces:**
-- Produces: plugin name `ai-migration-kit`; command names `/migrate`, `/migrate-assess`, `/migrate-verify`; skill name `legacy-upgrade` — all later tasks must match these exactly.
+- Produces: plugin name `tagout`; command names `/migrate`, `/migrate-assess`, `/migrate-verify`; skill name `legacy-upgrade` — all later tasks must match these exactly.
 
 - [ ] **Step 1: Write plugin.json**
 
 ```json
 {
-  "name": "ai-migration-kit",
-  "displayName": "AI Migration Kit",
+  "name": "tagout",
+  "displayName": "Tagout",
   "version": "1.0.0",
   "description": "Complete, verified, easy and fast upgrades of legacy .NET applications, powered by RoselineMCP (Roslyn). Six-phase pipeline: assess, baseline, retarget, remediate, modernize, verify.",
   "author": { "name": "Philippe Matray" },

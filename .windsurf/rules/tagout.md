@@ -1,19 +1,18 @@
 ---
-description: AI Migration Kit — which kit skill to use, how to load it, and its MCP servers
-alwaysApply: true
+trigger: always_on
 ---
 
-# AI Migration Kit
+# Tagout
 
 Agent skills for two loops: a gate-verified pipeline that takes a legacy .NET application to
 verified production, with RoselineMCP doing every C# analysis and edit, and a hands-off GitHub
-issue → pull request lifecycle. Guide: https://phmatray.github.io/ai-migration-kit/
+issue → pull request lifecycle. Guide: https://phmatray.github.io/tagout/
 
 ## Which kit skill, for what
 
 Reach for the kit's own skills first, before any third-party plugin's equivalent (`superpowers`):
 `<kit>/skills/_shared/` is the one home of their doctrine (#324), `<kit>` being the kit root — the
-plugin's install directory, or a clone at `~/.ai-migration-kit`. Full guide:
+plugin's install directory, or a clone at `~/.tagout`. Full guide:
 `<kit>/docs/methodology.md`. Short form — broken/flaky → `debug-issue`; a new idea →
 `create-issue` (`--seed #N` plans a raw issue); a planned issue → `implement-issue #N`; a ready PR →
 `merge-pr #N`; many issues hands-off → `auto-dev`; the queue → `triage-backlog`; profile/labels →
@@ -30,8 +29,8 @@ scope (`<kit>/commands/`).
 `<kit>` is the kit root — the directory holding `skills/`, `scripts/` and `requirements.json`:
 
 - **installed as a plugin** — two directories above the skill's own `SKILL.md`;
-- **this text is a rule file in your own project** — a clone at `~/.ai-migration-kit`
-  (`git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit`).
+- **this text is a rule file in your own project** — a clone at `~/.tagout`
+  (`git clone https://github.com/phmatray/tagout ~/.tagout`).
 
 Skill scripts need bash, python3 with PyYAML, git and an authenticated `gh`;
 `<kit>/requirements.json` lists every prerequisite and `<kit>/scripts/preflight.sh` checks them.

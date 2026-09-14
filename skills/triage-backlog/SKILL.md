@@ -17,7 +17,7 @@ compatibility: >-
   explicit owner confirmation.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Triage the backlog

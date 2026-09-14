@@ -17,7 +17,7 @@ Usage:
   --since       keep only records stamped on or after that date (UTC date of the transcript line).
   --json        one JSON object per line (the record shape below). --markdown: the tally (default).
                 The two are exclusive.
-  --kit-name    the plugin's name as it appears in skill ids and cache paths (default: ai-migration-kit).
+  --kit-name    the plugin's name as it appears in skill ids and cache paths (default: tagout).
 
 The never-wait phrase list is READ from the kit's own tests/auto-dev-never-wait/test.sh (three
 directories above this file), never copied here: when that file is not there, no forbidden-wait
@@ -206,11 +206,11 @@ def names_kit_path(s, in_kit_repo, kit_name):
         return False
     if kit_name:
         # kit_name counts only as a PATH SEGMENT — not immediately preceded or followed by another
-        # identifier character. Bounded by adjacency, not by "/" or line-start: "~/.ai-migration-kit"
+        # identifier character. Bounded by adjacency, not by "/" or line-start: "~/.tagout"
         # (the kit's documented non-plugin clone path, AGENTS.md) and a mid-body mention on a line
-        # of its own both count; a dash-encoded cwd directory ("-Users-x-ai-migration-kit") does
+        # of its own both count; a dash-encoded cwd directory ("-Users-x-tagout") does
         # not, because the char right before the name there is "-", not a boundary; neither does a
-        # same-prefixed sibling ("ai-migration-kit.bak", "ai-migration-kit-archive").
+        # same-prefixed sibling ("tagout.bak", "tagout-archive").
         if re.search(r"(?<![\w-])" + re.escape(kit_name) + r"(?![\w.-])", s):
             return True
     for d in KIT_DIRS_ANYWHERE:
@@ -382,7 +382,7 @@ def main(argv):
     ap.add_argument("--since")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--markdown", action="store_true")
-    ap.add_argument("--kit-name", default="ai-migration-kit")
+    ap.add_argument("--kit-name", default="tagout")
     try:
         args = ap.parse_args(argv)
     except SystemExit as e:

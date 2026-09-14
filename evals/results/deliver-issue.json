@@ -40,7 +40,7 @@
       "pass": true
     },
     {
-      "query": "https://github.com/phmatray/ai-migration-kit/issues/343 \u2014 go build it and land it",
+      "query": "https://github.com/phmatray/tagout/issues/343 \u2014 go build it and land it",
       "note": "",
       "should_trigger": true,
       "trigger_rate": 0.3333333333333333,

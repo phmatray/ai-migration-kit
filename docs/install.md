@@ -70,4 +70,4 @@ request skills need neither server.
 {% for host in site.data.hosts %}{% if host.uninstall %}
 - **{{ host.name }}** — `{{ host.uninstall }}`{% elsif host.tier == "plugin" %}
 - **{{ host.name }}** — remove it from the host's own plugin list; its documentation names no command for it.{% endif %}{% endfor %}
-- **A rule-file host** — delete the rule file you copied, and `~/.ai-migration-kit` once no project uses it.
+- **A rule-file host** — delete the rule file you copied, and `~/.tagout` once no project uses it.

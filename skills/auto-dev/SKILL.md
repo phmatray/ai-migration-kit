@@ -17,7 +17,7 @@ compatibility: >-
   need python3.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # auto-dev — a continuous fleet that implements and merges issues
@@ -221,7 +221,7 @@ every dispatch, first batch or refill.
 > **Paths in this skill.** `scripts/…` means this skill's own directory (`skills/auto-dev/` from the
 > kit root); the worker prompts are the kit's `commands/auto-dev-worker.md` and
 > `commands/auto-dev-merge.md`. A sub-agent invokes them as the `auto-dev-worker` / `auto-dev-merge`
-> command (skill `ai-migration-kit:auto-dev-worker` when the kit is installed as a plugin, or the
+> command (skill `tagout:auto-dev-worker` when the kit is installed as a plugin, or the
 > un-namespaced form the runtime resolves) — verify the form once before dispatching a fleet
 > against it.
 
@@ -315,7 +315,7 @@ The **one judgment left to you is area-tagging** the QUEUE rows (infer from titl
 Persist a **state file** at the pinned, derivable path
 
 ```
-${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md
+${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/tagout/auto-dev/<host>/<owner>/<repo>.md
 ```
 
 (`mkdir -p` its parent directory first) — still outside the repo and never a tracked path, so the
@@ -532,7 +532,7 @@ cwd rather than getting one of its own, so without it every worker lands in the 
 worktree and "one area per concurrent worker" — the entire conflict strategy — silently stops holding
 the moment the supervisor itself runs in one.
 
-The prompt names the command — the `auto-dev-worker` command (skill `ai-migration-kit:auto-dev-worker`,
+The prompt names the command — the `auto-dev-worker` command (skill `tagout:auto-dev-worker`,
 or the un-namespaced form the runtime resolves) — and the per-dispatch facts; everything else the
 worker needs is already in the command file.
 
@@ -884,7 +884,7 @@ re-queue as eligible on the very next survey regardless — call those out by na
 summary is the only place anyone sees that before the file is discarded.
 
 **Remove the state file** at its pinned path (Step 2) once the queue has fully drained — `rm -f
-"${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/ai-migration-kit/auto-dev/<host>/<owner>/<repo>.md"`.
+"${AUTODEV_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/tagout/auto-dev/<host>/<owner>/<repo>.md"`.
 This is what `hooks/autodev-stop-gate.sh` (#417) reads as "no fleet is running here": its positive
 evidence is the file's presence, so leaving a drained fleet's file behind would leave the gate
 believing work is still undrained the next time a session tries to stop in this repo. Don't remove it

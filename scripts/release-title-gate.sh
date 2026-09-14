@@ -56,7 +56,7 @@ RELEASABLE_TYPES="feat fix perf revert"
 # SINGLE SOURCE, and deliberately a DENY-list (#55). The gate used to ask "does this touch
 # skills/**", but skills/ was only ever a proxy for the real invariant: "does this change what a
 # consumer's installed plugin does". An installed plugin is a whole-repo checkout of the tagged
-# commit at ~/.claude/plugins/cache/<marketplace>/ai-migration-kit/<version>/, and plugin.json
+# commit at ~/.claude/plugins/cache/<marketplace>/tagout/<version>/, and plugin.json
 # declares no file allowlist — so scripts/, commands/, templates/, requirements.json and hooks/ are
 # every bit as install-time as skills/. Under the old allowlist a `chore:` fix to any of them cut no
 # release, reached no consumer, and the gate said "not applicable" (that is #6's failure mode with

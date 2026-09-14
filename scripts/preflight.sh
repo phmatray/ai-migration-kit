@@ -199,7 +199,7 @@ PY
   exit "$FAIL"
 fi
 
-echo "== ai-migration-kit preflight (manifest: requirements.json) =="
+echo "== tagout preflight (manifest: requirements.json) =="
 for r in "${RESULTS[@]}"; do
   IFS=$'\t' read -r st name reqby hint <<<"$r"
   case "$st" in

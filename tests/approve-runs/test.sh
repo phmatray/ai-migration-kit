@@ -77,7 +77,7 @@ exit 99
 STUBEOF
 chmod +x "$STUBS/gh"
 
-REPO="phmatray/ai-migration-kit"
+REPO="phmatray/tagout"
 SHA="deadbeef00000000000000000000000000000000"
 
 set_pr()      { printf '%s' "$1" > "$PR_JSON"; }

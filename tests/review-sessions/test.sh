@@ -64,13 +64,13 @@ source_guard() {
   eval "$outvar=\$out"
 }
 
-PROJ=$(kit_scratch)/-Users-me-repo-ai-migration-kit    # the dir name carries the kit name → in-kit paths count
+PROJ=$(kit_scratch)/-Users-me-repo-tagout    # the dir name carries the kit name → in-kit paths count
 mkdir -p "$PROJ"
 T="$PROJ/sess-1.jsonl"
 D="2026-08-20T10:00:00.000Z"
 
 # The skill that owns everything below.
-write_line "$T" assistant "$D" "$(tool_use t0 Skill '{"skill":"ai-migration-kit:implement-issue","args":"47"}')"
+write_line "$T" assistant "$D" "$(tool_use t0 Skill '{"skill":"tagout:implement-issue","args":"47"}')"
 # 1. tool-error: an is_error on a kit script.
 write_line "$T" assistant "$D" "$(tool_use t1 Bash '{"command":"./skills/implement-issue/scripts/tick-plan.sh --issue 47"}')"
 write_line "$T" user "$D" "$(tool_result t1 'tick-plan: gh api timed out' true)"
@@ -213,13 +213,13 @@ write_line "$T" assistant "$D" "$(tool_use t19 Bash '{"command":"ls -la","descri
 write_line "$T" user "$D" "$(tool_result t19 "$GOUT" true)"
 # AC8 (#496): kit_name counts only as a standalone identifier — never as a substring of a
 # dash-encoded scratchpad directory that happens to spell the kit's name.
-write_line "$T" assistant "$D" "$(tool_use t17 Bash '{"command":"cd /private/tmp/claude-501/-Users-x-ai-migration-kit/scratchpad && ls"}')"  # tmp-lint:allow — a fixture COMMAND string under test, not a path this suite writes
+write_line "$T" assistant "$D" "$(tool_use t17 Bash '{"command":"cd /private/tmp/claude-501/-Users-x-tagout/scratchpad && ls"}')"  # tmp-lint:allow — a fixture COMMAND string under test, not a path this suite writes
 write_line "$T" user "$D" "$(tool_result t17 'ls: cannot access '"'"'foo'"'"': No such file or directory' true)"
-write_line "$T" assistant "$D" "$(tool_use t18 Bash '{"command":"cd /Users/x/ai-migration-kit && scripts/preflight.sh"}')"
+write_line "$T" assistant "$D" "$(tool_use t18 Bash '{"command":"cd /Users/x/tagout && scripts/preflight.sh"}')"
 write_line "$T" user "$D" "$(tool_result t18 'preflight: PyYAML missing' true)"
-# decoy: kit_name's trailing boundary — a same-PREFIXED sibling directory ("ai-migration-kit.bak")
+# decoy: kit_name's trailing boundary — a same-PREFIXED sibling directory ("tagout.bak")
 # is not the kit's own path segment, even though it starts with the kit's name.
-write_line "$T" assistant "$D" "$(tool_use t22 Bash '{"command":"ls /x/ai-migration-kit.bak/notes.txt"}')"
+write_line "$T" assistant "$D" "$(tool_use t22 Bash '{"command":"ls /x/tagout.bak/notes.txt"}')"
 write_line "$T" user "$D" "$(tool_result t22 "ls: cannot access notes.txt: No such file or directory" true)"
 # 7. harness-nudge (a plain user string).
 python3 - "$T" "$D" <<'PY'
@@ -287,7 +287,7 @@ rc=0; python3 "$SCRIPT" "$PROJ" --json --markdown > "$OUT.both" 2>&1 || rc=$?
 # An EXISTING directory that cannot be listed is not "no signals": glob() would swallow the
 # PermissionError and the run would answer clean with exit 0. Skipped as root, who can read anything.
 if [ "$(id -u)" -ne 0 ]; then
-  LOCKED=$(kit_scratch)/-Users-me-repo-ai-migration-kit-locked; mkdir -p "$LOCKED"; chmod 000 "$LOCKED"
+  LOCKED=$(kit_scratch)/-Users-me-repo-tagout-locked; mkdir -p "$LOCKED"; chmod 000 "$LOCKED"
   rc=0; python3 "$SCRIPT" "$LOCKED" --json > "$OUT.locked" 2>&1 || rc=$?
   chmod 755 "$LOCKED"
   [ "$rc" -eq 2 ] || { echo "FAIL: an unreadable (chmod 000) project dir must exit 2, got $rc"; cat "$OUT.locked"; exit 1; }

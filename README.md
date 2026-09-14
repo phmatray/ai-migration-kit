@@ -1,19 +1,19 @@
-![ai-migration-kit banner](.github/banner.png)
+![tagout banner](.github/banner.png)
 
-# AI Migration Kit
+# Tagout
 
 <!-- portfolio-badges:start -->
 <!-- Identity -->
-[![phmatray - ai-migration-kit](https://img.shields.io/static/v1?label=phmatray&message=ai-migration-kit&color=blue&logo=github)](https://github.com/phmatray/ai-migration-kit)
-![Top language](https://img.shields.io/github/languages/top/phmatray/ai-migration-kit)
-[![Stars](https://img.shields.io/github/stars/phmatray/ai-migration-kit?style=social)](https://github.com/phmatray/ai-migration-kit/stargazers)
-[![Forks](https://img.shields.io/github/forks/phmatray/ai-migration-kit?style=social)](https://github.com/phmatray/ai-migration-kit/network/members)
-[![License](https://img.shields.io/github/license/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/blob/HEAD/LICENSE)
+[![phmatray - tagout](https://img.shields.io/static/v1?label=phmatray&message=tagout&color=blue&logo=github)](https://github.com/phmatray/tagout)
+![Top language](https://img.shields.io/github/languages/top/phmatray/tagout)
+[![Stars](https://img.shields.io/github/stars/phmatray/tagout?style=social)](https://github.com/phmatray/tagout/stargazers)
+[![Forks](https://img.shields.io/github/forks/phmatray/tagout?style=social)](https://github.com/phmatray/tagout/network/members)
+[![License](https://img.shields.io/github/license/phmatray/tagout)](https://github.com/phmatray/tagout/blob/HEAD/LICENSE)
 
 <!-- Activity -->
-[![Issues](https://img.shields.io/github/issues/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/issues)
-[![Pull requests](https://img.shields.io/github/issues-pr/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/pulls)
-[![Last commit](https://img.shields.io/github/last-commit/phmatray/ai-migration-kit)](https://github.com/phmatray/ai-migration-kit/commits)
+[![Issues](https://img.shields.io/github/issues/phmatray/tagout)](https://github.com/phmatray/tagout/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/phmatray/tagout)](https://github.com/phmatray/tagout/pulls)
+[![Last commit](https://img.shields.io/github/last-commit/phmatray/tagout)](https://github.com/phmatray/tagout/commits)
 <!-- portfolio-badges:end -->
 
 <!-- portfolio-toc:start -->
@@ -272,8 +272,8 @@ adapts it, is one table: [`docs/_data/hosts.yml`](docs/_data/hosts.yml) — the 
 ### Claude Code
 
 ```bash
-claude plugin marketplace add phmatray/ai-migration-kit
-claude plugin install ai-migration-kit@ai-migration-kit-marketplace
+claude plugin marketplace add phmatray/tagout
+claude plugin install tagout@tagout-marketplace
 ```
 
 Inside a session the same two commands work as `/plugin marketplace add` and `/plugin install`.
@@ -281,34 +281,34 @@ Inside a session the same two commands work as `/plugin marketplace add` and `/p
 ### Codex
 
 ```bash
-codex plugin marketplace add phmatray/ai-migration-kit
+codex plugin marketplace add phmatray/tagout
 ```
 
-Then open `/plugins`, install AI Migration Kit, and review and trust its hooks in `/hooks`.
+Then open `/plugins`, install Tagout, and review and trust its hooks in `/hooks`.
 
 ### GitHub Copilot CLI
 
 ```bash
-copilot plugin marketplace add phmatray/ai-migration-kit
-copilot plugin install ai-migration-kit@ai-migration-kit-marketplace
+copilot plugin marketplace add phmatray/tagout
+copilot plugin install tagout@tagout-marketplace
 ```
 
 ### Gemini CLI
 
 ```bash
-gemini extensions install https://github.com/phmatray/ai-migration-kit
+gemini extensions install https://github.com/phmatray/tagout
 ```
 
 ### Antigravity CLI
 
 ```bash
-agy plugin install https://github.com/phmatray/ai-migration-kit
+agy plugin install https://github.com/phmatray/tagout
 ```
 
 ### pi
 
 ```bash
-pi install git:github.com/phmatray/ai-migration-kit
+pi install git:github.com/phmatray/tagout
 ```
 
 The issue → pull request skills work there as they are; the migration pipeline needs RoselineMCP,
@@ -320,8 +320,8 @@ Clone the kit once, then copy the rule file your host reads into your project �
 request to a skill in the clone:
 
 ```bash
-git clone https://github.com/phmatray/ai-migration-kit ~/.ai-migration-kit
-mkdir -p .cursor/rules && cp ~/.ai-migration-kit/.cursor/rules/ai-migration-kit.mdc .cursor/rules/
+git clone https://github.com/phmatray/tagout ~/.tagout
+mkdir -p .cursor/rules && cp ~/.tagout/.cursor/rules/tagout.mdc .cursor/rules/
 ```
 
 That second line is Cursor's; the host table has every host's. For the migration pipeline, register
@@ -514,7 +514,7 @@ See [docs/demo-walkthrough.md](docs/demo-walkthrough.md): a genuine run of the p
 
 ## Roadmap
 
-Planned work and known limitations are tracked in the [open issues](https://github.com/phmatray/ai-migration-kit/issues). Contributions toward them are welcome.
+Planned work and known limitations are tracked in the [open issues](https://github.com/phmatray/tagout/issues). Contributions toward them are welcome.
 
 <!-- portfolio-roadmap:end -->
 

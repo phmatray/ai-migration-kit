@@ -1,4 +1,4 @@
-# Template déploiement ai-migration-kit — Blazor WASM vers GitHub Pages.
+# Template déploiement tagout — Blazor WASM vers GitHub Pages.
 # À déposer dans le repo migré (.github/workflows/deploy-pages.yml).
 # 1) Renseignez env: (SOLUTION si plusieurs .sln, WEB_PROJECT, BASE_PATH = /<nom-du-repo>/).
 # 2) Adaptez branches: à la branche par défaut du repo (main, dev… — vérifiez, elle varie).

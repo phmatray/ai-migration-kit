@@ -49,7 +49,7 @@ fails=0
 ok()  { printf '  ok    %s\n' "$1"; }
 bad() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
-COPIES=".cursor/rules/ai-migration-kit.mdc .windsurf/rules/ai-migration-kit.md .clinerules/ai-migration-kit.md .kiro/steering/ai-migration-kit.md .github/copilot-instructions.md"
+COPIES=".cursor/rules/tagout.mdc .windsurf/rules/tagout.md .clinerules/tagout.md .kiro/steering/tagout.md .github/copilot-instructions.md"
 # What the invariants read, beside the copies: the manifests, the files their paths name,
 # release-please's two files, the host table and the README it is checked against. `skills/` only
 # has to exist for a manifest's `skills` path to resolve.
@@ -89,11 +89,11 @@ run_check "$REPO"
 
 echo "== B. one edited copy is refused, by name =="
 T="$WORK/b"; scratch_tree "$T"
-printf '\nA line nobody generated.\n' >> "$T/.clinerules/ai-migration-kit.md"
+printf '\nA line nobody generated.\n' >> "$T/.clinerules/tagout.md"
 run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC, want 1: $OUT $ERR"
-names ".clinerules/ai-migration-kit.md" && ok "names .clinerules/ai-migration-kit.md on stdout" || bad "stdout does not name the edited copy: $OUT"
-names ".kiro/steering/ai-migration-kit.md" && bad "names an untouched copy: $OUT" || ok "names no untouched copy"
+names ".clinerules/tagout.md" && ok "names .clinerules/tagout.md on stdout" || bad "stdout does not name the edited copy: $OUT"
+names ".kiro/steering/tagout.md" && bad "names an untouched copy: $OUT" || ok "names no untouched copy"
 
 echo "== C. build restores it =="
 run_check "$T" build
@@ -106,7 +106,7 @@ T="$WORK/d"; scratch_tree "$T"
 rm -r "$T/.kiro"
 run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC, want 1: $OUT $ERR"
-names ".kiro/steering/ai-migration-kit.md" && ok "names the missing copy on stdout" || bad "stdout does not name the missing copy: $OUT"
+names ".kiro/steering/tagout.md" && ok "names the missing copy on stdout" || bad "stdout does not name the missing copy: $OUT"
 run_check "$T" build
 [ "$RC" -eq 0 ] && ok "build recreates the missing folder" || bad "build exited $RC into a missing folder: $ERR"
 run_check "$T"
@@ -121,16 +121,16 @@ no_traceback "a missing AGENTS.md"
 
 echo "== F. CRLF is not drift =="
 T="$WORK/f"; scratch_tree "$T"
-crlf "$REPO/.clinerules/ai-migration-kit.md" "$T/.clinerules/ai-migration-kit.md"
+crlf "$REPO/.clinerules/tagout.md" "$T/.clinerules/tagout.md"
 run_check "$T"
 [ "$RC" -eq 0 ] && ok "a CRLF copy is in step" || bad "exit $RC on a CRLF copy: $OUT"
 
 echo "== F2. a non-UTF-8 file: a copy is drift, the source is no verdict =="
 T="$WORK/f2"; scratch_tree "$T"
-utf16 "$REPO/.windsurf/rules/ai-migration-kit.md" "$T/.windsurf/rules/ai-migration-kit.md"
+utf16 "$REPO/.windsurf/rules/tagout.md" "$T/.windsurf/rules/tagout.md"
 run_check "$T"
 [ "$RC" -eq 1 ] && ok "a UTF-16 copy exits 1" || bad "a UTF-16 copy exited $RC, want 1: $OUT $ERR"
-names ".windsurf/rules/ai-migration-kit.md" && ok "names the UTF-16 copy on stdout" || bad "stdout does not name the UTF-16 copy: $OUT"
+names ".windsurf/rules/tagout.md" && ok "names the UTF-16 copy on stdout" || bad "stdout does not name the UTF-16 copy: $OUT"
 no_traceback "a UTF-16 copy"
 T="$WORK/f3"; scratch_tree "$T"
 utf16 "$REPO/AGENTS.md" "$T/AGENTS.md"
@@ -149,16 +149,16 @@ python3 "$CHECK" --repo "$REPO" > /dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && ok "no subcommand exits 2" || bad "no subcommand exited $RC"
 
 echo "== H. each host's front matter =="
-[ "$(head -1 "$REPO/.cursor/rules/ai-migration-kit.mdc")" = "---" ] \
-  && grep -qx 'alwaysApply: true' "$REPO/.cursor/rules/ai-migration-kit.mdc" \
+[ "$(head -1 "$REPO/.cursor/rules/tagout.mdc")" = "---" ] \
+  && grep -qx 'alwaysApply: true' "$REPO/.cursor/rules/tagout.mdc" \
   && ok "Cursor: an always-applied .mdc rule" || bad "Cursor rule lacks 'alwaysApply: true' front matter"
-grep -qx 'trigger: always_on' "$REPO/.windsurf/rules/ai-migration-kit.md" \
+grep -qx 'trigger: always_on' "$REPO/.windsurf/rules/tagout.md" \
   && ok "Windsurf: trigger always_on" || bad "Windsurf rule lacks 'trigger: always_on'"
-grep -qx 'inclusion: always' "$REPO/.kiro/steering/ai-migration-kit.md" \
+grep -qx 'inclusion: always' "$REPO/.kiro/steering/tagout.md" \
   && ok "Kiro: inclusion always" || bad "Kiro steering lacks 'inclusion: always'"
-for f in .clinerules/ai-migration-kit.md .github/copilot-instructions.md; do
-  [ "$(head -1 "$REPO/$f")" = "# AI Migration Kit" ] \
-    && ok "$f: no front matter, opens on the heading" || bad "$f does not open on '# AI Migration Kit'"
+for f in .clinerules/tagout.md .github/copilot-instructions.md; do
+  [ "$(head -1 "$REPO/$f")" = "# Tagout" ] \
+    && ok "$f: no front matter, opens on the heading" || bad "$f does not open on '# Tagout'"
 done
 
 echo "== I. the Claude hooks map stays off hooks/hooks.json =="
@@ -252,7 +252,7 @@ echo "== P. gemini-extension.json, as Gemini CLI documents it =="
 if python3 - "$REPO" > "$WORK/p.out" 2>&1 <<'PY'
 import json, pathlib, sys
 ext = json.loads((pathlib.Path(sys.argv[1]) / "gemini-extension.json").read_text(encoding="utf-8"))
-assert ext["name"] == "ai-migration-kit", ext["name"]
+assert ext["name"] == "tagout", ext["name"]
 assert ext["contextFileName"] == "AGENTS.md", ext["contextFileName"]
 assert ext["mcpServers"]["roseline"] == {"command": "dnx", "args": ["RoselineMCP", "--yes"]}, ext["mcpServers"]
 assert ext["mcpServers"]["adr"] == {"command": "dnx", "args": ["AdrMcp", "--yes"]}, ext["mcpServers"]
@@ -293,10 +293,10 @@ assert (copilot["skills"], copilot["mcpServers"]) == ("skills/", ".mcp.json"), c
 assert "hooks" not in copilot and "commands" not in copilot, "Copilot's manifest names no hooks and no commands"
 for rel in (".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"):
     market = load(rel)
-    assert market["name"] == "ai-migration-kit-marketplace", (rel, market["name"])
-    assert market["plugins"][0]["name"] == "ai-migration-kit", (rel, market["plugins"][0]["name"])
+    assert market["name"] == "tagout-marketplace", (rel, market["name"])
+    assert market["plugins"][0]["name"] == "tagout", (rel, market["plugins"][0]["name"])
 PY
-then ok "Claude, Codex and Copilot manifests name their paths; both marketplaces are ai-migration-kit-marketplace"
+then ok "Claude, Codex and Copilot manifests name their paths; both marketplaces are tagout-marketplace"
 else bad "the manifests: $(cat "$WORK/t.out")"; fi
 
 echo "== U. a TOML command whose .md is gone =="
@@ -318,7 +318,7 @@ T="$WORK/w"; scratch_tree "$T"
 sed '/^- id: cline$/,/^$/d' "$REPO/docs/_data/hosts.yml" > "$T/docs/_data/hosts.yml"
 run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1" || bad "exit $RC with a dangling RULE_COPIES entry, want 1: $OUT $ERR"
-names ".clinerules/ai-migration-kit.md" && ok "names the dangling adapter on stdout" || bad "stdout does not name .clinerules/ai-migration-kit.md: $OUT"
+names ".clinerules/tagout.md" && ok "names the dangling adapter on stdout" || bad "stdout does not name .clinerules/tagout.md: $OUT"
 
 if [ "$fails" -eq 0 ]; then
   echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi, host table, manifest paths, orphans"

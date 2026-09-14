@@ -1,6 +1,6 @@
 # Audit Product — Design (WinRT → Blazor portfolio audit)
 
-**Date:** 2026-07-22 · **Extends:** ai-migration-kit v1.0.0
+**Date:** 2026-07-22 · **Extends:** tagout v1.0.0
 **Direction produit (validée) :** faire de l'audit le produit d'entrée du kit, démontré sur un portefeuille réel d'apps WinRT/UWP/Windows Phone à moderniser vers Blazor.
 
 ## Problem

@@ -2,10 +2,10 @@
 # site's own layouts under docs/_layouts (no remote theme since the redesign): navigation, the
 # scheme toggle, mermaid and the copy buttons are the site's own, wired in docs/_includes and
 # docs/assets/js/site.js. No build step: what is committed is what Pages builds.
-title: AI Migration Kit
-description: A Claude Code plugin — a gate-verified methodology for legacy .NET migrations and a hands-off GitHub issue → PR lifecycle.
+title: Tagout
+description: Tagout — the gate-verified issue → PR lifecycle for coding agents, with a .NET migration add-on.
 url: https://phmatray.github.io
-baseurl: /ai-migration-kit
+baseurl: /tagout
 lang: en
 
 plugins:

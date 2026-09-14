@@ -22,7 +22,7 @@ nav_order: 1
 <dt>Use instead</dt><dd><code>mcp__roseline__search_symbols</code> for the file's shape, <code>mcp__roseline__get_symbol_info</code> to read one member's body.</dd>
 </dl>
 </div>
-<p class="kit-hero-actions" markdown="span">[Read the methodology](methodology.md) [Why the gate exists](roseline-gate.md) [Source on GitHub](https://github.com/phmatray/ai-migration-kit)</p>
+<p class="kit-hero-actions" markdown="span">[Read the methodology](methodology.md) [Why the gate exists](roseline-gate.md) [Source on GitHub](https://github.com/phmatray/tagout)</p>
 </div>
 </article>
 

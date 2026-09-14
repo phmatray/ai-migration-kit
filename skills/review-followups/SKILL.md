@@ -14,7 +14,7 @@ compatibility: >-
   migration/report.json; git to commit updates at the source.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Migration follow-ups — aggregation and updates

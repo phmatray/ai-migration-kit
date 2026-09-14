@@ -18,7 +18,7 @@ compatibility: >-
   surfaces need the same admin rights, and Pages must be available on the repository's plan.
 metadata:
   author: Philippe Matray
-  suite: ai-migration-kit
+  suite: tagout
 ---
 
 # Configure a repository for the lifecycle skills

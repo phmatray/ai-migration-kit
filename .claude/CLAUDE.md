@@ -1,4 +1,4 @@
-# Working on ai-migration-kit
+# Working on tagout
 
 This repo ships as a Claude Code plugin (bash + python + markdown skills, no build step). The
 per-repo profile at [`.claude/skills/repo-profile.md`](skills/repo-profile.md) is the single

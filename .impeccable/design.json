@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-09-14T10:18:31Z",
-  "title": "Design System: AI Migration Kit",
+  "title": "Design System: Tagout",
   "extensions": {
     "colorMeta": {
       "tag-red": {
@@ -292,7 +292,7 @@
       "kind": "custom",
       "refersTo": "code-block",
       "description": "Code on the ink ground with a dashed copy chip in the corner; the chip turns solid yellow once copied.",
-      "html": "<div class=\"ds-code\"><pre><code>claude plugin marketplace add phmatray/ai-migration-kit\nclaude plugin install ai-migration-kit@ai-migration-kit-marketplace</code></pre><button class=\"ds-chip ds-copy\" type=\"button\">Copy</button></div>",
+      "html": "<div class=\"ds-code\"><pre><code>claude plugin marketplace add phmatray/tagout\nclaude plugin install tagout@tagout-marketplace</code></pre><button class=\"ds-chip ds-copy\" type=\"button\">Copy</button></div>",
       "css": ".ds-code { position: relative; } .ds-code pre { margin: 0; padding: 16px 72px 16px 20px; background: var(--g10, #111111); color: var(--g1, #f2f2f0); border: 1.5px solid var(--g10, #111111); border-radius: 2px; font-family: 'Red Hat Mono', ui-monospace, Menlo, monospace; font-size: 0.875rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; } .ds-code code { font: inherit; color: inherit; } .ds-copy { position: absolute; top: 8px; right: 8px; display: inline-flex; font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.8125rem; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1.2; padding: 6px 10px; border: 1.5px dashed var(--g5, #8c8c87); border-radius: 2px; color: var(--g2, #e4e4e1); background: var(--g10, #111111); cursor: pointer; transition: border-color 160ms cubic-bezier(0.16,1,0.3,1), background 160ms cubic-bezier(0.16,1,0.3,1), color 160ms cubic-bezier(0.16,1,0.3,1); } .ds-copy:hover { border-color: var(--g1, #f2f2f0); color: #ffffff; } .ds-copy.is-done { border-style: solid; border-color: var(--yellow, #ffd100); background: var(--yellow, #ffd100); color: var(--g10, #111111); }"
     },
     {
