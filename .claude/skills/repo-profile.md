@@ -227,7 +227,7 @@ hand-copying it further.
 | File | Why it collides | Resolution |
 |------|-----------------|------------|
 | `CHANGELOG.md` | release-please regenerates it; every branch appends | **never hand-merge or hand-edit** — take `main`'s copy and let release-please rewrite |
-| `.claude-plugin/plugin.json` (`version`), `.release-please-manifest.json` | release-please bumps them together | take **main's**; never bump by hand |
+| `plugins/tagout/.claude-plugin/plugin.json` (and its `tagout-migrate` twin) (`version`), `.release-please-manifest.json` | release-please bumps them together | take **main's**; never bump by hand |
 | `requirements.json` | the single source of truth for prerequisites — parallel features each add an entry | **union** the arrays; keep it the only place a prerequisite is listed |
 | `.github/workflows/ci.yml` | every new suite wires itself in | **union** the steps — keep BOTH sides' registrations — then re-run `python3 scripts/ci-wiring-check.py` |
 | `scripts/ci-wiring-check.py` | suites register themselves here too | **union**, same rule as `ci.yml`: dropping the other branch's registration silently un-gates its suite |

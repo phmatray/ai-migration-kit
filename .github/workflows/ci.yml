@@ -353,7 +353,7 @@ jobs:
       # hand-edited one of them — which would make the next computed version wrong.
       - name: Plugin version matches the release-please manifest
         run: |
-          plugin=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+          plugin=$(python3 -c "import json; print(json.load(open('plugins/tagout/.claude-plugin/plugin.json'))['version'])")
           manifest=$(python3 -c "import json; print(json.load(open('.release-please-manifest.json'))['.'])")
           if [ "$plugin" != "$manifest" ]; then
             echo "plugin.json is $plugin but .release-please-manifest.json is $manifest"; exit 1

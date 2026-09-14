@@ -136,7 +136,7 @@ refuses near-miss-manifest "'chore'" "chore: leave a backup"  .release-please-ma
 refuses marketplace-is-shipped "'chore'" \
   "chore: register a command" .claude-plugin/marketplace.json
 refuses plugin-json-human-edit "'chore'" \
-  "chore: reword the plugin description" .claude-plugin/plugin.json
+  "chore: reword the plugin description" plugins/tagout/.claude-plugin/plugin.json
 
 # 8h. NESTED evals/ FIXTURES UNDER skills/** (#58). is_shipped() was root-anchored, so its `evals/`
 #     entry excluded only the repo-root harness: skills/review-followups/evals/evals.json matched no rule,
@@ -217,7 +217,7 @@ passes docs-skills-nested "docs: rewrite the walkthrough" docs/skills/guide.md
 # it were refused, no release could ever merge and the gate would deadlock the mechanism it exists
 # to protect. Drive the real shape.
 passes release-please-pr "chore(main): release 1.11.0" \
-  .claude-plugin/plugin.json .release-please-manifest.json CHANGELOG.md
+  plugins/tagout/.claude-plugin/plugin.json .release-please-manifest.json CHANGELOG.md
 passes release-please-pr-subset "chore(main): release 2.0.0" \
   .release-please-manifest.json CHANGELOG.md
 # ...and the release PR the LIVE config would open (#526): every extra-files path, the manifest and
@@ -236,9 +236,9 @@ passes release-please-pr-live-config "chore(main): release 2.5.0" $live_release_
 # written not to be. Wrong title with the release changeset, and release-please's title with an
 # extra shipped file, must each still gate.
 refuses release-files-wrong-title "'chore'" \
-  "chore: bump the version by hand" .claude-plugin/plugin.json .release-please-manifest.json
+  "chore: bump the version by hand" plugins/tagout/.claude-plugin/plugin.json .release-please-manifest.json
 refuses release-title-extra-file "'chore'" \
-  "chore(main): release 1.11.0" .claude-plugin/plugin.json skills/merge-pr/SKILL.md
+  "chore(main): release 1.11.0" plugins/tagout/.claude-plugin/plugin.json skills/merge-pr/SKILL.md
 
 # ---------------------------------------------------------------- plumbing must fail closed
 

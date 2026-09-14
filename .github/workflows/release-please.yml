@@ -1,7 +1,7 @@
 name: release-please
 
 # Derives the next semantic version from Conventional Commits on every push to main and keeps a
-# release PR up to date (bumping .claude-plugin/plugin.json + CHANGELOG.md). Merging that PR tags
+# release PR up to date (bumping the two plugin manifests under plugins/ + CHANGELOG.md). Merging that PR tags
 # vX.Y.Z and publishes the GitHub Release.
 #
 # Unlike the other repos in the portfolio, there is no publish job here and that is deliberate:

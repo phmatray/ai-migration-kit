@@ -1,22 +1,18 @@
 {
   "name": "tagout",
+  "displayName": "Tagout",
   "version": "2.7.0",
   "description": "The gate-verified GitHub issue → pull request lifecycle for coding agents: create-issue, implement-issue, merge-pr, auto-dev, triage-backlog and their guards. No bundled MCP server, no .NET prerequisite. Add tagout-migrate for a legacy .NET application.",
-  "contextFileName": "AGENTS.md",
-  "mcpServers": {
-    "roseline": {
-      "command": "dnx",
-      "args": [
-        "RoselineMCP",
-        "--yes"
-      ]
-    },
-    "adr": {
-      "command": "dnx",
-      "args": [
-        "AdrMcp",
-        "--yes"
-      ]
-    }
-  }
+  "author": {
+    "name": "Philippe Matray"
+  },
+  "license": "MIT",
+  "hooks": "./hooks/tagout-hooks.json",
+  "keywords": [
+    "github",
+    "issues",
+    "pull-requests",
+    "agent-skills",
+    "claude-code"
+  ]
 }

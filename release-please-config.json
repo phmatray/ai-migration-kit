@@ -12,7 +12,12 @@
       "extra-files": [
         {
           "type": "json",
-          "path": ".claude-plugin/plugin.json",
+          "path": "plugins/tagout/.claude-plugin/plugin.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "plugins/tagout-migrate/.claude-plugin/plugin.json",
           "jsonpath": "$.version"
         },
         {

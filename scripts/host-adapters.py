@@ -15,7 +15,7 @@ Two kinds of thing are checked:
 
   generated  `generated(repo)` returns {relative path: (source, text)} — the rule copies (from
              AGENTS.md), each `commands/<name>.toml` Gemini CLI reads (from `commands/<name>.md`),
-             and `gemini-extension.json` (from `.claude-plugin/plugin.json` and `.mcp.json`).
+             and `gemini-extension.json` (from `plugins/tagout/.claude-plugin/plugin.json` and `.mcp.json`).
   invariants what cannot be generated but must hold (`invariants(repo)`, one REFUSE line each): the
              Claude hooks map stays off `hooks/hooks.json`, the path Gemini CLI and Copilot CLI
              auto-load in formats of their own; every plugin manifest carries the release-please
@@ -37,6 +37,7 @@ Exit codes:
 """
 import argparse
 import json
+import os
 import pathlib
 import re
 import sys
@@ -61,7 +62,8 @@ RULE_COPIES = (
 # Every plugin manifest that carries a version. release-please bumps each through `extra-files`;
 # one missing from that list is a manifest that silently stays behind on the next release.
 VERSIONED = (
-    ".claude-plugin/plugin.json",
+    "plugins/tagout/.claude-plugin/plugin.json",
+    "plugins/tagout-migrate/.claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     ".github/plugin/plugin.json",
     "gemini-extension.json",
@@ -77,6 +79,19 @@ UNVERSIONED_JSON = (
 
 HOSTS = "docs/_data/hosts.yml"
 OLD_HOOKS = "hooks/hooks.json"
+
+# The two Claude Code plugins (ADR 0016), each a directory of symlinks into the one tree plus the
+# copies `build` writes. The root is NOT a plugin: a `skills/` directory at a plugin root is always
+# discovered in full and a manifest's `skills` list only ADDS (#607, measured), so the only way to
+# ship ten skills of twelve is a root whose `skills/` holds exactly ten — and a symlinked command
+# FILE is not discovered where a symlinked skill DIRECTORY is, which is why commands are copied.
+PLUGINS = ("plugins/tagout", "plugins/tagout-migrate")
+MIGRATION_PLUGIN = "plugins/tagout-migrate"
+LIFECYCLE_PLUGIN = "plugins/tagout"
+MIGRATION_SKILLS = frozenset({"migrate-legacy", "review-followups"})
+MIGRATION_COMMANDS = re.compile(r"^migrate")
+KIT_PATH = re.compile(r"<kit>/([A-Za-z0-9_./-]+)")
+HOOKS_SOURCE = "hooks/claude-hooks.json"
 
 
 class NoVerdict(Exception):
@@ -131,9 +146,26 @@ def toml_command(repo, md_rel):
             f"prompt = '''\n{prompt}'''\n")
 
 
+def hooks_map(repo, plugin):
+    """The plugin's hooks map, split out of the one Claude map: the Read gate belongs to the
+    migration plugin alone, every other block to the lifecycle plugin."""
+    full = read_json(repo, HOOKS_SOURCE)
+    is_read = lambda block: block.get("matcher") == "Read"
+    hooks = {}
+    for event, blocks in full.get("hooks", {}).items():
+        keep = [b for b in blocks if is_read(b) == (plugin == MIGRATION_PLUGIN)]
+        if keep:
+            hooks[event] = keep
+    return json.dumps({"hooks": hooks}, indent=2, ensure_ascii=False) + "\n"
+
+
+def plugin_for_command(stem):
+    return MIGRATION_PLUGIN if MIGRATION_COMMANDS.match(stem) else LIFECYCLE_PLUGIN
+
+
 def gemini_extension(repo):
     """gemini-extension.json: the plugin's identity, AGENTS.md as context, `.mcp.json`'s servers."""
-    plugin = read_json(repo, ".claude-plugin/plugin.json")
+    plugin = read_json(repo, f"{LIFECYCLE_PLUGIN}/.claude-plugin/plugin.json")
     servers = read_json(repo, ".mcp.json").get("mcpServers", {})
     # Gemini's server entries have no `type` (it infers stdio from `command`), and an empty `env`
     # says nothing — both are dropped so the block holds only what Gemini reads.
@@ -156,7 +188,16 @@ def generated(repo):
     for md in sorted((repo / "commands").glob("*.md")):
         md_rel = f"commands/{md.name}"
         files[f"commands/{md.stem}.toml"] = (md_rel, toml_command(repo, md_rel))
-    files["gemini-extension.json"] = (".claude-plugin/plugin.json and .mcp.json", gemini_extension(repo))
+    files["gemini-extension.json"] = (f"{LIFECYCLE_PLUGIN}/.claude-plugin/plugin.json and .mcp.json",
+                                      gemini_extension(repo))
+    # The two plugins' generated halves: a hooks map each, a copy of every command on its own side,
+    # and the migration plugin's .mcp.json (the lifecycle plugin launches no server, so it has none).
+    files["hooks/tagout-hooks.json"] = (HOOKS_SOURCE, hooks_map(repo, LIFECYCLE_PLUGIN))
+    files["hooks/tagout-migrate-hooks.json"] = (HOOKS_SOURCE, hooks_map(repo, MIGRATION_PLUGIN))
+    for md in sorted((repo / "commands").glob("*.md")):
+        md_rel = f"commands/{md.name}"
+        files[f"{plugin_for_command(md.stem)}/commands/{md.name}"] = (md_rel, read_source(repo, md_rel))
+    files[f"{MIGRATION_PLUGIN}/.mcp.json"] = (".mcp.json", read_source(repo, ".mcp.json"))
     return files
 
 
@@ -192,12 +233,21 @@ def invariants(repo):
         if rel not in extra:
             refusals.append(f"REFUSE: {rel} is not in release-please-config.json's extra-files — "
                             f"the next release would leave it behind")
-    for rel in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".github/plugin/plugin.json"):
+    # A manifest's paths resolve from ITS root: the repo for the other hosts' manifests, the plugin
+    # directory (through its symlinks) for the two Claude Code plugins.
+    for base, rel in ((p, f"{p}/.claude-plugin/plugin.json") for p in PLUGINS):
+        manifest = read_json(repo, rel)
+        for key in ("skills", "hooks", "mcpServers"):
+            target = manifest.get(key)
+            if isinstance(target, str) and not (repo / base / target.removeprefix("./")).exists():
+                refusals.append(f"REFUSE: {rel} names {key} {target!r}, which does not exist under {base}")
+    for rel in (".codex-plugin/plugin.json", ".github/plugin/plugin.json"):
         manifest = read_json(repo, rel)
         for key in ("skills", "hooks", "mcpServers"):
             target = manifest.get(key)
             if isinstance(target, str) and not (repo / target.removeprefix("./")).exists():
                 refusals.append(f"REFUSE: {rel} names {key} {target!r}, which does not exist")
+    refusals.extend(plugin_invariants(repo))
 
     # A TOML command outlives a deleted .md otherwise — build never touches it again, and Gemini keeps
     # offering a command the kit no longer has.
@@ -229,6 +279,67 @@ def invariants(repo):
         if rel not in adapters:
             refusals.append(f"REFUSE: RULE_COPIES names {rel!r}, which no {HOSTS} host names as its adapter")
 
+    return refusals
+
+
+def plugin_invariants(repo):
+    """The partition the two plugins keep (ADR 0016): every skill linked from exactly one plugin
+    (`_shared` from both), every link pointing at its namesake in the tree, no server under the
+    lifecycle plugin, and every `<kit>/<path>` a plugin's skills or the shared scripts name resolving
+    inside that plugin. Commands and hooks maps need no rule of their own: they are generated, and
+    check()'s byte comparison already refuses their drift."""
+    refusals = []
+    skills = sorted(d.name for d in (repo / "skills").iterdir() if d.is_dir()) if (repo / "skills").is_dir() else []
+    for name in skills:
+        expected = set(PLUGINS) if name == "_shared" else (
+            {MIGRATION_PLUGIN} if name in MIGRATION_SKILLS else {LIFECYCLE_PLUGIN})
+        for plugin in PLUGINS:
+            present = (repo / plugin / "skills" / name).is_symlink()
+            if plugin in expected and not present:
+                refusals.append(f"REFUSE: {plugin}/skills/{name} is missing — every skill is linked from "
+                                f"{'both plugins' if name == '_shared' else 'exactly one plugin'}, and skills/{name} belongs to {plugin}")
+            if plugin not in expected and present:
+                refusals.append(f"REFUSE: {plugin} ships skills/{name}, which belongs to "
+                                f"{(expected - {plugin}).pop()} — the two plugins are disjoint")
+    for plugin in PLUGINS:
+        root = repo / plugin
+        if not root.is_dir():
+            refusals.append(f"REFUSE: {plugin} does not exist")
+            continue
+        # Every symlink under the plugin points at the tree entry of the same relative name.
+        for path in sorted(p for p in root.rglob("*") if p.is_symlink()):
+            rel = path.relative_to(root)
+            target = (path.parent / os.readlink(path)).resolve()
+            want = (repo / rel).resolve()
+            if target != want or not want.exists():
+                refusals.append(f"REFUSE: {plugin}/{rel} links to {os.readlink(path)!r}, which is not "
+                                f"{rel} in the tree" + ("" if want.exists() else " (the target does not exist)"))
+        if plugin == LIFECYCLE_PLUGIN and (root / ".mcp.json").exists():
+            refusals.append(f"REFUSE: {plugin} ships an .mcp.json — the lifecycle plugin launches no server (ADR 16)")
+        # Every <kit>/<path> the plugin's own skills and the hooks name must exist under the plugin
+        # once its links are followed. Deliberately NOT scanned: `skills/_shared/` (doctrine written
+        # for the lifecycle skills — it names their guards, which the migration plugin has no use
+        # for) and `scripts/` (a `<kit>/…` in a script is a comment about the tree, not a call — the
+        # release-title gate's prose names the migration fixture). The plugin's own skills are where a
+        # runtime path is spelled to be executed.
+        scanned = []
+        for skill in sorted(p for p in root.glob("skills/*") if p.name != "_shared"):
+            scanned += [p for p in skill.rglob("*") if p.is_file() and (p.suffix == ".md" or "scripts" in p.parts)]
+        scanned += [p for p in repo.glob("hooks/*.sh")]
+        seen = set()
+        for path in scanned:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            for kit_rel in KIT_PATH.findall(text):
+                kit_rel = kit_rel.rstrip(".")
+                if kit_rel in seen:
+                    continue
+                seen.add(kit_rel)
+                if not (root / kit_rel).exists():
+                    shown = path.relative_to(repo) if path.is_relative_to(repo) else path
+                    refusals.append(f"REFUSE: {plugin} lacks '{kit_rel}', which {shown} names as <kit>/{kit_rel}")
     return refusals
 
 

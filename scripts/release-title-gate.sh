@@ -143,7 +143,8 @@ RELEASE_PR_TITLE_PREFIX="chore(main): release "
 # tests/release-title-gate/test.sh builds a release PR from the live release-please-config.json so
 # the next one cannot be forgotten.
 RELEASE_PR_FILES=(
-  .claude-plugin/plugin.json
+  plugins/tagout/.claude-plugin/plugin.json
+  plugins/tagout-migrate/.claude-plugin/plugin.json
   .codex-plugin/plugin.json
   .github/plugin/plugin.json
   gemini-extension.json

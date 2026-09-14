@@ -1,11 +1,19 @@
 {
   "name": "tagout-marketplace",
-  "owner": { "name": "phmatray", "email": "phmatray@gmail.com" },
+  "owner": {
+    "name": "phmatray",
+    "email": "phmatray@gmail.com"
+  },
   "plugins": [
     {
       "name": "tagout",
-      "source": "./",
-      "description": "Complete, verified, easy and fast upgrades of legacy .NET applications, powered by RoselineMCP (Roslyn) — plus generic GitHub issue/PR lifecycle skills (create-issue, implement-issue, merge-pr) parameterized by a per-repo profile."
+      "source": "./plugins/tagout",
+      "description": "The gate-verified GitHub issue → pull request lifecycle for coding agents: create-issue, implement-issue, merge-pr, auto-dev, triage-backlog and their guards. No bundled MCP server, no .NET prerequisite. Add tagout-migrate for a legacy .NET application."
+    },
+    {
+      "name": "tagout-migrate",
+      "source": "./plugins/tagout-migrate",
+      "description": "The gate-verified seven-phase pipeline that takes a legacy .NET application to verified production, powered by RoselineMCP (Roslyn). Ships the roseline Read gate and the roseline + adr MCP servers (dnx, .NET 10 SDK). Install beside tagout."
     }
   ]
 }
