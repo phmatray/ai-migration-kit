@@ -64,6 +64,7 @@ RULE_COPIES = (
 VERSIONED = (
     "plugins/tagout/.claude-plugin/plugin.json",
     "plugins/tagout-migrate/.claude-plugin/plugin.json",
+    ".claude-plugin/plugin.json",   # the TRANSITION manifest (#618): the whole kit under its old name until 3.0.0
     ".codex-plugin/plugin.json",
     ".github/plugin/plugin.json",
     "gemini-extension.json",
@@ -92,6 +93,12 @@ MIGRATION_SKILLS = frozenset({"migrate-legacy", "review-followups"})
 MIGRATION_COMMANDS = re.compile(r"^migrate")
 KIT_PATH = re.compile(r"<kit>/([A-Za-z0-9_./-]+)")
 HOOKS_SOURCE = "hooks/claude-hooks.json"
+# What every plugin directory must link for its scripts and hooks to run from the installed copy —
+# the kit root's own definition (AGENTS.md: skills/, scripts/, requirements.json) plus what the
+# hooks read from ${CLAUDE_PLUGIN_ROOT}. A hand-written link that goes missing is invisible to the
+# link-target loop (it only sees links that exist), so these are named.
+REQUIRED_LINKS = ("skills", "scripts", "hooks", "AGENTS.md", "requirements.json")
+REPO_SETUP = ".github/repo-setup.yml"
 
 
 class NoVerdict(Exception):
@@ -163,8 +170,26 @@ def plugin_for_command(stem):
     return MIGRATION_PLUGIN if MIGRATION_COMMANDS.match(stem) else LIFECYCLE_PLUGIN
 
 
+def repo_description(repo):
+    """The repository's own description, from the repo-setup manifest — the one home of it."""
+    try:
+        import yaml  # PyYAML: a required prerequisite (requirements.json)
+    except ImportError as exc:
+        raise NoVerdict("PyYAML is not installed — see requirements.json") from exc
+    try:
+        manifest = yaml.safe_load(read_source(repo, REPO_SETUP)) or {}
+    except yaml.YAMLError as exc:
+        raise NoVerdict(f"{REPO_SETUP} is not valid YAML: {exc}") from exc
+    description = (manifest.get("settings") or {}).get("description", "")
+    if not description:
+        raise NoVerdict(f"{REPO_SETUP} carries no settings.description for gemini-extension.json to use")
+    return description
+
+
 def gemini_extension(repo):
-    """gemini-extension.json: the plugin's identity, AGENTS.md as context, `.mcp.json`'s servers."""
+    """gemini-extension.json: the plugin's identity, AGENTS.md as context, `.mcp.json`'s servers.
+    Gemini ships the WHOLE kit (both plugins' skills, commands and servers), so its description is
+    the repository's, never one plugin's half."""
     plugin = read_json(repo, f"{LIFECYCLE_PLUGIN}/.claude-plugin/plugin.json")
     servers = read_json(repo, ".mcp.json").get("mcpServers", {})
     # Gemini's server entries have no `type` (it infers stdio from `command`), and an empty `env`
@@ -174,7 +199,7 @@ def gemini_extension(repo):
     ext = {
         "name": plugin["name"],
         "version": plugin["version"],
-        "description": plugin["description"],
+        "description": repo_description(repo),
         "contextFileName": "AGENTS.md",
         "mcpServers": mcp,
     }
@@ -188,7 +213,7 @@ def generated(repo):
     for md in sorted((repo / "commands").glob("*.md")):
         md_rel = f"commands/{md.name}"
         files[f"commands/{md.stem}.toml"] = (md_rel, toml_command(repo, md_rel))
-    files["gemini-extension.json"] = (f"{LIFECYCLE_PLUGIN}/.claude-plugin/plugin.json and .mcp.json",
+    files["gemini-extension.json"] = (f"{LIFECYCLE_PLUGIN}/.claude-plugin/plugin.json, {REPO_SETUP} and .mcp.json",
                                       gemini_extension(repo))
     # The two plugins' generated halves: a hooks map each, a copy of every command on its own side,
     # and the migration plugin's .mcp.json (the lifecycle plugin launches no server, so it has none).
@@ -241,7 +266,7 @@ def invariants(repo):
             target = manifest.get(key)
             if isinstance(target, str) and not (repo / base / target.removeprefix("./")).exists():
                 refusals.append(f"REFUSE: {rel} names {key} {target!r}, which does not exist under {base}")
-    for rel in (".codex-plugin/plugin.json", ".github/plugin/plugin.json"):
+    for rel in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".github/plugin/plugin.json"):
         manifest = read_json(repo, rel)
         for key in ("skills", "hooks", "mcpServers"):
             target = manifest.get(key)
@@ -286,8 +311,10 @@ def plugin_invariants(repo):
     """The partition the two plugins keep (ADR 0016): every skill linked from exactly one plugin
     (`_shared` from both), every link pointing at its namesake in the tree, no server under the
     lifecycle plugin, and every `<kit>/<path>` a plugin's skills or the shared scripts name resolving
-    inside that plugin. Commands and hooks maps need no rule of their own: they are generated, and
-    check()'s byte comparison already refuses their drift."""
+    inside that plugin. Also: every plugin links what its scripts and hooks need (REQUIRED_LINKS); a command copy
+    whose source is gone, or that sits on the wrong side, is refused (check()'s byte comparison
+    only sees copies generated() still emits); a command copy naming a skill its plugin does not
+    link is refused; and every plugin is installable by a line in the host table."""
     refusals = []
     skills = sorted(d.name for d in (repo / "skills").iterdir() if d.is_dir()) if (repo / "skills").is_dir() else []
     for name in skills:
@@ -301,11 +328,34 @@ def plugin_invariants(repo):
             if plugin not in expected and present:
                 refusals.append(f"REFUSE: {plugin} ships skills/{name}, which belongs to "
                                 f"{(expected - {plugin}).pop()} — the two plugins are disjoint")
+    hosts_install = " ".join(line for host in load_hosts(repo) if host.get("tier") == "plugin"
+                             for line in host.get("install", []))
     for plugin in PLUGINS:
         root = repo / plugin
         if not root.is_dir():
             refusals.append(f"REFUSE: {plugin} does not exist")
             continue
+        for rel in REQUIRED_LINKS:
+            if not (root / rel).exists():
+                refusals.append(f"REFUSE: {plugin}/{rel} is missing — the plugin's scripts and hooks read it from the installed copy")
+        name = read_json(repo, f"{plugin}/.claude-plugin/plugin.json").get("name", "")
+        if f"install {name}@" not in hosts_install:
+            refusals.append(f"REFUSE: no install line in {HOSTS} installs {name} — a plugin nobody is told to install ships to nobody")
+        # A command copy outlives its source, or lands on the wrong side, and nothing else notices:
+        # generated() only emits copies for sources that still exist.
+        for copy in sorted(root.glob("commands/*.md")):
+            if not (repo / "commands" / copy.name).exists():
+                refusals.append(f"REFUSE: {plugin}/commands/{copy.name} has no commands/{copy.name} to be built from — delete it")
+            elif plugin_for_command(copy.stem) != plugin:
+                refusals.append(f"REFUSE: {plugin}/commands/{copy.name} belongs to {plugin_for_command(copy.stem)} — delete it")
+            else:
+                # The skill a command dispatches must ship in the same plugin, or the slash command
+                # names a skill that is not there.
+                body = read_source(repo, f"{plugin}/commands/{copy.name}")
+                for skill in skills:
+                    if skill != "_shared" and re.search(r"(?<![\w-])" + re.escape(skill) + r"(?![\w-])", body) \
+                            and not (root / "skills" / skill).exists():
+                        refusals.append(f"REFUSE: {plugin}/commands/{copy.name} names skills/{skill}, which {plugin} does not link")
         # Every symlink under the plugin points at the tree entry of the same relative name.
         for path in sorted(p for p in root.rglob("*") if p.is_symlink()):
             rel = path.relative_to(root)
@@ -325,13 +375,16 @@ def plugin_invariants(repo):
         scanned = []
         for skill in sorted(p for p in root.glob("skills/*") if p.name != "_shared"):
             scanned += [p for p in skill.rglob("*") if p.is_file() and (p.suffix == ".md" or "scripts" in p.parts)]
-        scanned += [p for p in repo.glob("hooks/*.sh")]
+        # Only the hook scripts this plugin's own map names — each hook ships in one plugin.
+        hooks_map_rel = read_json(repo, f"{plugin}/.claude-plugin/plugin.json").get("hooks", "")
+        map_rel = f"{plugin}/{hooks_map_rel.removeprefix('./')}" if hooks_map_rel else ""
+        # A map the manifest names but that does not exist is already refused above, by name.
+        map_text = read_source(repo, map_rel) if map_rel and (repo / map_rel).exists() else ""
+        scanned += [repo / "hooks" / name for name in re.findall(r"hooks/([A-Za-z0-9_.-]+\.sh)", map_text)]
         seen = set()
         for path in scanned:
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
-                continue
+            # An unreadable source is no verdict (read_source raises NoVerdict), never a pass.
+            text = read_source(repo, str(path.relative_to(repo)) if path.is_relative_to(repo) else str(path))
             for kit_rel in KIT_PATH.findall(text):
                 kit_rel = kit_rel.rstrip(".")
                 if kit_rel in seen:

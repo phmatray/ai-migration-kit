@@ -136,7 +136,7 @@ hand-copying it further.
   | `area: tests` | `tests/`, `evals/`, the frozen `samples/` fixture |
   | `area: templates` | `templates/` |
   | `area: docs` | `docs/`, `reviews/`, `README.md`, `ARCHITECTURE.md` |
-  | `area: ci` | `.github/`, `hooks/`, `.claude-plugin/`, the repo-root config files |
+  | `area: ci` | `.github/`, `hooks/`, `.claude-plugin/`, `plugins/`, the repo-root config files |
 
   ⚠️ **These must cover the tree, not sample it.** Both forms mark Area `required: true`, so a path
   no area names is a path no issue can be filed against, and one `auto-dev` can hand no worker as a

@@ -274,9 +274,10 @@ adapts it, is one table: [`docs/_data/hosts.yml`](docs/_data/hosts.yml) — the 
 ```bash
 claude plugin marketplace add phmatray/tagout
 claude plugin install tagout@tagout-marketplace
+claude plugin install tagout-migrate@tagout-marketplace
 ```
 
-Inside a session the same two commands work as `/plugin marketplace add` and `/plugin install`.
+The first plugin is the issue → pull request lifecycle (no .NET); the second adds the .NET migration pipeline with its RoselineMCP and AdrMcp servers. Inside a session the same two commands work as `/plugin marketplace add` and `/plugin install`.
 
 ### Codex
 

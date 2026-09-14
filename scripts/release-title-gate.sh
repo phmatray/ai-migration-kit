@@ -145,6 +145,7 @@ RELEASE_PR_TITLE_PREFIX="chore(main): release "
 RELEASE_PR_FILES=(
   plugins/tagout/.claude-plugin/plugin.json
   plugins/tagout-migrate/.claude-plugin/plugin.json
+  .claude-plugin/plugin.json
   .codex-plugin/plugin.json
   .github/plugin/plugin.json
   gemini-extension.json

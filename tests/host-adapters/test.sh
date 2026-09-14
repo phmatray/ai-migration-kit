@@ -59,7 +59,7 @@ COPIES=".cursor/rules/tagout.mdc .windsurf/rules/tagout.md .clinerules/tagout.md
 # What the invariants read, beside the copies: the manifests, the files their paths name,
 # release-please's two files, the host table and the README it is checked against. `skills/` only
 # has to exist for a manifest's `skills` path to resolve.
-SOURCES="plugins/tagout/.claude-plugin/plugin.json plugins/tagout-migrate/.claude-plugin/plugin.json hooks/tagout-hooks.json hooks/tagout-migrate-hooks.json .codex-plugin/plugin.json .github/plugin/plugin.json gemini-extension.json package.json hooks/claude-hooks.json .mcp.json .release-please-manifest.json release-please-config.json docs/_data/hosts.yml README.md"
+SOURCES=".claude-plugin/plugin.json .github/repo-setup.yml plugins/tagout/.claude-plugin/plugin.json plugins/tagout-migrate/.claude-plugin/plugin.json hooks/tagout-hooks.json hooks/tagout-migrate-hooks.json .codex-plugin/plugin.json .github/plugin/plugin.json gemini-extension.json package.json hooks/claude-hooks.json .mcp.json .release-please-manifest.json release-please-config.json docs/_data/hosts.yml README.md"
 
 # scratch_tree <dir> — a copy of what the check reads, and nothing else.
 scratch_tree() {
@@ -79,6 +79,7 @@ scratch_tree() {
     mkdir -p "$d/$(dirname "$f")"
     cp "$REPO/$f" "$d/$f" 2>/dev/null || true
   done
+  cp "$REPO"/hooks/*.sh "$d/hooks/"      # the hook scripts each plugin's map names: the <kit>/ scan reads them
 }
 
 # run_check <repo> [subcommand] — sets OUT (stdout), ERR (stderr) and RC.
@@ -268,6 +269,10 @@ import json, pathlib, sys
 ext = json.loads((pathlib.Path(sys.argv[1]) / "gemini-extension.json").read_text(encoding="utf-8"))
 assert ext["name"] == "tagout", ext["name"]
 assert ext["contextFileName"] == "AGENTS.md", ext["contextFileName"]
+import yaml
+want_desc = yaml.safe_load((pathlib.Path(sys.argv[1]) / ".github/repo-setup.yml").read_text(encoding="utf-8"))["settings"]["description"]
+assert ext["description"] == want_desc, "gemini-extension.json's description is the repository's (Gemini ships the whole kit), got: " + ext["description"]
+assert "No bundled MCP server" not in ext["description"], ext["description"]
 assert ext["mcpServers"]["roseline"] == {"command": "dnx", "args": ["RoselineMCP", "--yes"]}, ext["mcpServers"]
 assert ext["mcpServers"]["adr"] == {"command": "dnx", "args": ["AdrMcp", "--yes"]}, ext["mcpServers"]
 PY
@@ -299,7 +304,8 @@ if python3 - "$REPO" > "$WORK/t.out" 2>&1 <<'PY'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 def load(rel): return json.loads((root / rel).read_text(encoding="utf-8"))
-assert not (root / ".claude-plugin" / "plugin.json").exists(), "the root is no longer a Claude Code plugin (ADR 16)"
+transition = load(".claude-plugin/plugin.json")
+assert transition["name"] == "ai-migration-kit" and transition["hooks"] == "./hooks/claude-hooks.json", "the root manifest is the transition one (#618): the whole kit under its old name until 3.0.0"
 assert load("plugins/tagout/.claude-plugin/plugin.json")["hooks"] == "./hooks/tagout-hooks.json", "tagout manifest hooks"
 assert load("plugins/tagout-migrate/.claude-plugin/plugin.json")["hooks"] == "./hooks/tagout-migrate-hooks.json", "tagout-migrate manifest hooks"
 assert not (root / "plugins" / "tagout" / ".mcp.json").exists(), "the lifecycle plugin ships no .mcp.json"
@@ -313,7 +319,7 @@ for rel in (".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json
     assert market["name"] == "tagout-marketplace", (rel, market["name"])
     assert market["plugins"][0]["name"] == "tagout", (rel, market["plugins"][0]["name"])
 claude = load(".claude-plugin/marketplace.json")["plugins"]
-assert [(p["name"], p["source"]) for p in claude] == [("tagout", "./plugins/tagout"), ("tagout-migrate", "./plugins/tagout-migrate")], claude
+assert [(p["name"], p["source"]) for p in claude] == [("tagout", "./plugins/tagout"), ("tagout-migrate", "./plugins/tagout-migrate"), ("ai-migration-kit", "./")], claude
 PY
 then ok "Claude, Codex and Copilot manifests name their paths; both marketplaces are tagout-marketplace"
 else bad "the manifests: $(cat "$WORK/t.out")"; fi
@@ -366,6 +372,29 @@ run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1 with a <kit>/<path> nothing resolves" || bad "exit $RC, want 1: $OUT $ERR"
 names "plugins/tagout lacks 'samples/x'" && ok "names the unresolved kit path and its plugin" || bad "stdout does not name samples/x: $OUT"
 names "plugins/tagout-migrate lacks" && bad "asks the migration plugin for a lifecycle skill's path: $OUT" || ok "only the plugin that ships the skill is asked"
+
+T="$WORK/x6"; scratch_tree "$T"
+rm "$T/plugins/tagout/AGENTS.md"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1 with a required link gone" || bad "exit $RC, want 1: $OUT $ERR"
+names "plugins/tagout/AGENTS.md is missing" && ok "names the missing required link" || bad "stdout does not name AGENTS.md: $OUT"
+T="$WORK/x7"; scratch_tree "$T"
+rm "$T/commands/migrate-verify.md" "$T/commands/migrate-verify.toml"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1 with a command copy whose source is gone" || bad "exit $RC, want 1: $OUT $ERR"
+names "plugins/tagout-migrate/commands/migrate-verify.md has no commands/migrate-verify.md" && ok "names the orphan copy" || bad "stdout does not name the orphan copy: $OUT"
+T="$WORK/x8"; scratch_tree "$T"
+printf -- '---\ndescription: scratch fixture\n---\n\nRun the review-followups skill on $ARGUMENTS.\n' > "$T/commands/followups.md"
+cp "$T/commands/followups.md" "$T/plugins/tagout/commands/followups.md"
+python3 "$CHECK" --repo "$T" build > /dev/null 2>&1   # the TOML twin, so only the skill rule can fire
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1 with a command copy naming a skill its plugin lacks" || bad "exit $RC, want 1: $OUT $ERR"
+names "plugins/tagout/commands/followups.md names skills/review-followups" && ok "names the command and the missing skill" || bad "stdout does not name the skill: $OUT"
+T="$WORK/x9"; scratch_tree "$T"
+grep -vF 'install tagout-migrate@' "$REPO/docs/_data/hosts.yml" > "$T/docs/_data/hosts.yml"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1 with a plugin no host installs" || bad "exit $RC, want 1: $OUT $ERR"
+names "installs tagout-migrate" && ok "names the uninstallable plugin" || bad "stdout does not name tagout-migrate: $OUT"
 
 echo "== Y. a plugin's generated files, edited by hand, are refused and rebuilt =="
 T="$WORK/y"; scratch_tree "$T"
