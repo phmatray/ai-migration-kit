@@ -14,6 +14,11 @@
       "name": "tagout-migrate",
       "source": "./plugins/tagout-migrate",
       "description": "The gate-verified seven-phase pipeline that takes a legacy .NET application to verified production, powered by RoselineMCP (Roslyn). Ships the roseline Read gate and the roseline + adr MCP servers (dnx, .NET 10 SDK). Install beside tagout."
+    },
+    {
+      "name": "ai-migration-kit",
+      "source": "./",
+      "description": "Transition entry for installs made before the rename to tagout (#611, #618): the whole kit under its old name, from the root's transition manifest, so `ai-migration-kit@ai-migration-kit-marketplace` keeps loading. Reinstall as tagout@tagout-marketplace (+ tagout-migrate for .NET); this entry and the root manifest go away with the 3.0.0 release (#610)."
     }
   ]
 }
