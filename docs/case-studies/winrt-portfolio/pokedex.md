@@ -5,7 +5,7 @@ parent: Case studies
 
 # Audit — pokedex
 
-> **✅ MIGRÉE ET DÉPLOYÉE (vague 3, 2026-07-23)** — https://phmatray.github.io/pokedexg/
+> **✅ MIGRÉE ET DÉPLOYÉE (vague 3, 2026-07-23)** — https://phmatray.github.io/pokedex/
 > Blazor WASM + API statique générée depuis le SQLite veekun (requêtes 2014 verbatim).
 > 53 tests, Roslyn 0/0, hors-ligne prouvé serveur coupé, smoke test permanent en CI.
 > Chronométrée : **~1 h** pour 29 j estimés (repo rendu public sur décision propriétaire).

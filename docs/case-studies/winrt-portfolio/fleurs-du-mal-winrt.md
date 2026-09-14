@@ -5,7 +5,7 @@ parent: Case studies
 
 # Audit — fleurs-du-mal-winrt
 
-> **✅ MIGRÉE ET DÉPLOYÉE (2026-07-23)** — https://phmatray.github.io/fleurs-du-mal-winrt/ ·
+> **✅ MIGRÉE ET DÉPLOYÉE (2026-07-23)** — https://phmatray.github.io/fleurs-du-mal/ ·
 > ~30 min réalisées pour 18 j estimés · 35 tests, couverture 91 % · rapport : `migration/report.html` du repo.
 > Note d'audit corrigée sur le terrain : l'« architecture en couches » (5 projets Business/DataAccess)
 > était un échafaudage vide — la vraie valeur portable était le corpus JSON, les modèles du projet
