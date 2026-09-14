@@ -10,7 +10,7 @@
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(20rem, 1fr);
   gap: calc(var(--unit) * 3);
-  align-items: start;
+  align-items: stretch;
 }
 
 @media (max-width: 64rem) {
@@ -32,6 +32,17 @@
 .kit-hero-title {
   font-size: clamp(2.5rem, 4.3vw, 3.875rem);
   max-width: 15ch;
+}
+
+@media (max-width: 40rem) {
+  .kit-hero-tag .kit-tag-band {
+    padding: calc(var(--unit) * 3) calc(var(--unit) * 2.5) calc(var(--unit) * 2.5) calc(var(--unit) * 5);
+  }
+  .kit-hero .kit-hero-tag .kit-tag-body,
+  .kit-hero .kit-install .kit-tag-body {
+    padding-left: calc(var(--unit) * 2.5);
+    padding-right: calc(var(--unit) * 2.5);
+  }
 }
 
 .kit-hero-tag .kit-tag-body {
@@ -303,13 +314,22 @@
   border-bottom: 1px solid var(--rule-strong);
 }
 
+.kit-record th:last-child {
+  text-align: right;
+  padding-right: 0;
+}
+
 .kit-record td {
   vertical-align: baseline;
   padding: calc(var(--unit) * 2) calc(var(--unit) * 2) calc(var(--unit) * 2) 0;
+}
+
+// One dotted rule per row: per-cell borders never share a dot phase and leave ticks at the joins.
+.kit-record tbody tr {
   border-bottom: 1px dotted var(--g4);
 }
 
-.kit-record tr:last-child td {
+.kit-record tbody tr:last-child {
   border-bottom: 0;
 }
 
@@ -346,10 +366,7 @@
 }
 
 .kit-record .kit-record-time.is-untimed {
-  font-size: 1rem;
-  font-family: var(--font-type);
-  font-weight: 400;
-  text-transform: none;
+  font-size: clamp(1.25rem, 2.2vw, 1.75rem);
   color: var(--ink-soft);
 }
 
@@ -362,11 +379,9 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0 calc(var(--unit) * 2);
     padding: calc(var(--unit) * 2) 0;
-    border-bottom: 1px dotted var(--g4);
   }
   .kit-record td {
     padding: 0;
-    border: 0;
   }
   .kit-record .kit-record-time {
     grid-row: 1 / span 2;
@@ -418,7 +433,7 @@
   width: 60%;
   height: 2px;
   background: var(--red);
-  transform: translate(-50%, -50%) rotate(-45deg);
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 .kit-refusals .kit-refusal-without {
@@ -464,11 +479,14 @@
 
 .kit-commands td {
   padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2) calc(var(--unit) * 1.5) 0;
-  border-bottom: 1px dotted var(--g4);
   vertical-align: baseline;
 }
 
-.kit-commands tr:last-child td {
+.kit-commands tbody tr {
+  border-bottom: 1px dotted var(--g4);
+}
+
+.kit-commands tbody tr:last-child {
   border-bottom: 0;
 }
 
@@ -509,9 +527,3 @@
   font-size: 0.9375rem;
 }
 
-.kit-home-onsite {
-  margin: calc(var(--unit) * 3) 0 0;
-  font-family: var(--font-type);
-  font-size: 0.875rem;
-  color: var(--ink-soft);
-}

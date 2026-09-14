@@ -32,7 +32,7 @@ body {
   font-family: var(--font-body);
   font-weight: 400;
   line-height: 1.55;
-  font-feature-settings: "kern", "liga", "tnum";
+  font-feature-settings: "kern", "liga";
   -webkit-font-smoothing: antialiased;
   caret-color: var(--red);
   accent-color: var(--red);
@@ -163,4 +163,44 @@ figure {
 
 .skip-link:focus {
   top: calc(var(--unit) * 2);
+}
+
+// Numerals line up only where they are compared: tables, typed fields, dates. Prose keeps
+// proportional figures.
+.kit-record,
+.kit-commands,
+.kit-fields,
+.kit-hasp-times,
+.kit-journal-date,
+.kit-body table {
+  font-variant-numeric: tabular-nums;
+}
+
+// Selection on the yellow hasp inverts; yellow on yellow would vanish.
+.kit-hasp ::selection {
+  background: var(--g10);
+  color: var(--yellow);
+}
+
+// Print: the article alone, on white, without the chrome.
+@media print {
+  .kit-topbar,
+  .kit-sidenav,
+  .kit-toc,
+  .kit-footer,
+  .kit-copy,
+  .skip-link {
+    display: none !important;
+  }
+  .kit-page {
+    display: block;
+    padding: 0;
+  }
+  body {
+    background: #fff;
+    color: #111;
+  }
+  a {
+    color: inherit;
+  }
 }

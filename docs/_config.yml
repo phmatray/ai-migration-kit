@@ -22,7 +22,7 @@ sass:
   style: compressed
 
 # What must not become a page: the superpowers specs/plans (working documents), the case-study
-# inventories (JSON) and captures (PNG), the generated dashboard (HTML that stands on its own),
+# inventories (JSON), the generated dashboard (HTML that stands on its own),
 # and the kit backlog — a development document review-followups reads at run time
 # (scripts/release-title-gate.sh's SHIPPED_ANYWAY), so it carries no site front matter.
 #
@@ -34,7 +34,6 @@ exclude:
   - superpowers/
   - backlog.md
   - case-studies/winrt-portfolio/inventory/
-  - case-studies/winrt-portfolio/captures/
   - case-studies/winrt-portfolio/dashboard.html
   - Gemfile
   - Gemfile.lock

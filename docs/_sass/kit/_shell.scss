@@ -172,9 +172,14 @@
     position: sticky;
     top: calc(var(--unit) * 10);
     max-height: calc(100vh - var(--unit) * 12);
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     align-self: start;
     padding-right: var(--unit);
+    padding-bottom: calc(var(--unit) * 5);
+    // A long list ends in a fade, not a cut line; the padding gives the last item room to clear it.
+    mask-image: linear-gradient(to bottom, #000 calc(100% - var(--unit) * 5), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--unit) * 5), transparent);
   }
 }
 
@@ -227,10 +232,14 @@
   cursor: pointer;
   list-style: none;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: calc(var(--unit) * 1.25) var(--unit);
+  padding: calc(var(--unit) * 1.25) var(--unit) calc(var(--unit) * 1.25) calc(var(--unit) * 2.5);
   font-weight: 600;
+}
+
+.kit-sidenav summary > span:first-child {
+  min-width: 0;
 }
 
 .kit-sidenav summary::-webkit-details-marker {
@@ -245,7 +254,8 @@
   border-bottom: 1.5px solid var(--ink-soft);
   transform: rotate(-45deg);
   transition: transform 160ms var(--ease-out);
-  margin-right: 4px;
+  margin: 0.5em 4px 0 0;
+  flex: none;
 }
 
 .kit-sidenav details[open] > summary::after {
@@ -280,8 +290,8 @@
   font-family: var(--font-type);
   font-size: 0.75rem;
   color: var(--ink-faint);
-  margin-left: auto;
-  margin-right: var(--unit);
+  margin: 0.3em var(--unit) 0 auto;
+  flex: none;
 }
 
 .kit-sidenav-toggle {
@@ -378,7 +388,6 @@
 
 .kit-footer {
   border-top: 1px solid var(--rule);
-  margin-top: calc(var(--unit) * 6);
 }
 
 .kit-footer-inner {
@@ -395,5 +404,10 @@
 }
 
 .kit-footer-inner a {
+  color: var(--ink);
+}
+
+.kit-footer-inner code {
+  font: inherit;
   color: var(--ink);
 }

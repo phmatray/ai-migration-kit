@@ -46,7 +46,7 @@
   margin: 0;
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  column-gap: calc(var(--unit) * 2);
+  column-gap: 0;
   font-family: var(--font-type);
   font-size: 0.9375rem;
   line-height: 1.45;
@@ -57,7 +57,7 @@
   letter-spacing: 0.06em;
   font-size: 0.75rem;
   color: var(--ink-soft);
-  padding: calc(var(--unit) * 1.25) 0;
+  padding: calc(var(--unit) * 1.25) calc(var(--unit) * 2) calc(var(--unit) * 1.25) 0;
   border-bottom: 1px dotted var(--g4);
   align-self: stretch;
 }
@@ -207,7 +207,7 @@
   margin: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: calc(var(--unit) * 2);
+  column-gap: 0;
   align-items: baseline;
 }
 
@@ -216,7 +216,7 @@
   font-size: 0.75rem;
   white-space: nowrap;
   color: var(--g8);
-  padding: calc(var(--unit) * 0.375) 0;
+  padding: calc(var(--unit) * 0.375) calc(var(--unit) * 2) calc(var(--unit) * 0.375) 0;
   border-bottom: 1px solid rgba(17, 17, 17, 0.35);
 }
 
@@ -320,14 +320,30 @@
   }
 }
 
+// Between the tablet and the phone the seven locks hang in two rows, four then three, each row
+// filling the bar: a twelve-column grid, span 3 above and span 4 below, leaves no empty cell.
 @media (max-width: 64rem) {
   .kit-hasp-bar {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+  .kit-lock {
+    grid-column: span 3;
+  }
+  .kit-lock:nth-child(n + 6) {
+    grid-column: span 4;
   }
   .kit-hasp-label {
     grid-column: 1 / -1;
     border-right: 0;
     border-bottom: 1.5px solid var(--g10);
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: calc(var(--unit) * 2) calc(var(--unit) * 6);
+  }
+  .kit-hasp-times {
+    flex: 1 1 16rem;
+    max-width: 24rem;
   }
   .kit-lock:nth-child(5) {
     border-right: 0;
@@ -338,10 +354,18 @@
   .kit-hasp-bar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .kit-lock,
+  .kit-lock:nth-child(n + 6) {
+    grid-column: auto;
+  }
   .kit-lock:nth-child(odd) {
     border-right: 0;
   }
   .kit-lock:nth-child(even) {
     border-right: 1.5px solid rgba(17, 17, 17, 0.25);
+  }
+  .kit-lock:last-child {
+    grid-column: 1 / -1;
+    border-right: 0;
   }
 }
