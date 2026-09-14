@@ -1,4 +1,4 @@
-# Tagout — Design
+# AI Migration Kit — Design
 
 **Date:** 2026-07-22
 **Goal:** « Mise à niveau complète, parfaite, facile et rapide de n'importe quelle application legacy » — powered by RoselineMCP.
@@ -14,7 +14,7 @@ Upgrading a legacy application (out-of-support target framework, outdated packag
 
 ## Decision
 
-Ship **tagout** as a Claude Code plugin. The plugin encodes a six-phase migration pipeline as a skill plus slash commands. RoselineMCP (Roslyn-powered MCP server) is the mandatory engine for all C# analysis and code transformation: solution diagnostics, bulk code fixes, surgical member edits, safe renames, and impact analysis via references/call graphs.
+Ship **ai-migration-kit** as a Claude Code plugin. The plugin encodes a six-phase migration pipeline as a skill plus slash commands. RoselineMCP (Roslyn-powered MCP server) is the mandatory engine for all C# analysis and code transformation: solution diagnostics, bulk code fixes, surgical member edits, safe renames, and impact analysis via references/call graphs.
 
 The kit's methodology is framework-agnostic (assess → baseline → retarget → remediate → modernize → verify), with a deep, tool-backed path for .NET/C# — the dominant legacy-app case RoselineMCP serves.
 
@@ -26,7 +26,7 @@ The kit's methodology is framework-agnostic (assess → baseline → retarget �
 ## Architecture
 
 ```
-tagout/
+ai-migration-kit/
 ├── .claude-plugin/
 │   ├── plugin.json              # plugin manifest
 │   └── marketplace.json         # local/git marketplace for easy install

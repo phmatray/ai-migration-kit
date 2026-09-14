@@ -299,6 +299,33 @@ grep -q '^no signals' "$OUT.empty" || { echo "FAIL: an empty project dir must pr
 echo "ok   refusals: missing or unreadable dir → 2 without a traceback, bad --since → 2, --json --markdown → 2, empty dir → 0 and 'no signals'"
 
 # ------------------------------------------------------------------------- the never-wait phrases are READ from the kit's suite
+# ---------------------------------------------------------------- the rename's two edges (#611)
+# (a) a transcript recorded BEFORE the rename — the old skill-id prefix, a checkout still under
+#     …/ai-migration-kit — keeps counting under the DEFAULT --kit-name (the old name rides along);
+# (b) "tagout" is an ordinary word since the rename: a consumer's own "docs/tagout procedure.md"
+#     erroring in a non-kit project is NOT a kit tool-error.
+echo "== the old kit name still counts by default; the bare word 'tagout' does not =="
+OLDP=$(kit_scratch)/-Users-me-repo-ai-migration-kit; mkdir -p "$OLDP"; OT="$OLDP/sess-old.jsonl"
+write_line "$OT" assistant "$D" "$(tool_use o0 Skill '{"skill":"ai-migration-kit:implement-issue","args":"47"}')"
+write_line "$OT" assistant "$D" "$(tool_use o1 Bash '{"command":"./skills/implement-issue/scripts/tick-plan.sh --issue 47"}')"
+write_line "$OT" user "$D" "$(tool_result o1 'tick-plan: gh api timed out' true)"
+WORDP=$(kit_scratch)/-Users-x-tagout-procedures; mkdir -p "$WORDP"; WT="$WORDP/sess-word.jsonl"
+write_line "$WT" assistant "$D" "$(tool_use w1 Bash '{"command":"cat \"docs/tagout procedure.md\""}')"
+write_line "$WT" user "$D" "$(tool_result w1 'cat: docs/tagout procedure.md: No such file or directory' true)"
+OUT2=$(kit_scratch)/records-rename.jsonl
+python3 "$SCRIPT" "$OLDP" "$WORDP" --json --since 2026-08-15 > "$OUT2" 2>"$OUT2.err" || {
+  echo "FAIL: harvest.py exited non-zero on the rename fixtures"; cat "$OUT2.err"; exit 1; }
+python3 - "$OUT2" <<'PY'
+import json, sys
+recs = [json.loads(l) for l in open(sys.argv[1], encoding="utf-8") if l.strip()]
+got = sorted((r["kind"], r["skill"], r["detail"]) for r in recs)
+if len(recs) != 1 or got[0][:2] != ("tool-error", "implement-issue") or "tick-plan.sh" not in got[0][2]:
+    print("FAIL: expected exactly one tool-error, attributed through the OLD skill-id prefix; got", got); sys.exit(1)
+if any("procedure" in r["detail"] for r in recs):
+    print("FAIL: the bare word 'tagout' in a consumer's file was harvested as a kit path"); sys.exit(1)
+PY
+echo "ok   old-name transcripts count by default; the bare word 'tagout' does not"
+
 grep -q 'auto-dev-never-wait' "$SCRIPT" || { echo "FAIL: harvest.py does not read the never-wait phrases from tests/auto-dev-never-wait/test.sh"; exit 1; }
 grep -q 'never-wait phrases: kit' "$MD" || { echo "FAIL: the tally does not say the never-wait phrases came from the kit's suite"; tail -1 "$MD"; exit 1; }
 echo "ok   the never-wait phrase list has one home, and the tally names its source"
