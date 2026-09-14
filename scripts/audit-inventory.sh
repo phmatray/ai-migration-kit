@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # audit-inventory.sh <repo-dir>
 # Read-only structural inventory of a .NET repo, as JSON on stdout.
-# Every number in an tagout audit report must come from here.
+# Every number in a tagout audit report must come from here.
 set -euo pipefail
 
 REPO="${1:?usage: audit-inventory.sh <repo-dir>}"
