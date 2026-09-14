@@ -303,7 +303,7 @@ The site's one object; everything else is a smaller tag or a ruled row.
 - **Grommet:** 16px circle at 12px from the top-left, ground-coloured hole with a 3px brass ring.
 - **Band:** tag red with white ink, 16px 24px 16px 48px padding (the left inset clears the grommet), a 1.5px ink rule beneath; the title is Display in caps. The install window's band is ink (g10) with card-coloured text at 1.5rem: an ink band means a tool, a red band means the tag.
 - **Body:** 24px padding; the hero body 24px 32px with a 20px gap.
-- **Fields (`dl.kit-fields`):** two-column grid `max-content 1fr`, 16px gap, Courier Prime 0.9375rem; `dt` uppercase 0.75rem 0.06em ink-soft; both cells 10px vertical padding over a 1px dotted g4 line; one column under 30rem. Inside the denial block (field grey, 1px g3 border, 16px 20px padding) the rows tighten to 7px and the last row loses its line.
+- **Fields (`dl.kit-fields`):** two-column grid `max-content 1fr` with no column gap (the `dt` carries 16px of right padding so the dotted line runs unbroken under label and value), Courier Prime 0.9375rem; `dt` uppercase 0.75rem 0.06em ink-soft; both cells 10px vertical padding over a 1px dotted g4 line; one column under 30rem. Inside the denial block (field grey, 1px g3 border, 16px 20px padding) the rows tighten to 7px and the last row loses its line.
 
 ### Chips
 A small tag used as a control: host tabs, the copy button.
@@ -331,10 +331,10 @@ The host picker is radio inputs, visually hidden, whose labels are chips; the ch
 - **Prev / next:** 64px above, 1.5px ink rule, Courier Prime 0.75rem uppercase captions, ink links that turn red on hover.
 
 ### Tables and rows
-Ruled, never boxed. Heads are Courier Prime 0.75rem uppercase ink-soft over a 1px ink rule; cells sit on a 1px dotted g4 line, 10px vertical padding in articles, 16px in the record, 12px in the command table; the last row has no line. The record's app link is 700 at 1.125rem, its minutes are Figure type right-aligned with a Courier Prime 0.75rem 0.06em caption; the command column is Red Hat Mono 0.875rem. Refusals, child lists, and the site index follow the same dotted-row rule, refusals with a 32px red circle-slash mark in the first column.
+Ruled, never boxed. Heads are Courier Prime 0.75rem uppercase ink-soft over a 1px ink rule; each row sits on one 1px dotted g4 line drawn on the `tr`, never per cell (per-cell dots never share a phase and tick at the joins), 10px vertical padding in articles, 16px in the record, 12px in the command table; the last row has no line. The record's app link is 700 at 1.125rem, its minutes are Figure type right-aligned with a Courier Prime 0.75rem 0.06em caption; the command column is Red Hat Mono 0.875rem. Refusals, child lists, and the site index follow the same dotted-row rule, refusals with a 32px red circle-slash mark in the first column.
 
 ### Journal stack
-One tag per release in a reversed list: `auto 1fr auto` grid, 16px 24px 16px 48px padding, each tag overlapping the one above by 12px and stepping right by 0, 8, or 16px; the version in Display 900 1.5rem tag red, the title Archivo 700 1.0625rem, the date Courier Prime 0.8125rem; hover lifts 3px onto the lift shadow over 220ms.
+One tag per release in a reversed list: `auto 1fr auto` grid, 16px 24px 16px 48px padding, each tag overlapping the one above by 12px and stepping right by 0, 8, or 16px (one column, no step, under 40rem); the version in Display 900 1.5rem tag red on a 7ch tabular column so titles align, the title Archivo 700 1.0625rem, the date Courier Prime 0.8125rem; hover lifts 3px onto the lift shadow over 220ms.
 
 ### Code
 Blocks on ink (g10, g1 text; `#060606`, g2 in the dark scheme) with a 1.5px ink border, 2px radius, 16px 20px padding plus 72px on the right for the copy chip, Red Hat Mono 0.875rem/1.55, wrapped. Inline code on field grey with a 1px g3 border at 0.875em. Syntax on the ink ground: comments g4 italic, keywords safety yellow, punctuation g2, strings `#9be29b`, names `#9ecbff`, numbers `#f0b27a`.
