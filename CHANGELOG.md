@@ -8,6 +8,22 @@ Starting with the version after [1.9.1], the entries below this paragraph are ge
 adopt its format (*Features* / *Bug Fixes* sections, comparison link, sha per entry) rather than
 the hand-written entries below. Earlier entries are kept as written.
 
+## [2.8.0](https://github.com/phmatray/tagout/compare/v2.7.0...v2.8.0) (2026-09-14)
+
+
+### Features
+
+* **site:** redesign the docs site on its own Jekyll layouts, the lock-out tag world ([#604](https://github.com/phmatray/tagout/issues/604)) ([1151d2e](https://github.com/phmatray/tagout/commit/1151d2e79a4863ef008edd802e2aa1f31e1f6fea))
+
+
+### Bug Fixes
+
+* **site:** drop the rail drawn through the hasp's locks ([#609](https://github.com/phmatray/tagout/issues/609)) ([55a65c2](https://github.com/phmatray/tagout/commit/55a65c2035fc1e4c63ffb95dcd4842553009c1e4))
+* **site:** point the three migrated-app links at the renamed repos ([#613](https://github.com/phmatray/tagout/issues/613)) ([d26a026](https://github.com/phmatray/tagout/commit/d26a0269f9911d736dd328f8a09b272c568ba78d))
+* **site:** serve the docs site from /tagout, where the renamed repo now publishes it ([#615](https://github.com/phmatray/tagout/issues/615)) ([b18d75e](https://github.com/phmatray/tagout/commit/b18d75eb2eb8048acd4f102250fc949db8cb1f88))
+* **site:** the hasp's locks open around their left leg and the minute rules sit on one line ([#608](https://github.com/phmatray/tagout/issues/608)) ([29da975](https://github.com/phmatray/tagout/commit/29da975dbbc459c41de82dec35991b177de2053c))
+* **site:** thirty visual defects found in the browser, from the record header to the print sheet ([#606](https://github.com/phmatray/tagout/issues/606)) ([23fcee1](https://github.com/phmatray/tagout/commit/23fcee1791a754d0ab4117a995fb50c151e9f5e0))
+
 ## [2.7.0](https://github.com/phmatray/ai-migration-kit/compare/v2.6.0...v2.7.0) (2026-09-13)
 
 
