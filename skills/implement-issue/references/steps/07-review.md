@@ -1,6 +1,21 @@
 ## Step 7 — Review on three axes: Standards, Spec, Verification
 
-Stage the diff **once, to a file** — `git -C "$WORKTREE" diff main...HEAD > "/tmp/issue-$ISSUE.diff"`,
+**Commit and push before you dispatch anything.** `code-review` is a sub-skill that runs *in this
+session*, against *this* worktree, with this session's own write access — the review-dispatch rule
+below constrains the sub-agents you spawn, and does not reach it. It has written to a live worktree
+twice: #477 (six write-capable review forks editing one worker's tree, one of them pushing to the PR
+branch) and #578 (a fresh, non-git reproduction — the Standards-axis dispatch wrote directly into a
+worker's tree, unauthorized). A committed, pushed tree is what makes such a write *visible* instead
+of silently folded into your next commit, so it is the precondition for the check below, not
+housekeeping:
+
+```bash
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- -am "…"   # if anything is uncommitted
+"$GUARDS/guarded-push.sh"   -C "$WORKTREE" "$BRANCH"
+REVIEW_BASE=$(git -C "$WORKTREE" rev-parse HEAD)    # what the tree must still equal afterwards
+```
+
+Then stage the diff **once, to a file** — `git -C "$WORKTREE" diff main...HEAD > "/tmp/issue-$ISSUE.diff"`,
 non-empty or stop — and hand sub-agents that path, never the diff text and never a worktree they
 could write to (#477). Then review the **whole feature branch** (`main...HEAD`, not just the last
 commit) along **three axes, run in parallel and never merged**:
@@ -13,6 +28,22 @@ commit) along **three axes, run in parallel and never merged**:
   typed in any session, and one bare call inherited `xhigh` and spent 106.8M tokens on 25 review
   sub-agents (2026-09-07). `ultra` is never prescribed — it is a cloud review the user launches and
   pays for, which no agent can start. **Never `--fix`**: read the findings and apply them yourself.
+  **The moment that call returns, before you read a single finding, ask what it changed:**
+
+  ```bash
+  git -C "$WORKTREE" status --porcelain            # must be empty
+  git -C "$WORKTREE" rev-parse HEAD                # must still equal $REVIEW_BASE
+  ```
+
+  Anything there is an **unauthorized write** — you did not ask for an edit, and `--fix` was not
+  passed. It is not yours and it is not automatically correct. Do **not** fold it into your next
+  commit. Read it in full, check it against the findings the review actually reported (a change
+  matching no reported finding is the strongest signal it should be discarded), and re-run the
+  task's tests over it. Only then either take deliberate ownership of it in its own commit, saying
+  in the Step 10 recap that the review wrote it and why you kept it — or `git -C "$WORKTREE" restore`
+  it away and say that instead. A HEAD that moved is the #477 shape: read what landed before you push
+  anything on top of it.
+
 - **Spec** — is this what the issue *promised*? Dispatch **one sub-agent** with the brief in
   [`references/spec-review.md`](../spec-review.md): the diff file, the commit list and the
   issue's 📋 Spec as a second file **read after the diff**, reporting (a) requirements missing or
