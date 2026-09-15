@@ -31,11 +31,15 @@
 #   U. a TOML command whose .md is gone          -> exit 1, naming the orphan
 #   V. package.json naming a pi skills folder that does not exist -> exit 1, naming it
 #   W. a RULE_COPIES entry with no host adapter -> exit 1, naming it
-#   X. the two plugins' partition (#607): a skill linked from no plugin, a migration skill under the
-#      lifecycle plugin, a link pointing elsewhere, an .mcp.json under the lifecycle plugin, a
-#      <kit>/<path> a linked skill names with nothing to resolve to -> exit 1, naming each
+#   X. the two plugins' partition (#607): a skill copied into no plugin, a migration skill under the
+#      lifecycle plugin, a copy no source accounts for, an .mcp.json under the lifecycle plugin, a
+#      <kit>/<path> one of its skills names with nothing to resolve to -> exit 1, naming each
 #   Y. a plugin's generated hooks map / command copy / .mcp.json edited by hand -> exit 1 naming
 #      it and its source; build restores it
+#   Z. the plugin trees are generated FILES (#619, ADR 0017): no committed symlink under plugins/,
+#      every shipped skill a directory with a SKILL.md, an edited copy -> exit 1 naming its source,
+#      a symlink -> exit 1, and a copy committed at another mode than its source -> exit 1 naming
+#      the `git add --chmod` that fixes it
 #
 # The seam is the check's exit code and its STDOUT: a refusal is named there, and stderr is read
 # only to prove no traceback escaped. Expected paths and values are literals here, never read back
@@ -61,25 +65,38 @@ COPIES=".cursor/rules/tagout.mdc .windsurf/rules/tagout.md .clinerules/tagout.md
 # has to exist for a manifest's `skills` path to resolve.
 SOURCES=".claude-plugin/plugin.json .github/repo-setup.yml plugins/tagout/.claude-plugin/plugin.json plugins/tagout-migrate/.claude-plugin/plugin.json hooks/tagout-hooks.json hooks/tagout-migrate-hooks.json .codex-plugin/plugin.json .github/plugin/plugin.json gemini-extension.json package.json hooks/claude-hooks.json .mcp.json .release-please-manifest.json release-please-config.json docs/_data/hosts.yml README.md"
 
-# scratch_tree <dir> — a copy of what the check reads, and nothing else.
+# The tree entries the two plugins COPY (ADR 0017, #619) — literals here, like every other
+# expectation in this suite: a fixture that read the map out of the script could never disagree
+# with it. Only the shape is needed, so the scratch versions are empty but present.
+COPY_DIRS="skills/_shared scripts hooks templates decisions tests/auto-dev-never-wait tests/xunit-v3"
+COPY_FILES="CONTEXT.md requirements.json docs/backlog.md renovate.json"
+
+# scratch_tree <dir> — a copy of what the check reads, and nothing else. The plugin directories are
+# left to `build`, which is what writes them in the real tree too; a case then perturbs one file.
 scratch_tree() {
-  local d="$1" f s
+  local d="$1" f s n p
   mkdir -p "$d/skills"
-  for s in "$REPO"/skills/*/; do mkdir -p "$d/skills/$(basename "$s")"; done
+  for s in "$REPO"/skills/*/; do
+    n=$(basename "$s"); mkdir -p "$d/skills/$n"
+    printf -- '---\nname: %s\n---\n' "$n" > "$d/skills/$n/SKILL.md"
+  done
   cp "$REPO/AGENTS.md" "$d/AGENTS.md"
   cp -R "$REPO/commands" "$d/commands"
-  cp -R "$REPO/plugins" "$d/plugins"           # symlinks stay symlinks: cp -R never dereferences
-  # every link's target exists in the scratch tree, as an empty directory or file — the partition
-  # and link-target invariants read the shape, never the contents
-  for f in $(cd "$REPO" && find plugins -type l); do
-    f=${f#plugins/*/}
-    if [ -d "$REPO/$f" ]; then mkdir -p "$d/$f"; else mkdir -p "$d/$(dirname "$f")"; [ -e "$d/$f" ] || : > "$d/$f"; fi
+  for p in tagout tagout-migrate; do
+    mkdir -p "$d/plugins/$p"
+    cp -R "$REPO/plugins/$p/.claude-plugin" "$d/plugins/$p/.claude-plugin"
+    cp -R "$REPO/plugins/$p/commands" "$d/plugins/$p/commands"
   done
+  cp "$REPO/plugins/tagout-migrate/.mcp.json" "$d/plugins/tagout-migrate/.mcp.json"
+  for f in $COPY_DIRS; do mkdir -p "$d/$f"; done
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$d/scripts/guard.sh"   # Z5's executable source
+  for f in $COPY_FILES; do mkdir -p "$d/$(dirname "$f")"; [ -e "$d/$f" ] || : > "$d/$f"; done
   for f in $COPIES $SOURCES; do
     mkdir -p "$d/$(dirname "$f")"
     cp "$REPO/$f" "$d/$f" 2>/dev/null || true
   done
   cp "$REPO"/hooks/*.sh "$d/hooks/"      # the hook scripts each plugin's map names: the <kit>/ scan reads them
+  python3 "$CHECK" --repo "$d" build > /dev/null 2>&1   # the plugin trees, as the real tree has them
 }
 
 # run_check <repo> [subcommand] — sets OUT (stdout), ERR (stderr) and RC.
@@ -347,20 +364,20 @@ names ".clinerules/tagout.md" && ok "names the dangling adapter on stdout" || ba
 
 echo "== X. the two plugins' partition, one refusal per rule (#607) =="
 T="$WORK/x1"; scratch_tree "$T"
-rm "$T/plugins/tagout/skills/create-issue"
+rm -r "$T/plugins/tagout/skills/create-issue"
 run_check "$T"
-[ "$RC" -eq 1 ] && ok "exit 1 with a skill linked from no plugin" || bad "exit $RC, want 1: $OUT $ERR"
-names "plugins/tagout/skills/create-issue is missing" && ok "names the missing link" || bad "stdout does not name the missing link: $OUT"
+[ "$RC" -eq 1 ] && ok "exit 1 with a skill copied into no plugin" || bad "exit $RC, want 1: $OUT $ERR"
+names "plugins/tagout/skills/create-issue is missing" && ok "names the missing copy" || bad "stdout does not name the missing copy: $OUT"
 T="$WORK/x2"; scratch_tree "$T"
-ln -s ../../../skills/migrate-legacy "$T/plugins/tagout/skills/migrate-legacy"
+cp -R "$T/skills/migrate-legacy" "$T/plugins/tagout/skills/migrate-legacy"
 run_check "$T"
 [ "$RC" -eq 1 ] && ok "exit 1 with a migration skill under the lifecycle plugin" || bad "exit $RC, want 1: $OUT $ERR"
 names "plugins/tagout ships skills/migrate-legacy" && ok "names the misplaced skill" || bad "stdout does not name the misplaced skill: $OUT"
 T="$WORK/x3"; scratch_tree "$T"
-rm "$T/plugins/tagout/skills/merge-pr"; ln -s ../../../skills/create-issue "$T/plugins/tagout/skills/merge-pr"
+printf 'A file no source in the tree ever wrote.\n' > "$T/plugins/tagout/skills/merge-pr/STRAY.md"
 run_check "$T"
-[ "$RC" -eq 1 ] && ok "exit 1 with a link pointing elsewhere" || bad "exit $RC, want 1: $OUT $ERR"
-names "plugins/tagout/skills/merge-pr links to" && ok "names the re-pointed link" || bad "stdout does not name the re-pointed link: $OUT"
+[ "$RC" -eq 1 ] && ok "exit 1 with a copy no source accounts for" || bad "exit $RC, want 1: $OUT $ERR"
+names "plugins/tagout/skills/merge-pr/STRAY.md has no source in the tree" && ok "names the stray copy" || bad "stdout does not name the stray copy: $OUT"
 T="$WORK/x4"; scratch_tree "$T"
 cp "$REPO/.mcp.json" "$T/plugins/tagout/.mcp.json"
 run_check "$T"
@@ -422,8 +439,55 @@ for ev in ("SessionStart", "Stop"):
     assert life[ev] == full[ev], ev
 PY
 
+echo "== Z. the plugin trees are generated FILES, not links (#619) =="
+# Z1. the real repository carries no symlink under plugins/ — the defect itself, in one line.
+if [ -n "$(git -C "$REPO" ls-files -s plugins | awk '$1 == "120000"')" ]; then
+  bad "plugins/ carries a committed symlink (120000): a checkout without symlink support gets a text file where a skill belongs"
+else ok "no committed symlink under plugins/"; fi
+# Z2. every skill the two plugins ship is a real directory with a real SKILL.md — what the loader
+# looks for, and what a Windows checkout of a symlink is NOT.
+z2=0
+for d in "$REPO"/plugins/*/skills/*/; do
+  [ "$(basename "$d")" = "_shared" ] && continue
+  [ -f "$d/SKILL.md" ] || { bad "$d has no SKILL.md — the loader discovers a skill by its directory"; z2=1; }
+done
+[ "$z2" -eq 0 ] && ok "every shipped skill is a directory carrying its SKILL.md"
+# Z3. a copy edited by hand is drift, named with its source; build restores it.
+T="$WORK/z3"; scratch_tree "$T"
+printf '\nA line nobody generated.\n' >> "$T/plugins/tagout/skills/merge-pr/SKILL.md"
+run_check "$T"
+[ "$RC" -eq 1 ] && ok "exit 1 with an edited skill copy" || bad "exit $RC, want 1: $OUT $ERR"
+names "plugins/tagout/skills/merge-pr/SKILL.md drifted from skills/merge-pr/SKILL.md" \
+  && ok "names the edited copy and its source" || bad "stdout does not name the edited copy: $OUT"
+run_check "$T" build
+run_check "$T"
+[ "$RC" -eq 0 ] && ok "check exits 0 after build" || bad "check exited $RC after build: $OUT"
+# Z4. a symlink under plugins/ is refused by name. Skipped where the filesystem cannot make one —
+# which is exactly the configuration this issue is about, and where git makes a text file instead.
+T="$WORK/z4"; scratch_tree "$T"
+if ln -s ../../../skills/merge-pr "$T/plugins/tagout/skills/relinked" 2>/dev/null && [ -L "$T/plugins/tagout/skills/relinked" ]; then
+  run_check "$T"
+  [ "$RC" -eq 1 ] && ok "exit 1 with a symlink under plugins/" || bad "exit $RC, want 1: $OUT $ERR"
+  names "plugins/tagout/skills/relinked is a symlink" && ok "names the symlink" || bad "stdout does not name the symlink: $OUT"
+else
+  echo "  skip  symlink case — this filesystem grants no symlinks (the #619 configuration)"
+fi
+# Z5. a copy committed at a different mode than its source. The INDEX is the seam: on Windows the
+# filesystem has no executable bit to read, so only `git ls-files -s` can tell these two apart.
+T="$WORK/z5"; scratch_tree "$T"
+if git -C "$T" init -q 2>/dev/null && git -C "$T" add -A 2>/dev/null \
+   && git -C "$T" add --chmod=+x -- scripts/guard.sh 2>/dev/null; then
+  run_check "$T"
+  [ "$RC" -eq 1 ] && ok "exit 1 with a copy at another mode than its source" || bad "exit $RC, want 1: $OUT $ERR"
+  names "plugins/tagout/scripts/guard.sh is committed 100644 where its source scripts/guard.sh is 100755" \
+    && ok "names both modes and the git add --chmod that fixes it" || bad "stdout does not name the mode mismatch: $OUT"
+  names "git add --chmod=+x plugins/tagout/scripts/guard.sh" && ok "names the fix" || bad "stdout does not name the fix: $OUT"
+else
+  echo "  skip  index-mode case — no usable git here"
+fi
+
 if [ "$fails" -eq 0 ]; then
-  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi, host table, manifest paths, orphans"
+  echo "PASS: host-adapters — live tree, edit, rebuild, missing folder, no source, CRLF, encodings, usage, front matter, hooks map, versions, Gemini commands and extension, pi, host table, manifest paths, orphans, plugin copies"
 else
   echo "FAIL: host-adapters — $fails assertion(s) failed"; exit 1
 fi

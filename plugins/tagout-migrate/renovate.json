@@ -1,1 +1,115 @@
-../../renovate.json
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "samples/LegacyShop is a FROZEN fixture — net6.0, xunit 2.4.2 (agreed:frozen-xunit-core), xunit.runner.visualstudio 2.4.5 (agreed:frozen-xunit-runner), Microsoft.NET.Test.Sdk 17.3.2 (agreed:frozen-test-sdk) — the 'before' half of every demo and golden test. Bumping it destroys what the phase-5 transform is measured against. See issue #15.",
+    "It is BLOCKED, not HIDDEN: the rule below disables updates for that path but leaves the dependencies extracted, so they keep their Dependency Dashboard row and stay eligible for vulnerabilityAlerts. An ignorePaths entry would suppress extraction instead, and vulnerabilityAlerts cannot override that — freezing a fixture is a decision about upgrades, not a decision to stop looking. See issue #33.",
+    "The same invariant is restated in tests/xunit-v3/test.sh's scratch v2 fixture (asserts these exact versions). #158 gave the three literals above a shared identifier: three AGREED pins in scripts/pinned-literals-check.py's PINS table (see tests/pinned-literals/README.md for the naming), one per package, each refusing if this line and that fixture ever disagree. samples/LegacyShop/README.md restates the stack only loosely ('2.4.x', not an exact version) and is not a pin occurrence; a portfolio-side repo-audit/net10_blacklist.json, if one exists, is outside this repo's scan root and these pins do not reach it.",
+    "This deviates from the portfolio's canonical two-line renovate.json on purpose. Do not 'tidy' it back.",
+    "ignorePaths is spelled out below because the RESOLVED config inherited Renovate's 8-entry default list, whose '**/tests/**' filtered tests/xunit-v3/apply-transform.py out of the candidate file list BEFORE any manager matched it — so the two pins the customManagers below exist to watch (#36) were never extracted at all. Measured against the live repository with `renovate --dry-run=extract`: the regex manager matched only .github/workflows/ci.yml, and the Dependency Dashboard carried no row for either pin. ignorePaths REPLACES what it inherits (unlike managerFilePatterns, which merges — see the github-actions note below), so naming the inherited list minus that one entry is the whole fix. tests/renovate-config/test.sh section 10 asserts this against the resolved config, which is the only place the defect was visible. See issue #156."
+  ],
+  "extends": [
+    "local>phmatray/.github:renovate-ci"
+  ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/__fixtures__/**"
+  ],
+  "customManagers": [
+    {
+      "description": [
+        "The two versions the xunit v2 -> v3 transform bakes into EVERY migrated csproj live as Python string literals in tests/xunit-v3/apply-transform.py, and no stock manager reads .py — so until now nothing watched them. The packageRules below could never fire on these packages either: Renovate does not propose updates for dependencies it cannot parse. See issue #36.",
+        "The xunit entry captures depName from XUNIT_V3_PACKAGE on the line above the version, rather than templating it: the package id is load-bearing here (xunit.v3 and xunit.v3.mtp-v2 sit on opposite Microsoft.Testing.Platform lines at the same major), so a hardcoded name would keep proposing xunit.v3 updates after the kit moved lines.",
+        "tests/xunit-v3/test.sh executes these regexes against the real file and compares what they capture to what the module reports — a renamed constant fails the suite instead of silently going blind."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": ["/^tests/xunit-v3/apply-transform\\.py$/"],
+      "matchStrings": [
+        "XUNIT_V3_PACKAGE = \"(?<depName>[^\"]+)\"\\nXUNIT_V3_VERSION = \"(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "nuget",
+      "versioningTemplate": "nuget"
+    },
+    {
+      "description": [
+        "COVERAGE_EXT_VERSION sits far from COVERAGE_PACKAGE in the file (the compatibility map is between them), so the id is templated here rather than captured from the source. That means this depNameTemplate and the COVERAGE_PACKAGE constant must agree: tests/xunit-v3/test.sh section 9 compares them, and the transform writes COVERAGE_PACKAGE rather than a literal, so all three move together or the suite fails.",
+        "A bump proposed here must still satisfy validate_pairing, and the golden test runs the transform for real — so a version crossing the Microsoft.Testing.Platform line fails the suite rather than reaching a migration."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": ["/^tests/xunit-v3/apply-transform\\.py$/"],
+      "matchStrings": [
+        "COVERAGE_EXT_VERSION = \"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "Microsoft.Testing.Extensions.CodeCoverage",
+      "datasourceTemplate": "nuget",
+      "versioningTemplate": "nuget"
+    },
+    {
+      "description": [
+        "ci.yml pins the Renovate build used to VALIDATE this very file, and no stock manager reads a version out of a workflow's env: block — the github-actions manager extracts `uses:` action refs, not npm packages named in a run: line. So without this entry the pin would be frozen forever, which is #35's failure applied to the gate that guards this config.",
+        "The pin cannot simply be dropped in favour of an unpinned npx: measured in #66, `npx --package renovate` with no version resolved 37.440.7 — a major predating managerFilePatterns — and reported 8 Configuration Errors against this config. Unpinned means red on correct input.",
+        "tests/renovate-config/test.sh executes these matchStrings against the real ci.yml and fails when they stop capturing the pin, so a renamed variable breaks the suite instead of silently going blind — the same contract the two managers above carry."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "RENOVATE_VALIDATOR_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "renovate",
+      "datasourceTemplate": "npm",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "github-actions": {
+    "description": [
+      "templates/ holds the workflows this kit SHIPS to migrated repos — a deliverable, not documentation, asserted by tests/xunit-v3/test.sh. The github-actions manager's default patterns cover only .github/workflows, .github/actions, workflow-templates and action.yml, so templates/ had never been managed: Renovate kept this repo's own CI current (checkout v7, setup-dotnet v6) while the workflows we hand to customers sat three majors behind. See issue #35.",
+      "managerFilePatterns is MERGED with the manager's defaults, not substituted for them — the defaults cannot be removed — so this adds templates/ without putting .github/workflows at risk. That is the opposite of ignorePaths, which does replace what it inherits."
+    ],
+    "managerFilePatterns": [
+      "/^templates/.*\\.ya?ml$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": [
+        "The frozen fixture: never propose an upgrade under samples/LegacyShop. Scoped to the fixture rather than to all of samples/, so a future NON-frozen sample — a modern demo, whose whole point would be staying current — is managed normally instead of silently unmanaged."
+      ],
+      "matchFileNames": [
+        "samples/LegacyShop/**"
+      ],
+      "enabled": false
+    },
+    {
+      "description": [
+        "The xunit test package and the Microsoft.Testing.Platform extension family move as ONE decision. Which MTP major applies is chosen by the xunit package id, not its version: xunit.v3 3.2.2 resolves to Microsoft.Testing.Platform 1.9.1 (CodeCoverage 17.x), while xunit.v3.mtp-v2 3.2.2 — same major, a stable release — resolves to MTP 2.0.2 (CodeCoverage 18.x). These two figures are NOT the same kind of thing, and JSON has no comment syntax to say so — hence the inline marker: (pinned:xunit-v3) means the xunit.v3 figure is DERIVED from XUNIT_V3_VERSION, and scripts/pinned-literals-check.py holds it to that constant. The xunit.v3.mtp-v2 figure is deliberately NOT derived: it measures the other MTP line, and forcing it to track the pin is the exact mistake MTP_LINE exists to refuse. See issue #90.",
+        "A split major bump restores clean and builds clean, then dies at run time with TypeLoadException on Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer.",
+        "Grouping alone would NOT stop this. A group only batches updates that are pending in the same run, and today only one leg has a major available (CodeCoverage 18.x, while xunit.v3 stable is still on the v1 line) — so a group would ship precisely the one-leg bump, under a title implying both moved. Majors are therefore disabled for the whole family: crossing the MTP v1/v2 boundary is a deliberate migration that moves every leg together, by hand, against MTP_LINE / EXTENSION_MAJOR in tests/xunit-v3/apply-transform.py. Non-major updates stay on the shared preset's rules.",
+        "This rule is about packages a MIGRATED repo would carry; samples/LegacyShop is separately disabled by the fixture rule above."
+      ],
+      "matchDatasources": ["nuget"],
+      "matchPackageNames": [
+        "xunit.v3**",
+        "Microsoft.Testing.Platform**",
+        "Microsoft.Testing.Extensions.**"
+      ],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": [
+        "These two paths hold SHIPPED content, so scripts/release-title-gate.sh gates them (#55): a PR touching them must carry a title release-please will release, or the bump reaches no consumer's version-keyed cache. Renovate's default semanticCommitType here is `chore`, which is not releasable — so without this rule every such PR would land red and need a human retitle before it could merge, reinstating by a different route the staleness #35 and #36 fixed. A bot cannot retitle itself.",
+        "`fix` is also the honest type: templates/ are the workflows handed to migrated repos, and the constants in tests/xunit-v3/apply-transform.py are baked into every migrated csproj. A bump to either changes what consumers get, which is exactly what deserves a release entry.",
+        "tests/release-title-gate/test.sh pins the gate side of this contract (chore-templates and shipped-anyway-transform both refuse); this rule is the Renovate side. Change one and check the other."
+      ],
+      "matchFileNames": [
+        "templates/**",
+        "tests/xunit-v3/apply-transform.py"
+      ],
+      "semanticCommitType": "fix"
+    }
+  ]
+}

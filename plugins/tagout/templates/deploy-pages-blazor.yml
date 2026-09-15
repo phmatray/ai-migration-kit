@@ -1,0 +1,103 @@
+# Template déploiement tagout — Blazor WASM vers GitHub Pages.
+# À déposer dans le repo migré (.github/workflows/deploy-pages.yml).
+# 1) Renseignez env: (SOLUTION si plusieurs .sln, WEB_PROJECT, BASE_PATH = /<nom-du-repo>/).
+# 2) Adaptez branches: à la branche par défaut du repo (main, dev… — vérifiez, elle varie).
+# 3) Activez Pages en mode workflow : gh api repos/<owner>/<repo>/pages -X POST -f build_type=workflow
+#    (409 = déjà activé, continuer ; si le repo est archivé, le désarchiver d'abord :
+#    gh api repos/<o>/<r> -X PATCH -f archived=false)
+# 4) Ajustez dotnet-version (10.0.x par défaut) au TFM cible de la migration.
+name: deploy-pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  SOLUTION: ''                     # ex. Chords.sln — vide si un seul .sln à la racine
+  WEB_PROJECT: src/App.Web         # le projet Blazor WASM
+  BASE_PATH: /REPO_NAME/           # sous-chemin GitHub Pages
+  SMOKE_MARKER: ''                 # chaîne attendue dans le HTML servi, ex. <title>Mon App</title>
+  SMOKE_DEEP_ROUTE: ''             # route profonde à vérifier, ex. poeme/2/38 — vide si app mono-route
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Garde-fou — le template doit être paramétré
+        run: |
+          if [ "$BASE_PATH" = "/REPO_NAME/" ]; then
+            echo "::error::BASE_PATH vaut encore le placeholder /REPO_NAME/ — renseignez env: en tête du workflow."
+            exit 1
+          fi
+          if [ -z "$SMOKE_MARKER" ]; then
+            echo "::error::SMOKE_MARKER est vide — renseignez la chaîne attendue dans le HTML servi (ex. le <title>)."
+            exit 1
+          fi
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Tests d'abord — pas de déploiement rouge
+        run: dotnet test $SOLUTION --nologo
+
+      - name: Publier l'app
+        run: dotnet publish $WEB_PROJECT -c Release -o publish --nologo
+
+      - name: Adapter au sous-chemin GitHub Pages (base href + fallback SPA + .nojekyll)
+        run: |
+          sed -i -E "s|<base href=\"/\" ?/?>|<base href=\"$BASE_PATH\" />|" publish/wwwroot/index.html
+          grep -qF "<base href=\"$BASE_PATH\" />" publish/wwwroot/index.html || {
+            echo "::error::base href non réécrit — motif <base href=\"/\"> introuvable dans index.html."
+            exit 1
+          }
+          cp publish/wwwroot/index.html publish/wwwroot/404.html
+          touch publish/wwwroot/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  # Livrée = vérifiée : le smoke test contrôle le CONTENU servi, jamais le seul code HTTP
+  # (le fallback 404.html de GitHub Pages sert l'app avec un statut 404 sur les routes profondes).
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke test — racine et route profonde servent l'app
+        run: |
+          URL="${{ needs.deploy.outputs.page_url }}"
+          curl -sf "$URL" | grep -qF "$SMOKE_MARKER" || {
+            echo "::error::la racine $URL ne contient pas le marqueur « $SMOKE_MARKER »."
+            exit 1
+          }
+          if [ -n "$SMOKE_DEEP_ROUTE" ]; then
+            curl -s "$URL$SMOKE_DEEP_ROUTE" | grep -qF "$SMOKE_MARKER" || {
+              echo "::error::la route profonde $URL$SMOKE_DEEP_ROUTE ne sert pas l'app — fallback SPA cassé ?"
+              exit 1
+            }
+          fi
