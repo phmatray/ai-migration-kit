@@ -2402,7 +2402,9 @@ fi
 # reviewer resolves against the same stale ref, and is the same defect.
 o1_hits="$WORK/stale-range-hits"
 : > "$o1_hits"
-for o1_f in $(find "$KIT_ROOT/skills/implement-issue" -type f -name '*.md'); do
+# Every file, not just *.md: eight scripts live under skills/implement-issue/scripts/, and a script
+# is the one place a stale ref would actually EXECUTE rather than be copied out by a reader.
+for o1_f in $(find "$KIT_ROOT/skills/implement-issue" -type f); do
   sed 's|origin/main\.\.\.HEAD||g; s|origin/main\.\.HEAD||g' "$o1_f"     | grep -n 'main\.\.\.HEAD\|main\.\.HEAD'     | sed "s|^|${o1_f#$KIT_ROOT/}:|" >> "$o1_hits" || :
 done
 if [ -s "$o1_hits" ]; then
@@ -2419,7 +2421,10 @@ fi
 # than announcing it — the same reason the rule above is a grep and not a convention.
 o2_missing=""
 for o2_f in "skills/debug-issue/SKILL.md" "skills/merge-pr/references/steps/06-follow-ups.md"; do
-  grep -q 'main\.\.\.HEAD' "$KIT_ROOT/$o2_f" || o2_missing="$o2_missing $o2_f"
+  # Blanked the same way O1 blanks, and for the same reason: `origin/main...HEAD` CONTAINS
+  # `main...HEAD`, so a plain grep here would still pass after someone "corrected" an exemption —
+  # the one edit that actually destroys it. What must survive is a BARE range.
+  sed 's|origin/main\.\.\.HEAD||g; s|origin/main\.\.HEAD||g' "$KIT_ROOT/$o2_f"     | grep -q 'main\.\.\.HEAD\|main\.\.HEAD' || o2_missing="$o2_missing $o2_f"
 done
 if [ -n "$o2_missing" ]; then
   echo "FAIL: [O2 the two deliberate main...HEAD mentions survive (#601)] gone from:$o2_missing"
