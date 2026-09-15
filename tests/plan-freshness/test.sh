@@ -477,6 +477,22 @@ want_line "C91 …the source still resolves OK  " "OK rename a.sh (Task 1)"
 want_no_line "C92 …the aside yields no item at all " "SKIP rename guard_hint() (Task 1)"
 want_line "C93 …the REAL target is the target " "SKIP rename NEWNAME-does-not-exist.sh (Task 1)"
 
+# The other half of the same branch, and the reason the end-of-field flush is left unconditional:
+# a rename whose target never arrives must still resolve its source. #599's filter makes this path
+# reachable in a NEW way — a source followed only by a non-path aside now falls through to the
+# flush — so the flush's behaviour is pinned here rather than left to inspection.
+echo "== …a rename whose target never arrives still resolves its source at end-of-field (#599) =="
+cat > "$WORK/rename-no-target.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a rename with no target at all
+
+**Files:** rename `a.sh` (see `guard_hint()` for context).
+PLAN
+run_case "C94 a targetless rename: exit 0  " 0 "$WORK/rename-no-target.md"
+want_line "C95 …the source still resolves OK  " "OK rename a.sh (Task 1)"
+want_no_line "C96 …and no phantom target is named" "SKIP rename guard_hint() (Task 1)"
+
 echo "== …two backticked paths joined by 'and' are two paths, not one glued string (#441, #514) =="
 cat > "$WORK/and-joined.md" <<'PLAN'
 ## 🛠️ Implementation plan
