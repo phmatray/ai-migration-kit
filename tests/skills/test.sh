@@ -2424,7 +2424,12 @@ for o2_f in "skills/debug-issue/SKILL.md" "skills/merge-pr/references/steps/06-f
   # Blanked the same way O1 blanks, and for the same reason: `origin/main...HEAD` CONTAINS
   # `main...HEAD`, so a plain grep here would still pass after someone "corrected" an exemption —
   # the one edit that actually destroys it. What must survive is a BARE range.
-  sed 's|origin/main\.\.\.HEAD||g; s|origin/main\.\.HEAD||g' "$KIT_ROOT/$o2_f"     | grep -q 'main\.\.\.HEAD\|main\.\.HEAD' || o2_missing="$o2_missing $o2_f"
+  # Captured into a variable first, then read via a herestring: a `grep -q` fed by a STREAMING
+  # producer under pipefail is the race scripts/sigpipe-idiom-check.py refuses (it closes the
+  # pipe on its first match and the producer dies on SIGPIPE). An assignment has nothing to
+  # close early. Same remedy the gate itself prints.
+  o2_text=$(sed 's|origin/main\.\.\.HEAD||g; s|origin/main\.\.HEAD||g' "$KIT_ROOT/$o2_f")
+  grep -q 'main\.\.\.HEAD\|main\.\.HEAD' <<<"$o2_text" || o2_missing="$o2_missing $o2_f"
 done
 if [ -n "$o2_missing" ]; then
   echo "FAIL: [O2 the two deliberate main...HEAD mentions survive (#601)] gone from:$o2_missing"
