@@ -8,6 +8,13 @@ Starting with the version after [1.9.1], the entries below this paragraph are ge
 adopt its format (*Features* / *Bug Fixes* sections, comparison link, sha per entry) rather than
 the hand-written entries below. Earlier entries are kept as written.
 
+## [3.0.1](https://github.com/phmatray/tagout/compare/v3.0.0...v3.0.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **plugins:** ship the two plugin trees as generated files so a Windows install loads its skills ([#619](https://github.com/phmatray/tagout/issues/619)) ([#620](https://github.com/phmatray/tagout/issues/620)) ([96b4731](https://github.com/phmatray/tagout/commit/96b473160256b5feb38c6990620e7c1be4f56bb2))
+
 ## [3.0.0](https://github.com/phmatray/tagout/compare/v2.7.0...v3.0.0) (2026-09-15)
 
 
