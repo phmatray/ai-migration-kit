@@ -11,7 +11,7 @@ Checks for each skills/*/SKILL.md:
 - metadata.author and metadata.suite present (stable facts about the skill);
 - version ABSENT, at top level and under metadata: the plugin ships and is
   versioned as one unit, so the only version anyone can act on is
-  .claude-plugin/plugin.json, which release-please bumps. A per-skill number is
+  the plugin manifests under plugins/ (and the transition one at .claude-plugin/), which release-please bumps. A per-skill number is
   a claim nothing maintains (#16);
 - a trigger eval set evals/<name>-trigger-eval.json exists, is a JSON list of
   {query, should_trigger, note?} objects with no duplicate query, and carries
@@ -242,7 +242,7 @@ for f in skill_files:
         if "version" in holder:
             errors.append(
                 f"{skill}: {where} is forbidden (#16) — the plugin is versioned as one unit "
-                f"in .claude-plugin/plugin.json, bumped by release-please; a per-skill number "
+                f"in the plugin manifests under plugins/, bumped by release-please; a per-skill number "
                 f"is a claim nothing maintains")
 
     errors.extend(check_trigger_eval_set(skill))

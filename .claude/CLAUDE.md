@@ -49,7 +49,7 @@ command. See the README's "Hardening a destructive operation".
 ## Releases
 
 Squash-merge only; the PR title *is* the release commit release-please parses
-(`scripts/release-title-gate.sh` gates it). Never bump `.claude-plugin/plugin.json` by hand.
+(`scripts/release-title-gate.sh` gates it). Never bump `plugins/tagout/.claude-plugin/plugin.json` (and its `tagout-migrate` twin) by hand.
 
 ## Commit identity
 

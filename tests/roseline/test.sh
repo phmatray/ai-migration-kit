@@ -259,7 +259,7 @@ echo "ok: the registered command resolves to a shipped executable"
 # ------------------------------------------------- 5. requirements.json stays the source of truth
 REQ="$KIT/requirements.json"
 hint=$(jq -r '.mcps[] | select(.match=="roseline") | .hint' "$REQ")
-printf '%s' "$hint" | grep -qF 'shipped by this plugin' \
+printf '%s' "$hint" | grep -qF 'shipped by the tagout-migrate plugin' \
   || { echo "FAIL: roseline hint still tells the user to install it by hand: '$hint'"; exit 1; }
 echo "ok: requirements.json records that roseline ships with the plugin"
 

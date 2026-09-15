@@ -251,7 +251,7 @@ can search.
 | Triggering contracts | `evals/<name>-trigger-eval.json` — one per skill; structure guarded by `tests/skills/check-frontmatter.py` in CI, trigger rate measured on demand by `evals/run_all.py` |
 | Domain language | `CONTEXT.md` (repo root; the same convention `create-issue` / `implement-issue` read in a target repo) |
 | Agent-facing conventions for working on the kit itself | [`.claude/CLAUDE.md`](.claude/CLAUDE.md) — pointers only, loaded as project memory (#325) |
-| Version | `.claude-plugin/plugin.json`, bumped by release-please — **never** a `metadata.version` in a SKILL.md |
+| Version | `plugins/tagout/.claude-plugin/plugin.json` (and its `tagout-migrate` twin), bumped by release-please — **never** a `metadata.version` in a SKILL.md |
 
 ## Caller-supplied path diagnostics
 

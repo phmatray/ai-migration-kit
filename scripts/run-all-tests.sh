@@ -164,7 +164,7 @@ fi
 
 # 8: plugin.json's version must match the release-please manifest.
 add_gate "$(cat <<'EOF'
-plugin=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+plugin=$(python3 -c "import json; print(json.load(open('plugins/tagout/.claude-plugin/plugin.json'))['version'])")
 manifest=$(python3 -c "import json; print(json.load(open('.release-please-manifest.json'))['.'])")
 if [ "$plugin" != "$manifest" ]; then
   echo "plugin.json is $plugin but .release-please-manifest.json is $manifest"; exit 1

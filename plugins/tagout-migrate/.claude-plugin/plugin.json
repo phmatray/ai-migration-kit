@@ -1,0 +1,18 @@
+{
+  "name": "tagout-migrate",
+  "displayName": "Tagout Migrate",
+  "version": "2.7.0",
+  "description": "The gate-verified seven-phase pipeline that takes a legacy .NET application to verified production, powered by RoselineMCP (Roslyn). Ships the roseline Read gate and the roseline + adr MCP servers (dnx, .NET 10 SDK). Install beside tagout.",
+  "author": {
+    "name": "Philippe Matray"
+  },
+  "license": "MIT",
+  "hooks": "./hooks/tagout-migrate-hooks.json",
+  "keywords": [
+    "dotnet",
+    "csharp",
+    "roslyn",
+    "migration",
+    "legacy"
+  ]
+}
