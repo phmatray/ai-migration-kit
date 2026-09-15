@@ -3,17 +3,21 @@
 **Commit and push before you dispatch anything.** `code-review` is a sub-skill that runs *in this
 session*, against *this* worktree, with this session's own write access — the review-dispatch rule
 below constrains the sub-agents you spawn, and does not reach it. It has written to a live worktree
-twice: #477 (six write-capable review forks editing one worker's tree, one of them pushing to the PR
-branch) and #578 (a fresh, non-git reproduction — the Standards-axis dispatch wrote directly into a
-worker's tree, unauthorized). A committed, pushed tree is what makes such a write *visible* instead
-of silently folded into your next commit, so it is the precondition for the check below, not
-housekeeping:
+before — #477 and #560 (both recounted later in this file) and #578, a fresh, non-git reproduction in
+which the Standards-axis dispatch wrote directly into a worker's tree, unauthorized. A committed,
+pushed tree is what makes such a write *visible* instead of silently folded into your next commit,
+so it is the precondition for the check below, not housekeeping:
 
 ```bash
-"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- -am "…"   # if anything is uncommitted
+git -C "$WORKTREE" status --porcelain                 # anything here is yours, and must land first
+"$GUARDS/guarded-commit.sh" -C "$WORKTREE" <commit-identity> "$BRANCH" -- -A -m "…"   # -A: untracked too
 "$GUARDS/guarded-push.sh"   -C "$WORKTREE" "$BRANCH"
-REVIEW_BASE=$(git -C "$WORKTREE" rev-parse HEAD)    # what the tree must still equal afterwards
+git -C "$WORKTREE" rev-parse HEAD                    # write this sha into your report — see below
 ```
+
+**Write that sha down in your report, not in a shell variable.** Every command runs in a fresh
+shell, so a `REVIEW_BASE=…` set here is empty by the time the check below runs — and an empty
+variable makes that comparison pass silently, which is the exact failure this step exists to catch.
 
 Then stage the diff **once, to a file** — `git -C "$WORKTREE" diff main...HEAD > "/tmp/issue-$ISSUE.diff"`,
 non-empty or stop — and hand sub-agents that path, never the diff text and never a worktree they
@@ -31,8 +35,9 @@ commit) along **three axes, run in parallel and never merged**:
   **The moment that call returns, before you read a single finding, ask what it changed:**
 
   ```bash
-  git -C "$WORKTREE" status --porcelain            # must be empty
-  git -C "$WORKTREE" rev-parse HEAD                # must still equal $REVIEW_BASE
+  git -C "$WORKTREE" status --porcelain            # must be empty — untracked (`??`) included
+  git -C "$WORKTREE" rev-parse HEAD                # must still equal the sha you wrote down
+  git -C "$WORKTREE" diff                          # if that is not empty, READ this before anything
   ```
 
   Anything there is an **unauthorized write** — you did not ask for an edit, and `--fix` was not
@@ -40,8 +45,10 @@ commit) along **three axes, run in parallel and never merged**:
   commit. Read it in full, check it against the findings the review actually reported (a change
   matching no reported finding is the strongest signal it should be discarded), and re-run the
   task's tests over it. Only then either take deliberate ownership of it in its own commit, saying
-  in the Step 10 recap that the review wrote it and why you kept it — or `git -C "$WORKTREE" restore`
-  it away and say that instead. A HEAD that moved is the #477 shape: read what landed before you push
+  in the Step 10 recap that the review wrote it and why you kept it — or discard it and say that
+  instead (`git -C "$WORKTREE" restore -- <paths>` for tracked edits; an unauthorized write can also
+  *create* files, which `restore` will not remove — take those from `status --porcelain`'s `??`
+  entries and delete them by name). A HEAD that moved is the #477 shape: read what landed before you push
   anything on top of it.
 
 - **Spec** — is this what the issue *promised*? Dispatch **one sub-agent** with the brief in
