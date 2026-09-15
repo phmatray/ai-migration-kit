@@ -326,6 +326,7 @@ def program_text(repo, did):
             [BASH, str(decide), "--program", did],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             cwd=str(repo),
         )
     except OSError as exc:
@@ -353,6 +354,7 @@ def index_modes(repo, paths):
             ["git", "-C", str(repo), "ls-files", "-s", "-z", "--", *paths],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except OSError as exc:
         return {}, f"git is not available ({exc})"
@@ -641,6 +643,7 @@ def tracked_executables(repo):
             ["git", "-C", str(repo), "ls-files", "-z", "--", *tracked_exec_globs()],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except OSError as exc:
         raise Unanswerable(f"could not enumerate tracked executables for R10: {exc}")
@@ -956,6 +959,7 @@ def _jq_compiles(prog):
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
             )
         except OSError as exc:
             raise Unanswerable(
