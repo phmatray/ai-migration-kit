@@ -152,6 +152,20 @@ want_line() {
   fi
 }
 
+# The mirror of want_line: some fixtures are about a span producing NO line at all. Asserting only
+# the lines that SHOULD appear cannot catch a span that is silently consumed as something else —
+# which is exactly how #599 survived: every positive assertion still passed while the rename target
+# was being eaten. `grep -Fxq` reads a FILE, so there is no pipeline for grep to close early.
+want_no_line() {
+  local label="$1" line="$2"
+  if grep -Fxq "$line" "$OUT"; then
+    note_fail "$label — the output names '$line', which it must not:"
+    sed 's/^/      /' "$OUT"
+  else
+    note_ok "$label"
+  fi
+}
+
 echo "== a plan with a stale modify path is exit 5, and says which path (#322) =="
 run_case "C1 mixed plan exits 5             " 5 "$WORK/mixed.md"
 want_line "C2 the present path is OK         " "OK modify a.sh (Task 1)"
@@ -442,6 +456,26 @@ PLAN
 run_case "C71 a stale rename: exit 5           " 5 "$WORK/rename-stale.md"
 want_line "C72 …the missing source is MISSING   " "MISSING rename gone.sh (Task 1)"
 want_line "C73 …the new target is still SKIPped " "SKIP rename also-gone.sh (Task 1)"
+
+# The FIFTH false-STALE shape (#599), and a regression of the fix for the fourth: PR #594 added the
+# `looks_like_path` filter to the rename SOURCE branch only, leaving the PENDING branch consuming
+# whatever span arrived next as the target. A backticked aside between the two names was therefore
+# eaten as the target, the real target fell through to the end-of-field flush, and a legitimately
+# new file was reported MISSING. The shape is explicitly sanctioned by `skills/_shared/plan-shape.md`
+# ("arrow or prose between them, either way"), so this was a legal plan being refused — and a false
+# STALE is a stop, not a degraded answer: Step 2 reads it as "no usable plan" for the task.
+echo "== …a backticked NON-PATH between a rename's two names is prose, not the target (#599) =="
+cat > "$WORK/rename-aside.md" <<'PLAN'
+## 🛠️ Implementation plan
+
+### Task 1: a rename with a backticked aside between its two names
+
+**Files:** rename `a.sh` (see `guard_hint()` for context) → `NEWNAME-does-not-exist.sh`.
+PLAN
+run_case "C90 a rename with an aside: exit 0 " 0 "$WORK/rename-aside.md"
+want_line "C91 …the source still resolves OK  " "OK rename a.sh (Task 1)"
+want_no_line "C92 …the aside yields no item at all " "SKIP rename guard_hint() (Task 1)"
+want_line "C93 …the REAL target is the target " "SKIP rename NEWNAME-does-not-exist.sh (Task 1)"
 
 echo "== …two backticked paths joined by 'and' are two paths, not one glued string (#441, #514) =="
 cat > "$WORK/and-joined.md" <<'PLAN'

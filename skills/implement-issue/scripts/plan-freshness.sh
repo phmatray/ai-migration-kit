@@ -224,7 +224,15 @@ handle_span() {
   local span following
   span="$1"; following="$2"
 
-  if [ -n "$PEND_SRC" ]; then
+  # The pending target is filtered exactly as the source branch below is. Without this, ANY span
+  # arriving after a rename source was consumed as the target — so a backticked aside between the
+  # two names was eaten, the real target fell through to the end-of-field flush, and a legitimately
+  # new file came back MISSING. That was the fifth false-STALE shape (#599), and it was shipped by
+  # the fix for the fourth: #594 added this filter to the source branch only. A non-path span now
+  # falls through to the `looks_like_path "$span" || return 0` guard below, leaving $PEND_SRC intact
+  # for the real target. The end-of-field flush stays unconditional on purpose — a rename whose
+  # target never arrives must still resolve its source.
+  if [ -n "$PEND_SRC" ] && looks_like_path "$span"; then
     check_span rename "$PEND_SRC"
     printf 'SKIP rename %s (Task %s)\n' "$(strip_anchor "$span")" "$TASK"
     PEND_SRC=""
