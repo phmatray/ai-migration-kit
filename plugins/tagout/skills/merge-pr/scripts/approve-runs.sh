@@ -191,7 +191,10 @@ runs_json=$(gh api ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} "repos/$OWNER_REPO/actions/
   echo "$TOOL: could not list workflow runs for $sha: $runs_json" >&2
   exit 1
 }
-ids=$(printf '%s' "$runs_json" | jq -r '[ .workflow_runs[]? | select(.conclusion == "action_required") | .id ] | unique | .[]')
+# `tr -d` on the ids: the Windows jq binary terminates every line with CRLF, so each id would
+# reach the loop below as `12345\r` and be POSTed to `…/runs/12345%0D/approve`, which 404s. The
+# ids are digits by construction, so stripping CR cannot discard anything meaningful.
+ids=$(printf '%s' "$runs_json" | jq -r '[ .workflow_runs[]? | select(.conclusion == "action_required") | .id ] | unique | .[]' | tr -d '\r')
 
 if [ -z "$ids" ]; then
   echo "approved 0 run(s)"

@@ -264,7 +264,18 @@ set_runs "$(printf '{"workflow_runs":[%s,%s]}'   "$(run_entry 111 release-title 
 if run "release-accept" 0 "the repo's own release PR is approved" 42; then
   approved=$(sort -u "$APPROVED_LOG" | tr '\n' ' ')
   [ "$approved" = "111 222 " ] || note_fail "release-accept — approved exactly {111,222}, got: $approved"
+  # The allowlist must be read from the repository's DEFAULT branch. Reading it at `?ref=<head>`
+  # would let a PR widen the very allowlist it is judged against — and every other case here would
+  # still pass, because the stub answers the contents call whatever ref it names. So the ABSENCE of
+  # a ref is asserted directly, on the recorded invocation.
+  cfg_call=$(grep 'contents/release-please-config.json' "$GH_ARGS_LOG" || true)
+  [ -n "$cfg_call" ] || note_fail "release-accept — the config was never read; the allowlist cannot have been derived"
+  case "$cfg_call" in
+    *ref=*) note_fail "release-accept — the allowlist was read at a ref: $cfg_call
+      It must come from the default branch: a PR that picks its own ref picks its own allowlist." ;;
+  esac
   echo "ok: release-accept — author+branch+declared-paths together approve the release PR (#622)"
+  echo "ok: release-accept — the allowlist is read from the default branch, not the PR's head (#622)"
 fi
 
 reset_case
@@ -298,6 +309,33 @@ set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)
 if run "release-refuse-noconfig" 2 "no release-please-config.json means no allowlist, so refuse" 42; then
   [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-noconfig — an approval was POSTed: $(cat "$APPROVED_LOG")"
   echo "ok: release-refuse-noconfig — an unreadable config fails CLOSED, never open (ADR 0002) (#622)"
+fi
+
+reset_case
+printf 'this is not json' > "$RP_CFG"
+set_pr "$(pr_json 'app/github-actions' "$RP_BRANCH" $RP_FILES)"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-refuse-badconfig" 2 "an unparseable config yields no allowlist, so refuse" 42; then
+  [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-badconfig — an approval was POSTed: $(cat "$APPROVED_LOG")"
+  echo "ok: release-refuse-badconfig — malformed JSON refuses; it is not read as 'nothing to check' (#622)"
+fi
+
+# A second package, and an extra-files entry in its plain-string form: both shapes release-please
+# accepts, and both are what the $dir join and the string/object branch exist for. Without this the
+# two branches are untested speculation.
+reset_case
+cat > "$RP_CFG" <<'RPEOF'
+{
+  "packages": {
+    ".":      { "changelog-path": "CHANGELOG.md" },
+    "pkg/sub": { "changelog-path": "CHANGELOG.md", "extra-files": ["version.txt"] }
+  }
+}
+RPEOF
+set_pr "$(pr_json 'app/github-actions' "$RP_BRANCH" .release-please-manifest.json CHANGELOG.md pkg/sub/CHANGELOG.md pkg/sub/version.txt)"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-multipackage" 0 "a second package's paths are joined to its directory" 42; then
+  echo "ok: release-multipackage — per-package dirs and string extra-files resolve (#622)"
 fi
 
 reset_case
