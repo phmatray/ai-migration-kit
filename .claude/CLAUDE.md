@@ -26,12 +26,9 @@ a session in this repository sees it whether or not the plugin is installed:
 - Shared skill procedures → `skills/_shared/`.
 - Kit backlog (YAGNI debts) → [`docs/backlog.md`](../docs/backlog.md), hand-edited, read by
   `scripts/followups.py`.
-- The two plugin directories → **generated, never hand-edited** ([ADR 0017](../docs/adr/0017-the-two-plugin-trees-ship-as-generated-copies.md)):
-  `plugins/tagout/` and `plugins/tagout-migrate/` are real copies of the tree entries they ship, so
-  they load on a checkout with no symlink support (#619). Edit the source under `skills/`,
-  `scripts/`, `hooks/`…, then run `python3 scripts/host-adapters.py build` and commit both halves —
-  `check` refuses a copy that drifted, one no source accounts for, a symlink, or a copy committed at
-  another mode than its source.
+- The two plugin directories → generated copies, never hand-edited ([ADR 0017](../docs/adr/0017-the-two-plugin-trees-ship-as-generated-copies.md)):
+  edit the source under `skills/`, `scripts/`, `hooks/`…, then `python3 scripts/host-adapters.py build`
+  and commit both halves; `check` refuses a drifted copy, an orphan, a symlink (#619) or a mode mismatch.
 
 ## Adding a skill
 
