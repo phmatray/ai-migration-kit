@@ -53,6 +53,13 @@ printf '%s\n' "\$*" >> "$GH_ARGS_LOG"
 if [ "\$1" = "auth" ] && [ "\${2:-}" = "token" ]; then
   exit 1   # no stubbed host credential — approve-runs.sh must still resolve OWNER_REPO from -R
 fi
+if [ "\$1" = "api" ]; then
+  # Faithful to the real gh: \`gh api\` has no --repo/-R flag, only --hostname. Refusing it here is
+  # what makes every case below a guard against the flag creeping back onto an api call (#622).
+  for a in "\$@"; do
+    case "\$a" in -R|--repo) echo "unknown shorthand flag: 'R' in -R" >&2; exit 1 ;; esac
+  done
+fi
 if [ "\$1" = "pr" ] && [ "\${2:-}" = "view" ]; then
   cat "$PR_JSON"
   exit 0
@@ -98,7 +105,8 @@ pr_json() {
   local author="$1" branch="${2:-feature/something}"; shift 2 2>/dev/null || shift
   local files="[]" p
   for p in "$@"; do files=$(printf '%s' "$files" | jq -c --arg p "$p" '. + [{"path":$p}]'); done
-  printf '{"author":{"login":"%s"},"headRefOid":"%s","headRefName":"%s","files":%s}'     "$author" "$SHA" "$branch" "$files"
+  local n; n=$(printf '%s' "$files" | jq 'length')
+  printf '{"author":{"login":"%s"},"headRefOid":"%s","headRefName":"%s","files":%s,"changedFiles":%s}'     "$author" "$SHA" "$branch" "$files" "${PR_CHANGED_FILES:-$n}"
 }
 
 # The eight paths release-please actually touched on this repo's PR #621, and the config that
@@ -128,7 +136,7 @@ RPEOF
 clear_rp_config() { : > "$RP_CFG"; }
 run_entry() { printf '{"id":%s,"name":"%s","conclusion":"%s"}' "$1" "$2" "$3"; }
 
-reset_case() { : > "$GH_ARGS_LOG"; : > "$APPROVED_LOG"; set_approve 0; set_rp_config; }
+reset_case() { : > "$GH_ARGS_LOG"; : > "$APPROVED_LOG"; set_approve 0; set_rp_config; unset PR_CHANGED_FILES; }
 
 # run <name> <want-exit> <what>
 run() {
@@ -309,6 +317,26 @@ set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)
 if run "release-refuse-noconfig" 2 "no release-please-config.json means no allowlist, so refuse" 42; then
   [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-noconfig — an approval was POSTed: $(cat "$APPROVED_LOG")"
   echo "ok: release-refuse-noconfig — an unreadable config fails CLOSED, never open (ADR 0002) (#622)"
+fi
+
+reset_case
+# GitHub caps `files`; a capped page's undeclared paths are simply absent, so a guard that trusts
+# the page approves on the strength of a prefix. changedFiles is the authoritative count.
+PR_CHANGED_FILES=9999
+set_pr "$(pr_json 'app/github-actions' "$RP_BRANCH" $RP_FILES)"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-refuse-truncated" 2 "a truncated file list cannot prove the whole diff" 42; then
+  [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-truncated — an approval was POSTed: $(cat "$APPROVED_LOG")"
+  echo "ok: release-refuse-truncated — files is a page, not the diff; a short page refuses (#622)"
+fi
+
+reset_case
+printf '{}' > "$RP_CFG"
+set_pr "$(pr_json 'app/github-actions' "$RP_BRANCH" .release-please-manifest.json)"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-refuse-emptyconfig" 2 "a config declaring no package declares no allowlist" 42; then
+  [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-emptyconfig — an approval was POSTed: $(cat "$APPROVED_LOG")"
+  echo "ok: release-refuse-emptyconfig — '{}' parses but declares nothing, so it refuses (#622)"
 fi
 
 reset_case
