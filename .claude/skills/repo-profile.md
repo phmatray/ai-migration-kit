@@ -195,8 +195,8 @@ hand-copying it further.
   and symbols from it; a term listed under `_Avoid_` never becomes an identifier.
 
 ## ADRs
-- **Root:** `docs/adr/` — twelve MADR 4.0 records (`NNNN-<kebab-title>.md`; nine accepted, three
-  rejected out-of-scope concepts) plus the rendered index
+- **Root:** `docs/adr/` — seventeen MADR 4.0 records (`NNNN-<kebab-title>.md`; twelve accepted, three
+  rejected out-of-scope concepts, one superseded, one proposed) plus the rendered index
   at `docs/adr/README.md` (#316). This is the root `create-issue` Step 5, `implement-issue` Step 7
   and `merge-pr` Step 6 read; it is no longer `none`, so none of them may skip the check.
 - **Server:** `adr` — **AdrMcp**, shipped by this plugin in `.mcp.json` (`dnx AdrMcp --yes`) and

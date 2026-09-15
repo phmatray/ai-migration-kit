@@ -2034,8 +2034,11 @@ fi
 #   docs/backlog.md         — the entry rewritten as a CLOSED item, which has to name what closed.
 #   tests/skills/*.py|sh    — this suite and the checker, explaining the rule they replaced.
 # Anything else naming the path is a live pointer at a home that no longer exists.
+# `plugins/` is out of the sweep: it is generated output (ADR 0017), so every hit under it is a
+# byte-for-byte copy of a file already judged above at its source, and listing it would refuse the
+# copy of something this list allows.
 R2_ALLOWED="CHANGELOG.md docs/backlog.md tests/skills/check-frontmatter.py tests/skills/test.sh"
-r2_hits=$(git -C "$KIT_ROOT" grep -l -F "triggers.md" -- . 2>/dev/null || true)
+r2_hits=$(git -C "$KIT_ROOT" grep -l -F "triggers.md" -- . ':(exclude)plugins' 2>/dev/null || true)
 r2_unexpected=""
 # THIS file always matches (its own R1 glob is spelled below), so an empty or sentinel-less result
 # means `git grep` failed rather than that the tree is clean — the one way this guard could pass

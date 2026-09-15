@@ -1,0 +1,85 @@
+{
+  "description": "The verb table: the ONE home for what a tracker verb is called, what it takes and what it prints. scripts/tracker.sh validates a verb against this file BEFORE it resolves a backend, so a typo is a bad invocation (exit 2) on every host rather than 'not implemented' (exit 3) on some. `skills` names, per migrated skill, the verbs that skill needs — it is empty until the first skill moves its own gh calls onto the contract, and `tracker.capable` reads it to answer whether a skill can run on a host. See skills/_shared/tracker-contract.md.",
+  "verbs": {
+    "verbs": {
+      "args": "",
+      "stdout": "one verb per line — the backend protocol's own introspection call, answered without gh, a network or a host resolution"
+    },
+    "auth": {
+      "args": "",
+      "stdout": "the authenticated login, one line"
+    },
+    "repo": {
+      "args": "",
+      "stdout": "{\"slug\",\"host\",\"defaultBranch\"}"
+    },
+    "issue-view": {
+      "args": "<number>",
+      "stdout": "{\"number\",\"title\",\"state\",\"body\",\"labels\",\"url\",\"format\"} — state lower-cased, labels as bare names"
+    },
+    "issue-search": {
+      "args": "[--query <q>] [--state all|open] [--label <l>]… [--limit <n>]",
+      "stdout": "[{\"number\",\"title\",\"state\"}] — state lower-cased. A search with --label and no --query is valid."
+    },
+    "issue-comments": {
+      "args": "<number>",
+      "stdout": "a JSON array of comment bodies"
+    },
+    "issue-create": {
+      "args": "--title <t> [--label <l>]… --body-file <f>",
+      "stdout": "{\"number\",\"url\"} — a label not in the live set is passed through and the host FAILS the whole call (exit 1), exactly as `gh issue create --label` does today; the caller checks the live set first"
+    },
+    "issue-edit-body": {
+      "args": "<number> --body-file <f>",
+      "stdout": "nothing — refuses a missing or empty --body-file (exit 2) and sends nothing"
+    },
+    "issue-add-labels": {
+      "args": "<number> <label>…",
+      "stdout": "nothing"
+    },
+    "issue-remove-labels": {
+      "args": "<number> <label>…",
+      "stdout": "nothing"
+    },
+    "issue-reopen": {
+      "args": "<number> --body-file <f>",
+      "stdout": "nothing — the file is the reopening comment"
+    },
+    "issue-comment": {
+      "args": "<number> --body-file <f>",
+      "stdout": "nothing"
+    },
+    "label-list": {
+      "args": "",
+      "stdout": "one label name per line"
+    },
+    "label-create": {
+      "args": "<name> [--color <hex>] [--description <d>]",
+      "stdout": "nothing — grows the taxonomy for a genuinely new sub-area with no fitting label"
+    },
+    "issue-link-parent": {
+      "args": "<parent> <child> [--dry-run]",
+      "stdout": "ok | fallback | FAILED (HTTP <code>: <message>) — a 404 means the sub-issues feature is off on this host, not that either issue is missing (both are resolved by a successful read first); --dry-run prints the POST it would send and calls nothing"
+    },
+    "issue-link-blocked-by": {
+      "args": "<child> <blocker> [--dry-run]",
+      "stdout": "ok | fallback | FAILED (HTTP <code>: <message>) — same rule as issue-link-parent, on the dependencies endpoint"
+    },
+    "issue-children": {
+      "args": "<parent>",
+      "stdout": "a JSON array of issue numbers, or fallback when the sub-issues feature is off"
+    },
+    "issue-blocked-by-count": {
+      "args": "<number>",
+      "stdout": "an integer, or n/a when the dependencies feature is off (no issue_dependencies_summary on the issue)"
+    }
+  },
+  "skills": {
+    "create-issue": [
+      "auth", "repo", "issue-view", "issue-search", "issue-comments", "issue-create",
+      "issue-edit-body", "issue-add-labels", "issue-remove-labels", "issue-reopen",
+      "issue-comment", "label-list", "label-create",
+      "issue-link-parent", "issue-link-blocked-by", "issue-children", "issue-blocked-by-count"
+    ]
+  }
+}

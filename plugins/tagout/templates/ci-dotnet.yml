@@ -1,0 +1,748 @@
+# Template CI tagout — à déposer dans le repo migré (.github/workflows/ci.yml), phase 6.
+# La migration ne livre pas que du code : elle livre le garde-fou.
+# ⚠ Renseignez SOLUTION si le repo contient plusieurs .sln (l'ancienne solution legacy reste
+#   souvent à la racine) : `dotnet test` nu échoue alors avec MSB1011.
+name: ci
+
+on:
+  push:
+    branches: [main, dev, 'migration/**']
+  pull_request:
+
+env:
+  SOLUTION: ''   # ex. Chords.sln — laissez vide si un seul .sln à la racine
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Deux plateformes de test coexistent, et elles ne collectent PAS la couverture pareil :
+      #   - VSTest (xunit v2, NUnit, MSTest classique) → `--collect:"XPlat Code Coverage"` ;
+      #   - Microsoft Testing Platform (xunit.v3) → `--coverage`, via
+      #     Microsoft.Testing.Extensions.CodeCoverage référencé par le projet de test.
+      # Mesuré : sous MTP, `--collect:` est IGNORÉ — la commande sort en 0, tous les tests
+      # passent, et AUCUN fichier de couverture n'est écrit (simple avertissement MTP0001).
+      # D'où la détection, puis la garde ci-dessous. Détail : migrate-legacy
+      # references/xunit-v3-migration.md.
+      - name: Tests + couverture
+        run: |
+          set -euo pipefail
+          # Repartir d'un coverage/ VIDE, pas seulement l'assurer présent. Tant que le fichier
+          # portait un nom fixe, chaque run écrasait le précédent et le répertoire ne pouvait
+          # pas mentir ; maintenant que chaque projet nomme son rapport, les runs
+          # s'accumuleraient — et sur un runner self-hosted (workspace réutilisé) la garde
+          # ci-dessous passerait sur le rapport d'hier pendant qu'une collecte muette ne
+          # produit plus rien. L'agrégat compterait en prime des classes déjà supprimées.
+          rm -rf coverage && mkdir -p coverage
+          # Même raison, deuxième emplacement (#74). MTP n'écrit pas toujours sous coverage/ :
+          # quand `--coverage` est refusé, `--results-directory` l'est avec lui et le log retombe
+          # sous `<projet>/bin/<config>/<tfm>/TestResults/`. Ce chemin-là est publié en artefact,
+          # donc il doit être aussi propre que coverage/ — sinon un run VERT embarque le log
+          # d'échec d'un run précédent, et l'artefact explique une panne qui n'a pas eu lieu.
+          # C'est pire que le log manquant que #74 corrige : faux, pas absent.
+          # Restreint à `*/bin/*` : un dépôt legacy peut committer un TestResults/ dans ses
+          # sources, et ce nettoyage ne doit jamais toucher un fichier suivi par git.
+          find . -type d -path '*/bin/*' -name TestResults -prune -exec rm -rf {} + 2>/dev/null || true
+          mtp=$(grep -rlE 'xunit\.v3|TestingPlatformDotnetTestSupport' --include='*.csproj' . || true)
+          vstest=$(grep -rlE 'PackageReference[^>]*Include="(xunit\.runner\.visualstudio|MSTest\.TestAdapter|NUnit3TestAdapter|coverlet\.collector)"' \
+                     --include='*.csproj' . || true)
+          if [ -n "$mtp" ] && [ -n "$vstest" ]; then
+            # Un dépôt à moitié migré est le pire cas : les arguments MTP sont IGNORÉS en silence
+            # par les projets VSTest (sortie 0, tests verts, zéro fichier), et la garde ci-dessous
+            # passe quand même parce que le projet v3, lui, en a écrit un. On refuse plutôt que de
+            # perdre la couverture d'une moitié du dépôt sans le dire.
+            echo "Dépôt MIXTE : des projets MTP (xunit.v3) et VSTest coexistent."
+            echo "  MTP    : $(echo "$mtp" | tr '\n' ' ')"
+            echo "  VSTest : $(echo "$vstest" | tr '\n' ' ')"
+            echo "Une seule commande ne peut pas collecter la couverture des deux."
+            echo "Terminez la migration, ou collectez projet par projet."
+            exit 1
+          elif [ -n "$mtp" ]; then
+            # `--coverage-output` nomme UN fichier, et chaque projet de test de la solution
+            # est un exécutable MTP autonome qui obéit à ce nom : avec N projets, N-1
+            # rapports sont écrasés et il reste celui qui a fini en dernier. Mesuré sur une
+            # solution à 2 projets : 5 % de couverture affichés là où l'union en couvre 73 %.
+            # Un chiffre faux, pas un chiffre manquant — rien ne signale qu'il est partiel.
+            # `--results-directory` sans `--coverage-output` laisse MTP nommer lui-même, un
+            # fichier par projet, et aligne cette branche sur celle de VSTest juste en dessous.
+            echo "Plateforme de test détectée : Microsoft Testing Platform."
+            dotnet test $SOLUTION --nologo -- \
+              --coverage --coverage-output-format cobertura \
+              --results-directory "$PWD/coverage"
+          else
+            echo "Plateforme de test détectée : VSTest."
+            dotnet test $SOLUTION --nologo --collect:"XPlat Code Coverage" --results-directory coverage
+          fi
+
+      # Sans cette garde, une collecte qui ne produit rien passe pour un succès : l'artefact part
+      # vide et le tableau de bord affiche « pas de couverture » sur une app qui EST testée.
+      #
+      # ⚠ Cette garde teste une PRÉSENCE, pas un COMPTE, et c'est délibéré (#31). Comparer le
+      #   nombre de rapports au nombre de projets de test découverts dans `$mtp` paraît plus
+      #   strict — « 1 rapport pour 3 projets » virerait au rouge. Deux mesures s'y opposent
+      #   (SDK 10.0.302, xunit.v3 3.2.2, CodeCoverage 17.14.2) :   # pinned:xunit-v3
+      #
+      #   1. Il n'existe plus de cause connue de collecte PARTIELLE silencieuse. `--coverage` est
+      #      une option APPORTÉE par Microsoft.Testing.Extensions.CodeCoverage : un projet qui n'a
+      #      pas ce paquet ne se contente pas de ne rien produire, il fait refuser l'option
+      #      (« Unknown option '--coverage' ») et sortir MTP en non-zéro. Un projet qui n'exécute
+      #      aucun test échoue également, ET écrit quand même son rapport. Dans les deux cas le
+      #      `set -euo pipefail` de l'étape précédente arrête le job AVANT cette garde — il n'y a
+      #      pas d'union partielle à rattraper ici.
+      #
+      #   2. `$mtp` SUR-COMPTE. Son grep matche tout csproj citant xunit.v3, y compris une
+      #      bibliothèque d'aide partagée (FactAttribute maison, fixtures communes) qui n'est pas
+      #      une application de test et que `dotnet test` n'exécute donc jamais. Mesuré : 1 projet
+      #      de test + 1 bibliothèque d'aide = run vert, 1 rapport écrit, `$mtp` en annonce 2. Le
+      #      compte refuserait un dépôt parfaitement sain. `>=` n'y change rien : le défaut est
+      #      dans la SOURCE du nombre attendu, pas dans la comparaison.
+      #
+      #   Compter juste supposerait de ne retenir que les vraies applications de test, ce qui
+      #   demande MSBuild (`IsTestProject`) — la découverte de projets en shell que #17 avait
+      #   écartée. Resserrer ceci en compte est donc une RÉGRESSION tant que ces deux points
+      #   tiennent, et les DEUX sont épinglés dans tests/xunit-v3/test.sh — le point 1 par les cas
+      #   4f et 4g, le point 2 par le cas 4h, qui relit la ligne `mtp=$(grep …)` ci-dessus dans ce
+      #   fichier plutôt que de la recopier. Resserrer ce grep fait donc échouer 4h : c'est là que
+      #   la modification se verra si l'un des deux points cesse d'être vrai.
+      - name: Garde — la couverture a bien été produite
+        run: |
+          # `-print -quit` capturé dans une variable, et NON `find … | grep -q .` (#97).
+          #
+          # Le tuyau ne marchait que par accident : le shell d'étape par défaut de GitHub est
+          # `bash -e {0}`, sans `pipefail`, donc le statut de `find` est jeté et le pipeline rend
+          # celui de `grep`. Deux modifications ordinaires l'arment — ajouter `set -euo pipefail`
+          # à ce corps, ce que l'étape sœur « Tests + couverture » fait DÉJÀ, ou poser
+          # `defaults.run.shell: bash`, que GitHub mappe sur `bash -eo pipefail`.
+          #
+          # Armé, il s'inverse : `grep -q` sort au premier match, `find` meurt sur le tuyau fermé
+          # (SIGPIPE/141 en BSD, EPIPE/1 en GNU), `pipefail` remonte CE statut, et la condition
+          # niée prend donc sa branche « aucune couverture » précisément quand la couverture A été
+          # produite — sur tout dépôt ayant pris ce template. Mesuré dès #48 ; il faut assez de
+          # rapports pour dépasser le tampon de 64 Kio, sinon `find` a fini d'écrire avant que
+          # `grep` ne ferme, et le défaut reste invisible. Épinglé par tests/ci-template/test.sh [10].
+          #
+          # `2>/dev/null` + `|| true` : si `coverage/` n'existe pas du tout, `find` écrit sur
+          # stderr et sort non-zéro — sous `set -e` l'étape mourrait là, sur un message obscur, au
+          # lieu de rendre celui d'en dessous. La variable reste vide et la garde parle.
+          #
+          # `-L` ET `-type f`, les deux (#126). `find` matche par NOM et n'a aucun avis sur le TYPE
+          # de l'entrée : sans `-type f`, n'importe quelle entrée nommée `*.cobertura.xml` passait
+          # la garde — un dossier laissé par un collecteur, un lien symbolique cassé sur un runner
+          # auto-hébergé qui réutilise son espace de travail (la raison même du
+          # `rm -rf coverage && mkdir -p coverage` de l'étape sœur). L'étape passait au vert en
+          # n'ayant prouvé que l'existence d'un NOM, et l'artefact partait sans rien d'analysable
+          # dedans : exactement le faux vert que cette garde existe pour empêcher.
+          #
+          # Mais `-type f` SEUL serait un autre défaut, et pas un moindre : `find` ne suit pas les
+          # liens symboliques par défaut, donc il se mettrait à refuser un rapport LÉGITIME atteint
+          # par un lien. On échangerait un fail-open contre un fail-closed — pire, parce que la
+          # nouvelle panne est bruyante, trompeuse, et frappe des dépôts qui marchent. Mesuré sur
+          # les DEUX implémentations, résultats identiques — GNU findutils 4.9.0 (ubuntu 24.04,
+          # ce que `runs-on: ubuntu-latest` sert) et BSD find (macOS 15) :
+          #
+          #     entrée sous coverage/            sans -type   -type f    -L … -type f
+          #     dossier bogus.cobertura.xml      matche       refusé     refusé
+          #     lien → un vrai rapport           matche       REFUSÉ     matche
+          #     lien cassé                       matche       refusé     refusé
+          #
+          # `-L` restaure la ligne du milieu. `tests/ci-template/test.sh` [10b] LIT ce tableau (le
+          # découpe sous l'en-tête « entrée sous coverage/ » ci-dessus) plutôt que de le retyper —
+          # ne renommez ni les libellés de ligne ni les mots « matche »/« refusé »/« REFUSÉ » sans
+          # mettre à jour l'extracteur du même coup (#141). La ligne du milieu est celle qui
+          # rougirait sous une « simplification » ultérieure vers un `-type f` nu.
+          #
+          # ⚠ Ceci ne change PAS la sémantique de présence : #31 a tranché que cette garde teste la
+          # PRÉSENCE et non le COMPTE (voir les ~30 lignes ci-dessus). On ne change ici que ce qui
+          # compte comme UN match.
+          #
+          # Et le verdict se lit sur la SORTIE STANDARD, jamais sur le statut : `2>/dev/null || true`
+          # jette le statut de `find`, c'est `[ -z "$found" ]` juste en dessous qui tranche. Sur une
+          # boucle de liens, `-L` fait donc râler `find` sur stderr (jeté) et sortir en non-zéro
+          # (absorbé) — mais s'il a DÉJÀ imprimé un rapport avant d'y arriver, `$found` est NON VIDE
+          # et la garde PASSE, ce qui est le bon résultat : un rapport a bien été trouvé. Elle ne
+          # rend « aucun match » que si rien n'a été imprimé. Ne pas lire ce `|| true` comme un
+          # fail-closed : il ne convertit pas une erreur de `find` en refus, il l'empêche seulement
+          # de tuer l'étape sous `set -e` avant que le message d'en dessous ne soit rendu.
+          #
+          # ⚠ Ce que `-L` COÛTE, assumé et écrit ici plutôt que corrigé : suivre les liens ÉLARGIT le
+          # parcours. Sans match, `find` descend désormais dans la cible d'un lien comme
+          # `coverage/results -> /mnt/shared` et parcourt l'arbre lié en entier ; sur un runner
+          # auto-hébergé pointant vers un partage, le chemin d'échec peut devenir lent, voire mourir
+          # sur le timeout du job SANS avoir rendu son diagnostic. Deux façons de l'éviter ont été
+          # pesées et écartées (#126) :
+          #   • `-maxdepth N` bornerait le parcours, mais N serait une DEVINETTE sur l'endroit où
+          #     `--results-directory` dépose ses rapports — MTP et VSTest n'imbriquent pas pareil
+          #     (`coverage/<guid>/…` côté VSTest) — et trop court il refuserait un rapport LÉGITIME :
+          #     exactement le fail-closed que ce correctif refuse de créer.
+          #   • `-xtype f` rendrait les trois lignes du tableau sans élargir le parcours, mais il est
+          #     GNU-only et coûterait la ligne BSD/macOS mesurée ci-dessus.
+          # Le parcours reste donc non borné : la lenteur ne frappe que le chemin où l'étape allait
+          # de toute façon échouer, là où un `-maxdepth` trop court frapperait les dépôts qui
+          # marchent. À revoir si un `coverage/` contenant un lien vers un grand arbre est réellement
+          # observé.
+          found=$(find -L coverage -name '*.cobertura.xml' -type f -print -quit 2>/dev/null || true)
+          if [ -z "$found" ]; then
+            # Le `|| true` ci-dessus coupe dans les deux sens : un find SANS `-quit` (busybox,
+            # images minimales) échoue, son erreur part à /dev/null, et « aucun rapport » devient
+            # indiscernable de « find n'a pas pu tourner ». On sortirait alors le message d'en
+            # dessous — un vrai échec, diagnostiqué à l'envers, en pointant la collecte de
+            # couverture au lieu du find du runner. Même raison d'être que
+            # tests/_lib.sh:kit_require_find_quit côté kit ; ici la vérification est portée par
+            # l'étape elle-même, et elle ne coûte rien : on n'y arrive que sur le chemin d'échec.
+            #
+            # La sonde teste TOUS les prédicats dont l'expression ci-dessus dépend — `-L`, `-type`
+            # et `-print -quit` — et pas seulement le dernier (#126). Une sonde plus étroite que
+            # l'expression qu'elle garde ne garde rien : sur un find refusant `-L` ou `-type`,
+            # l'expression sortirait non-zéro, le `2>/dev/null || true` avalerait l'erreur, `$found`
+            # serait vide — et la sonde, elle, réussirait encore, donc la garde sauterait cette
+            # branche et accuserait la collecte de couverture d'un dépôt parfaitement sain. C'est la
+            # méprise même que cette sonde existe pour empêcher, rouverte en élargissant l'expression
+            # sans élargir la sonde.
+            #
+            # `-type d` et non `-type f` : `.` est un dossier, donc la sonde MATCHE et `-quit` est
+            # réellement exercé, comme dans sa forme d'origine. Avec `-type f` rien ne matcherait,
+            # `-quit` ne se déclencherait jamais, et on ne prouverait plus que la partie de
+            # l'expression qui se parse — pas celle qui s'exécute. La lettre passée à `-type` n'est
+            # pas ce qui varie d'une implémentation à l'autre ; c'est le prédicat lui-même.
+            if ! find -L . -maxdepth 0 -type d -print -quit >/dev/null 2>&1; then
+              echo "Le find de ce runner ne supporte pas '-L', '-type' ou '-print -quit' : la garde"
+              echo "ne peut pas distinguer « aucun rapport de couverture » de « find a échoué »."
+              echo "Utilisez une image avec GNU findutils (ou BSD find) plutôt qu'un busybox."
+              exit 1
+            fi
+            echo "Aucun rapport de couverture produit — la collecte a été ignorée en silence."
+            echo "Projet MTP sans Microsoft.Testing.Extensions.CodeCoverage ? Voir"
+            echo "migrate-legacy/references/xunit-v3-migration.md."
+            exit 1
+          fi
+
+      # Une condition EXPLICITE, pas la condition implicite `success()` — et c'est ce qui rend
+      # l'artefact utile (#74). L'étape de test tourne sous `set -euo pipefail` : un hôte de test
+      # qui sort en non-zéro termine le job ICI, et toutes les étapes suivantes sont SAUTÉES. Sans
+      # cette ligne, l'artefact n'était donc publié que sur les runs où rien n'avait échoué —
+      # exactement ceux où personne n'en a besoin. Mesuré : un projet de test sans
+      # Microsoft.Testing.Extensions.CodeCoverage fait refuser `--coverage`, le job s'arrête là, et
+      # le log qui porte la RAISON ne quitte jamais le runner.
+      #
+      # Le choix de la condition, entre les trois qui « tournent après un échec » :
+      #   • `failure()` seul est FAUX ici : il cesserait de publier la couverture sur les runs
+      #     verts, remplaçant ce trou-ci par son symétrique — et c'est le chemin vert qui alimente
+      #     le tableau de bord.
+      #   • `always()` marche, mais il est vrai AUSSI quand le job est annulé : un run long qu'on
+      #     interrompt exécute encore l'upload avant de rendre la main.
+      #   • `!cancelled()` couvre l'échec sans couvrir l'annulation. C'est ce que recommande la
+      #     doc GitHub, et c'est ce qu'on prend.
+      # `${{ }}` est nécessaire : en YAML nu, `!` ouvre un tag et la valeur ne se parse pas.
+      - name: Publier la couverture en artefact de build
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          # Le nom du fichier n'est plus fixe — c'est ce qui empêche deux projets de test de
+          # s'écraser — donc le glob prend *.cobertura.xml. VSTest niche un fichier par projet
+          # sous un dossier GUID, MTP les écrit à plat : `**` couvre en principe les deux (il
+          # matche zéro segment ou plus), le second motif est une ceinture-bretelles assumée,
+          # pas une nécessité mesurée.
+          # Les .log sont ceux que MTP écrit à côté, un par projet : ils portent le détail des
+          # assertions, seule chose qui rende diagnosticable un test qui n'échoue que sur le
+          # runner. Ils n'arrivaient pas jusqu'ici tant que MTP les écrivait sous bin/.
+          # ⚠ TOUS les motifs de CET artefact restent sous coverage/, et ce n'est pas cosmétique :
+          #   actions/upload-artifact enracine l'archive au PLUS PETIT ANCÊTRE COMMUN des fichiers
+          #   trouvés. Tant que tout est sous coverage/, les rapports arrivent à plat
+          #   (`X.cobertura.xml`). Qu'un seul motif matche hors de coverage/ et la racine devient
+          #   l'espace de travail : les MÊMES rapports deviennent `coverage/X.cobertura.xml`, et un
+          #   job qui télécharge cet artefact pour lancer `reportgenerator -reports:*.cobertura.xml`
+          #   ne trouve plus rien. Pire, le changement serait CONDITIONNEL — il dépendrait de
+          #   l'existence d'un log hors coverage/, donc la forme de l'artefact varierait d'un run à
+          #   l'autre. Les logs restés sous bin/ partent donc dans un artefact SÉPARÉ, juste après.
+          #
+          # ⚠ ENCODAGE : MTP écrit ces .log en UTF-16-LE AVEC BOM (mesuré : premiers octets
+          #   `ff fe`), les deux emplacements confondus. Conséquence pratique une fois l'artefact
+          #   téléchargé : `grep "Unknown option" <log>` ne renvoie RIEN — non pas parce que le
+          #   fichier est vide, mais parce qu'un lecteur UTF-8 n'y voit pas de texte. Le piège est
+          #   qu'il en donne l'apparence, et l'on conclut que le log ne dit rien. Décoder d'abord :
+          #     iconv -f UTF-16 -t UTF-8 <log>        # ou, en Python, open(p, encoding="utf-16")
+          #   Ne pas deviner l'encodage par essais successifs : `raw.decode("utf-16")` NE lève PAS
+          #   sur de l'UTF-8 de longueur paire, il rend du mojibake — se fier au BOM.
+          path: |
+            coverage/**/*.cobertura.xml
+            coverage/*.cobertura.xml
+            coverage/**/*.log
+
+      # L'autre emplacement, dans son PROPRE artefact (#74). C'est `--results-directory` qui met
+      # les logs MTP sous coverage/ — mais il voyage dans la même liste d'arguments que
+      # `--coverage`, donc un projet sans Microsoft.Testing.Extensions.CodeCoverage se voit refuser
+      # LES DEUX, et son log retombe sous `<projet>/bin/<config>/<tfm>/TestResults/`. C'est
+      # précisément le cas où ce log est la SEULE explication de l'échec, et où la console n'en
+      # imprime que le chemin.
+      # Séparé, et non ajouté à l'artefact ci-dessus, pour ne pas déplacer sa racine (voir la note
+      # sur le plus petit ancêtre commun). `failure()` suffit ici : sur un run vert, ce chemin de
+      # repli est vide par construction. `if-no-files-found: ignore` parce qu'un échec ordinaire
+      # (un test qui casse) laisse ses logs sous coverage/ et rien ici — l'absence est le cas
+      # NORMAL, pas un incident à signaler.
+      # Le motif est ancré sur `*/bin/*` pour la même raison que le nettoyage plus haut : ne jamais
+      # ramasser un TestResults/ que le dépôt aurait committé dans ses sources.
+      # Ces logs sont UTF-16-LE, comme ceux de l'artefact précédent — voir la note d'encodage.
+      - name: Publier les logs MTP restés sous bin/ (diagnostic d'échec)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mtp-logs-bin-fallback
+          path: '**/bin/**/TestResults/*.log'
+          if-no-files-found: ignore
+
+      # À N'ACTIVER que si ce dépôt COMMITTE un bundle front — un `dist/` suivi par git — que le
+      # build .NET consomme (EmbeddedResource, Content, ou contenu statique servi tel quel).
+      # Livré INERTE par défaut sur une mesure, pas par prudence : sur 193 dépôts .NET, 3
+      # committent une sortie de build et UN SEUL la fait consommer par le build (issue #32). Une
+      # étape rouge par défaut sur les 192 dépôts où la garde n'a rien à mesurer finirait
+      # supprimée ou en `continue-on-error`, ce qui apprend à l'équipe à ignorer une étape rouge —
+      # pire qu'une étape absente.
+      #
+      # Le motif, mesuré sur Ninjadog : `dist/` est committé et AUCUNE cible MSBuild n'appelle
+      # npm. Un bump de la dépendance JS vulnérable change donc le lockfile et pas un octet du
+      # binaire livré — pendant que la PR se ferme et que le Dependency Dashboard affiche la
+      # faille comme réglée. C'est une FAUSSE REMÉDIATION, strictement pire que ne rien faire.
+      #
+      # Deux préconditions avant d'activer, les deux mesurées :
+      #
+      #  1. `git status --porcelain`, JAMAIS `git diff` — parce que `--porcelain` couvre les
+      #     fichiers NON SUIVIS, et que c'est là qu'un bundle régénéré atterrit. Les bundlers
+      #     nomment leurs assets par hash de contenu, ce qui donne deux formes de dérive :
+      #       • le RENOMMAGE (l'ancien fichier disparaît, un autre apparaît non suivi) —
+      #         `git diff` en voit bien la moitié, la suppression, mais ne nomme jamais le
+      #         remplaçant : impossible de distinguer « le build a perdu un fichier » de
+      #         « le build a produit un autre bundle » ;
+      #       • l'AJOUT PUR (un nouveau chunk, un asset fraîchement importé, pendant que les
+      #         fichiers existants gardent nom et contenu) — là `git diff` rend l'arbre
+      #         PROPRE, et une garde fondée dessus passe au vert sur un bundle périmé.
+      #     C'est le second cas qui rend `--porcelain` obligatoire et non simplement préférable.
+      #     Les deux sont exécutés dans `tests/ci-template/test.sh` : ce commentaire décrit une
+      #     mesure, il n'en tient pas lieu.
+      #
+      #  2. Le build doit être reproductible DANS L'ENVIRONNEMENT DE LA CI. Deux reconstructions
+      #     propres du même commit donnent bien un résultat identique à l'octet — mais les
+      #     chaînes front modernes embarquent des binaires natifs PAR PLATEFORME
+      #     (`@tailwindcss/oxide`, `lightningcss`, `esbuild`…), et le CSS émis par le binaire
+      #     macOS diffère de celui du binaire Linux à sources et lockfile identiques. Mesuré, à
+      #     cause de cette étape même. Donc : épinglez `runs-on:` ET la version exacte de Node,
+      #     et régénérez le bundle committé depuis cette plateforme-là. Sinon la garde rougit sur
+      #     un bundle parfaitement correct, et vous aurez construit le faux rouge que le point
+      #     précédent cherche à éviter.
+      #
+      #     Les quatre étapes ci-dessous sont donc LIVE, et inertes par défaut : elles ne
+      #     s'exécutent que si le fichier de configuration est committé. Sur les 190 dépôts sur 193
+      #     qui ne committent aucune sortie de build — 192 si l'on compte ceux dont le build .NET
+      #     ne la consomme pas — elles apparaissent « skipped » et ne font rien. Les deux
+      #     dénominateurs répondent à deux questions différentes ; ne pas les confondre.
+      #     C'est un choix mesuré (#70) : en commentaire, une référence d'action est
+      #     INVISIBLE au manager github-actions de Renovate — vérifié en exécutant son propre
+      #     extracteur sur ce fichier, 5 dépendances extraites et `setup-node` absent. En clair,
+      #     il en voit 7, dont `actions/setup-node` ET `node 26.5.0` lui-même. C'est ce second
+      #     point qui rend la garde saine : la précondition 2 exige un Node épinglé à l'exact, et
+      #     ainsi c'est Renovate qui le maintient au lieu d'un commentaire qui vieillit — la
+      #     facture déjà payée en #35, où les workflows LIVRÉS avaient trois majeures de retard.
+      #
+      # POUR ACTIVER — committez UN fichier, `.github/bundle-gate.json`, et rien à éditer ici :
+      #
+      #     { "src": "src/App/WebUI", "dist": "src/App/WebUI/dist" }
+      #
+      #     src   le répertoire qui porte package.json
+      #     dist  le bundle committé, SOUS src
+      #
+      #     Détail et exemple : docs/bundle-gate.md + templates/bundle-gate.json.example
+      #
+      # Deux chemins, et pas un seul, parce que la sortie n'est pas déductible de l'entrée (`dist`,
+      # `build`, `wwwroot/dist`…). Mais deux réglages INDÉPENDANTS seraient pires qu'un : s'ils
+      # désignaient des arbres différents, npm reconstruirait l'un pendant que la garde examine
+      # l'autre, elle ne verrait aucune dérive, et l'étape passerait au VERT sur un bundle périmé —
+      # la fausse remédiation même que tout ceci existe pour empêcher, produite par la garde. D'où
+      # un seul fichier, validé d'un bloc AVANT que npm ne tourne : `dist` doit être sous `src`.
+      #
+      # POURQUOI UN FICHIER, et non deux variables de dépôt comme en #70 (#96) : une variable est un
+      # état de RÉGLAGES, invisible. Un ménage dans les settings, un transfert de dépôt (les
+      # variables ne suivent pas le code), une politique d'organisation, un renommage — et les
+      # étapes évaluent `'' != ''`, apparaissent « skipped », et le job reste VERT à jamais sans
+      # rien mesurer. Une PR issue d'un fork ne voit pas non plus les variables de dépôt. Un dépôt
+      # qui n'a jamais voulu la garde et un dépôt qui l'a PERDUE étaient alors indiscernables — et
+      # c'est le second qui se croit protégé. Avec un fichier committé, activer et désactiver
+      # redeviennent des diffs relus, la configuration voyage avec le code, et un fork la voit.
+      #
+      # Le fichier ARME la garde par sa seule présence : `hashFiles()` rend une chaîne VIDE quand
+      # rien ne correspond (référence des expressions GitHub), donc `!= ''` est faux — et non une
+      # erreur — sur les 192 dépôts qui n'ont pas opté. Le chemin est écrit relatif à la racine
+      # parce que la même référence impose « can only include files inside of the
+      # `GITHUB_WORKSPACE` » ; ces étapes tournent après `actions/checkout`, la condition est donc
+      # évaluable.
+      #
+      # `if:` et `working-directory:` sont évalués AVANT l'exécution d'une étape et ne peuvent pas
+      # lire un fichier : c'est pourquoi une étape de configuration publie les deux chemins en
+      # sorties, et pourquoi elle vient en PREMIER.
+      #
+      # ⚠ La précondition 2 demande d'épingler la plateforme ENTIÈRE, pas seulement Node : ce
+      # modèle tourne sur `runs-on: ubuntu-latest`, qui FLOTTE. Le jour où GitHub bascule l'image,
+      # le binaire natif change, le bundle reconstruit diffère, et la garde rougit sur un bundle
+      # correct. Si vous activez ceci, épinglez aussi `runs-on:` sur une image datée
+      # (`ubuntu-24.04`) et régénérez le bundle committé depuis cette image-là.
+      #
+      # ⚠ Renovate proposera des bumps de `node-version` — c'est le but, la ligne est managée.
+      # Mais un changement de majeure de Node change l'ABI des modules natifs, donc la sortie du
+      # bundler : la PR de bump SEULE fera rougir la garde, avec un message qui accuse un bundle
+      # périmé alors que c'est la chaîne d'outils qui a bougé. Reconstruisez et committez le
+      # bundle DANS la même PR que le bump.
+      #
+      # Pour désactiver : supprimez le fichier — le code reste en place, sous test, inerte. La
+      # suppression apparaît dans un diff, ce qui est tout l'objet de #96.
+      - name: Configuration de la garde bundle
+        id: bundle_gate
+        if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
+        env:
+          # Le MÊME chemin que dans la condition ci-dessus. `tests/ci-template/test.sh` vérifie
+          # qu'ils ne divergent pas : une condition qui arme la garde sur un fichier pendant que
+          # l'étape en lit un autre, c'est le piège des deux sources de vérité, un cran plus haut.
+          BUNDLE_GATE_CONFIG: .github/bundle-gate.json
+        run: |
+          set -euo pipefail
+          cfg="$BUNDLE_GATE_CONFIG"
+
+          # Tout refus nomme le fichier à corriger, et n'écrit AUCUNE sortie. C'est le point : une
+          # configuration à moitié lue publierait des chemins vides, `working-directory:`
+          # retomberait sur la racine du dépôt et la garde examinerait '' — or
+          # `git status --porcelain -- ''` sort en 0 sans rien afficher. L'étape serait verte à
+          # chaque run en ne mesurant rien, exactement le défaut que cette garde combat.
+          refuse() {
+            echo "::error::$cfg : $1"
+            exit 1
+          }
+
+          # `hashFiles()` a déjà vu le fichier ; on le redit parce qu'une étape qui suppose ses
+          # propres préconditions est une étape qui les perd le jour où la condition change.
+          [ -f "$cfg" ] || refuse "fichier introuvable alors que la garde a été armée."
+
+          # La garde ne vaut que pour une configuration COMMITTÉE : c'est ce qui rend l'activation
+          # et la désactivation relisibles dans un diff. Un fichier produit par une étape
+          # précédente ré-introduirait l'état invisible qu'on vient de supprimer.
+          git ls-files --error-unmatch -- "$cfg" > /dev/null 2>&1 \
+            || refuse "n'est pas suivi par git. La configuration de la garde doit être committée."
+
+          # `jq` AVANT de s'en servir. Sans ce test, un runner sans jq échouerait sur la ligne
+          # suivante et le message accuserait le JSON — parfaitement valide — au lieu du runner :
+          # on irait éditer un fichier qui n'a rien. Les images `ubuntu-*` de GitHub le fournissent.
+          command -v jq > /dev/null 2>&1 \
+            || refuse "lire cette configuration demande jq, absent de ce runner."
+
+          jq -e 'type == "object"' "$cfg" > /dev/null 2>&1 \
+            || refuse 'doit être un objet JSON : { "src": "...", "dist": "..." }.'
+
+          src=$(jq -r '.src // ""' "$cfg")
+          dist=$(jq -r '.dist // ""' "$cfg")
+
+          # Les deux chemins finissent dans `working-directory:` et dans `$GITHUB_OUTPUT`. Le jeu
+          # de caractères est donc volontairement étroit : il couvre tout chemin de projet front
+          # réel et ferme d'un coup l'injection de sortie (un saut de ligne dans une valeur
+          # ajouterait une ligne `clé=valeur` de son choix au fichier de sorties).
+          for pair in "src:$src" "dist:$dist"; do
+            key=${pair%%:*}
+            val=${pair#*:}
+            [ -n "$val" ] || refuse "la clé \"$key\" est absente ou vide."
+            case "$val" in
+              /*) refuse "\"$key\" ('$val') doit être RELATIF à la racine du dépôt." ;;
+              *[!A-Za-z0-9._/-]*)
+                refuse "\"$key\" ('$val') contient un caractère interdit (autorisés : A-Z a-z 0-9 . _ / -)." ;;
+            esac
+            case "/$val/" in
+              */../*) refuse "\"$key\" ('$val') remonte hors de son arborescence." ;;
+            esac
+          done
+
+          # Normaliser APRÈS les refus ci-dessus, jamais avant : ceux-ci portent sur la forme
+          # ÉCRITE dans le fichier (chemin absolu, `..`, caractère interdit), donc ils doivent voir
+          # la valeur telle que l'auteur l'a tapée, et la nommer telle quelle dans le message.
+          # Ici, au contraire, on compare deux chemins : `./web`, `web` et `web/` désignent le même
+          # répertoire, et sans normalisation le test d'égalité juste en dessous se contournerait
+          # par une simple orthographe (`src: "web"`, `dist: "web/"`).
+          # Le `./` compte : le message de remédiation de l'étape de détection propose
+          # `{ "src": "<le répertoire qui porte package.json>", "dist": "<le bundle, sous src>" }`,
+          # ce qui pour un front à la RACINE se lit `"."` et `"dist"`. Suivre à la lettre la
+          # remédiation livrée et se faire refuser par le validateur livré est pire que l'un ou
+          # l'autre séparément.
+          src=${src#./}; dist=${dist#./}
+          while [ "$src" != "${src%/}" ]; do src=${src%/}; done
+          while [ "$dist" != "${dist%/}" ]; do dist=${dist%/}; done
+          # `.` et `./` s'effondrent sur la racine, qui est un `src` légitime (front à la racine) —
+          # mais jamais un `dist` : un bundle qui EST le dépôt n'est pas un bundle.
+          [ -n "$src" ] || src=.
+          [ -n "$dist" ] || refuse "\"dist\" désigne la racine du dépôt : le bundle doit être un sous-répertoire de ses sources."
+
+          # La corrélation, vérifiée sur le FICHIER et avant que npm n'ait reconstruit quoi que ce
+          # soit. La garde elle-même la revérifie sur ses propres entrées : valider ici évite de
+          # payer une installation Node pour rien, revérifier là-bas garde l'invariant vrai même
+          # si un jour les chemins arrivaient d'ailleurs.
+          #
+          # L'ÉGALITÉ est dite à part, et en premier. `case "$dist/" in "$src"/*)` l'acceptait —
+          # `*` matche la chaîne VIDE, donc `web/` matche `web/*` — et c'est le seul contrôle entre
+          # une configuration absurde et une garde armée. Le coût n'est pas théorique : la
+          # reconstruction lance `npm ci` dans `web/`, ce qui y crée `web/node_modules` ; la garde
+          # fait ensuite `git status --porcelain --ignored -- web`, et comme `--ignored` est
+          # délibérément là, elle liste tout l'arbre ignoré et rougit à CHAQUE run en conseillant
+          # « reconstruire, puis committer » — un conseil qui ne peut jamais la faire verdir.
+          [ "$dist" != "$src" ] || refuse "\"dist\" et \"src\" désignent le même répertoire ('$src'). Le bundle doit être un SOUS-répertoire de ses sources : sinon 'npm ci' crée node_modules dans l'arbre même que la garde inspecte (elle liste les fichiers ignorés, volontairement), et l'étape rougit à chaque run sans remédiation possible."
+          # `.` est le seul `src` dont TOUT chemin relatif est un sous-arbre — l'absolu et le `..`
+          # ayant déjà été refusés plus haut, il n'y a rien de plus à vérifier pour lui.
+          if [ "$src" != "." ]; then
+            # `?*` et non `*`, par ceinture et bretelles : le refus d'égalité ci-dessus dit
+            # l'invariant, ce motif fait qu'aucune réécriture future ne puisse le reperdre ici.
+            case "$dist/" in
+              "$src"/?*) : ;;
+              *) refuse "\"dist\" ('$dist') n'est pas sous \"src\" ('$src'). npm reconstruirait un arbre pendant que la garde en examine un autre : aucune dérive vue, vert sur un bundle périmé." ;;
+            esac
+          fi
+
+          # `src` est le répertoire où tourne 'npm ci'. Sans package.json suivi, la reconstruction
+          # échouerait plus tard avec un message qui accuse npm, alors que la faute est ici.
+          # `$src/package.json` s'écrirait `./package.json` à la racine : git l'accepte, mais la
+          # forme sans préfixe est celle que `ls-files` rend, donc celle qu'un lecteur reconnaîtra
+          # dans un message d'erreur. Même idiome que l'étape de détection plus bas.
+          if [ "$src" = "." ]; then src_pkg=package.json; else src_pkg="$src/package.json"; fi
+          git ls-files --error-unmatch -- "$src_pkg" > /dev/null 2>&1 \
+            || refuse "\"src\" ('$src') ne porte pas de package.json suivi par git : la reconstruction n'aurait pas lieu là où vit le bundle."
+
+          {
+            printf 'src=%s\n' "$src"
+            printf 'dist=%s\n' "$dist"
+          } >> "$GITHUB_OUTPUT"
+          echo "Garde bundle armée par $cfg — src=$src, dist=$dist"
+
+      - name: Setup Node (bundle front committé)
+        if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
+        uses: actions/setup-node@v7
+        with:
+          # Version EXACTE, jamais `26.x` ni `26.5.x` : la précondition 2 tombe si Node flotte,
+          # et `tests/ci-template/test.sh` refuse toute forme non `N.N.N`.
+          # Renovate maintient cette ligne — elle est extraite comme dépendance `node`.
+          node-version: 26.8.2
+
+      - name: Reconstruire le bundle front committé
+        if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
+        working-directory: ${{ steps.bundle_gate.outputs.src }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Garde — le bundle front committé correspond toujours à ses sources
+        if: ${{ hashFiles('.github/bundle-gate.json') != '' }}
+        env:
+          BUNDLE_DIST: ${{ steps.bundle_gate.outputs.dist }}
+          BUNDLE_SRC: ${{ steps.bundle_gate.outputs.src }}
+        run: |
+          # Les deux chemins doivent désigner le MÊME arbre. Si `BUNDLE_SRC` pointe ailleurs,
+          # l'étape précédente a reconstruit un autre répertoire, celui-ci n'a pas bougé, et la
+          # garde certifierait « à jour » un bundle que rien n'a régénéré. L'étape de
+          # configuration a déjà refusé ce cas ; la garde le revérifie sur SES propres entrées,
+          # parce qu'un invariant délégué à l'appelant est un invariant perdu au premier
+          # changement d'appelant.
+          #
+          # Un nom DIFFÉRENT de celui de l'étape de configuration (`refuse()` ci-dessus, ~ligne
+          # 419) — délibérément : les deux `run:` restent deux process shell indépendants (#163/
+          # #90), donc rien n'empêche deux fonctions locales de porter le même nom sans jamais se
+          # percuter, mais un même nom pour deux signatures incompatibles (un argument là, N ici)
+          # inviterait à copier un site d'appel de l'une vers l'autre sans le remarquer. Même
+          # esprit qu'`refuse()` — un premier argument porte le `::error::`, les suivants
+          # s'affichent en clair — une seule forme d'émission pour les huit refus de cette étape,
+          # au lieu de sept paires `echo "::error::..."` / `exit 1` retapées à la main (#302).
+          refuse_lines() {
+            echo "::error::$1"
+            shift
+            printf '%s\n' "$@"
+            exit 1
+          }
+
+          if [ -z "${BUNDLE_SRC:-}" ]; then
+            refuse_lines "BUNDLE_SRC est vide alors que BUNDLE_DIST est renseignée." \
+              "La reconstruction n'a donc pas eu lieu là où vit le bundle."
+          fi
+          # Normaliser AVANT de comparer — le même './'-strip et trailing-'/'-strip que l'étape de
+          # configuration applique déjà (lignes ~475-477) avant de publier ses sorties. Un invariant
+          # délégué à l'appelant est un invariant perdu au premier changement d'appelant (#96) : si
+          # ces valeurs arrivaient un jour d'ailleurs qu'une sortie déjà normalisée (une matrice, un
+          # second chemin de config, une modification manuelle chez un adoptant), cette copie doit
+          # rendre le même verdict que celle-ci pour toute orthographe équivalente, pas seulement la
+          # paire normalisée que l'étape de configuration publie aujourd'hui (#285).
+          BUNDLE_SRC=${BUNDLE_SRC#./}
+          while [ "$BUNDLE_SRC" != "${BUNDLE_SRC%/}" ]; do BUNDLE_SRC=${BUNDLE_SRC%/}; done
+          [ -n "$BUNDLE_SRC" ] || BUNDLE_SRC=.
+          BUNDLE_DIST=${BUNDLE_DIST#./}
+          while [ "$BUNDLE_DIST" != "${BUNDLE_DIST%/}" ]; do BUNDLE_DIST=${BUNDLE_DIST%/}; done
+          # `..` doit être refusé ICI AUSSI, indépendamment de l'étape de configuration : celle-ci
+          # refuse déjà tout `..` sur la valeur BRUTE (lignes ~459-461), mais cette copie doit tenir
+          # pour des entrées qui n'ont jamais traversé cette étape (une matrice éditée à la main, un
+          # second chemin de configuration, un adoptant qui modifie le workflow directement) — la
+          # promesse même que documentent les commentaires de cette étape (#293). Sans ce refus, un
+          # `BUNDLE_DIST` qui commence lexicalement par `BUNDLE_SRC/` mais qui remonte hors de son
+          # arborescence via `..` passerait le test de confinement plus bas (`case "$BUNDLE_DIST/" in
+          # "$BUNDLE_SRC"/?*)`, une simple comparaison de chaînes qui ne résout jamais `..` — et la
+          # garde certifierait « à jour » un répertoire qu'elle n'a jamais eu l'intention d'inspecter.
+          case "/$BUNDLE_DIST/" in
+            */../*)
+              refuse_lines "BUNDLE_DIST ('$BUNDLE_DIST') remonte hors de son arborescence." \
+                "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), jamais y" \
+                "remonter par '..' : le test de confinement plus bas compare des chaînes, pas des" \
+                "chemins résolus, et un '..' le contournerait silencieusement." ;;
+          esac
+          # `BUNDLE_DIST` peut s'effondrer sur la chaîne vide sans jamais avoir été littéralement
+          # vide (ex. BUNDLE_SRC="." BUNDLE_DIST="./" ci-dessus) : il désigne alors la racine du
+          # dépôt, jamais un `dist` légitime — un bundle qui EST le dépôt n'est pas un bundle. Sans
+          # ce refus nommé, le contrôle générique plus bas (`! -d "$BUNDLE_DIST"`) refuse déjà
+          # correctement mais sans jamais nommer BUNDLE_SRC, contrairement à toutes les autres
+          # branches de refus de cette étape.
+          if [ -z "$BUNDLE_DIST" ]; then
+            refuse_lines "BUNDLE_DIST est vide une fois normalisé : il désigne BUNDLE_SRC ('$BUNDLE_SRC'), la racine du dépôt." \
+              "Le bundle doit être un SOUS-répertoire de BUNDLE_SRC ('$BUNDLE_SRC'), pas le dépôt lui-même."
+          fi
+          # L'égalité d'abord, et nommée. `case "$BUNDLE_DIST/" in "$BUNDLE_SRC"/*)` l'acceptait
+          # (`*` matche la chaîne vide, donc `web/` matche `web/*`) : `npm ci` vient de créer
+          # node_modules DANS l'arbre que cette garde inspecte, et comme elle liste volontairement
+          # les fichiers ignorés (voir plus bas), elle rougirait à chaque run avec un conseil —
+          # « reconstruire, puis committer » — qui ne peut pas la faire verdir.
+          if [ "$BUNDLE_DIST" = "$BUNDLE_SRC" ]; then
+            refuse_lines "BUNDLE_DIST et BUNDLE_SRC désignent le même répertoire ('$BUNDLE_SRC')." \
+              "Le bundle doit être un SOUS-répertoire de ses sources : 'npm ci' vient d'y créer" \
+              "node_modules, que cette garde liste (--ignored), et elle rougirait à chaque run" \
+              "en réclamant une reconstruction qui ne peut rien y changer."
+          fi
+          # `.` — un front à la racine du dépôt — est le seul BUNDLE_SRC dont tout chemin relatif
+          # est un sous-arbre. L'étape de configuration a déjà écarté l'absolu et le `..`.
+          if [ "$BUNDLE_SRC" != "." ]; then
+            case "$BUNDLE_DIST/" in
+              "$BUNDLE_SRC"/?*) : ;;
+              *) refuse_lines "BUNDLE_DIST ('$BUNDLE_DIST') n'est pas sous BUNDLE_SRC ('$BUNDLE_SRC')." \
+                   "npm a reconstruit '$BUNDLE_SRC' pendant que la garde examine '$BUNDLE_DIST' :" \
+                   "elle ne verrait aucune dérive et passerait au vert sur un bundle périmé." ;;
+            esac
+          fi
+          # D'ABORD prouver que la garde mesure quelque chose. `git status --porcelain -- <chemin
+          # inexistant>` sort en 0 avec une sortie VIDE : un chemin mal renseigné, ou un répertoire
+          # renommé six mois plus tard, donnerait donc une étape verte à chaque run qui ne vérifie
+          # plus rien — « ça a l'air entretenu, ça ne mesure rien », exactement le défaut que cette
+          # étape existe pour empêcher, reproduit dans l'étape elle-même. Le vert est ici la
+          # couleur attendue, donc rien ne le signalerait jamais.
+          # `-z "$BUNDLE_DIST"` n'a plus sa place ici : le refus nommé ci-dessus garantit déjà que
+          # BUNDLE_DIST n'est jamais vide à ce point de l'exécution.
+          if [ ! -d "$BUNDLE_DIST" ]; then
+            refuse_lines "BUNDLE_DIST ('$BUNDLE_DIST') n'est pas un répertoire de ce dépôt." \
+              "Corrigez \"dist\" dans la configuration committée, ou supprimez le fichier" \
+              "pour désactiver la garde."
+          fi
+          if ! git ls-files --error-unmatch -- "$BUNDLE_DIST" > /dev/null 2>&1; then
+            refuse_lines "$BUNDLE_DIST n'est suivi par git pour aucun fichier." \
+              "Cette garde ne vaut que pour un bundle COMMITTÉ : sans fichier suivi, elle" \
+              "resterait verte sans rien mesurer."
+          fi
+          # `--ignored` est OBLIGATOIRE, pas un extra. La façon normale de committer une sortie de
+          # build est de mettre `dist/` dans .gitignore puis de forcer l'ajout (`git add -f`). Dans
+          # ce dépôt-là, un nouveau chunk n'est pas seulement non suivi : il est IGNORÉ, et
+          # `--porcelain` seul omet les fichiers ignorés — il n'affiche rien, et la garde annonce
+          # « à jour » sur un bundle périmé. Mesuré. Contrepartie assumée : si le bundler écrit un
+          # cache ignoré DANS ce répertoire, il sera signalé — faites pointer BUNDLE_DIST sur la
+          # sortie livrée, pas sur un dossier qui contient aussi du cache.
+          changes=$(git status --porcelain --ignored -- "$BUNDLE_DIST")
+          if [ -n "$changes" ]; then
+            refuse_lines "$BUNDLE_DIST est périmé : il ne correspond plus à ses sources." \
+              "Le binaire livré embarque encore l'ancien bundle — un bump de dépendance JS" \
+              "ne l'a donc PAS corrigé, il a seulement fermé la PR." \
+              "Correctif : reconstruire le bundle, puis committer le résultat." \
+              "$changes"
+          fi
+          echo "$BUNDLE_DIST est à jour."
+
+      # Le COMPLÉMENT de la garde : aucune configuration committée.
+      #
+      # Déplacer l'interrupteur dans le dépôt rend sa perte visible dans un diff, et c'est
+      # l'essentiel de #96 — mais pas la totalité : la suppression passe quand même au VERT,
+      # puisque tout le bloc s'éteint. « Ça a l'air entretenu, ça ne mesure rien », d'un cran plus
+      # haut. Cette étape sépare donc les deux états qui se ressemblaient : un dépôt qui n'a JAMAIS
+      # voulu la garde, et un dépôt qui l'a PERDUE.
+      #
+      # Elle SIGNALE, elle ne bloque pas, et c'est délibéré. Détecter un bundle committé consommé
+      # par le build est exactement l'heuristique que #70 a refusée comme mécanisme d'ARMEMENT
+      # (approche C) : une condition d'activation qui peut se tromper est pire que pas de garde du
+      # tout. En revanche, se tromper dans un AVERTISSEMENT ne coûte qu'une ligne à ignorer — alors
+      # que faire rougir un des 192 dépôts sans bundle apprendrait à ignorer une étape rouge, ce
+      # que toute la conception opt-in existe pour éviter (#32).
+      - name: Détection — un bundle front committé sans configuration de garde
+        if: ${{ hashFiles('.github/bundle-gate.json') == '' }}
+        env:
+          BUNDLE_GATE_CONFIG: .github/bundle-gate.json
+        run: |
+          # Le shell par défaut de GitHub est `bash -e` : sans ce `set +e`, un `grep` sans
+          # correspondance — le cas NORMAL sur 192 dépôts sur 193 — ferait échouer une étape qui
+          # ne garde rien.
+          set +e
+          cfg="$BUNDLE_GATE_CONFIG"
+
+          # Uniquement ce que git SUIT : un dist/ non committé n'est pas un bundle committé, et
+          # c'est précisément la population que cette garde ne concerne pas.
+          # Les motifs de `case` portent une parenthèse OUVRANTE. Elle n'est pas décorative :
+          # dans bash 3.2 — celui de macOS, où ce modèle est relu — l'analyseur voit le `)` d'un
+          # motif comme la fin de la substitution `$(` qui l'englobe, et le fichier ne PARSE pas.
+          # `tests/ci-template/test.sh` passe ce corps à `bash -n`, donc l'oubli est rouge.
+          #
+          # `core.quotepath=false` : sinon git rend les chemins non-ASCII échappés en octal ET
+          # entre guillemets (`"src/Créé/package.json"`), le chemin lu n'existe pas, et la
+          # détection reste muette sur un dépôt francophone — soit exactement la population de ce
+          # modèle.
+          report=$(
+            git -c core.quotepath=false ls-files -- '*package.json' | while IFS= read -r pkg; do
+              # Le motif `*package.json` de git est un glob sur le chemin ENTIER : il attrape
+              # aussi `mypackage.json`. Sans ce filtre, un tel fichier ferait tomber `dir` sur la
+              # racine et la détection irait chercher un `dist/` racine sans rapport — un
+              # avertissement sur un dépôt qui n'a rien demandé.
+              # Les DEUX branches de l'alternative sont nécessaires : `*/node_modules/*` exige un
+              # `/` AVANT `node_modules`, donc un `node_modules/` à la RACINE du dépôt lui
+              # échappait. Un `node_modules` vendoré à la racine est une forme réelle dans les
+              # dépôts .NET hérités que ce kit vise, et le csproj qui l'embarque suffisait alors à
+              # produire un avertissement sur un dépôt qui n'a pas de bundle à lui.
+              case "$pkg" in
+                (node_modules/*|*/node_modules/*) continue ;;
+                (package.json) dir=. ;;
+                (*/package.json) dir=${pkg%/package.json} ;;
+                (*) continue ;;
+              esac
+              for out in dist build out wwwroot/dist; do
+                if [ "$dir" = . ]; then cand="$out"; else cand="$dir/$out"; fi
+                git ls-files --error-unmatch -- "$cand" > /dev/null 2>&1 || continue
+                # Consommé par un projet .NET ? MSBuild écrit ses chemins relativement au .csproj
+                # et avec des ANTISLASHS : ne chercher que la forme '/' ne trouverait rien sur le
+                # dépôt même pour lequel cette détection existe.
+                git -c core.quotepath=false ls-files -- '*.csproj' | while IFS= read -r proj; do
+                  pd=${proj%/*}
+                  if [ "$pd" = "$proj" ]; then pd=.; fi
+                  rel="$cand"
+                  case "$cand" in ("$pd"/*) rel=${cand#"$pd"/} ;; esac
+                  win=$(printf '%s' "$rel" | tr '/' '\\')
+                  if grep -qF -- "$rel" "$proj" 2>/dev/null \
+                     || grep -qF -- "$win" "$proj" 2>/dev/null; then
+                    printf '%s (consommé par %s)\n' "$cand" "$proj"
+                  fi
+                done
+              done
+            done
+          )
+
+          if [ -n "$report" ]; then
+            echo "::warning::Ce dépôt committe un bundle front consommé par un projet .NET, et ne porte pas $cfg : la garde de dérive est DÉSARMÉE."
+            echo "$report"
+            echo "Si la garde a été perdue (fichier supprimé, dépôt transféré), recommittez $cfg :"
+            echo '    { "src": "<le répertoire qui porte package.json>", "dist": "<le bundle committé, sous src>" }'
+            echo "Si ce dépôt n'a jamais voulu la garde, il n'y a rien à faire : ceci n'est pas une erreur."
+          fi
+
+          # Cette étape rapporte ; elle ne juge pas. Sortir en 0 explicitement, plutôt que
+          # `continue-on-error`, qui masquerait AUSSI un vrai défaut de l'étape elle-même.
+          exit 0

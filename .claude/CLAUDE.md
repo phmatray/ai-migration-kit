@@ -26,6 +26,9 @@ a session in this repository sees it whether or not the plugin is installed:
 - Shared skill procedures → `skills/_shared/`.
 - Kit backlog (YAGNI debts) → [`docs/backlog.md`](../docs/backlog.md), hand-edited, read by
   `scripts/followups.py`.
+- The two plugin directories → generated copies, never hand-edited ([ADR 0017](../docs/adr/0017-the-two-plugin-trees-ship-as-generated-copies.md)):
+  edit the source under `skills/`, `scripts/`, `hooks/`…, then `python3 scripts/host-adapters.py build`
+  and commit both halves; `check` refuses a drifted copy, an orphan, a symlink (#619) or a mode mismatch.
 
 ## Adding a skill
 
