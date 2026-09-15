@@ -1216,6 +1216,29 @@ else
 fi
 
 echo
+# --- the interpreter is resolved, not left to the OS's search order (#623) ------------------------
+#
+# `subprocess.run(["bash", ...])` leaves argv[0] for the OS to resolve. On Windows that is
+# CreateProcess, whose search order reaches C:\Windows\System32\bash.exe — the WSL launcher — before
+# the Git Bash every other script in this kit runs under. WSL can read neither `C:\...` (it eats the
+# backslashes as escapes, which is how #623 surfaced: every separator gone from the path) nor
+# `C:/...` (it wants /mnt/c/...), so rewriting the path does not fix it and was measured not to.
+# Resolving the interpreter through shutil.which() does, and leaves the path argument alone.
+#
+# The assertion is structural because it cannot be behavioural: on Linux a bare "bash" resolves to
+# the right interpreter, so no fixture can drive this red on CI. Pinning the call site is the only
+# thing that keeps the idiom from coming back.
+# Full-line comments are stripped first, into a file rather than through a pipe: the prose below
+# and in decision-check.py's own header quotes the very idiom being refused, and a `grep -q` fed by
+# a pipe is what scripts/sigpipe-idiom-check.py refuses.
+code_only="$(kit_scratch)/decision-check.code"
+grep -v '^[[:space:]]*#' "$CHECK" > "$code_only"
+if grep -Eq '\[[[:space:]]*"bash"[[:space:]]*,' "$code_only"; then
+  bad "decision-check.py invokes a bare \"bash\" — on Windows CreateProcess resolves that to WSL, \
+which cannot see the checkout, so no verdict is reached (#623). Resolve it through shutil.which()."
+else
+  ok "the bash interpreter is resolved explicitly, not left to the OS search order (#623)"
+fi
 if [ "$fails" -eq 0 ]; then
   echo "decisions: OK — the dispatcher answers, and every rule of the guard goes red on demand."
   exit 0
