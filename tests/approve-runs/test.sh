@@ -42,6 +42,7 @@ APPROVE_RC="$STUBS/approve.rc"    # exit code the approve POST should return
 APPROVE_OUT="$STUBS/approve.out"  # its stderr on failure
 APPROVED_LOG="$STUBS/approved"    # every run id the stub was asked to POST /approve for
 GH_ARGS_LOG="$STUBS/gh-args"      # every invocation, one per line — proves what was (not) called
+RP_CFG="$STUBS/rp-config.json"    # what `gh api …/contents/release-please-config.json` answers
 
 # The stub answers three questions and refuses anything else, the same fail-loud-on-the-unscripted
 # posture as the prior-art stubs above: an invocation this suite never armed is a suite bug, not a
@@ -71,6 +72,12 @@ case "\$*" in
     cat "$RUNS_JSON"
     exit 0
     ;;
+  *"contents/release-please-config.json"*)
+    # An absent config is a 404, not an empty file — the distinction the fail-closed path turns on.
+    [ -s "$RP_CFG" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+    cat "$RP_CFG"
+    exit 0
+    ;;
 esac
 echo "unexpected gh invocation in approve-runs suite: \$*" >&2
 exit 99
@@ -84,10 +91,44 @@ set_pr()      { printf '%s' "$1" > "$PR_JSON"; }
 set_runs()    { printf '%s' "$1" > "$RUNS_JSON"; }
 set_approve() { printf '%s' "${2:-}" > "$APPROVE_OUT"; printf '%s' "$1" > "$APPROVE_RC"; }
 
-pr_json() { printf '{"author":{"login":"%s"},"headRefOid":"%s"}' "$1" "$SHA"; }
+# pr_json <author> [head-branch] [changed-paths…] — the two optional tails default to a shape that
+# CANNOT satisfy the release-automation conjunction, so every pre-existing single-argument call
+# still exercises exactly what it exercised before.
+pr_json() {
+  local author="$1" branch="${2:-feature/something}"; shift 2 2>/dev/null || shift
+  local files="[]" p
+  for p in "$@"; do files=$(printf '%s' "$files" | jq -c --arg p "$p" '. + [{"path":$p}]'); done
+  printf '{"author":{"login":"%s"},"headRefOid":"%s","headRefName":"%s","files":%s}'     "$author" "$SHA" "$branch" "$files"
+}
+
+# The eight paths release-please actually touched on this repo's PR #621, and the config that
+# declares them. The allowlist is DERIVED from this config, never hard-coded, so adding an
+# extra-files entry here is all a future release file needs.
+RP_BRANCH="release-please--branches--main--components--tagout"
+RP_FILES=".release-please-manifest.json CHANGELOG.md .claude-plugin/plugin.json .codex-plugin/plugin.json .github/plugin/plugin.json gemini-extension.json plugins/tagout/.claude-plugin/plugin.json plugins/tagout-migrate/.claude-plugin/plugin.json"
+set_rp_config() {
+  cat > "$RP_CFG" <<'RPEOF'
+{
+  "packages": {
+    ".": {
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        { "type": "json", "path": "plugins/tagout/.claude-plugin/plugin.json" },
+        { "type": "json", "path": "plugins/tagout-migrate/.claude-plugin/plugin.json" },
+        { "type": "json", "path": ".claude-plugin/plugin.json" },
+        { "type": "json", "path": ".codex-plugin/plugin.json" },
+        { "type": "json", "path": ".github/plugin/plugin.json" },
+        { "type": "json", "path": "gemini-extension.json" }
+      ]
+    }
+  }
+}
+RPEOF
+}
+clear_rp_config() { : > "$RP_CFG"; }
 run_entry() { printf '{"id":%s,"name":"%s","conclusion":"%s"}' "$1" "$2" "$3"; }
 
-reset_case() { : > "$GH_ARGS_LOG"; : > "$APPROVED_LOG"; set_approve 0; }
+reset_case() { : > "$GH_ARGS_LOG"; : > "$APPROVED_LOG"; set_approve 0; set_rp_config; }
 
 # run <name> <want-exit> <what>
 run() {
@@ -203,6 +244,68 @@ if run api-failure 1 'a 403 from the approve endpoint exits 1, not 0 and not a s
   n=$(grep -c '^111$' "$APPROVED_LOG" || true)
   [ "$n" -eq 1 ] || note_fail "api-failure — expected exactly one approve attempt for run 111, saw $n"
   echo "ok: api-failure — a 403 on the approve call exits 1 with the API message, and is not retried"
+fi
+
+# ------------------------------------------- 6. this repository's own release automation (#622)
+#
+# release-please posts its PR through the default GITHUB_TOKEN, so the author is `app/github-actions`
+# and never `release-please[bot]` — the guard #495 wrote was dead code on its only caller, and the
+# release cut was the one PR the kit could not land (measured landing 3.0.1, PR #621).
+#
+# The login alone is NOT evidence: any workflow using the default token opens PRs under it. So the
+# accept path is a CONJUNCTION of three facts no outside contributor can hold at once — the author,
+# a release-please head branch, and a diff confined to the paths this repo's OWN
+# release-please-config.json declares. Each refusal below removes exactly one conjunct, so no single
+# fact can ever carry the approval by itself.
+
+reset_case
+set_pr "$(pr_json 'app/github-actions' "$RP_BRANCH" $RP_FILES)"
+set_runs "$(printf '{"workflow_runs":[%s,%s]}'   "$(run_entry 111 release-title action_required)" "$(run_entry 222 ci action_required)")"
+if run "release-accept" 0 "the repo's own release PR is approved" 42; then
+  approved=$(sort -u "$APPROVED_LOG" | tr '\n' ' ')
+  [ "$approved" = "111 222 " ] || note_fail "release-accept — approved exactly {111,222}, got: $approved"
+  echo "ok: release-accept — author+branch+declared-paths together approve the release PR (#622)"
+fi
+
+reset_case
+set_pr "$(pr_json 'app/github-actions' "$RP_BRANCH" $RP_FILES scripts/decide.sh)"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-refuse-path" 2 "one path outside the declared set refuses the whole PR" 42; then
+  [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-path — an approval was POSTed: $(cat "$APPROVED_LOG")"
+  echo "ok: release-refuse-path — a single undeclared path (scripts/decide.sh) refuses it (#622)"
+fi
+
+reset_case
+set_pr "$(pr_json 'app/github-actions' 'feature/not-a-release' $RP_FILES)"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-refuse-branch" 2 "release-shaped diff on a non-release branch refuses" 42; then
+  [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-branch — an approval was POSTed: $(cat "$APPROVED_LOG")"
+  echo "ok: release-refuse-branch — the declared paths alone do not carry it (#622)"
+fi
+
+reset_case
+set_pr "$(pr_json 'someone' "$RP_BRANCH" $RP_FILES)"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-refuse-author" 2 "a stranger on a release-shaped branch and diff refuses" 42; then
+  [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-author — an approval was POSTed: $(cat "$APPROVED_LOG")"
+  echo "ok: release-refuse-author — branch and paths alone do not carry it (#622)"
+fi
+
+reset_case
+clear_rp_config
+set_pr "$(pr_json 'app/github-actions' "$RP_BRANCH" $RP_FILES)"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-refuse-noconfig" 2 "no release-please-config.json means no allowlist, so refuse" 42; then
+  [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-noconfig — an approval was POSTed: $(cat "$APPROVED_LOG")"
+  echo "ok: release-refuse-noconfig — an unreadable config fails CLOSED, never open (ADR 0002) (#622)"
+fi
+
+reset_case
+set_pr "$(pr_json 'app/github-actions' "$RP_BRANCH")"
+set_runs "$(printf '{"workflow_runs":[%s]}' "$(run_entry 111 ci action_required)")"
+if run "release-refuse-nofiles" 2 "a PR reporting no changed files proves nothing, so refuse" 42; then
+  [ -s "$APPROVED_LOG" ] && note_fail "release-refuse-nofiles — an approval was POSTed: $(cat "$APPROVED_LOG")"
+  echo "ok: release-refuse-nofiles — an empty file list is not an empty allowlist check (#622)"
 fi
 
 # ---------------------------------------------------------------------------------------- verdict

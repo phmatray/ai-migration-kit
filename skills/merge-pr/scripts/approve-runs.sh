@@ -103,7 +103,7 @@ REPO_FLAG=()
 # One read, before anything else is asked — a caller that fails this check learns nothing about
 # which runs exist. `gh pr view` and `gh api` both take `-R`/`{owner}/{repo}` the same way, and
 # GH_HOST (exported by gh_host_resolve above) reaches both.
-pr_json=$(gh pr view ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} "$PR" --json author,headRefOid 2>&1) || {
+pr_json=$(gh pr view ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} "$PR" --json author,headRefOid,headRefName,files 2>&1) || {
   echo "$TOOL: could not read PR #$PR: $pr_json" >&2
   exit 1
 }
@@ -111,9 +111,62 @@ author=$(printf '%s' "$pr_json" | jq -r '.author.login // ""')
 sha=$(printf '%s' "$pr_json" | jq -r '.headRefOid // ""')
 [ -n "$sha" ] || { echo "$TOOL: PR #$PR has no head sha" >&2; exit 1; }
 
+branch=$(printf '%s' "$pr_json" | jq -r '.headRefName // ""' | tr -d '')
+
+# --- is this the repository's OWN release automation? --------------------------------------------
+#
+# release-please posts through the default GITHUB_TOKEN, so its PRs are authored by
+# `app/github-actions` and never by `$RELEASE_BOT` — which is why the login check above was dead
+# code on its only caller (#622; measured landing 3.0.1, PR #621).
+#
+# That login is NOT evidence on its own: every workflow using the default token opens PRs under it,
+# so accepting it alone would approve any bot-authored PR in the repository. What is accepted here
+# is a CONJUNCTION of three facts that an outside contributor cannot hold together:
+#
+#   1. the author is that login;
+#   2. the head branch is a release-please branch, which only something with push access can create;
+#   3. EVERY changed path is one this repository's own release-please-config.json declares
+#      release-please will touch — its changelog, its extra-files, and the manifest itself.
+#
+# The config is read from the repository's DEFAULT branch, never from the PR's own head: a PR that
+# could widen the allowlist it is judged against would be no allowlist at all. Anything unreadable,
+# unparseable, or empty refuses — ADR 0002's fail-closed default, the same posture as the login
+# check, because the write being gated still runs a workflow with this repository's secrets.
+is_own_release_pr() {
+  [ "$author" = "app/github-actions" ] || return 1
+  case "$branch" in release-please--*) : ;; *) return 1 ;; esac
+
+  local cfg allow changed undeclared
+  cfg=$(gh api ${REPO_FLAG[@]+"${REPO_FLAG[@]}"}           "repos/$OWNER_REPO/contents/release-please-config.json"           -H "Accept: application/vnd.github.raw" 2>/dev/null) || return 1
+  [ -n "$cfg" ] || return 1
+
+  # The manifest is release-please's own bookkeeping and is not declared inside the config.
+  allow=$(printf '%s' "$cfg" | jq -c '
+    [ (.packages // {}) | to_entries[]
+      | (if .key == "." then "" else .key + "/" end) as $dir
+      | [ $dir + (.value["changelog-path"] // "CHANGELOG.md") ]
+        + [ (.value["extra-files"] // [])[]
+            | (if type == "string" then . else .path end)
+            | select(. != null) | $dir + . ]
+      | .[]
+    ] + [ ".release-please-manifest.json" ] | unique' 2>/dev/null) || return 1
+  [ -n "$allow" ] || return 1
+
+  # Counted inside jq rather than iterated line by line: one scalar out, so a jq build whose output
+  # carries CR (Windows) cannot turn a set comparison into a false accept.
+  changed=$(printf '%s' "$pr_json" | jq -r '[ .files[]?.path ] | length' 2>/dev/null | tr -d '')
+  undeclared=$(printf '%s' "$pr_json" | jq -r --argjson allow "$allow"     '[ .files[]?.path ] - $allow | length' 2>/dev/null | tr -d '') || return 1
+
+  # A PR that reports NO changed files proves nothing about what it would run; it is not an
+  # allowlist match, it is a missing answer.
+  case "$changed" in ''|*[!0-9]*) return 1 ;; esac
+  case "$undeclared" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$changed" -gt 0 ] && [ "$undeclared" -eq 0 ]
+}
+
 case "$author" in
   "$RELEASE_BOT"|"app/release-please") : ;;
-  *)
+  *) if is_own_release_pr; then : ; else
     # Find the runs so the refusal names them, but approve nothing — the point of refusing.
     runs_json=$(gh api ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} "repos/$OWNER_REPO/actions/runs?head_sha=$sha&per_page=100" 2>/dev/null) || runs_json=""
     ids=$(printf '%s' "$runs_json" | jq -r '[ .workflow_runs[]? | select(.conclusion == "action_required") | .id ] | join(", ")' 2>/dev/null || true)
@@ -122,7 +175,8 @@ case "$author" in
     echo "$TOOL: approving a stranger's workflow run executes their code with this repo's secrets." >&2
     echo "$TOOL: run id(s) awaiting approval: $ids" >&2
     echo "$TOOL: manual remedy: gh api -R $OWNER_REPO -X POST repos/$OWNER_REPO/actions/runs/<id>/approve" >&2
-    exit 2 ;;
+    exit 2
+     fi ;;
 esac
 
 # ------------------------------------------------------------------- 4. approve, per workflow run
