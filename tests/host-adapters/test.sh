@@ -96,7 +96,13 @@ scratch_tree() {
     cp "$REPO/$f" "$d/$f" 2>/dev/null || true
   done
   cp "$REPO"/hooks/*.sh "$d/hooks/"      # the hook scripts each plugin's map names: the <kit>/ scan reads them
-  python3 "$CHECK" --repo "$d" build > /dev/null 2>&1   # the plugin trees, as the real tree has them
+  # The plugin trees, as the real tree has them. The exit status is NOT discarded: a build that
+  # exits 2 (an entry named in the copy map but absent from COPY_DIRS/COPY_FILES above) would leave
+  # every fixture with no plugin trees at all, and the partition cases would then pass by accident,
+  # for the wrong reason.
+  python3 "$CHECK" --repo "$d" build > "$d/.build.out" 2>&1 \
+    || { echo "FAIL: scratch_tree's build exited $? — the fixture has no plugin trees"; cat "$d/.build.out"; exit 1; }
+  rm -f "$d/.build.out"
 }
 
 # run_check <repo> [subcommand] — sets OUT (stdout), ERR (stderr) and RC.

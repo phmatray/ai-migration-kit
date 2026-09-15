@@ -269,6 +269,34 @@ def copy_map(repo):
             for plugin in PLUGINS}
 
 
+def entry_files(repo, entry):
+    """The files of one copied tree entry — git-first, as `pinned-literals-check.py` and
+    `decision-check.py` already read the index rather than walking.
+
+    A walk sees everything that is merely PRESENT: a conflicted merge's `.orig`, an editor's
+    scratch file, a stray binary. `build` would copy each into both plugin trees and `check` would
+    then refuse a clean tree over it, so the enumeration is what git would ship. The walk stays as
+    the fallback for the golden suite's scratch fixtures, which are plain directories rather than
+    repositories, and for a host with no usable git.
+    """
+    git = shutil.which("git")
+    if git is not None:
+        try:
+            proc = subprocess.run([git, "-C", str(repo), "ls-files", "-z", "--", entry],
+                                  capture_output=True, text=True, encoding="utf-8")
+        except OSError:
+            proc = None
+        if proc is not None and proc.returncode == 0:
+            tracked = sorted(p for p in proc.stdout.split("\0") if p)
+            if tracked:
+                return [repo / p for p in tracked]
+    source = repo / entry
+    if source.is_dir():
+        return [p for p in sorted(source.rglob("*"))
+                if p.is_file() and not COPY_SKIP & set(p.parts)]
+    return [source] if source.is_file() else []
+
+
 def plugin_copies(repo, files):
     """Every file the two plugins copy out of the one tree — {plugin path: (source, text)}.
 
@@ -281,15 +309,9 @@ def plugin_copies(repo, files):
     copies = {}
     for plugin, entries in copy_map(repo).items():
         for entry in entries:
-            source = repo / entry
-            if source.is_dir():
-                paths = [p for p in sorted(source.rglob("*"))
-                         if p.is_file() and not COPY_SKIP & set(p.parts)]
-            elif source.is_file():
-                paths = [source]
-            else:
+            if not (repo / entry).exists():
                 raise NoVerdict(f"{plugin} copies {entry}, which does not exist")
-            for path in paths:
+            for path in entry_files(repo, entry):
                 rel = path.relative_to(repo).as_posix()
                 copies[f"{plugin}/{rel}"] = (rel, files[rel][1] if rel in files
                                              else read_source(repo, rel))
@@ -535,6 +557,17 @@ def plugin_invariants(repo, files):
 
 
 def build(repo):
+    # A DIRECTORY symlink left over from before ADR 0017 (a rebase, a `git checkout <old-sha> --
+    # plugins`, a hand-restored link) cannot be written through: `mkdir(parents=True)` succeeds
+    # THROUGH it and `write_text` would land in the tree entry it points at, leaving `check`
+    # refusing forever while `build` claims to have fixed it. So the links go first — `unlink`
+    # removes the link, never its target.
+    for plugin, entries in copy_map(repo).items():
+        for entry in entries:
+            link = repo / plugin / entry
+            if link.is_symlink():
+                link.unlink()
+                print(f"removed the symlink {plugin}/{entry}")
     for rel, (source, text) in generated(repo).items():
         path = repo / rel
         if path.is_symlink():
