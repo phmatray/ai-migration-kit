@@ -60,6 +60,15 @@ with mod.skills_visible(str(proj), ["demo-skill", "kept-skill"]):
             else bad(f"the staged SKILL.md has the wrong content: {body!r}")
     except OSError as exc:
         bad(f"the staged skill is not readable: {exc!r}")
+    # The assertion this suite exists for. Every OTHER check here passes verbatim against the old
+    # `symlink_to` implementation on Linux — the relative link resolves, so the read succeeds, and
+    # `unlink` tears it down — so without this line the suite pins the CONTRACT and not the
+    # REGRESSION, and #624 could be reverted with CI green.
+    if staged.is_symlink():
+        bad("the staged skill is a symlink — that is the #624 defect: it needs a privilege Windows "
+            "does not grant by default, and the run dies with OSError [WinError 1314]")
+    else:
+        ok("the staged skill is a real copy, not a symlink (#624)")
     # 2. a pre-existing real directory is left exactly as found
     if kept.read_text(encoding="utf-8").startswith("MINE"):
         ok("a pre-existing .claude/skills entry is left exactly as found")

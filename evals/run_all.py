@@ -52,6 +52,13 @@ def skills_visible(project_root, skills):
     for skill in skills:
         source = Path(project_root) / "skills" / skill
         dest = dest_dir / skill
+        # A leftover from a crashed run is skipped, as it always was — but the consequence changed
+        # with the mechanism: a leftover SYMLINK still resolved to the live source, while a leftover
+        # COPY is frozen at the moment it was made. So a crash between staging and teardown can now
+        # leave the bench measuring a stale SKILL.md — the same class of silent mis-measurement this
+        # staging exists to prevent, one directory closer. Deleting it unasked is the worse trade
+        # (it is indistinguishable from a contributor's own .claude/skills entry, which must survive
+        # untouched), so it is named here rather than guessed at; see the PR's follow-ups.
         if not source.is_dir() or dest.exists() or dest.is_symlink():
             continue
         # COPIED, not linked (#624). A symlink needs SeCreateSymbolicLink on Windows — Developer
@@ -68,14 +75,11 @@ def skills_visible(project_root, skills):
         yield
     finally:
         for dest in made:
-            # `made` holds ONLY what this call created, which is what keeps the promise above:
-            # a real directory, or a link somebody else put there, was skipped by the `dest.exists()`
-            # guard and never reaches this loop. rmtree because a copy is a directory; a symlink
-            # left by an older run is unlinked rather than followed.
-            if dest.is_symlink():
-                dest.unlink(missing_ok=True)
-            else:
-                shutil.rmtree(dest, ignore_errors=True)
+            # `made` holds ONLY what this call created, which is what keeps the promise above: a
+            # real directory, or a link somebody else put there, was skipped by the `dest.exists()
+            # or dest.is_symlink()` guard and never reaches this loop. So everything here is a
+            # directory this call copied, and rmtree is the whole teardown.
+            shutil.rmtree(dest, ignore_errors=True)
 
 
 def broken_detector(summary, results) -> str | None:
